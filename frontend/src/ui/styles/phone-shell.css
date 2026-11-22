@@ -1,0 +1,38 @@
+/*
+ * The phone shell below 768px (A1): a header that names the place, with
+ * Search, above the tab bar's four places. Desktop and tablets are unchanged.
+ */
+.compact-controls.phone-header {
+  padding-inline: 16px 4px;
+}
+.phone-header .compact-controls-title {
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+.phone-header .workspace-controls > :last-child {
+  margin-inline-start: auto;
+}
+/* Search, then the place's own icons (Chats: New chat and ⋯). */
+.phone-header-end,
+.phone-header-slot {
+  display: flex;
+  align-items: center;
+}
+
+/* Search (D15): a page of its own, the back arrow where the magnifier was,
+   rows for a finger. */
+.dialog.palette.phone-search-dialog {
+  border: 0;
+  border-radius: 0;
+}
+.phone-search .command-palette-field {
+  gap: 4px;
+  padding-inline: 4px 16px;
+}
+.phone-search .command-palette-option {
+  min-height: 48px;
+}
+.phone-search .command-palette-label {
+  font-size: var(--text-15);
+}

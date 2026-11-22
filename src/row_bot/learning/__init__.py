@@ -26,6 +26,11 @@ Settings live in ``learning_config.json`` in the data folder::
      "starting_model": "qwen3.5-9b", "model_download": "not_asked",
      "hugging_face": {"model": "", "monthly_cap_usd": 0, "runs_confirmed": false}}
 
+**The monthly token limit** (``spending.py``) is a whole number of tokens up to
+:data:`MAX_MONTHLY_TOKEN_LIMIT` (0: no Learning model calls), or ``null`` for no limit, which only
+the person's own choice saves. A limit that is missing or can't be read is the default; a build
+before no limit existed reads ``null`` as the default too.
+
 **Training on Hugging Face** (C1, O130-O134): ``hugging_face.model`` is the model it trains there (empty: the
 strongest certified one this computer can run, ``training/catalog.py``); ``monthly_cap_usd`` the spend cap the
 person chose with the first run's quote (0: not chosen yet, so nothing runs on its own); ``runs_confirmed``
@@ -48,6 +53,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
@@ -96,7 +102,8 @@ class LearningSettings:
     workflows_and_goals: bool = True
     past_chats: bool = True
     apply_mode: str = "ask_first"
-    monthly_token_limit: int = DEFAULT_MONTHLY_TOKEN_LIMIT
+    # Tokens a month for Learning's own model calls; None: no limit (its spending still counts and shows).
+    monthly_token_limit: int | None = DEFAULT_MONTHLY_TOKEN_LIMIT
     train_in_quiet_hours: bool = True
     train_where: str = "this_computer"
     paused: bool = False
@@ -117,6 +124,35 @@ def preview_enabled() -> bool:
     """Whether this build was started with Learning's preview flag (O34)."""
 
     return _PREVIEW
+
+
+# L4b's switches, one per part, both off unless this build is started with them (and the preview flag): practice
+# changes the training mix and the tests, so whether it reaches someone's preview is decided apart from the code.
+PRACTICE_ENV = "ROW_BOT_LEARNING_PRACTICE"
+QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
+
+
+def practice_enabled() -> bool:
+    """Whether this build makes practice tasks and uses them in tests, trials and training data (L4b)."""
+
+    return _PREVIEW and os.environ.get(PRACTICE_ENV, "").strip() == "1"
+
+
+def quick_question_enabled() -> bool:
+    """Whether this build may ask the person a quick question (L4b)."""
+
+    return _PREVIEW and os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
+
+
+# L4c: whether the personal model may take over Learning's own jobs (who does a job changes the improver: a paper
+# decision, so it is decided apart from the code).
+JOBS_ENV = "ROW_BOT_LEARNING_JOBS"
+
+
+def jobs_enabled() -> bool:
+    """Whether this build lets the personal model qualify for and take over Learning's drafting and practice."""
+
+    return _PREVIEW and os.environ.get(JOBS_ENV, "").strip() == "1"
 
 
 DEFAULTS = LearningSettings()
@@ -176,8 +212,8 @@ def _normalise(document: Any) -> LearningSettings:
     starting_model = document.get("starting_model")
     model_download = document.get("model_download")
     serve_runtime = document.get("serve_runtime")
-    limit = document.get("monthly_token_limit")
-    if type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT:
+    limit = document.get("monthly_token_limit", DEFAULT_MONTHLY_TOKEN_LIMIT)
+    if limit is not None and (type(limit) is not int or not 0 <= limit <= MAX_MONTHLY_TOKEN_LIMIT):
         limit = DEFAULT_MONTHLY_TOKEN_LIMIT
     paused = document.get("paused", False)
     hugging = document.get("hugging_face")
@@ -200,7 +236,8 @@ def _normalise(document: Any) -> LearningSettings:
         train_where=train_where if train_where in TRAIN_PLACES else DEFAULTS.train_where,
         # A pause that can't be read keeps Learning paused (nothing is recorded).
         paused=paused if type(paused) is bool else True,
-        starting_model=starting_model if starting_model in STARTING_MODELS else DEFAULTS.starting_model,
+        starting_model=starting_model if starting_model in STARTING_MODELS or _checked_model(starting_model)
+        else DEFAULTS.starting_model,
         model_download=model_download if model_download in MODEL_DOWNLOADS else DEFAULTS.model_download,
         serve_runtime=serve_runtime if serve_runtime in SERVE_RUNTIMES else DEFAULTS.serve_runtime,
         hf_model=hf_model,
@@ -208,6 +245,14 @@ def _normalise(document: Any) -> LearningSettings:
         hf_monthly_cap_usd=cap,
         hf_runs_confirmed=hugging.get("runs_confirmed") is True,
     )
+
+
+def _checked_model(value: Any) -> bool:
+    """A model the person checked on this computer (C1 Part 4): ``hf:<owner>/<name>`` (the lookup decides
+    whether it can train; nothing is imported here)."""
+
+    return isinstance(value, str) and re.fullmatch(
+        r"hf:[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}", value) is not None
 
 
 def read_settings(root: Path | None = None) -> LearningSettings:
@@ -532,11 +577,14 @@ __all__ = [
     "DEFAULTS",
     "DEFAULT_MONTHLY_TOKEN_LIMIT",
     "FOLDER",
+    "JOBS_ENV",
     "LearningSettings",
     "MAX_MONTHLY_TOKEN_LIMIT",
     "MODELS_FOLDER",
     "MODEL_DOWNLOADS",
+    "PRACTICE_ENV",
     "PREVIEW_ENV",
+    "QUICK_QUESTION_ENV",
     "SERVE_RUNTIMES",
     "SETTINGS_FILE",
     "STARTING_MODELS",
@@ -548,10 +596,13 @@ __all__ = [
     "folder_path",
     "invalidate",
     "is_enabled",
+    "jobs_enabled",
     "note_channel_sender",
     "note_retry",
     "offered_personal_models",
+    "practice_enabled",
     "preview_enabled",
+    "quick_question_enabled",
     "read_settings",
     "route_turn",
     "settings_path",

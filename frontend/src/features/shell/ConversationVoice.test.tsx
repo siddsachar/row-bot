@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import ConversationVoice from './ConversationVoice';
+import { startVoiceOnOpen } from './new-chat';
 import type { ClientController } from '../../api/controller';
 import type { TalkControlsProps } from './TalkControls';
 import type { RealtimeTalkControlsProps } from './RealtimeTalkControls';
@@ -37,7 +38,7 @@ const handle = {
   voice_session_id: 1,
   lease_id: '11111111-1111-4111-8111-111111111111',
 };
-function setup() {
+function setup({ open = true }: { open?: boolean } = {}) {
   const controller = {
     startTalk: vi.fn().mockResolvedValue({ handle, run_id: null }),
     startRealtime: vi
@@ -76,7 +77,7 @@ function setup() {
     onBusy: vi.fn(),
   };
   const view = render(<ConversationVoice {...props} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+  if (open) fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
   return { controller, props, view };
 }
 afterEach(() => {
@@ -223,6 +224,42 @@ it('a one-tap Talk opens straight into ordinary Talk, even after realtime was ch
   fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
   fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
 
+  expect(screen.getByText('Local voice controls')).toBeVisible();
+  expect(talk.startOnMount).toBe(true);
+});
+
+it('a chat opened from Home’s Talk starts ordinary Talk once, as soon as it can (D3)', () => {
+  startVoiceOnOpen(scope.conversationId, 'talk');
+  const { view } = setup({ open: false });
+  // Opened, already talking; the chat's own Talk then works as ever.
+  expect(screen.getByText('Local voice controls')).toBeVisible();
+  expect(talk.startOnMount).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+  expect(screen.queryByText('Local voice controls')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
+  expect(talk.startOnMount).toBeUndefined();
+  view.unmount();
+
+  // Once only, and never in another chat.
+  setup({ open: false });
+  expect(screen.queryByText('Local voice controls')).toBeNull();
+  cleanup();
+  startVoiceOnOpen('another-conversation', 'talk');
+  setup({ open: false });
+  expect(screen.queryByText('Local voice controls')).toBeNull();
+});
+
+it('a chat opened from Home’s Talk waits until Talk is available and the chat has its model', () => {
+  const { props } = setup({ open: false });
+  cleanup();
+  startVoiceOnOpen(scope.conversationId, 'talk');
+  const view = render(
+    <ConversationVoice {...props} available={false} context={null} />,
+  );
+  expect(screen.queryByText('Local voice controls')).toBeNull();
+  view.rerender(<ConversationVoice {...props} context={null} />);
+  expect(screen.queryByText('Local voice controls')).toBeNull();
+  view.rerender(<ConversationVoice {...props} />);
   expect(screen.getByText('Local voice controls')).toBeVisible();
   expect(talk.startOnMount).toBe(true);
 });

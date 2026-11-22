@@ -64,11 +64,13 @@ async function openPicker(page: Page): Promise<Locator> {
   const pill = page.getByRole('button', { name: 'Model', exact: true });
   const plus = page.getByRole('button', { name: 'Add files and more' });
   await expect(pill.or(plus).first()).toBeVisible();
+  // A phone opens it from the model under the chat's title (B1, B2).
   if (await pill.isVisible()) await pill.click();
-  else {
-    await plus.click();
-    await page.getByRole('menuitem', { name: /^Model/ }).click();
-  }
+  else
+    await page
+      .locator('header.conversation-heading')
+      .getByRole('button', { name: /^(Model: |Choose a model$)/ })
+      .click();
   const list = page.getByRole('listbox', { name: 'Models' });
   await expect(list).toBeVisible();
   return list;

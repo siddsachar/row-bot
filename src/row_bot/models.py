@@ -1082,9 +1082,18 @@ def get_context_policy(model_name: str | None = None, *, allow_probe: bool = Tru
         observed_limit = _observed_local_context.get(_ollama_runtime_model_name(name,
             **({"allow_probe":False} if not allow_probe else {})))
 
+    # A custom endpoint whose server says nothing of the model's window, with no Native limit set,
+    # gets its profile's stated fallback (32,768), as the docs promise; a setting can only trim it.
+    unknown_fallback = None
+    if custom_endpoint_policy and native_max is None:
+        from row_bot.providers.custom import DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK
+
+        unknown_fallback = _coerce_context_size(
+            endpoint.get("unknown_context_fallback"), DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK
+        ) or DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK
     candidates = [
         int(value)
-        for value in (requested_limit, native_max, observed_limit)
+        for value in (requested_limit, native_max, observed_limit, unknown_fallback)
         if value is not None and int(value) > 0
     ]
     if remote_policy and not custom_endpoint_policy and requested_limit is None and native_max is None:
@@ -1097,7 +1106,10 @@ def get_context_policy(model_name: str | None = None, *, allow_probe: bool = Tru
     else:
         effective_limit = min(candidates) if candidates else None
 
-    if requested_limit is not None and (
+    if unknown_fallback and effective_limit == unknown_fallback and requested_limit != unknown_fallback:
+        # Row-Bot's assumption, not the server's: readiness says so, and a request over it isn't refused.
+        capacity_source = "profile_default"
+    elif requested_limit is not None and (
         explicit_endpoint_override > 0 or (remote_policy and _cloud_context_override is not None)
     ):
         capacity_source = "advanced_override"
@@ -1310,6 +1322,16 @@ def local_model_settings(model_name: str | None) -> dict:
     if not model_name:
         return {}
     return dict(_local_model_settings.get(_ollama_tag(model_name)) or {})
+
+
+def local_model_never_thinks(model_name: str | None) -> bool:
+    """Whether a local model is served with thinking off whatever a chat chooses: one of Learning's personal
+    models (its reserved name), or a model saved as non-thinking (O24: a personal model or an evaluation arm's).
+    They are served as they were trained (Learning's L4 constraint)."""
+    from row_bot.providers.model_visibility import withheld
+
+    return bool(model_name) and (withheld("ollama", model_name) or
+                                 local_model_settings(model_name).get("reasoning") == "off")
 
 
 def set_local_model_settings(model_name: str, *, context: int | None = None, reasoning: str | None = None) -> None:
@@ -1551,6 +1573,31 @@ def is_cloud_model(model_name: str) -> bool:
     key outages.
     """
     return _infer_cloud_provider(model_name) is not None
+
+
+# Learning's personal models (its own server, ``managed: "learning"``, and the endpoints it registers on
+# LM Studio, llama.cpp or vLLM, ``row-bot-personal-<runtime>``) are trained in the prompt shape they are
+# served in (``learning/training/shape.py``), so they keep the tiers they have always had (Learning's L2
+# constraint, until the tier rule and the shape change together).
+
+
+def is_local_custom_endpoint(model_name: str) -> bool:
+    """Whether *model_name* is a custom endpoint saved as running on this computer.
+
+    Run on this computer (``managed: "local"``), a found server and one added by hand with
+    ``execution_location: "local"`` count; Learning's personal-model endpoints do not. It decides the
+    prompt tiers only: ``is_cloud_model`` still says the model is reached over the OpenAI-compatible
+    transport, and the context setting still treats the endpoint as a provider (its window is the
+    server's).
+    """
+    resolved = _resolved_context_identity(model_name) if model_name else None
+    if resolved is None or not resolved.provider_id.startswith("custom_openai_"):
+        return False
+    if resolved.execution_location != "local":
+        return False
+    from row_bot.providers.model_visibility import is_personal_model_endpoint
+
+    return not is_personal_model_endpoint(resolved.endpoint)
 
 
 def get_cloud_provider(model_name: str) -> str | None:

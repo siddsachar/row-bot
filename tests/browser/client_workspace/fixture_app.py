@@ -2907,6 +2907,19 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # D1 Always allow: `npm test` through the real approval gate, which asks or finds the person's rule.
         yield from _d1_rule_stream(config)
         return
+    if text.strip() in _C2_ANSWERS:
+        # Workflows on the phone (C2): a seeded workflow's run answers at once.
+        call = predecessor._record("submit", config, "c2")
+        try:
+            yield "thinking", None
+            yield from _natural_final(call, call["conversation_id"], _C2_ANSWERS[text.strip()], "c2")
+        finally:
+            call["quiesced"] = True
+        return
+    if text.strip() in _C1_PROMPTS:
+        # Home on the phone (C1): a commit waiting for approval, or a turn that keeps working.
+        yield from _c1_stream(text.strip(), config, stop_event)
+        return
     if text.strip() in _N11_REPLIES:
         # Incognito chats (N11): a plain reply, or the real save_memory card in an incognito chat.
         yield from _n11_stream(text, config)
@@ -3688,6 +3701,239 @@ def named_conversation(title: str, x_fixture_token: str = Header(default="")) ->
     if not re.fullmatch(r"[A-Za-z0-9 -]{1,60}", title):
         raise HTTPException(status_code=422, detail="Invalid synthetic title")
     return {"conversation_id": threads.create_thread(title, name_source="manual", seed_default_skills=False)}
+
+
+_A2_SEEDED: dict = {}
+
+
+@app.post("/__a2_fixture/seed")
+def a2_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """The phone's Chats tab (A2), once per backend: Library › Media's chat, a pinned chat, and chats with the
+    fixture's deck, its code folder and (newest) a page, for Chats › Files."""
+    predecessor._authorize(x_fixture_token)
+    if _A2_SEEDED:
+        return _A2_SEEDED
+    from row_bot import pages, threads
+    from row_bot.conversation_resources import bind, list_bindings
+
+    media_seed(x_fixture_token)
+    pinned = "a2-pinned-chat"
+    threads._save_thread_meta(pinned, "Book club questions", allow_recreate=True)
+    threads.pin_thread(pinned)
+    state = json.loads((predecessor.DATA / "docs_real_ui_demo_state.json").read_text(encoding="utf-8"))
+    for thread, title, kind, resource in (
+        ("a2-design-chat", "Community workshop deck", "artifact", state["designer"]["project_id"]),
+        ("a2-code-chat", "Release notes cleanup", "workspace", state["developer"]["workspace_id"]),
+    ):
+        threads._save_thread_meta(thread, title, allow_recreate=True)
+        bind(thread, kind, resource, expected_revision=list_bindings(thread).revision, role="primary")
+    chat = "a2-page-chat"
+    threads._save_thread_meta(chat, "Beta launch notes", allow_recreate=True)
+    pages.create(chat, "Beta launch plan", "<h1>Beta launch plan</h1><p>Three steps to approve.</p>")
+    _A2_SEEDED.update(pinned=pinned, page_chat=chat, design_chat="a2-design-chat")
+    return _A2_SEEDED
+
+
+_B1_SEEDED: dict = {}
+
+
+@app.post("/__b1_fixture/seed")
+def b1_seed(x_fixture_token: str = Header(default="")) -> dict:
+    """The phone's conversation header (B1), once per backend: a chat of three exchanges, so the newest answer
+    keeps its icons and the older ones open theirs with a long-press."""
+    predecessor._authorize(x_fixture_token)
+    if _B1_SEEDED:
+        return _B1_SEEDED
+    from row_bot import threads
+
+    chat = "b1-workshop-chat"
+    threads._save_thread_meta(chat, "Workshop planning", allow_recreate=True)
+    exchanges = (
+        ("Make a two-slide deck for the community workshop.", "The deck is ready: a title slide and an agenda."),
+        ("Add the date and the hall's address.", "Done. Slide 1 now says Community Hall, Thursday 18:30."),
+        ("Suggest a short welcome line.", "Welcome, neighbours: tonight we plan the summer fair together."),
+    )
+    for index, (asked, answered) in enumerate(exchanges):
+        threads.append_checkpoint_messages(chat, [
+            HumanMessage(id=fixture_id(f"b1:{index}:asked"), content=asked),
+            AIMessage(id=fixture_id(f"b1:{index}:answered"), content=answered),
+        ])
+    _B1_SEEDED.update(chat=chat)
+    return _B1_SEEDED
+
+
+_PHONE_B4_MEMORIES = (
+    ("project", "Community workshop", "Thursday 18:30 at Community Hall."),
+    ("fact", "Launch checklist", "Approve before writing."),
+    ("organisation", "Neighbourhood Makers Club", "Hosts the workshop."),
+    ("project", "Book Club", "Meets on Mondays."),
+    ("preference", "Prefers short answers", "Keep replies to a few lines."),
+    ("person", "Sam Rivera", "Runs the Book Club."),
+)
+
+
+@app.post("/__phone_b4_fixture/memories/{state}")
+def phone_b4_memories(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Memory on the phone (B4): six memories of five types, saved afresh ("seeded"), or removed ("removed").
+    Saved without indexing; every id starts "phone-b4-", so no other memory is touched."""
+    predecessor._authorize(x_fixture_token)
+    if state not in {"seeded", "removed"}:
+        raise HTTPException(status_code=422, detail="Unknown phone memory state")
+    from row_bot import knowledge_graph as kg
+
+    kg._skip_reindex = True
+    for index in range(len(_PHONE_B4_MEMORIES)):
+        kg.delete_entity(f"phone-b4-{index}")
+    if state == "seeded":
+        for index, (kind, subject, description) in enumerate(_PHONE_B4_MEMORIES):
+            kg.save_entity(kind, subject, description, source="manual", entity_id=f"phone-b4-{index}")
+    return {"state": state, "memories": len(_PHONE_B4_MEMORIES) if state == "seeded" else 0}
+
+
+_C1_PROMPTS = frozenset({"c1 commit fixture", "c1 working fixture"})
+# A "c1 working fixture" turn keeps working until its conversation is released here (or stopped).
+_C1_WORKING: dict[str, threading.Event] = {}
+
+
+def _c1_stream(text: str, config: dict, stop_event=None):
+    """Home on the phone (C1): a real approval for a commit (answered through the generic resume), or a turn
+    that keeps its conversation working, so Home's Now lists it."""
+    from row_bot.threads import append_checkpoint_messages
+
+    call = predecessor._record("submit", config, "c1")
+    thread = call["conversation_id"]
+    identity = f"c1:{call['generation_id']}"
+    try:
+        yield "thinking", None
+        if text == "c1 commit fixture":
+            tool_id = fixture_id(identity + ":tool")
+            args = {"message": "Tidy the release notes"}
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "developer_commit_changes", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "developer_commit_changes", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "developer_commit_changes", "label": "Commit changes",
+                                 "description": "Commit 3 changed files: Tidy the release notes", "args": args}]
+            return
+        release = _C1_WORKING.setdefault(thread, threading.Event())
+        yield "token", "Working through the launch checklist."
+        deadline = time.monotonic() + 180
+        while not release.wait(0.2):
+            if (stop_event is not None and stop_event.is_set()) or time.monotonic() > deadline:
+                return
+        _C1_WORKING.pop(thread, None)
+        yield from _natural_final(call, thread, "The launch checklist is done.", "c1")
+    finally:
+        call["quiesced"] = True
+
+
+@app.post("/__phone_c1_fixture/release")
+def phone_c1_release(x_fixture_token: str = Header(default="")) -> dict:
+    """Home on the phone (C1): every "c1 working fixture" turn finishes."""
+    predecessor._authorize(x_fixture_token)
+    released = list(_C1_WORKING.values())
+    for event in released:
+        event.set()
+    return {"released": len(released)}
+
+
+# Workflows on the phone (C2): five workflows, one running, one failed, one off, with runs and their answers.
+_C2_PREFIX = "phone-c2-"
+_C2_BRIEF = "Summarise today's calendar, mail and news in three lines."
+_C2_DIGEST = "Find this week's papers on agent memory and summarise the three best."
+_C2_EXPENSES = "Sort this month's receipts into the expenses sheet."
+# What a run of each answers (Run now and Run again run them for real).
+_C2_ANSWERS = {
+    _C2_BRIEF: "3 items for today: the dentist at 3, a reply from Sam, rain later.",
+    _C2_DIGEST: "Three papers on agent memory, summarised.",
+    _C2_EXPENSES: "Sorted 14 receipts into the expenses sheet.",
+}
+
+
+def _phone_c2_clear() -> None:
+    from row_bot import tasks
+
+    for task in tasks.list_tasks():
+        if str(task["id"]).startswith(_C2_PREFIX):
+            tasks.delete_task(task["id"])
+    conn = tasks._get_conn()
+    try:
+        conn.execute("DELETE FROM task_runs WHERE id LIKE ? OR task_id LIKE ?", (_C2_PREFIX + "%",) * 2)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.post("/__phone_c2_fixture/workflows")
+def phone_c2_workflows(x_fixture_token: str = Header(default="")) -> dict:
+    """Seed the phone's Workflows tab (C2). Schedules fall due about a day from now, so none runs here."""
+    from datetime import datetime, timedelta
+
+    predecessor._authorize(x_fixture_token)
+    from row_bot import tasks
+
+    _phone_c2_clear()
+    now = datetime.now()
+    soon = now - timedelta(hours=1)  # Daily at an hour ago: next due in about 23 hours.
+    day = (now - timedelta(days=1)).strftime("%a").lower()  # Weekly on yesterday's day: next due in six days.
+    hour, minute = soon.hour, soon.minute
+    workflows = [
+        ("brief", "Morning Brief", f"daily:{hour:02d}:{minute:02d}", True, "📰", _C2_BRIEF),
+        ("launch", "Launch Summary", None, True, "🚀",
+         "Collect the launch checklist's status.", "Post the summary in the launch chat.",
+         "Draft tomorrow's to-do list."),
+        ("digest", "Research Digest", f"weekly:{day}:{hour:02d}:{minute:02d}", True, "🔬", _C2_DIGEST),
+        ("tidy", "Weekly Tidy-up", f"weekly:{day}:10:00", False, "🧹",
+         "Archive finished chats and list files I haven't opened in a month."),
+        ("expenses", "Expense Sorter", None, True, "🧾", _C2_EXPENSES),
+    ]
+    # A fresh id each time: a removed workflow's conversation is still being deleted.
+    seed = os.urandom(4).hex()
+    ids = {}
+    for key, name, schedule, enabled, icon, *prompts in workflows:
+        ids[key] = tasks.create_task(
+            name, prompts=list(prompts), icon=icon, schedule=schedule, enabled=enabled,
+            safety_mode="approve", apply_default_skills=False, task_id=f"{_C2_PREFIX}{key}-{seed}",
+        )
+    runs = {  # Newest first, each with the answer its row shows.
+        "brief": [("completed", timedelta(hours=1), "3 items for today: the dentist at 3, a reply from Sam, rain later."),
+                  ("completed", timedelta(days=1, hours=1), "Quiet day, nothing new."),
+                  ("expired", timedelta(days=3, hours=1), "Waited for your approval; a newer run replaced it.")],
+        "launch": [("running", timedelta(minutes=2), "")],
+        "digest": [("failed", timedelta(hours=2), "Couldn't reach the papers site. It will try again on Friday."),
+                   ("completed", timedelta(days=7, hours=2), "Three papers on agent memory, summarised.")],
+        "tidy": [("completed", timedelta(days=8), "Archived 12 chats; 4 files to look at.")],
+    }
+    # Every run is a turn of the workflow's one conversation (F31), made before the runs are written.
+    threads = {key: tasks._prepare_task_thread(tasks.get_task(ids[key])) for key in runs}
+    conn = tasks._get_conn()
+    try:
+        for key, entries in runs.items():
+            thread_id = threads[key]
+            for index, (status, ago, notice) in enumerate(entries):
+                started = now - ago
+                live = status == "running"
+                total = 3 if key == "launch" else 1
+                conn.execute(
+                    "INSERT INTO task_runs (id,task_id,thread_id,started_at,finished_at,status,status_message,"
+                    "steps_total,steps_done,task_name,task_icon,notice) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (f"{_C2_PREFIX}{key}-{seed}-{index}", ids[key], thread_id, started.isoformat(),
+                     None if live else (started + timedelta(minutes=2)).isoformat(), status, "", total,
+                     1 if live else total, key, "", notice),
+                )
+            conn.execute("UPDATE tasks SET last_run=? WHERE id=?", ((now - entries[0][1]).isoformat(), ids[key]))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"task_ids": ids}
+
+
+@app.post("/__phone_c2_fixture/reset")
+def phone_c2_reset(x_fixture_token: str = Header(default="")) -> dict:
+    """Remove the C2 workflows and their runs, so later specs find no running or failed workflow of ours."""
+    predecessor._authorize(x_fixture_token)
+    _phone_c2_clear()
+    return {"ok": True}
 
 
 @app.post("/__p3_fixture/large-library")
@@ -4994,7 +5240,7 @@ def _e1_install_fakes() -> None:
             {**server, "provider_id": endpoint["provider_id"] if endpoint else None}
             for server in _e1_state["found"]]}
 
-    def connect(kind: str, port: int) -> dict:
+    def connect(kind: str, port: int, model: str | None = None) -> dict:
         from row_bot.application.client_platform import ClientPlatformError
         from row_bot.providers import custom
 
@@ -6684,6 +6930,122 @@ def l4a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     return {"action": action}
 
 
+def _l4b_night() -> None:
+    import json as _json
+    from datetime import date
+
+    from row_bot.learning import changes, diagnosis, practice
+    from row_bot.learning.store import LearningStore
+
+    store = LearningStore()
+    night = date.today().isoformat()
+    diagnosis._save(store, diagnosis.NightReport(night, found=2, drafted=1, needs_examples=1))
+    store.set_meta_values({changes.NIGHT_KEY: _json.dumps(changes.NightTests(night, tested=1, ready=1).to_dict())})
+    practice._note(store, {"night": night, "state": "done", "issues": 2, "asked": 12, "made": 12, "ran": 12,
+                           "passed": 9, "by_kind": {"document_lookups": [12, 9]}, "unreadable": 0, "unverifiable": 0,
+                           "repeats": 0, "not_novel": 0, "coding_left_out": 0, "needs_container": 1, "tokens": 0})
+
+
+def _l4b_question() -> None:
+    import json as _json
+    import time as _time
+
+    from row_bot.learning import question
+    from row_bot.learning.store import LearningStore
+
+    LearningStore().set_meta_values({question.OPEN_KEY: _json.dumps({
+        "id": "qq_l4b", "issue": "document_lookups:corrected", "kind": "document_lookups",
+        "question": "When two files share a name, which should I open?", "answers": ["The newest", "Ask me"],
+        "asked_at": _time.time()})})
+
+
+def _l4b_restore() -> None:
+    import os as _os
+
+    from row_bot import learning
+    from row_bot.learning import practice, question
+    from row_bot.learning.store import LearningStore
+
+    _os.environ.pop(learning.PRACTICE_ENV, None)
+    _os.environ.pop(learning.QUICK_QUESTION_ENV, None)
+    store = LearningStore()
+    if store.exists():
+        store.set_meta_values({practice.NIGHT_KEY: "", question.OPEN_KEY: "", question.ANSWERS_KEY: "",
+                               question.DONE_KEY: ""})
+
+
+@app.post("/__l4b_fixture/learning/{action}")
+def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L4b spec: a build with practice and the quick question on, a night that practised,
+    and a quick question waiting. Nothing reaches a model: the night and the question are written directly."""
+    import os as _os
+
+    from row_bot import learning
+
+    predecessor._authorize(x_fixture_token)
+    if action == "on":
+        _os.environ[learning.PRACTICE_ENV] = "1"
+        _os.environ[learning.QUICK_QUESTION_ENV] = "1"
+    elif action == "practised":
+        _l4b_night()
+    elif action == "question":
+        _l4b_question()
+    elif action == "restore":
+        _l4b_restore()
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
+def _l4c_jobs() -> None:
+    import json as _json
+    import time as _time
+
+    from row_bot.learning.improver import jobs
+    from row_bot.learning.store import LearningStore
+
+    now = _time.time()
+    test = {"job": "drafting", "version": 3, "model_ref": "model:ollama:row-bot-personal-v3", "at": now - 6 * 3600,
+            "items": 24, "personal_passed": 22, "main_passed": 23, "asked": 24, "personal_tokens": 140_000,
+            "main_tokens": 150_000, "personal_seconds": 420.0, "verdict": "qualified"}
+    practice = {**test, "job": "practice", "asked": 40, "personal_passed": 28, "main_passed": 36,
+                "verdict": "not_matched"}
+    state = {
+        "drafting": {"by": "personal", "version": 3, "model_ref": test["model_ref"], "since": now - 6 * 3600,
+                     "reason": "", "last": test, "history": [{"at": now - 6 * 3600, "event": "took_over"}],
+                     "usage": {"month": jobs.month_key(now), "tokens": 120_000, "seconds": 360.0}},
+        "practice": {"by": "main", "since": now - 5 * 3600, "reason": "not_matched", "last": practice},
+    }
+    LearningStore().set_meta_values({jobs.STATE_KEY: _json.dumps(state)})
+
+
+@app.post("/__l4c_fixture/learning/{action}")
+def l4c_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
+    """Learning (preview) for the L4c spec: a build with the jobs switch (and practice) on, drafting done by personal
+    model v3 since its test, making practice tasks back with the main model. Nothing reaches a model."""
+    import os as _os
+
+    from row_bot import learning
+
+    predecessor._authorize(x_fixture_token)
+    if action == "jobs":
+        _os.environ[learning.JOBS_ENV] = "1"
+        _os.environ[learning.PRACTICE_ENV] = "1"
+        _l4c_jobs()
+    elif action == "restore":
+        _os.environ.pop(learning.JOBS_ENV, None)
+        _os.environ.pop(learning.PRACTICE_ENV, None)
+        from row_bot.learning.improver import jobs
+        from row_bot.learning.store import LearningStore
+
+        store = LearningStore()
+        if store.exists():
+            store.set_meta_values({jobs.STATE_KEY: ""})
+    else:
+        raise HTTPException(404, "Unknown Learning fixture action")
+    return {"action": action}
+
+
 # ── Learning (preview), L2b: the personal model's download, its states set by the spec ──
 
 _GB = 1_000_000_000
@@ -6864,7 +7226,8 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
         return {"action": action}
     if action == "run":
         # name: first (planned, never confirmed), planned, over-cap, uploading, setting-up, training, exporting,
-        # downloading, lost, no-credit, done (the version made ready and the uploads deleted)
+        # downloading, lost, no-credit, done (the version made ready and the uploads deleted), kept (trained and
+        # paid for, then stopped before its outputs were downloaded: the uploads go, the model stays)
         jobs = runner.supervisor.jobs
         recipe = recipes.load("hf-27b")
         steps = recipe.steps_for(412)
@@ -6912,12 +7275,15 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
             remote.stage = "ERROR"
             hub.say(remote.id, "error", reason="no_credit", stage="setting_up")
             trainer.tick()
-        if name in ("downloading", "done"):
+        if name in ("downloading", "done", "kept"):
             hub.finish(remote.id, output_repo=record.output_repo, running_seconds=6_120)
-            if name == "downloading":
+            if name in ("downloading", "kept"):
                 remote_training.write_record(remote_training.RunRecord(**{
                     **record.to_dict(), "outputs": tuple(record.outputs), "phase": "downloading",
-                    "stage": "done", "running_seconds": 6_120, "cost_usd": remote_training.cost(6_120, 1.8)}))
+                    "stage": "done", "running_seconds": 6_120, "cost_usd": remote_training.cost(6_120, 1.8),
+                    **({"outcome": "completed"} if name == "kept" else {})}))
+                if name == "kept":
+                    trainer.cancel(job.id)  # the person's Stop, before the download
             else:
                 trainer.tick()  # downloaded, evaluating
                 current = remote_training.read_record(job.id)
@@ -6926,6 +7292,98 @@ def c1_learning(action: str, name: str = "", x_fixture_token: str = Header(defau
                     **current.to_dict(), "outputs": tuple(current.outputs)}))
                 trainer.tick()  # settled: the uploads go
         return {"action": action, "job_id": job.id}
+    raise HTTPException(404, "Unknown Learning fixture action")
+
+
+# ── Learning (preview), C1 Part 4: any open model, found on Hugging Face and checked here ──
+
+_c1m: dict[str, object] = {}
+
+
+@app.post("/__c1m_fixture/learning/{action}")
+def c1m_learning(action: str, name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """Any open model for the C1 Part 4 spec: Hugging Face's public pages from memory (a search's results and each
+    model's card and files), and the check on this computer played step by step by fake steps. Nothing reaches
+    huggingface.co, a GPU or a download."""
+    predecessor._authorize(x_fixture_token)
+    import shutil as _shutil
+
+    from row_bot.learning.training import open_models
+    from tests.fixtures.open_models import FakeHubPages, FakeSteps, card
+
+    if action == "restore":
+        for owner, attribute, original in reversed(_c1m.pop("patched", [])):
+            setattr(owner, attribute, original)
+        open_models.reset_checker(None)
+        _shutil.rmtree(open_models.folder(), ignore_errors=True)
+        _c1m.clear()
+        return {"action": action}
+    if action == "models":
+        llama = {"config": {"architectures": ["LlamaForCausalLM"]}, "cardData": {"license": "llama3.1"},
+                 "tags": ["llama", "license:llama3.1"]}
+        found = [
+            card(),
+            card("unsloth/Llama-3.1-8B-Instruct", safetensors={"total": 8_030_261_248}, downloads=2_400_000,
+                 **llama),
+            card("meta-llama/Llama-3.1-8B-Instruct", gated="manual", safetensors={"total": 8_030_261_248},
+                 downloads=9_800_000, **llama),
+            card("unsloth/Llama-3.3-70B-Instruct", safetensors={"total": 70_553_706_496}, downloads=310_000,
+                 **{**llama, "cardData": {"license": "llama3.3"}}),
+            card("Qwen/Qwen3-30B-A3B", config={"architectures": ["Qwen3MoeForCausalLM"]},
+                 safetensors={"total": 30_532_122_624}, downloads=1_900_000),
+            card("microsoft/Phi-4-mini-instruct", config={"architectures": ["Phi3ForCausalLM"]},
+                 cardData={"license": "mit"}, safetensors={"total": 3_836_021_760}, downloads=870_000),
+        ]
+        pages = FakeHubPages({"/api/models?": found})
+        for item in found:
+            pages.add(item)
+        steps = FakeSteps(open_models.folder())
+        patched = [(open_models, "safe_reader", open_models.safe_reader),
+                   (open_models.search, "__kwdefaults__", open_models.search.__kwdefaults__),
+                   (open_models.inspect, "__kwdefaults__", open_models.inspect.__kwdefaults__)]
+        _c1m.setdefault("patched", patched)
+        open_models.safe_reader = pages
+        open_models.search.__kwdefaults__ = {"reader": pages}
+        open_models.inspect.__kwdefaults__ = {"reader": pages}
+        open_models.reset_checker(open_models.Checker(steps=steps, start_threads=False))
+        _c1m.update(steps=steps)
+        return {"action": action}
+    steps = _c1m.get("steps")
+    checker = open_models.checker()
+    if steps is None:
+        raise HTTPException(409, "Set up the fake Hugging Face pages first")
+    if action == "check":
+        # name: downloading (45% of its files), checking (it fits; the training steps running), or the check run
+        # to its end: passed, failed (its tool sample), too-big (it fits only on Hugging Face's cards), or stopped
+        # (after Stop: the check ends at its next step)
+        repo = checker.running or next((record.repo for record in open_models.records()), None)
+        record = open_models.read(repo) if repo else None
+        if record is None:
+            raise HTTPException(409, "Start a check first")
+        if name == "downloading":
+            open_models.write(replace(record, downloaded_bytes=int(record.download_bytes * 0.45)))
+        elif name == "checking":
+            items = dict(record.items)
+            items["fits"] = open_models.CheckItem("passed", "Trains on this card: peak 21.2 GB of the 25.5 GB it "
+                                                  "may use.")
+            items["steps"] = open_models.CheckItem("running")
+            open_models.write(replace(record, state="checking", stage="steps", items=items,
+                                      downloaded_bytes=record.download_bytes))
+        elif name in ("passed", "failed", "too-big", "stopped"):
+            steps.tools = (True, False, False) if name == "failed" else (True, True, False)
+            steps.fits = name != "too-big"
+            checker.run(record.repo)
+            ended = open_models.read(record.repo)
+            if ended is not None and ended.item("export").state == "passed":  # a real export's size, not the fake's
+                items = dict(ended.items)
+                items["export"] = open_models.CheckItem("passed", "Converted to a 9.0 GB file at Q4_K_M.")
+                open_models.write(replace(ended, items=items))
+        else:
+            raise HTTPException(404, "Unknown check state")
+        from row_bot import learning
+
+        learning.changed()  # the open Learning screens read it again, as the check's own steps make them
+        return {"action": action, "model": record.id}
     raise HTTPException(404, "Unknown Learning fixture action")
 
 

@@ -320,7 +320,9 @@ export async function openConversation(
 
 export async function newConversation(page: Page): Promise<string> {
   await retireDocument(page);
-  await page.goto('/app-v2/');
+  // A phone has no drawer (D1): it opens the installed app's New chat link.
+  const phone = page.viewportSize()!.width < 768;
+  await page.goto(phone ? '/app-v2/?new=chat' : '/app-v2/');
   // Home no longer shows a connected label (parity slice 1); the shell's
   // announced connection status is the stable readiness signal.
   await expect(page.locator('.connection-status.connected')).toHaveText(
@@ -330,12 +332,12 @@ export async function newConversation(page: Page): Promise<string> {
     name: 'New chat',
     exact: true,
   });
-  if (!(await newChat.isVisible())) {
+  if (!phone && !(await newChat.isVisible())) {
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   }
-  await newChat.click();
+  if (!phone) await newChat.click();
   await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
   await expect(
     page.getByLabel('Opening conversation', { exact: true }),
@@ -703,7 +705,9 @@ export async function captureActualResourcePanels(
 
 /**
  * Add resource: the Context card's button where Context is on screen, else
- * the composer's + menu (tablets and phones show Context as a sheet).
+ * the composer's + menu (tablets and phones show Context as a sheet). A
+ * phone's is in + › Chat settings › Work in a folder or design (B2): the row
+ * itself, or "Add a folder or design…" under it once one is bound.
  */
 export async function openAddResource(page: Page): Promise<void> {
   const inline = page.getByRole('button', {
@@ -717,13 +721,39 @@ export async function openAddResource(page: Page): Promise<void> {
   await page
     .getByRole('button', { name: 'Add files and more', exact: true })
     .click();
+  const plusItem = page.getByRole('menuitem', {
+    name: 'Add resource…',
+    exact: true,
+  });
+  const chatSettings = page.getByRole('menuitem', { name: /^Chat settings/ });
+  await expect(plusItem.or(chatSettings)).toBeVisible();
+  if (await plusItem.isVisible()) {
+    await plusItem.click();
+    return;
+  }
+  await chatSettings.click();
   await page
-    .getByRole('menuitem', { name: 'Add resource…', exact: true })
+    .getByRole('menuitem', { name: /^Work in a folder or design/ })
     .click();
+  const add = page.getByRole('menuitem', {
+    name: 'Add a folder or design…',
+    exact: true,
+  });
+  const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
+  await expect(add.or(setup)).toBeVisible();
+  if (await add.isVisible()) await add.click();
 }
 
-/** New chat from the sidebar, opening the drawer below the desktop width. */
+/**
+ * New chat from the sidebar, opening the drawer on a tablet. A phone has no
+ * drawer (D1): it opens the installed app's New chat link.
+ */
 export async function clickNewChat(page: Page): Promise<void> {
+  if (page.viewportSize()!.width < 768) {
+    await page.goto('/app-v2/?new=chat');
+    await expect(page).toHaveURL(/\/app-v2\/conversations\/[^/?]+/);
+    return;
+  }
   // The collapsed rail and the full sidebar each have one; use the shown one.
   const newChat = page
     .getByRole('button', { name: 'New chat', exact: true })
@@ -837,6 +867,46 @@ export async function leavePanels(page: Page): Promise<void> {
   });
   if (await close.isVisible()) await close.click();
   else if (await back.isVisible()) await back.click();
+}
+
+/** ⌘K's dialog and its field: Workspace commands, or a phone's Search (D15). */
+export function commandsDialog(page: Page): {
+  dialog: Locator;
+  field: Locator;
+} {
+  const phone = page.viewportSize()!.width < 768;
+  const dialog = page.getByRole('dialog', {
+    name: phone ? 'Search' : 'Workspace commands',
+    exact: true,
+  });
+  const field = dialog.getByRole('searchbox', {
+    name: phone
+      ? 'Search chats, files and settings'
+      : 'Find a workspace command',
+    exact: true,
+  });
+  return { dialog, field };
+}
+
+/** Opens ⌘K from the conversation header; returns the control focus goes back to. */
+export async function openCommands(
+  page: Page,
+): Promise<{ dialog: Locator; field: Locator; opener: Locator }> {
+  const phone = page.viewportSize()!.width < 768;
+  const search = page.getByRole('button', { name: 'Search', exact: true });
+  if (phone && !(await search.isVisible())) {
+    // A phone chat has no Search entry (D15: Search lives in the tabs); the
+    // shortcut opens the same phone Search from the composer.
+    const opener = composer(page);
+    await opener.focus();
+    await page.keyboard.press('ControlOrMeta+k');
+    return { ...commandsDialog(page), opener };
+  }
+  const opener = await headerAction(
+    page,
+    phone ? 'Search' : 'Workspace commands',
+  );
+  return { ...commandsDialog(page), opener };
 }
 
 /**

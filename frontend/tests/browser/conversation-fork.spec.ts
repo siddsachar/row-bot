@@ -33,14 +33,40 @@ async function everywhere(
   page: Page,
   info: TestInfo,
   name: string,
-  reach: () => Promise<void>,
+  reach: (phone: boolean) => Promise<void>,
 ) {
   for (const phone of [false, true]) {
     await page.setViewportSize(phone ? PHONE : DESKTOP);
-    await reach();
+    await reach(phone);
     await views(page, info, phone ? `${name}-phone` : `${name}-desktop`);
+    // A phone's actions sheet closes before the next size.
+    if (await page.getByRole('menu').isVisible())
+      await page.keyboard.press('Escape');
   }
   await page.setViewportSize(DESKTOP);
+}
+
+/**
+ * An older message's action: its icon on a desktop; on a phone, where only
+ * the newest messages keep icons (D14), the same item in the sheet a
+ * right-click (or a long-press) opens.
+ */
+async function action(
+  page: Page,
+  message: Locator,
+  name: string,
+  phone: boolean,
+): Promise<void> {
+  if (phone) {
+    await message.locator('.message-text').click({ button: 'right' });
+    await expect(
+      page.getByRole('menu').getByRole('menuitem', { name }),
+    ).toBeVisible();
+    return;
+  }
+  await message.hover();
+  await message.getByRole('button', { name }).hover();
+  await expect(page.getByRole('tooltip')).toContainText(name);
 }
 
 function log(page: Page): Locator {
@@ -92,17 +118,12 @@ test('Edit and resend continues in a new conversation from before the message; t
   const original = await threeTurns(page);
   const second = mine(page, 'Second fork fixture');
 
-  await everywhere(page, info, 'message-actions', async () => {
-    await second.hover();
-    await second.getByRole('button', { name: 'Edit and resend' }).hover();
-    await expect(page.getByRole('tooltip')).toContainText('Edit and resend');
-  });
-  await everywhere(page, info, 'reply-actions', async () => {
-    const first = reply(page, 'Noted: First.');
-    await first.hover();
-    await first.getByRole('button', { name: 'Fork from here' }).hover();
-    await expect(page.getByRole('tooltip')).toContainText('Fork from here');
-  });
+  await everywhere(page, info, 'message-actions', (phone) =>
+    action(page, second, 'Edit and resend', phone),
+  );
+  await everywhere(page, info, 'reply-actions', (phone) =>
+    action(page, reply(page, 'Noted: First.'), 'Fork from here', phone),
+  );
 
   // The field, wherever the edited text has taken it (the bubble's own text is hidden meanwhile).
   const field = log(page).getByRole('textbox', { name: 'Edit your message' });

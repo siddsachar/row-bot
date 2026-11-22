@@ -74,7 +74,16 @@ test('Library › Media lists every picture, video and sound with its chat, filt
   await expect(list.getByText('signup-walkthrough.mp4')).toBeVisible();
   await search.fill('Launch assets');
   await expect(list.getByRole('listitem')).toHaveCount(4);
+  // A phone shows Library › Media as Chats › Files with its Media chip on (D10).
   await page.setViewportSize(PHONE);
-  await views(page, info, 'library-media-phone', list);
+  const files = page.getByRole('list', { name: 'Files' });
+  await expect(page.getByRole('radio', { name: 'Media' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(
+    files.getByRole('link', { name: /^signup-walkthrough\.mp4/ }).first(),
+  ).toBeVisible();
+  await views(page, info, 'library-media-phone', files);
   await page.setViewportSize(DESKTOP);
 });

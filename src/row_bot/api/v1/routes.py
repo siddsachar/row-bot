@@ -440,6 +440,7 @@ _STATUS.update(
         "learning_change_refused": 409,
         "learning_change_busy": 409,
         "learning_method_changed": 409,
+        "learning_question_changed": 409,
         "learning_hugging_face_unavailable": 409,
         "learning_hugging_face_unreachable": 503,
         "learning_hugging_face_refused": 409,
@@ -447,6 +448,12 @@ _STATUS.update(
         "learning_hugging_face_signed_out": 409,
         "learning_hugging_face_over_cap": 409,
         "learning_quote_changed": 409,
+        "learning_licence_needed": 409,
+        "learning_model_unavailable": 409,
+        "learning_model_check_busy": 409,
+        "learning_model_check_changed": 409,
+        "learning_model_in_use": 409,
+        "learning_engine_needed": 409,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
@@ -6962,7 +6969,7 @@ def create_router(
         body = await _body(request, dto.LocalServerConnectRequest, 1024)
         from row_bot.application.client_local_servers import connect
 
-        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port))
+        return await respond(request, dto.LocalServerConnection, await call(connect, body.kind, body.port, body.model))
 
     # Run on this computer (E1): the pinned llama.cpp build and models Row-Bot downloads and runs.
     async def local_model_runtime(request: Request, result: dict) -> JSONResponse:
@@ -10706,6 +10713,17 @@ def create_router(
                 validate=dispatch_validation(request, current),
                 refresh=refresh,
             ),
+        )
+
+    @router.get("/learning/models")
+    async def learning_models(request: Request, query: str = "") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_learning import read_learning_models
+
+        return await respond(
+            request,
+            dto.LearningModelSearch,
+            await call(read_learning_models, validate=dispatch_validation(request, current), query=query[:80]),
         )
 
     @router.get("/learning/conversations/{conversation_id}")

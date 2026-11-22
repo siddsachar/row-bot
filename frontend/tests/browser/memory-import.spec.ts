@@ -92,22 +92,16 @@ for (const appearance of ['light', 'dark'] as const) {
   test(`memories from another assistant are found, previewed, imported and undone (${appearance})`, async ({
     page,
   }, info) => {
+    test.skip(
+      phone(info),
+      'A phone leaves Import memories on the computer (B4, D12 A); phone-memory checks it is not there.',
+    );
     await fixture(page, '/__mi_fixture/seed');
     await page.emulateMedia({ colorScheme: appearance });
     await page.goto('/app-v2/?tab=knowledge');
-    const open = phone(info)
-      ? async () => {
-          await page.goto('/app-v2/settings/knowledge');
-          await page
-            .getByRole('button', { name: 'Import memories', exact: true })
-            .click();
-        }
-      : async () => {
-          await page
-            .getByRole('button', { name: 'Import memories', exact: true })
-            .click();
-        };
-    await open();
+    await page
+      .getByRole('button', { name: 'Import memories', exact: true })
+      .click();
     const dialog = page.getByRole('dialog', { name: 'Import memories' });
     await expect(dialog).toBeVisible();
 

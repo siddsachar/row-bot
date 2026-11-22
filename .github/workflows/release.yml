@@ -744,6 +744,8 @@ jobs:
               exit 1
             fi
             release_id="$(jq -r '.[0].id' <<<"$releases")"
+            # A draft from an earlier run (a moved tag) gets this run's title and notes too, not only its files.
+            gh release edit "$TAG" --title "$(cat title.txt)" --notes-file notes.md
           else
             flags=(--draft --verify-tag --title "$(cat title.txt)" --notes-file notes.md)
             case "$ROW_BOT_VERSION" in *-*) flags+=(--prerelease) ;; esac

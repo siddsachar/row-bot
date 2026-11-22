@@ -36,6 +36,7 @@ REASONING_FAMILIES = {
     "qwen3",
     "qwen3.5",
     "qwen3.6",
+    "qwen3.8",
     "qwen3-next",
 }
 

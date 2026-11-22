@@ -749,12 +749,10 @@ test('library rows with long titles stay inside a phone screen', async ({
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedLibrary(page);
-  const nav = await navigation(page);
-  await nav
-    .getByRole('link', { name: 'Conversation library', exact: true })
-    .click();
+  // A phone: ‹ from the chat goes to Chats, the library (D1).
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page).toHaveURL(/\/app-v2\/library(?:[?#].*)?$/);
-  const rows = page.locator('.library-row');
+  const rows = page.locator('.phone-row');
   await expect(rows.first()).toBeVisible();
   const widest = await rows.evaluateAll((items) =>
     Math.max(...items.map((item) => item.getBoundingClientRect().right)),

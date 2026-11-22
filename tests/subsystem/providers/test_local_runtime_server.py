@@ -310,3 +310,39 @@ def test_the_27b_builds_get_an_8_bit_context_cache_in_the_presets_file(tmp_path)
     big, small = text.split("[qwen3.8-27b-q2]")[1], text.split("[qwen3.5-9b]")[1].split("[")[0]
     assert "cache-type-k = q8_0" in big and "cache-type-v = q8_0" in big
     assert "cache-type" not in small and "ctx-size = 32768" in small
+
+
+def test_each_request_says_the_built_in_model_thinks_and_the_chats_choice_overrides_it(tmp_path, monkeypatch):
+    """D3: each request says whether the model thinks (every built-in model does, for now); the chat's own
+    choice still decides."""
+    from langchain_core.messages import HumanMessage
+
+    from row_bot import local_runtime
+    from row_bot.providers.reasoning import ReasoningRequestPlan, ReasoningSelection, resolve_reasoning_capabilities
+    from row_bot.providers.runtime import create_chat_model
+    from tests.helpers.fake_provider_http import Reply, fake_provider_http
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    built_in = [models.get("qwen3.8-27b-q4"), models.get("qwen3.5-9b"), models.get("qwen3.5-4b")]
+    monkeypatch.setattr(install, "installed_models", lambda root=None: built_in)
+    answer = Reply(body=json.dumps({"choices": [{"index": 0, "finish_reason": "stop",
+                                                 "message": {"role": "assistant", "content": "4"}}]}).encode())
+
+    with fake_provider_http([answer]) as fake:
+        monkeypatch.setattr(server, "endpoint_connection", lambda start=True: (f"{fake.url}/v1", "key"))
+        server.save_endpoint()
+
+        def thinks(model_id: str, choice: str | None = None) -> bool:
+            caps = resolve_reasoning_capabilities(local_runtime.PROVIDER_ID, model_id)
+            plan = ReasoningRequestPlan(local_runtime.model_ref(model_id), ReasoningSelection(kind=choice), caps) \
+                if choice else None
+            create_chat_model(model_id, local_runtime.PROVIDER_ID, reasoning_plan=plan).invoke(
+                [HumanMessage(content="What is 2 + 2?")])
+            return json.loads(fake.seen[-1].body)["chat_template_kwargs"]["enable_thinking"]
+
+        assert [resolve_reasoning_capabilities(local_runtime.PROVIDER_ID, model.id).default_enabled
+                for model in built_in] == [True, True, True]
+        assert [thinks(model.id) for model in built_in] == [True, True, True]
+        assert [thinks(model.id, "off") for model in built_in] == [False, False, False]
+        assert thinks("qwen3.5-9b", "on") is True

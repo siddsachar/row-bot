@@ -14,6 +14,7 @@ went (anything not starred is already out of the way).
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 import logging
@@ -59,6 +60,18 @@ WITHHELD_NAME = "row-bot-personal"
 def withheld(provider_id: object, model_id: object = "") -> bool:
     """Whether a model (or a whole endpoint) is one of Learning's personal models, not offered in lists."""
     return WITHHELD_NAME in f"{provider_id or ''}:{model_id or ''}".lower()
+
+
+# The endpoints Learning serves its personal models on: its own server (``managed: "learning"``) and the
+# ones it registers on LM Studio, llama.cpp or vLLM (``row-bot-personal-<runtime>``, with no ``managed``).
+PERSONAL_ENDPOINT_PREFIX = "row-bot-personal-"
+
+
+def is_personal_model_endpoint(endpoint: Any) -> bool:
+    """Whether a custom endpoint serves Learning's personal models, which are served exactly as trained."""
+    if not isinstance(endpoint, Mapping):
+        return False
+    return endpoint.get("managed") == "learning" or str(endpoint.get("id") or "").startswith(PERSONAL_ENDPOINT_PREFIX)
 
 
 def canonical_ref(value: object) -> str | None:

@@ -7,11 +7,14 @@ import {
   Routes,
   useLocation,
   useParams,
+  useSearchParams,
 } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { setPlace } from '../../api/place';
 import { resolveSetting, settingsGroups, settingsLeaves } from './model';
 import SettingsShell from './SettingsShell';
+import { accessPushClient } from '../../api/access';
+import { ThemeProvider } from '../../ui/theme';
 import {
   SettingsAdvanced,
   SettingsSummary,
@@ -405,48 +408,215 @@ function onPhone() {
   );
 }
 
-it('on a phone opens on the list of pages, and each page has its way back to it (D6)', async () => {
-  onPhone();
-  try {
-    render(
-      <MemoryRouter initialEntries={['/settings']}>
+/** A phone's /settings, as SettingsIndex routes it (More settings is ?view=more). */
+function PhoneIndex() {
+  const [search] = useSearchParams();
+  return <SettingsShell more={search.get('view') === 'more'} />;
+}
+
+function showPhone(route = '/settings') {
+  return render(
+    <ThemeProvider>
+      <MemoryRouter initialEntries={[route]}>
         <Routes>
-          <Route path="settings" element={<SettingsShell />} />
+          <Route path="settings" element={<PhoneIndex />} />
           <Route path="settings/:setting" element={<Harness />} />
         </Routes>
-      </MemoryRouter>,
-    );
-    const list = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(list).getAllByRole('link')).toHaveLength(
-      settingsLeaves.length,
-    );
-    // The tab bar takes Close's place; no page shows beside the list.
-    expect(screen.queryByRole('link', { name: 'Close settings' })).toBeNull();
-    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
+      </MemoryRouter>
+    </ThemeProvider>,
+  );
+}
 
-    await userEvent.click(
-      within(list).getByRole('link', { name: 'Documents' }),
+function offPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+it('on a phone opens on This phone, Row-Bot and More settings, and a page is one header row with its way back (D6, D7)', async () => {
+  onPhone();
+  const status = vi.spyOn(accessPushClient, 'status').mockResolvedValue({
+    available: true,
+    publicKey: 'BKey',
+    subscribed: false,
+    showDetails: true,
+  });
+  try {
+    showPhone();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Settings',
     );
-    expect(screen.getByText('Documents owner')).toBeVisible();
+    // This phone: the notifications switch and the theme.
+    const thisPhone = screen.getByRole('list', { name: 'This phone' });
+    // jsdom has no push: the switch says why, as a browser without it does.
+    expect(
+      await within(thisPhone).findByRole('switch', {
+        name: 'Notifications',
+        description: 'This browser can’t show them.',
+      }),
+    ).toBeDisabled();
+    expect(
+      within(thisPhone).getByRole('radiogroup', { name: 'Theme' }),
+    ).toBeVisible();
+    // Row-Bot: six pages, in this order.
+    expect(
+      within(screen.getByRole('list', { name: 'Row-Bot' }))
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual([
+      'Models',
+      'Voice',
+      'Memory',
+      'Apps',
+      'Activity',
+      'Buddy & Proactive',
+    ]);
+    // No second search, and the tab bar takes Close's place.
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Close settings' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('link', { name: 'Models' }));
+    expect(screen.getByText('Models owner')).toBeVisible();
+    // One header row: "‹ Models", no search field, picker or second title.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Models',
+    );
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
+    expect(screen.queryByRole('searchbox')).toBeNull();
     expect(
       screen.queryByRole('combobox', { name: 'Settings section' }),
     ).toBeNull();
     await userEvent.click(
       screen.getByRole('link', { name: 'Back to Settings' }),
     );
-    expect(screen.queryByText('Documents owner')).toBeNull();
-    expect(
-      screen.getByRole('navigation', { name: 'Settings sections' }),
-    ).toBeVisible();
+    expect(screen.queryByText('Models owner')).toBeNull();
+    expect(screen.getByRole('list', { name: 'Row-Bot' })).toBeVisible();
   } finally {
-    vi.mocked(window.matchMedia).mockImplementation(
-      (query: string) =>
-        ({
-          matches: false,
-          media: query,
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn(),
-        }) as unknown as MediaQueryList,
+    status.mockRestore();
+    offPhone();
+  }
+});
+
+it('on a phone keeps every page open: More settings lists the rest, and goes back to its own list (D6)', async () => {
+  onPhone();
+  const status = vi.spyOn(accessPushClient, 'status').mockResolvedValue({
+    available: false,
+    reason: 'needs_https',
+    showDetails: true,
+  });
+  try {
+    showPhone();
+    // Without HTTPS the switch says why it can't be on.
+    expect(
+      await screen.findByText(
+        'Needs Row-Bot over HTTPS, such as through Tailscale.',
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('switch', { name: 'Notifications' }),
+    ).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('link', { name: 'More settings' }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'More settings',
     );
+    const reachable = new Set(
+      screen.getAllByRole('link').map((link) => link.getAttribute('href')),
+    );
+    for (const id of ['models', 'voice', 'knowledge', 'apps', 'activity'])
+      expect(reachable.has(`/settings/${id}`)).toBe(false);
+    // Every page outside Row-Bot is here; Proactive is under Buddy's row.
+    for (const leaf of settingsLeaves.filter(
+      (item) =>
+        ![
+          'models',
+          'voice',
+          'knowledge',
+          'apps',
+          'activity',
+          'buddy',
+          'proactive',
+        ].includes(item.id),
+    ))
+      expect(reachable.has(leaf.href)).toBe(true);
+
+    await userEvent.click(screen.getByRole('link', { name: 'Updates' }));
+    expect(screen.getByText('Updates owner')).toBeVisible();
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Back to More settings' }),
+    );
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'More settings',
+    );
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Back to Settings' }),
+    );
+    expect(screen.getByRole('list', { name: 'This phone' })).toBeVisible();
+  } finally {
+    status.mockRestore();
+    offPhone();
+  }
+});
+
+it('on a phone, This phone’s theme is one tap, and a deep link to a page goes back to its list', async () => {
+  onPhone();
+  const status = vi.spyOn(accessPushClient, 'status').mockResolvedValue({
+    available: false,
+    reason: 'this_computer',
+    showDetails: true,
+  });
+  try {
+    showPhone('/settings/proactive');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Proactive',
+    );
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Back to Buddy & Proactive' }),
+    );
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Buddy & Proactive',
+    );
+    await userEvent.click(
+      screen.getByRole('link', { name: 'Back to Settings' }),
+    );
+    const theme = screen.getByRole('radiogroup', { name: 'Theme' });
+    await userEvent.click(within(theme).getByRole('radio', { name: 'Dark' }));
+    expect(within(theme).getByRole('radio', { name: 'Dark' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(document.documentElement.dataset.theme).toBe('dark');
+  } finally {
+    localStorage.clear();
+    status.mockRestore();
+    offPhone();
+  }
+});
+
+it('on a phone keeps Learning (preview) reachable in More settings in a preview build', () => {
+  onPhone();
+  try {
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/settings']}>
+          <Routes>
+            <Route path="settings" element={<SettingsShell learning more />} />
+          </Routes>
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    expect(
+      within(screen.getByRole('list', { name: 'General' })).getByRole('link', {
+        name: 'Learning',
+      }),
+    ).toHaveAttribute('href', '/settings/learning');
+  } finally {
+    offPhone();
   }
 });

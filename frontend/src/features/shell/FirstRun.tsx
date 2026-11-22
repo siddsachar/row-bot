@@ -369,6 +369,7 @@ function FoundServers({
       const connected = await controller.connectLocalServer(
         server.kind,
         server.port,
+        name,
       );
       const ref = connected?.model_refs.find((item) =>
         item.endsWith(`:${name}`),

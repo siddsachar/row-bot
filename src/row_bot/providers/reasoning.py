@@ -7,6 +7,7 @@ from hashlib import sha256
 import json
 import logging
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 from row_bot.providers.selection import model_ref, parse_model_ref
@@ -243,6 +244,15 @@ def resolve_reasoning_capabilities(provider_id: str, model_id: str) -> Reasoning
     model = str(model_id or "").strip()
     if not provider or not model:
         return None
+    if provider.startswith("custom_openai_"):
+        local = _local_template_thinking_capabilities(provider, model)
+        if local:
+            return local
+    if provider == "ollama":
+        from row_bot.models import local_model_never_thinks
+
+        if local_model_never_thinks(model):
+            return None  # served with thinking off, as trained: no choice to offer
     resolved_source = ""
     try:
         from row_bot.providers.capability_resolution import resolve_capability_metadata
@@ -725,6 +735,71 @@ def _with_default_request_style(caps: ReasoningCapabilities, provider_id: str) -
         "ollama_cloud": "ollama",
     }.get(provider_id, "")
     return ReasoningCapabilities(**{**caps.to_json(), "request_style": style})
+
+
+# Servers on this computer that take the model template's own switch per request,
+# ``chat_template_kwargs: {"enable_thinking": true | false}``: llama.cpp (``tools/server/server-common.cpp``
+# at the pinned b12359 sets it over the server's default), vLLM and SGLang. LM Studio's chat API lists no
+# such field and ignores it (lmstudio-bug-tracker#1990), so its models get no control that would do nothing.
+CHAT_TEMPLATE_THINKING_PROFILES = frozenset({"llama_cpp", "vllm", "sglang"})
+# Models whose template turns thinking on or off with ``enable_thinking``: the hybrid Qwen3 generations, by
+# family and size ("qwen3.5-9b", "Qwen3.8-27B-UD-Q4_K_M.gguf", "qwen/qwen3-30b-a3b"). Their Instruct and
+# Thinking variants only ever answer one way, and Qwen3-Coder and Qwen3-VL are other models.
+_TEMPLATE_THINKING_MODEL = re.compile(r"^qwen3(?:\.\d+)?(?:$|[-_]\d+(?:\.\d+)?b(?![a-z0-9]))")
+
+
+def takes_per_chat_thinking(endpoint: Mapping[str, Any] | None) -> bool:
+    """Whether a custom endpoint is a server on this computer whose requests can turn thinking on or off.
+
+    Never Learning's personal models: they are served with thinking off, as trained (Learning's L4
+    constraint), so their endpoint's own ``reasoning_mode`` stays the only say.
+    """
+    from row_bot.providers.model_visibility import is_personal_model_endpoint
+
+    if not isinstance(endpoint, Mapping) or is_personal_model_endpoint(endpoint):
+        return False
+    return (str(endpoint.get("execution_location") or "").strip().lower() == "local"
+            and str(endpoint.get("profile") or "").strip().lower() in CHAT_TEMPLATE_THINKING_PROFILES)
+
+
+def built_in_model_thinks(endpoint: Mapping[str, Any] | None, model_id: str) -> bool | None:
+    """Whether a Run on this computer model thinks unless the chat says otherwise (D3); None for any other
+    endpoint or model, whose template decides."""
+    from row_bot import local_runtime
+
+    if not isinstance(endpoint, Mapping) or endpoint.get("managed") != local_runtime.OWNER:
+        return None
+    from row_bot.local_runtime import models
+
+    found = models.get(model_id)
+    return found.thinks if found is not None else None
+
+
+def _local_template_thinking_capabilities(provider_id: str, model_id: str) -> ReasoningCapabilities | None:
+    """On/Off for a hybrid Qwen model on llama.cpp, vLLM or SGLang on this computer."""
+    from row_bot.providers.ollama import normalize_ollama_family
+
+    family = normalize_ollama_family(model_id)
+    if not _TEMPLATE_THINKING_MODEL.match(family) or "instruct" in family or "thinking" in family:
+        return None
+    try:
+        from row_bot.providers.custom import get_custom_endpoint
+
+        endpoint = get_custom_endpoint(provider_id)
+    except Exception:
+        logger.debug("Custom endpoint lookup failed for %s", provider_id, exc_info=True)
+        return None
+    if endpoint is None or not takes_per_chat_thinking(endpoint):
+        return None
+    mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
+    default = mode == "on" if mode in {"on", "off"} else built_in_model_thinks(endpoint, model_id)
+    return ReasoningCapabilities(
+        default_enabled=True if default is None else default,  # the templates think unless told not to
+        can_disable=True,
+        thinking_mode="toggle",
+        source="local_chat_template",
+        request_style="chat_template",
+    )
 
 
 def ollama_thinking_capabilities(model_id: str, *, source: str = "") -> ReasoningCapabilities:

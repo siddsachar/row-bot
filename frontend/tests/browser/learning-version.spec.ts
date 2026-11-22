@@ -325,12 +325,21 @@ test('O49: the download names both parts with its bytes, and Monitor’s Stop sa
   await shoot(page, info, 'download-title');
 
   await page.goto('/app-v2/?tab=monitor');
-  const row = page.getByRole('listitem').filter({ hasText: 'Training engine' });
-  await row
-    .getByRole('button', { name: 'Stop downloading Training engine' })
-    .click();
-  await expect(
-    notice(page, /Resume it in Learning › Personal model\.$/),
-  ).toBeVisible();
-  await shoot(page, info, 'monitor-stop-notice');
+  if (phone(info))
+    // Monitor is on the computer (D5): a phone says so.
+    await expect(
+      page.getByRole('region', { name: 'System Monitor' }),
+    ).toContainText('Open this on your computer');
+  else {
+    const row = page
+      .getByRole('listitem')
+      .filter({ hasText: 'Training engine' });
+    await row
+      .getByRole('button', { name: 'Stop downloading Training engine' })
+      .click();
+    await expect(
+      notice(page, /Resume it in Learning › Personal model\.$/),
+    ).toBeVisible();
+    await shoot(page, info, 'monitor-stop-notice');
+  }
 });

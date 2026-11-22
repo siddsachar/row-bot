@@ -55,6 +55,50 @@
   width: 100%;
   max-width: 420px;
 }
+/* The monthly limit (MonthlyLimit.tsx): its menu and, for a custom amount, a field in millions under it. */
+.learning-limit-picker {
+  display: grid;
+  gap: var(--space-2);
+  width: var(--settings-select-width, 100%);
+  max-width: 100%;
+  min-width: 0;
+}
+.learning-field > .learning-limit-picker {
+  max-width: 420px;
+}
+.learning-limit-picker .input {
+  width: 100%;
+  min-width: 0;
+}
+.settings-row-control .learning-limit-picker .input {
+  min-height: var(--settings-control);
+  height: var(--settings-control);
+  padding-block: 0;
+  font-size: var(--text-13);
+}
+.learning-limit-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.learning-limit-unit {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.learning-limit-error {
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+/* A narrow settings page: it fills the line like the other menus, its reset icon beside it. */
+@container settings-page (max-width: 560px) {
+  .settings-row > .settings-row-control > .learning-limit-picker {
+    flex: 1 1 10rem;
+    width: auto;
+  }
+}
 .learning-check {
   align-items: flex-start;
   min-height: 0;
@@ -661,4 +705,210 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+}
+/* L4b: the quick question in full, its two answers and ✕ beside it, or under it on a phone. */
+.learning-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.learning-question .entity-row-title {
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+@media (max-width: 767px) {
+  .learning-question .entity-row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .learning-question .entity-row-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+/* L4c: who does each of Learning's own jobs, its latest test under it. */
+.learning-jobs {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.learning-jobs > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px var(--space-2);
+  overflow-wrap: break-word;
+}
+.learning-job-name {
+  font-weight: var(--weight-semibold);
+}
+.learning-jobs > li > .learning-muted {
+  grid-column: 1 / -1;
+}
+@media (max-width: 767px) {
+  .learning-jobs > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Other models (C1 Part 4): search results and the models Row-Bot checked here, one row each. */
+.learning-models-heading {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+.learning-models {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  overflow: hidden;
+}
+.learning-model {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+}
+.learning-model + .learning-model {
+  border-top: 1px solid var(--border-hairline);
+}
+.learning-model-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+/* On a narrow screen a row's actions go under its words rather than squeezing them. */
+.learning-model-text {
+  display: grid;
+  flex: 1 1 14rem;
+  gap: 2px;
+  min-width: 0;
+}
+.learning-model-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.learning-model-name {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.learning-model-meta,
+.learning-model-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.learning-model-note {
+  color: var(--text-secondary);
+}
+.learning-model-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+.learning-model-in-use {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.learning-model-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-13);
+}
+.learning-model-checks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.learning-model-checks > li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+.learning-model-check-icon {
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+.learning-model-checks > li[data-state='passed'] .learning-model-check-icon {
+  color: var(--status-success-text);
+}
+.learning-model-checks > li[data-state='failed'] .learning-model-check-icon {
+  color: var(--status-danger-text);
+}
+.learning-model-checks > li[data-state='running'] .learning-model-check-icon {
+  animation: learning-model-spin 1.2s linear infinite;
+  color: var(--text-secondary);
+}
+.learning-model-check-name {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.learning-model-check-words {
+  color: var(--text-muted);
+}
+.learning-model-sample {
+  font-size: var(--text-13);
+  color: var(--text-secondary);
+}
+.learning-model-sample > summary {
+  cursor: pointer;
+}
+.learning-model-sample > .learning-list {
+  margin-top: var(--space-2);
+}
+.learning-model-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.learning-model-search > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.learning-model-ask {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+.learning-model-ask p {
+  margin: 0;
+}
+.learning-model-ask-actions {
+  justify-content: flex-end;
+}
+@keyframes learning-model-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .learning-model-checks > li[data-state='running'] .learning-model-check-icon {
+    animation: none;
+  }
 }

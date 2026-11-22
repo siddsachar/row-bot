@@ -243,8 +243,9 @@ test('context card and composer stay compact through panels, narrowing, keyboard
     ).toBeVisible();
     await extras.click();
   }
-  // 700px at 200% zoom is a 350px composer: two rows, with approvals, the
-  // model and context usage in + (the mode switches after the zoom lands).
+  // 700px at 200% zoom is a 350px composer on the phone layout: two rows,
+  // with approvals and the mode in + › Chat settings (B2; the mode switches
+  // after the zoom lands).
   await expect(page.locator('.composer').first()).toHaveAttribute(
     'data-single-line',
   );
@@ -252,19 +253,20 @@ test('context card and composer stay compact through panels, narrowing, keyboard
     .getByRole('button', { name: 'Add files and more', exact: true })
     .click();
   // CSS zoom on the root skews floating-menu geometry for pointer hit
-  // tests (browser zoom does not); the keyboard reaches the submenu.
+  // tests (browser zoom does not); the keyboard reaches each level.
+  await page.getByRole('menuitem', { name: /^Chat settings/ }).focus();
+  await page.keyboard.press('Enter');
   await page.getByRole('menuitem', { name: /^Approvals/ }).focus();
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
   await expect(
     page.getByRole('menuitemradio', { name: /^Ask/ }),
   ).toHaveAttribute('aria-checked', 'true');
+  // Escape goes back up a level: Chat settings, with the mode, then +.
   await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
-  await page
-    .getByRole('button', { name: 'Add files and more', exact: true })
-    .click();
   await expect(page.getByRole('menuitem', { name: /^Mode\b/ })).toBeVisible();
   await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
   await screenshot(page, info, 'slice6-zoom-200');
 });
 

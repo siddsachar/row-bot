@@ -230,3 +230,86 @@ it('the quote lets the person pick another card, each with its own time and pric
     flavor: 'a100-large',
   });
 });
+
+it('a model checked on this computer is offered after the certified ones, said to be uncertified', () => {
+  const found = hugging({
+    sign_in: {
+      state: 'signed_in',
+      user: 'ada',
+      code: null,
+      url: null,
+      failure: null,
+    },
+    models: [
+      ...(hugging().models ?? []),
+      {
+        id: 'hf:Qwen/Qwen3-14B',
+        name: 'Qwen3-14B',
+        licence: 'Apache 2.0',
+        params_b: 14.8,
+        certified: false,
+        recommended: false,
+        runs_here_gb: 11.8,
+        download_bytes: 9_000_000_000,
+      },
+    ],
+  });
+  const io = fakeIO(snapshotWith(found));
+  render(
+    <OverlayProvider>
+      <HuggingFaceCard io={io} hugging={found} />
+    </OverlayProvider>,
+  );
+
+  const models = screen.getByRole('group', { name: 'Model to train' });
+  expect(
+    within(models).getByRole('radio', {
+      name: /^Qwen3\.8 27B · Apache 2\.0 · Recommended/,
+    }),
+  ).toBeChecked();
+  expect(
+    within(models).getByRole('radio', {
+      name: /^Qwen3-14B · Apache 2\.0 · Not certified/,
+    }),
+  ).not.toBeChecked();
+  expect(models).toHaveTextContent(
+    'Checked on this computer. Its time and price are estimates.',
+  );
+});
+
+it('a run that ended before its paid model was downloaded says the model stays in the account, with a link', () => {
+  const found = hugging({
+    sign_in: {
+      state: 'signed_in',
+      user: 'ada',
+      code: null,
+      url: null,
+      failure: null,
+    },
+    planned: false,
+    last_run: {
+      version: 3,
+      cost_usd: 5.4,
+      minutes: 90,
+      outcome: 'completed',
+      cleaned: false,
+      cleanup_failed: false,
+      model_kept: true,
+      model_url: 'https://huggingface.co/ada/row-bot-personal-ab12',
+    },
+  });
+  const io = fakeIO(snapshotWith(found));
+  render(
+    <OverlayProvider>
+      <HuggingFaceCard io={io} hugging={found} />
+    </OverlayProvider>,
+  );
+
+  const spending = screen.getByLabelText('Hugging Face spending');
+  expect(spending).toHaveTextContent(
+    'the model it trained stays in your Hugging Face account, to download or delete there',
+  );
+  expect(
+    within(spending).getByRole('link', { name: 'Open it' }),
+  ).toHaveAttribute('href', 'https://huggingface.co/ada/row-bot-personal-ab12');
+});

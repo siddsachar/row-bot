@@ -32,16 +32,21 @@ async function views(page: Page, info: TestInfo, name: string, focus: Locator) {
   await page.emulateMedia({ colorScheme: 'light' });
 }
 
-/** Evidence at desktop and phone size, light and dark. */
+/**
+ * Evidence at desktop and phone size, light and dark. `phone` is what a
+ * phone shows in its place, when that differs (C2: a workflow's sheet, or
+ * "Open this on your computer" for its editor and settings).
+ */
 async function everywhere(
   page: Page,
   info: TestInfo,
   name: string,
   focus: Locator,
+  phone: Locator = focus,
 ) {
   await views(page, info, name, focus);
   await page.setViewportSize(PHONE);
-  await views(page, info, `${name}-phone`, focus);
+  await views(page, info, `${name}-phone`, phone);
   await page.setViewportSize(DESKTOP);
 }
 
@@ -101,14 +106,16 @@ test('workflow settings choose the code folder, missed runs and the apps that al
       'Only the latest missed time runs, once, and says it ran late.',
     ),
   ).toBeVisible();
-  await everywhere(page, info, 'workflow-folder', folder);
+  // A phone changes a workflow's settings on the computer (C2, D11 A).
+  const away = page.getByRole('region', { name: 'Workflow settings' });
+  await everywhere(page, info, 'workflow-folder', folder, away);
   const always = editor.getByRole('group', { name: 'Always ask me' });
   await expect(
     always.getByRole('switch', {
       name: 'Always ask me before Tavily acts',
     }),
   ).toBeChecked();
-  await everywhere(page, info, 'workflow-always-ask-apps', always);
+  await everywhere(page, info, 'workflow-always-ask-apps', always, away);
 });
 
 test('the schedule builder shows the zone with the time and names it in the next run', async ({
@@ -125,7 +132,13 @@ test('the schedule builder shows the zone with the time and names it in the next
   await expect(
     page.getByRole('button', { name: 'Timezone', exact: true }),
   ).toContainText('Europe/London');
-  await everywhere(page, info, 'schedule-zone', preview);
+  await everywhere(
+    page,
+    info,
+    'schedule-zone',
+    preview,
+    page.getByRole('region', { name: 'The workflow editor' }),
+  );
 });
 
 test('run history shows the waiting run’s own X card, the folder, a late run and how runs ended', async ({
@@ -147,7 +160,16 @@ test('run history shows the waiting run’s own X card, the folder, a late run a
   ).toBeVisible();
   await expect(card.getByText('@rowbot').first()).toBeVisible();
   await expect(card.getByRole('button', { name: 'Approve' })).toBeEnabled();
-  await everywhere(page, info, 'waiting-run-x-card', card);
+  // A phone shows the runs in the workflow's sheet, the waiting run open (C2).
+  const sheet = page.getByRole('dialog', { name: NAME });
+  await everywhere(
+    page,
+    info,
+    'waiting-run-x-card',
+    card,
+    sheet.getByRole('complementary', { name: /^Approval required/ }),
+  );
+  const sheetRuns = sheet.getByRole('list', { name: 'Recent runs' });
 
   await runs.getByRole('button', { name: 'Show run n9-late' }).click();
   await expect(selected.getByText('In row-bot-landing')).toBeVisible();
@@ -160,14 +182,20 @@ test('run history shows the waiting run’s own X card, the folder, a late run a
   await expect(
     did.getByRole('link', { name: 'Open: Posted on X as @rowbot' }),
   ).toHaveAttribute('href', 'https://x.com/rowbot/status/1849000000000000001');
-  await everywhere(page, info, 'run-posted-folder-ran-late', selected);
+  await everywhere(
+    page,
+    info,
+    'run-posted-folder-ran-late',
+    selected,
+    sheetRuns,
+  );
 
   await runs.getByRole('button', { name: 'Show run n9-replaced' }).click();
   await expect(selected.getByText('Expired', { exact: true })).toBeVisible();
   await expect(
     selected.getByText('A newer run replaced it before it was approved.'),
   ).toBeVisible();
-  await everywhere(page, info, 'run-replaced', selected);
+  await everywhere(page, info, 'run-replaced', selected, sheetRuns);
 
   await runs.getByRole('button', { name: 'Show run n9-folder-gone' }).click();
   await expect(
@@ -182,8 +210,10 @@ test('run history shows the waiting run’s own X card, the folder, a late run a
     name: 'Choose a folder',
   });
   await expect(chooseFolder).toBeVisible();
-  await everywhere(page, info, 'workflow-folder-removed', selected);
+  await everywhere(page, info, 'workflow-folder-removed', selected, sheetRuns);
 
+  // The drawer was read again on the wider window: the run is picked again.
+  await runs.getByRole('button', { name: 'Show run n9-folder-gone' }).click();
   await chooseFolder.click();
   const editor = page.getByRole('region', {
     name: 'Workflow settings editor',

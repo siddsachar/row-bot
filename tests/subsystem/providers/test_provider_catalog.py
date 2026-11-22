@@ -322,9 +322,9 @@ def test_ollama_catalog_uses_daemon_reported_vision_capabilities_for_unknown_fam
 
 
 def test_ollama_reported_thinking_and_vision_decide_over_family_lists():
-    # qwen3.8 is in no family list; Ollama says it thinks and sees (F12).
+    # This family is in no list; Ollama says it thinks and sees (F12).
     new_family = ollama_model_info(
-        "qwen3.8:27b", metadata={"capabilities": ["completion", "vision", "tools", "thinking"]}
+        "newfamily:27b", metadata={"capabilities": ["completion", "vision", "tools", "thinking"]}
     )
     # qwen3 and gemma3 are in the lists, but this Ollama says they neither think nor see.
     listed = ollama_model_info("qwen3:14b", metadata={"capabilities": ["completion", "tools"]})
@@ -340,7 +340,7 @@ def test_ollama_reported_thinking_and_vision_decide_over_family_lists():
 def test_ollama_family_lists_still_cover_an_ollama_that_reports_nothing():
     assert ollama_model_info("qwen3:14b").reasoning["thinking_mode"] == "toggle"
     assert ollama_model_info("gpt-oss:20b").reasoning["supported_efforts"] == ["low", "medium", "high"]
-    assert ollama_model_info("qwen3.8:27b").reasoning is None
+    assert ollama_model_info("qwen3.8:27b").reasoning["thinking_mode"] == "toggle"
 
 
 def test_a_conversation_thinks_as_the_catalog_reported(monkeypatch):

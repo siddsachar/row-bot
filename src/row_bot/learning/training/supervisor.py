@@ -67,6 +67,16 @@ def _gpu_free() -> bool:
     return hardware.gpu_free_for_training()
 
 
+def _release_local_model_server() -> None:
+    """Row-Bot's own local model server (Run on this computer, E1) gives the card back before training claims
+    it, unless it is answering the person (then they are using Row-Bot and training doesn't start). Read through
+    ``sys.modules``: nothing is loaded when it never ran."""
+
+    from row_bot.learning.training.llama_server import release_local_model_server
+
+    release_local_model_server()
+
+
 def _memory_free() -> bool:
     from row_bot.learning.training import hardware
 
@@ -205,6 +215,13 @@ class TrainingSupervisor:
             raise TrainingError("training_changed")
         return job
 
+    def _card_free(self) -> bool:
+        """Whether training may take the graphics card now, once Row-Bot's own local model server was asked to give
+        it back (only asked when nobody is using Row-Bot: callers check the lease first)."""
+
+        _release_local_model_server()
+        return self.gpu_free()
+
     def train_now(self, job_id: str | None = None) -> Job:
         """Start or continue the current job now; when something heavy runs, as soon as it ends.
 
@@ -222,7 +239,7 @@ class TrainingSupervisor:
                 return job
             if job is None or job.state not in ("planned", "waiting", "paused") or not self.engine.ready():
                 raise TrainingError("nothing_to_train")
-            if self.lease.read().busy or not self.gpu_free() or not self.memory_free():
+            if self.lease.read().busy or not self._card_free() or not self.memory_free():
                 moved = self.jobs.move(job.id, "waiting", reason="train_now", trigger="train_now")
                 self._ensure_watch()
                 self._notify()
@@ -292,7 +309,7 @@ class TrainingSupervisor:
             if self._run is not None or self._closed:
                 raise TrainingError("training_changed")
             self._require_on()
-            if not self.gpu_free():
+            if not self._card_free():
                 raise TrainingError("gpu_busy")
             if not self.memory_free():
                 raise TrainingError("memory_busy")
@@ -576,7 +593,7 @@ class TrainingSupervisor:
                 return False
             if not settings.enabled or settings.paused or not self.engine.ready():
                 return False  # the runner takes it up again when Learning resumes
-            if not self.lease.read().busy and self.gpu_free() and self.memory_free():
+            if not self.lease.read().busy and self._card_free() and self.memory_free():
                 self._launch(job, "train_now")
             return True
 

@@ -118,9 +118,23 @@ test('a process runs in the background: view its output, then stop it', async ({
   await expect(running.getByRole('listitem')).toHaveCount(1);
   await expect(running).toContainText('Dev server');
   await expect(running).toContainText('localhost:5199');
-  await everywhere(page, info, 'processes-monitor', () =>
-    section.scrollIntoViewIfNeeded(),
-  );
+  await section.scrollIntoViewIfNeeded();
+  await views(page, info, 'processes-monitor');
+  // A phone keeps Monitor on the computer (D5) and lists the process under
+  // Home › Now, opening its conversation (C1).
+  await page.setViewportSize(PHONE);
+  await expect(
+    page.getByRole('region', { name: 'System Monitor' }),
+  ).toContainText('Open this on your computer');
+  await page.goto('/app-v2/');
+  await expect(
+    page
+      .getByRole('list', { name: 'Now' })
+      .getByRole('button', { name: /: Dev server$/ }),
+  ).toBeVisible();
+  await views(page, info, 'processes-now-phone');
+  await page.setViewportSize(DESKTOP);
+  await page.goto('/app-v2/?tab=monitor');
 
   await running.getByRole('button', { name: 'Stop Dev server' }).click();
   await expect(section).toContainText('Nothing is running in the background');

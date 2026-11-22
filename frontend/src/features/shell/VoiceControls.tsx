@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type {
   DictationHandle,
   DictationResult,
@@ -7,6 +7,7 @@ import type {
 import { clientError } from '../../api/errors';
 import { Button } from '../../ui/primitives';
 import { Mic, RefreshCw, Square, X } from 'lucide-react';
+import { takeVoiceOnOpen } from './new-chat';
 
 export type DictationScope = Readonly<{
   conversationId: string;
@@ -102,6 +103,16 @@ export default function VoiceControls(props: VoiceControlsProps) {
     props.scope.selectionKey,
     props.available,
   ]);
+  // Home's mic opened this chat (D3): dictation starts once it can.
+  const beginNow = useEffectEvent(() => void begin());
+  useEffect(() => {
+    if (
+      props.available &&
+      !props.disabled &&
+      takeVoiceOnOpen(props.scope.conversationId, 'dictate')
+    )
+      beginNow();
+  }, [props.available, props.disabled, props.scope.conversationId]);
 
   async function confirmStopped(attempt: Attempt) {
     if (!attempt.handle) return;

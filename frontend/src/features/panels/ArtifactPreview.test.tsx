@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { Profiler } from 'react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import type {
   ArtifactAuthoring,
@@ -23,6 +24,7 @@ import {
   type DesignSessionOwner,
 } from './artifact-design-sessions';
 import { designCommandSets } from './design-commands';
+import { PHONE_LAYOUT } from '../../ui/use-media';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -2141,4 +2143,138 @@ it('keeps one short toolbar row on a phone-width panel and the inspector as a sh
   fireEvent.click(handle);
   expect(sheet).toHaveAttribute('data-sheet', 'full');
   expect(sheet.style.getPropertyValue('--design-sheet')).toBe('100%');
+});
+
+/** The window's width as `usePhone` reads it; narrowing it tells listeners. */
+function windowWidth(initial: number) {
+  const media = vi.mocked(window.matchMedia);
+  const original = media.getMockImplementation();
+  const listeners = new Set<() => void>();
+  let width = initial;
+  media.mockImplementation(
+    (query: string) =>
+      ({
+        get matches() {
+          return query === PHONE_LAYOUT && width < 768;
+        },
+        media: query,
+        addEventListener: (_: string, listener: () => void) =>
+          listeners.add(listener),
+        removeEventListener: (_: string, listener: () => void) =>
+          listeners.delete(listener),
+      }) as unknown as MediaQueryList,
+  );
+  return {
+    set(next: number) {
+      act(() => {
+        width = next;
+        listeners.forEach((listener) => listener());
+      });
+    },
+    restore: () => media.mockImplementation(original!),
+  };
+}
+
+it('on a phone previews and pages through a design, with no Edit, zoom, size, undo or page changes', async () => {
+  const user = userEvent.setup();
+  const screenWidth = windowWidth(390);
+  try {
+    const load = vi.fn<ArtifactPreviewProps['load']>(async (page) =>
+      snapshot('deck-a', page === 'slide-1' ? 1 : 0),
+    );
+    const loadEditing = vi.fn(async () => editing());
+    render(
+      <MemoryRouter>
+        <ArtifactPreview
+          resourceId="deck-a"
+          resourceRevision="resource-1"
+          title="Launch deck"
+          visible
+          load={load}
+          loadEditing={loadEditing}
+          edit={vi.fn()}
+          loadPalette={vi.fn()}
+          onDraftText={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByTitle('Slide preview: Opening');
+    expect(screen.queryByRole('radio', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Preview zoom' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Size: / })).toBeNull();
+    for (const name of ['Undo', 'Redo', 'Versions', 'Inspector'])
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(
+      screen.getByRole('textbox', { name: 'Design name' }),
+    ).toHaveAttribute('readonly');
+
+    // The page menu lists the pages and nothing that changes them.
+    await user.click(screen.getByRole('button', { name: /^Slide 1 of 2/ }));
+    expect(
+      screen.getAllByRole('menuitem').map((item) => item.textContent),
+    ).toEqual(['1. Opening', '2. Closing']);
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('button', { name: 'Next slide' }));
+    await screen.findByTitle('Slide preview: Closing');
+    expect(load.mock.lastCall?.[0]).toBe('slide-1');
+    // A preview, never an editing session.
+    expect(load.mock.calls.every((call) => call[3] === undefined)).toBe(true);
+    // Undo's shortcut does nothing on a phone either.
+    fireEvent.keyDown(screen.getByRole('region', { name: 'Design preview' }), {
+      key: 'z',
+      ctrlKey: true,
+    });
+    expect(loadEditing).not.toHaveBeenCalled();
+  } finally {
+    screenWidth.restore();
+  }
+});
+
+it('ends Edit chosen at tablet width when the window narrows to a phone, and its sheet says editing is on the computer', async () => {
+  const user = userEvent.setup();
+  const screenWidth = windowWidth(800);
+  try {
+    const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());
+    render(
+      <MemoryRouter>
+        <ArtifactPreview
+          resourceId="deck-a"
+          resourceRevision="resource-1"
+          title="Launch deck"
+          visible
+          load={load}
+          loadEditing={vi.fn(() => new Promise<ArtifactEditingState>(() => {}))}
+          edit={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByTitle('Slide preview: Opening');
+    await user.click(screen.getByRole('radio', { name: 'Edit' }));
+    const sheet = screen.getByRole('complementary', {
+      name: 'Design inspector',
+    });
+    expect(within(sheet).getByRole('tab', { name: 'Selection' })).toBeVisible();
+    await waitFor(() => expect(load.mock.lastCall?.[3]).toBeDefined());
+
+    screenWidth.set(390);
+    expect(screen.queryByRole('radio', { name: 'Edit' })).toBeNull();
+    expect(
+      screen.getByRole('region', { name: 'Design preview' }),
+    ).toHaveAttribute('data-mode', 'preview');
+    const notice = within(sheet).getByRole('region', {
+      name: 'Editing a design',
+    });
+    expect(notice).toHaveTextContent('Open this on your computer');
+    expect(within(sheet).queryByRole('tab')).toBeNull();
+    // The preview is asked for again without an editing session.
+    await waitFor(() => expect(load.mock.lastCall?.[3]).toBeUndefined());
+
+    await user.click(within(sheet).getByRole('button', { name: 'Close' }));
+    expect(
+      screen.queryByRole('complementary', { name: 'Design inspector' }),
+    ).toBeNull();
+  } finally {
+    screenWidth.restore();
+  }
 });

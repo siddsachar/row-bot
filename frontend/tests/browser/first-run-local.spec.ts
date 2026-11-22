@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { homeOpened } from './phone-helpers';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 import {
@@ -131,9 +132,7 @@ test('On this computer: what is running first, every way to run models as an equ
   ).toBeVisible({ timeout: 10_000 });
   await reviewShots(page, '5-ready', row);
   await page.getByRole('button', { name: 'Use Qwen3.8 27B · 2-bit' }).click();
-  await expect(
-    page.getByRole('tablist', { name: 'Home capabilities' }),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(homeOpened(page)).toBeVisible({ timeout: 15_000 });
 });
 
 test('on a phone, a long model name truncates in its row and the page never scrolls sideways (W2)', async ({
@@ -192,9 +191,7 @@ test('Use on a found server’s model connects it and makes the model the defaul
     .getByRole('list', { name: 'LM Studio models' })
     .getByRole('button', { name: /qwen3\.8-27b/ })
     .click();
-  await expect(
-    page.getByRole('tablist', { name: 'Home capabilities' }),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(homeOpened(page)).toBeVisible({ timeout: 15_000 });
 });
 
 test('Ollama running with models shows under Found, beside the other ways', async ({

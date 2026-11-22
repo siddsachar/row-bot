@@ -14,7 +14,7 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Iterator
 
-from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, get_cloud_provider, set_active_model_override, _active_model_override
+from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, is_local_custom_endpoint, get_cloud_provider, set_active_model_override, _active_model_override
 from row_bot.api_keys import apply_keys
 from row_bot.prompts import get_agent_system_prompt, get_chat_only_system_prompt
 from row_bot.prompt_cache import (
@@ -1121,6 +1121,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "isn't available with your chatgpt plan" in s:
         # The ChatGPT transport already says it in plain words (B394).
         return f"⚠️ {exc_str}"
+    from row_bot.providers.transports.local_silence import is_local_silence
+
+    if is_local_silence(exc_str):
+        # A local model that sent nothing or ran to its reply limit: already in plain words.
+        return f"⚠️ {exc_str}"
     if "recursion" in s or "recursion limit" in s:
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:
@@ -1273,18 +1278,10 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
 
 
-# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
-# recording) is a long run of deliberate page actions, so it may take more.
-BROWSER_TOOL_LIMIT = 80
-RECORDING_BROWSER_TOOL_LIMIT = 400
-
-
-def _browser_tool_limit(thread_id: str) -> int:
-    """The browser actions this turn may take: more while this chat's browser is being recorded."""
-    from row_bot import recordings
-
-    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
-    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
+# How many browser actions one turn may take before it is stopped as a runaway loop. A long task (a growth
+# workflow, filming a demo) takes a hundred or more deliberate page actions; a real loop is caught sooner by the
+# stuck check (only looking, many times in a row).
+BROWSER_TOOL_LIMIT = 400
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -4030,9 +4027,10 @@ def _size_is_a_guess(prepared: PreparedModelInput) -> bool:
     """No source knows the model's context: its limit is Row-Bot's own cautious guess (I33).
 
     Row-Bot still compacts at the guess, but never refuses on it: the provider takes the request or
-    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models.
+    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models. A custom
+    endpoint's profile fallback (32K for a server that doesn't say) is a guess too.
     """
-    return prepared.usage.capacity_source == "app_fallback"
+    return prepared.usage.capacity_source in {"app_fallback", "profile_default"}
 
 
 def _terminal_compaction_failure(
@@ -5370,7 +5368,11 @@ def _learning_begin_turn(configurable: dict | None, *, resumed: bool = False) ->
             generation_id=str(values.get("generation_id") or ""),
             surface=surface,
             agent_run_id=str(values.get("agent_run_id") or ""),
-            goal=bool(values.get("internal_goal_continuation")),
+            # A goal step: goals.py's own turns (no follow-up kind) or a conversation's "goal" follow-up. Row-Bot's
+            # other follow-ups (a wait, a linked reply, a carry-on) belong to their conversation, as the person
+            # scoped it (My chats, not Workflows and goals).
+            goal=bool(values.get("internal_goal_continuation"))
+            and str(values.get("followup_kind", "goal")) == "goal",
             person_message=surface in _LEARNING_PERSON_SURFACES and not started_by_row_bot,
             resumed=resumed,
         ))
@@ -5625,6 +5627,7 @@ def _set_active_runtime_context(
     _current_device_zone_var.set(str(device_zone or ""))
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
+    _current_on_demand_tools_var.set({})
     _current_bound_tool_schema_tokens_var.set(0)
     _current_canonical_tools_var.set(())
     _current_last_preparation_var.set(None)
@@ -6296,8 +6299,10 @@ def _collect_agent_tool_candidates(
 # profile limits and guides unchanged). On every window, Developer tools come with a code folder (WP A5):
 # without one each of them fails, and their 22 schemas and guide went with every call of every chat.
 SMALL_CONTEXT_TOKENS = 65_536
-# A local model (Ollama and other on-device runtimes) up to this window gets the middle tier too: its
-# whole prompt is processed on this computer, so every token costs time to the first word.
+# A local model up to this window gets the middle tier too: its whole prompt is processed on this
+# computer, so every token costs time to the first word. Local is Ollama's own models and a custom
+# endpoint saved as local (Run on this computer, a found server, one added by hand), not Learning's
+# personal models, which keep the tier they were trained in (models.is_local_custom_endpoint).
 LOCAL_MIDDLE_CONTEXT_TOKENS = 131_072
 # The middle tier (64K or less, or local up to 128K) also offers Row-Bot's self-management on demand.
 ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status"})
@@ -6776,7 +6781,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     effective_context = get_context_size(model_label)
     small_window = normalized_allowlist is None and (
         0 < int(effective_context or 0) <= SMALL_CONTEXT_TOKENS
-        or (0 < int(effective_context or 0) <= LOCAL_MIDDLE_CONTEXT_TOKENS and not is_cloud_model(model_label))
+        or (0 < int(effective_context or 0) <= LOCAL_MIDDLE_CONTEXT_TOKENS
+            and (not is_cloud_model(model_label) or is_local_custom_endpoint(model_label)))
     )
     # A profile's own tool list is bound as chosen; otherwise rarely used tools are offered on demand.
     defer_rarely_used = normalized_allowlist is None
@@ -7892,8 +7898,9 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY, collect_quoted_conversations
     from row_bot.tools.approval_gate import collect_activity
-    with tool_attachment_scope() as caches, collect_activity() as decisions:
+    with tool_attachment_scope() as caches, collect_activity() as decisions, collect_quoted_conversations() as quoted:
         try:
             result = execute(request)
         except BaseException as exc:
@@ -7938,6 +7945,11 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         if stamp is not None:
             result = result.model_copy(update={
                 "additional_kwargs": {**dict(result.additional_kwargs), _UNTRUSTED_RESULT_KEY: stamp},
+            })
+        if quoted:
+            # Past conversations the result quotes: Learning keeps none of an excluded chat's words.
+            result = result.model_copy(update={
+                "additional_kwargs": {**dict(result.additional_kwargs), QUOTED_CONVERSATIONS_KEY: sorted(set(quoted))},
             })
         if learning_turn is not None:
             # Undecided counts as untrusted for Learning: the request fences it anyway.
@@ -8878,11 +8890,14 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
                                config: dict | None = None,
                                *, agent_graph=None,
                                orphan_message: str = "[Cancelled by user]",
-                               marker_message: str = "\u23f9\ufe0f *[Stopped]*") -> int | None:
+                               marker_message: str | None = "\u23f9\ufe0f *[Stopped]*",
+                               as_node: str | None = None) -> int | None:
     """Patch the checkpoint so every AIMessage tool_call has a ToolMessage.
 
     Called after stop-generation to prevent
-    ``INVALID_CHAT_HISTORY`` errors on the next query.
+    ``INVALID_CHAT_HISTORY`` errors on the next query. ``marker_message=None`` adds no stop marker, so the
+    conversation ends on the patched results; ``as_node`` saves them as that node's output (``"tools"``: the
+    model runs next, as after any tool step).
     """
     if config is None:
         return 0
@@ -8923,11 +8938,10 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
             logger.warning("Repairing %d orphaned tool_call(s): %s",
                            len(patches),
                            [p.tool_call_id for p in patches])
-            agent.update_state(config, {"messages": patches})
-            # Add a visible stop marker so the conversation reloads correctly
-            agent.update_state(config, {"messages": [
-                AIMessage(content=str(marker_message or "\u23f9\ufe0f *[Stopped]*"))
-            ]})
+            agent.update_state(config, {"messages": patches}, as_node=as_node)
+            if marker_message is not None:
+                # Add a visible stop marker so the conversation reloads correctly
+                agent.update_state(config, {"messages": [AIMessage(content=str(marker_message))]})
             logger.warning("repair_orphaned_tool_calls: checkpoint patched successfully")
         else:
             logger.debug("repair_orphaned_tool_calls: no orphaned tool_calls in %d messages", len(msgs))
@@ -8935,6 +8949,24 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
     except Exception:
         logger.warning("repair_orphaned_tool_calls failed", exc_info=True)
         return None
+
+
+def _save_stopped_browser_step(agent, config: dict, stream_iter) -> None:
+    """Save a turn stopped at its browser limit so the conversation ends on the stopped step's result.
+
+    The turn broke out of its stream as soon as the model asked for the step, before LangGraph saved that
+    model step: the request is only a pending write of the open run. Ending the run first lets its background
+    checkpoint writes land; settling keeps the finished request and drops the step that would run next; the
+    result is then saved as the tools' output, so Resume runs the model on a history every provider accepts.
+    """
+    from langgraph.graph import END
+
+    stream_iter.close()
+    agent.update_state(config, None, as_node=END)
+    # Its unfinished step says why it stopped: not the person.
+    repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                               orphan_message="[Stopped: too many browser actions in one turn]",
+                               marker_message=None, as_node="tools")
 
 
 def _resume_value(approved: bool, interrupt_ids: list[str] | None,
@@ -9686,7 +9718,6 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -9859,8 +9890,7 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
-                                                       >= _browser_tool_limit(_browser_thread)):
+                                if _snapshot_heavy or _browser_tool_count >= BROWSER_TOOL_LIMIT:
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -10147,11 +10177,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            # Its unfinished step says why it stopped: not the person.
-            repair_orphaned_tool_calls(config=config, agent_graph=agent,
-                                       orphan_message="[Stopped: too many browser actions in one turn]")
+            _save_stopped_browser_step(agent, config, stream_iter)
         except Exception:
-            pass
+            logger.warning("The stopped browser step was not saved", exc_info=True)
         _browser_msg = (
             "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
             "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."
