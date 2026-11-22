@@ -11,8 +11,8 @@ Any video: a film of AI shots, a vlog, a montage, a tutorial or a short. The che
   character or style drifting apart (a colour histogram each).
 - **One look** at the review sheet by the person's own vision model, with a fixed list of what to look for.
 
-Each finding is one line with its scene and time and what to do. Lines starting "Check" are heuristics worth a look:
-they don't stop a video being ready. Everything else does, until it's fixed or the person says it's fine.
+Each finding is one line with its scene and time and what to do. Lines starting "Check" (the heuristics, and what the
+vision model saw) are worth a look: they don't stop a video being ready. Everything else does, until it's fixed or the person says it's fine.
 """
 
 from __future__ import annotations
@@ -506,12 +506,14 @@ def look(sheet: bytes, lines: list[str] | None = None) -> list[Finding]:
         answer = f"Vision analysis failed: {type(error).__name__}"
     if answer.startswith("Vision analysis failed") or not answer:
         return [Finding(f"Look: the vision model couldn't look at the review sheet ({answer[:160] or 'no answer'}). "
-                        "Open the sheet to check it by eye.", fix=False)]
+                        "Tell the person the frames weren't looked at, so they can open the review sheet and check by "
+                        "eye.", fix=False)]
     seen = []
     for raw in answer.splitlines():
         text = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip().strip("*")
         if _LABELLED.match(text):
-            seen.append(Finding(f"Seen on the review sheet, {text[:200]}"))
+            # A fresh look each make can see something new: worth a look, never a reason to hold the video back.
+            seen.append(Finding(f"Check {text[0].lower()}{text[1:200]}", fix=False))
     if seen:
         return seen[:MAX_LOOKS]
     if answer.upper().rstrip(".!").startswith("OK"):

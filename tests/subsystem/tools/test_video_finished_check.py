@@ -251,10 +251,10 @@ def test_the_check_looks_at_the_review_sheet_once_with_a_fixed_rubric_and_lists_
     assert sheet == b"review sheet", "one call, on the review sheet"
     assert "scene 1: Open the shop." in question and "scene 2: Ship it" in question, "what each scene says"
     assert "warped hands or faces" in question and "cut off at an edge" in question and "reply OK" in question
-    assert edit.checks_passed is False
-    assert "Seen on the review sheet, scene 2 · 0:02: the hand on the box looks warped" in edit.checks
-    assert "Seen on the review sheet, 0:00.5: the caption runs off the right edge" in edit.checks
+    assert "Check scene 2 · 0:02: the hand on the box looks warped" in edit.checks
+    assert "Check 0:00.5: the caption runs off the right edge" in edit.checks
     assert not any("reads well" in line for line in edit.checks), "only problems, not what's fine"
+    assert edit.checks_passed is True, "a fresh look each make can always find something: it never holds a video"
     assert edit.detail == "", "the card no longer says it's checking"
 
     assert made(_Vision("OK")).checks_passed is True
@@ -270,8 +270,10 @@ def test_with_no_vision_model_the_look_is_skipped_and_said_so(made):
     assert "Look: not done. No model is chosen yet, so Row-Bot can't look at images. Choose a model, then try " \
            "again." in edit.checks
     failed = made(_Vision("Vision analysis failed: the provider timed out"))
-    assert failed.checks_passed is True and any(line.startswith("Look: the vision model couldn't look at the review "
-                                                                "sheet") for line in failed.checks)
+    assert failed.checks_passed is True
+    assert "Look: the vision model couldn't look at the review sheet (Vision analysis failed: the provider timed " \
+           "out). Tell the person the frames weren't looked at, so they can open the review sheet and check by " \
+           "eye." in failed.checks
 
 
 @pytest.mark.slow

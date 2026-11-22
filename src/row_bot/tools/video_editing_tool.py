@@ -435,7 +435,7 @@ class VideoEditingTool(BaseTool):
                     "join, speed (with a 2× label), text badges or titles, zoom (punch-in), crop, captions (SRT), "
                     "sound (voice lines at times, music ducked under them, one loudness). action=frames saves "
                     "stills; check gives a finished video the finished check (loudness, black and still stretches, "
-                    "one look at its frames): never say a video is done before it passes. status/stop follow an "
+                    "one look at its frames): check a video before you present it as a final. status/stop follow an "
                     "edit in the background; save copies it into "
                     "the workspace. The first use may ask to download ffmpeg."
                 ),
