@@ -286,18 +286,23 @@ class BrainContract:
         assert not [event for event in events if event.op is ChangeOp.UPSERT and event.ref in set(retracted)]
 
     def test_forget_crosses_spaces_but_reports_only_what_the_caller_may_read(self, brain):
+        # Promotion cuts lineage into personal spaces (ORG-6); between shared spaces, lineage stays.
         mine = brain.write(ALICE, fact(ALICE_NOTES, "Recipe", "Alice's sourdough recipe"))
         theirs = brain.write(BOB, fact(BOB_NOTES, "Recipe", "Bob's copy of Alice's sourdough",
                                        actor="bob", lineage=Lineage(derived_from=(mine.ref,))))
-        team = brain.write(PRIYA, fact(PAYMENTS, "Recipe", "The team's sourdough", actor="priya",
-                                       lineage=Lineage(derived_from=(mine.ref,))))
+        team = brain.write(PRIYA, fact(PAYMENTS, "Refunds", "Refunds take five days", actor="priya"))
+        company = brain.write(LEGAL, fact(ACME, "Refunds", "Legal's note on refund timing", actor="lee",
+                                          audience=frozenset({"legal"}), lineage=Lineage(derived_from=(team.ref,))))
 
-        assert set(brain.forget(ALICE, mine.ref, "personal data")) == {mine.ref, team.ref}
+        assert brain.forget(ALICE, mine.ref, "personal data") == (mine.ref,)
+        assert brain.forget(PRIYA, team.ref, "wrong") == (team.ref,)
 
-        for principal, ref in ((BOB, theirs.ref), (PRIYA, team.ref)):
+        for principal, ref in ((BOB, theirs.ref), (LEGAL, company.ref)):
             with pytest.raises(AccessDenied):
                 brain.get(principal, ref)
         assert [event.op for event in replay(brain, BOB, BOB_NOTES)] == [ChangeOp.RETRACT]
+        assert [event.op for event in replay(brain, LEGAL, ACME)] == [ChangeOp.RETRACT]
+        assert replay(brain, PRIYA, ACME) == []
 
     def test_forget_needs_write_access_and_a_reason(self, brain):
         item = brain.write(PRIYA, fact(PAYMENTS, "Retries", "three times", actor="priya"))

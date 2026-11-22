@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def _schema(name: str) -> Draft202012Validator:
-    schema = json.loads((ROOT / "contracts" / "brain" / f"{name}.schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "contracts" / "brain" / "v1" / f"{name}.schema.json").read_text(encoding="utf-8"))
     return Draft202012Validator(schema, format_checker=FormatChecker())
 
 

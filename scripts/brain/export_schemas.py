@@ -1,4 +1,4 @@
-"""Write the brain records' JSON Schemas to contracts/brain/, generated from row_bot.brain's types.
+"""Write the brain records' JSON Schemas to contracts/brain/v1/, generated from row_bot.brain's types.
 
 --check writes nothing and fails when a schema file is missing, differs or is no longer generated.
 """
@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from row_bot.brain import SCHEMA_TYPES, json_schema  # noqa: E402 -- load checkout source after path bootstrap
 
-DESTINATION = ROOT / "contracts" / "brain"
+DESTINATION = ROOT / "contracts" / "brain" / "v1"
 
 
 def outputs() -> dict[Path, str]:

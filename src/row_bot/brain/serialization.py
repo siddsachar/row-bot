@@ -2,7 +2,7 @@
 
 Each record is a frozen dataclass. Its field annotations, with ``Annotated[..., Bounds(...)]`` limits, are the
 one source of truth: constructing a record checks them (``check_fields``), ``to_dict`` / ``from_dict`` map a
-record to and from JSON-safe dicts, and ``json_schema`` publishes it (``contracts/brain/``).
+record to and from JSON-safe dicts, and ``json_schema`` publishes it (``contracts/brain/v1/``).
 
 The mapping is strict. Unknown and missing fields are refused, every string and collection is bounded, text
 may not hold NUL (Postgres can't store it), and times are timezone-aware UTC, written as ISO-8601 with ``Z``.

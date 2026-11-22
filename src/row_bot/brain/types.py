@@ -369,7 +369,7 @@ class ChangePage:
         check_fields(self)
 
 
-# The records published as JSON Schema under contracts/brain/.
+# The records published as JSON Schema under contracts/brain/v1/.
 SCHEMA_TYPES: tuple[type, ...] = (
     Space, ItemRef, Principal, SpaceAccess, Provenance, Validity, Lineage,
     Fact, Relation, Skill, SourceDoc, RecallQuery, RecallHit, ChangeEvent, ChangePage,
