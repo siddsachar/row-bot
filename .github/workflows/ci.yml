@@ -9,7 +9,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    # feat/org: the Row-Bot Org integration branch, whose work-package pull
+    # requests get the same checks before it is brought into main.
+    branches: [main, feat/org]
   push:
     branches: [main]
 
