@@ -186,6 +186,29 @@ def test_a_paid_video_under_ask_asks_and_a_denial_makes_nothing(media):
     assert media.calls == [] and media.videos == []
 
 
+def test_a_clip_the_model_cant_extend_is_refused_before_the_card(media, monkeypatch):
+    from row_bot.tools import video_gen_tool
+
+    monkeypatch.setattr(video_gen_tool, "_resolve_clip", lambda value: b"\x00\x00\x00\x18ftypmp42clip")
+    media.video = "openrouter/google/veo-3.1"
+
+    result = media.call("generate_video", prompt="the door opens", extend="last")
+
+    assert result.startswith("OpenRouter can't continue a clip with google/veo-3.1.")
+    assert media.asked == [] and media.calls == [] and media.videos == []
+
+
+def test_a_video_card_asks_for_the_resolution_the_model_will_make(media):
+    media.video = "google/gemini-omni-1.2-flash"
+    media.answer = False
+
+    media.call("generate_video", prompt="waves at dusk", duration_seconds=8)
+
+    [card] = media.asked
+    assert card["question"] == "Make a video (8 seconds, 1080p) on Google? It costs money on your Google account."
+    assert card["price"]["low_usd"] == pytest.approx(0.832)
+
+
 @pytest.fixture
 def design(media, monkeypatch):
     """An open design whose agent tools are bound, with nothing written to disk."""
