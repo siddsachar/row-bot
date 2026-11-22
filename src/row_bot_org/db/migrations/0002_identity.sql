@@ -60,7 +60,6 @@ CREATE TABLE row_bot_org.auth_attempts (
     nonce bytea NOT NULL CHECK (pg_catalog.octet_length(nonce) OPERATOR(pg_catalog.=) 32),
     -- The PKCE verifier: only the token endpoint may see it, so it is kept for the ten minutes.
     code_verifier text NOT NULL CHECK (pg_catalog.char_length(code_verifier) OPERATOR(pg_catalog.=) 43),
-    idp text NOT NULL,
     expires_at timestamptz NOT NULL
 );
 CREATE INDEX auth_attempts_expiry ON row_bot_org.auth_attempts (expires_at);
@@ -97,13 +96,13 @@ CALL row_bot_org.grant_runtime_access('row_bot_org.server_sessions');
 
 -- A sign-in starts: keep its attempt for p_lifetime (at most 15 minutes), and drop expired ones.
 CREATE FUNCTION row_bot_org.begin_sign_in(p_state bytea, p_browser bytea, p_nonce bytea, p_code_verifier text,
-                                          p_idp text, p_lifetime interval) RETURNS void
+                                          p_lifetime interval) RETURNS void
     LANGUAGE sql VOLATILE SECURITY DEFINER
     SET search_path = pg_catalog, pg_temp
     AS $$
         DELETE FROM row_bot_org.auth_attempts WHERE expires_at OPERATOR(pg_catalog.<=) pg_catalog.now();
-        INSERT INTO row_bot_org.auth_attempts (state, browser, nonce, code_verifier, idp, expires_at)
-        VALUES (p_state, p_browser, p_nonce, p_code_verifier, p_idp,
+        INSERT INTO row_bot_org.auth_attempts (state, browser, nonce, code_verifier, expires_at)
+        VALUES (p_state, p_browser, p_nonce, p_code_verifier,
                 pg_catalog.now() OPERATOR(pg_catalog.+)
                     LEAST(p_lifetime, '15 minutes'::pg_catalog.interval));
     $$;
@@ -111,15 +110,15 @@ CREATE FUNCTION row_bot_org.begin_sign_in(p_state bytea, p_browser bytea, p_nonc
 -- The callback arrives: the attempt for this state is deleted whatever happens next (single use), and
 -- returned only while it is unexpired.
 CREATE FUNCTION row_bot_org.take_sign_in(p_state bytea)
-    RETURNS TABLE (browser bytea, nonce bytea, code_verifier text, idp text)
+    RETURNS TABLE (browser bytea, nonce bytea, code_verifier text)
     LANGUAGE sql VOLATILE SECURITY DEFINER
     SET search_path = pg_catalog, pg_temp
     AS $$
         WITH taken AS (
             DELETE FROM row_bot_org.auth_attempts a WHERE a.state OPERATOR(pg_catalog.=) p_state
-            RETURNING a.browser, a.nonce, a.code_verifier, a.idp, a.expires_at
+            RETURNING a.browser, a.nonce, a.code_verifier, a.expires_at
         )
-        SELECT t.browser, t.nonce, t.code_verifier, t.idp FROM taken t
+        SELECT t.browser, t.nonce, t.code_verifier FROM taken t
         WHERE t.expires_at OPERATOR(pg_catalog.>) pg_catalog.now();
     $$;
 
@@ -180,7 +179,7 @@ CREATE FUNCTION row_bot_org.resume_session(p_verifier bytea)
                   WHERE g.principal_id OPERATOR(pg_catalog.=) s.principal_id ORDER BY g.name);
     $$;
 
-REVOKE ALL ON FUNCTION row_bot_org.begin_sign_in(bytea, bytea, bytea, text, text, interval) FROM PUBLIC;
+REVOKE ALL ON FUNCTION row_bot_org.begin_sign_in(bytea, bytea, bytea, text, interval) FROM PUBLIC;
 REVOKE ALL ON FUNCTION row_bot_org.take_sign_in(bytea) FROM PUBLIC;
 REVOKE ALL ON FUNCTION row_bot_org.sign_in(text, text, text, text, text[], bytea, interval, interval, text, text,
                                            bytea) FROM PUBLIC;
@@ -188,7 +187,7 @@ REVOKE ALL ON FUNCTION row_bot_org.resume_session(bytea) FROM PUBLIC;
 DO $$
 BEGIN
     EXECUTE pg_catalog.format(
-        'GRANT EXECUTE ON FUNCTION row_bot_org.begin_sign_in(bytea, bytea, bytea, text, text, interval), '
+        'GRANT EXECUTE ON FUNCTION row_bot_org.begin_sign_in(bytea, bytea, bytea, text, interval), '
         'row_bot_org.take_sign_in(bytea), '
         'row_bot_org.sign_in(text, text, text, text, text[], bytea, interval, interval, text, text, bytea), '
         'row_bot_org.resume_session(bytea) TO %I', row_bot_org.runtime_role());

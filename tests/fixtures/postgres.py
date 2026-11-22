@@ -4,6 +4,7 @@ Where Postgres comes from, and nothing else is guessed:
 
 - ``ROW_BOT_TEST_PG_BIN``: a folder holding ``initdb``, ``postgres`` and ``pg_ctl`` (Linux, macOS, CI).
 - ``ROW_BOT_TEST_PG_WSL_DISTRO``: on Windows, a WSL distro with Postgres 17 at ``/usr/lib/postgresql/17/bin``.
+  A cold WSL gets a few minutes to start before the programs are looked for.
 
 With neither, or without the programs, or without psycopg (``uv sync ... --group org``), every test
 using the cluster skips and says why; with ``ROW_BOT_TEST_PG_REQUIRED=1`` (CI's Org job) it fails instead.
@@ -43,6 +44,11 @@ SUPERUSER = "row_bot_test"
 PROGRAMS = ("initdb", "postgres", "pg_ctl")
 _START_TIMEOUT = 120.0  # a WSL distro's first start can take a minute
 _COMMAND_TIMEOUT = 120.0
+# A cold WSL (just restarted, or its VM idle-stopped) can fail or hang its first commands: the distro is
+# asked to run `true` until it answers, for up to this long in all, each try at most _WSL_TRY_TIMEOUT.
+_WSL_START_TIMEOUT = 240.0
+_WSL_TRY_TIMEOUT = 60.0
+_WSL_RETRY_PAUSE = 2.0
 
 
 class PostgresUnavailable(Exception):
@@ -64,9 +70,8 @@ class PostgresPrograms:
     def _wsl(self, *argv: str) -> list[str]:
         return ["wsl.exe", "-d", self.distro or "", "--exec", *argv]
 
-    def run(self, argv: list[str], *, stdin: str | None = None) -> str:
-        result = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=_COMMAND_TIMEOUT,
-                                check=False)
+    def run(self, argv: list[str], *, stdin: str | None = None, timeout: float = _COMMAND_TIMEOUT) -> str:
+        result = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
         if result.returncode != 0:
             raise RuntimeError(f"{Path(argv[0]).name} {' '.join(argv[1:3])} failed ({result.returncode}): "
                                f"{(result.stdout + result.stderr).strip()[-2000:]}")
@@ -95,6 +100,23 @@ class PostgresPrograms:
             shutil.rmtree(path, ignore_errors=True)
 
 
+def _wait_for_wsl(programs: PostgresPrograms) -> None:
+    """Return once the WSL distro runs a command; ``PostgresUnavailable`` if it doesn't in time."""
+    deadline = time.monotonic() + _WSL_START_TIMEOUT
+    while True:
+        remaining = deadline - time.monotonic()
+        try:
+            programs.run(programs._wsl("true"), timeout=max(1.0, min(_WSL_TRY_TIMEOUT, remaining)))
+            return
+        except OSError:
+            raise PostgresUnavailable("wsl.exe can't be run") from None
+        except (RuntimeError, subprocess.TimeoutExpired):
+            if time.monotonic() + _WSL_RETRY_PAUSE >= deadline:
+                raise PostgresUnavailable(
+                    f"WSL distro {programs.distro!r} didn't start within {_WSL_START_TIMEOUT:g} s") from None
+        time.sleep(_WSL_RETRY_PAUSE)
+
+
 def find_postgres(environ: dict[str, str] | os._Environ[str] | None = None) -> PostgresPrograms:
     """The configured Postgres programs; ``PostgresUnavailable`` (with the reason) when there are none."""
     env = os.environ if environ is None else environ
@@ -109,6 +131,7 @@ def find_postgres(environ: dict[str, str] | os._Environ[str] | None = None) -> P
         if sys.platform != "win32":
             raise PostgresUnavailable(f"{PG_WSL_DISTRO_ENV} is for Windows; set {PG_BIN_ENV} instead")
         programs = PostgresPrograms(WSL_PG_BIN, distro)
+        _wait_for_wsl(programs)
         checks = [arg for name in PROGRAMS for arg in ("-a", "-x", f"{WSL_PG_BIN}/{name}")][1:]
         try:
             programs.run(programs._wsl("test", *checks))

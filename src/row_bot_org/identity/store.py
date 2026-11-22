@@ -25,7 +25,6 @@ class SignInAttempt:
     browser: bytes
     nonce: bytes
     code_verifier: str
-    idp: str
 
 
 @dataclass(frozen=True)
@@ -35,19 +34,18 @@ class SessionPrincipal:
     groups: tuple[str, ...]
 
 
-def begin_sign_in(pool: ConnectionPool, *, state: bytes, browser: bytes, nonce: bytes, code_verifier: str,
-                  idp: str) -> None:
+def begin_sign_in(pool: ConnectionPool, *, state: bytes, browser: bytes, nonce: bytes, code_verifier: str) -> None:
     with pool.connection() as conn:
-        conn.execute("SELECT row_bot_org.begin_sign_in(%s, %s, %s, %s, %s, %s)",
-                     (state, browser, nonce, code_verifier, idp, SIGN_IN_LIFETIME))
+        conn.execute("SELECT row_bot_org.begin_sign_in(%s, %s, %s, %s, %s)",
+                     (state, browser, nonce, code_verifier, SIGN_IN_LIFETIME))
 
 
 def take_sign_in(pool: ConnectionPool, state: bytes) -> SignInAttempt | None:
     """The unexpired attempt for ``state``, deleted as it is read; None when there is none."""
     with pool.connection() as conn:
-        row = conn.execute("SELECT browser, nonce, code_verifier, idp FROM row_bot_org.take_sign_in(%s)",
+        row = conn.execute("SELECT browser, nonce, code_verifier FROM row_bot_org.take_sign_in(%s)",
                            (state,)).fetchone()
-    return None if row is None else SignInAttempt(bytes(row[0]), bytes(row[1]), row[2], row[3])
+    return None if row is None else SignInAttempt(bytes(row[0]), bytes(row[1]), row[2])
 
 
 def sign_in(pool: ConnectionPool, identity: VerifiedIdentity, *, verifier: bytes, lifetime: int, idle: int,

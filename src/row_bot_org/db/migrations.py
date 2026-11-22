@@ -4,8 +4,8 @@
 ``row_bot_org.schema_migrations`` with each file's SHA-256 (of its text with LF line endings), and
 applies each pending file in its own transaction together with its ledger row. It refuses to go on when
 an applied file has changed, the database records a migration this server doesn't know (a newer server
-migrated it), a pending file is older than the newest applied one, or the schema or ledger belongs to a
-role the migrating role isn't a member of. A migration that leaves any table in the schema readable by
+migrated it), a pending file is older than the newest applied one, the schema or ledger belongs to a
+role the migrating role isn't a member of, or the migrating role is a superuser. A migration that leaves any table in the schema readable by
 another role without forced row-level security is rolled back. There is no "down": a mistake is fixed
 by a new migration.
 """
@@ -178,6 +178,15 @@ def migrate(
     """Apply the pending migrations (the shipped ones by default) as the migrating role; returns them."""
     chosen = load_migrations() if migrations is None else migrations
     with psycopg.connect(conninfo, autocommit=True, connect_timeout=CONNECT_TIMEOUT) as conn:
+        # The migrating role owns the SECURITY DEFINER functions the runtime role calls before sign-in:
+        # owned by a superuser, they would run past every check in the database.
+        (superuser,) = conn.execute(
+            "SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user").fetchone()
+        if superuser:
+            raise MigrationError(
+                "the migrating role is a superuser, so the sign-in functions it would own would run as one: "
+                "migrate as the owner role deploy/org/README.md describes"
+            )
         waited = False
         try:
             conn.execute(f"SET lock_timeout = '{int(lock_wait * 1000)}ms'")

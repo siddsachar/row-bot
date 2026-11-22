@@ -117,6 +117,8 @@ def test_serve_listens_on_loopback_by_default_and_is_ready(
     assert "ROW_BOT_ORG_DATABASE_URL" not in os.environ
     assert (served["host"], served["port"]) == ("127.0.0.1", 8100)
     assert served["access_log"] is False and served["log_config"] is None and served["server_header"] is False
+    # uvicorn's own proxy headers trust 127.0.0.1; forwarded headers count only from ROW_BOT_ORG_TRUSTED_PROXIES.
+    assert served["proxy_headers"] is False
     with TestClient(served["app"]) as client:
         assert client.get("/healthz").json() == {"status": "ok"}
         ready = client.get("/readyz")

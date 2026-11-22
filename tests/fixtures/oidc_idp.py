@@ -3,8 +3,7 @@
 ``FakeIdp(shape)`` serves one issuer shaped like Entra ID (``<base>/<tenant>/v2.0``, ``tid``, GUID groups,
 an email without ``email_verified``), Okta (``<base>/oauth2/default``, ``email_verified``, named groups)
 or Google (the bare origin, ``azp``, ``hd``, no groups). It signs with keys it generates (RS256 unless
-told otherwise), checks the client (a secret by Basic auth, or a ``private_key_jwt`` assertion), the
-redirect URI and PKCE S256 at its token endpoint, and hands out each code once.
+told otherwise), checks the client (its secret by Basic auth), the redirect URI and PKCE S256 at its token endpoint, and hands out each code once.
 
 A test plays the browser: ``authorize(location)`` takes the server's redirect to the provider, "signs
 the person in" with the shape's claims (plus overrides) and returns the callback URL to follow.
@@ -66,14 +65,12 @@ def new_key(alg: str = "RS256") -> Any:
 
 class FakeIdp:
     def __init__(self, shape: str = "okta", *, client_id: str = CLIENT_ID, client_secret: str = CLIENT_SECRET,
-                 client_public_jwk: dict[str, Any] | None = None, redirect_uri: str = REDIRECT_URI,
-                 tenant: str = TENANT) -> None:
+                 redirect_uri: str = REDIRECT_URI, tenant: str = TENANT) -> None:
         if shape not in SHAPES:
             raise ValueError(shape)
         self.shape = shape
         self.client_id = client_id
         self.client_secret = client_secret
-        self.client_public_jwk = client_public_jwk
         self.redirect_uri = redirect_uri
         self.tenant = tenant
         self.keys = [new_key()]
@@ -97,10 +94,9 @@ class FakeIdp:
         return {"entra": f"{self.base_url}/{self.tenant}/v2.0", "okta": f"{self.base_url}/oauth2/default",
                 "google": self.base_url}[self.shape]
 
-    def config(self, name: str | None = None, **overrides: Any) -> dict[str, Any]:
-        """This provider's entry for ``ROW_BOT_ORG_IDPS``."""
-        entry: dict[str, Any] = {"name": name or self.shape, "kind": self.shape, "issuer": self.issuer,
-                                 "client_id": self.client_id}
+    def config(self, **overrides: Any) -> dict[str, Any]:
+        """This provider for ``ROW_BOT_ORG_IDP``."""
+        entry: dict[str, Any] = {"kind": self.shape, "issuer": self.issuer, "client_id": self.client_id}
         if self.shape == "entra":
             entry["allowed_tenants"] = [self.tenant]
         entry.update(overrides)
@@ -179,16 +175,6 @@ class FakeIdp:
         if authorization.startswith("Basic "):
             user, _, password = base64.b64decode(authorization[6:]).decode().partition(":")
             return unquote(user) == self.client_id and unquote(password) == self.client_secret
-        if form.get("client_assertion_type") == "urn:ietf:params:oauth:client-assertion-type:jwt-bearer":
-            if self.client_public_jwk is None:
-                return False
-            from joserfc.jwk import import_key
-
-            key = import_key(self.client_public_jwk)
-            claims = jwt.decode(form.get("client_assertion", ""), key,
-                                algorithms=["RS256", "ES256"]).claims
-            return (claims.get("iss") == claims.get("sub") == self.client_id
-                    and claims.get("aud") == f"{self.base_url}/token" and claims.get("exp", 0) > time.time())
         return False
 
     def _token(self, headers: Any, body: bytes) -> tuple[int, dict[str, Any]]:
