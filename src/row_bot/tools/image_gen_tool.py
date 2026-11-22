@@ -411,7 +411,30 @@ def resolve_references(references: list[str] | None, character: str = "", style:
     for kind, name in (("character", character), ("style", style)):
         if str(name or "").strip():
             pictures += media_library.look_pictures(kind, str(name))
-    return pictures + [_resolve_image_source(name) for name in names]
+    return pictures + [reference_picture(name) for name in names]
+
+
+def reference_picture(name: str) -> bytes:
+    """A reference or last-frame picture: 'last', an image pasted or attached this turn, or a picture
+    ``media_sources.resolve`` finds (this chat's files, the workspace, or a file elsewhere once the person
+    allows reading it); never an unchecked path, so a name can't send any file on disk to a provider."""
+    from row_bot import media_sources
+    from row_bot.tool_outputs import current_thread_id
+
+    text = name.strip()
+    pasted = [key for key in _execution_image_cache() if key != "__last_generated__"]
+    if text.lower() == "last" or text in pasted or any(text.lower() in key.lower() for key in pasted):
+        return _resolve_image_source(text)  # The turn's own pictures: nothing is read from disk.
+    conversation = current_thread_id()
+    try:
+        if not conversation:
+            raise media_sources.SourceError(f"Couldn't find {text}: a reference names a picture in this chat.")
+        found = media_sources.resolve(text, conversation)[0]
+        if found.kind != "image":
+            raise media_sources.SourceError(f"{text} isn't a picture.")
+        return found.read_bytes()
+    except media_sources.SourceError as exc:
+        raise ValueError(str(exc)) from None
 
 
 def _first_item_b64(data: dict) -> str:

@@ -10,7 +10,7 @@ The agent calls ``generate_video`` to make a clip from a prompt (or to continue 
 
 Each provider takes what its own API documents, mapped below. What a model doesn't offer is said in the
 result in plain words, never dropped silently; a clip that can't be extended is refused before anything is
-made. Plain shot words in the prompt ("close-up", "wide", "slow push-in", "handheld") are kept as written:
+made. Plain shot words in the prompt ("close-up", "wide", "slow push-in", "handheld") reach the model unchanged:
 none of these APIs has a camera parameter of its own, so the words reach the model in the prompt.
 
 When no resolution is asked for, a clip is made at the highest resolution the model allows for its length
@@ -177,8 +177,8 @@ def _fit(shot: _Shot, provider_id: str, model: str, first_frame: bool) -> str:
     if shot.extend is not None:
         if not offers.extend:
             why = f": {offers.extend_why}" if offers.extend_why else ""
-            return (f"{label} can't continue a clip with {model}{why}. Nothing was made or charged. Choose a "
-                    "model that extends clips in Settings › Models, or make a new shot that starts on the "
+            return (f"{label} can't continue a clip with {model}{why}. Nothing was made or charged. Offer the "
+                    "person a model that extends clips (Settings › Models), or a new shot that starts on the "
                     "clip's last frame (animate_image).")
         left = [what for what, given in (("first frame", first_frame), ("last frame", shot.last_frame),
                                          ("reference pictures", shot.references)) if given]
@@ -192,8 +192,8 @@ def _fit(shot: _Shot, provider_id: str, model: str, first_frame: bool) -> str:
                           "takes it.")
     elif shot.last_frame is not None and not first_frame and not offers.last_alone:
         shot.last_frame = None
-        shot.notes.append(f"Last frame: {label} takes one only with a first frame, so it wasn't used. Use "
-                          "animate_image with the shot's first picture and this last frame.")
+        shot.notes.append(f"Last frame: {label} takes one only with a first frame, so it wasn't used. Offer the "
+                          "person a shot from its first picture to this last frame with animate_image.")
     if shot.references:
         if not offers.references:
             shot.notes.append(f"References: {label} doesn't take reference pictures for {model}, so the shot "
@@ -277,10 +277,10 @@ def _resolve_clip(value: str) -> bytes:
 def _shot_inputs(references: list[str] | None, character: str, style: str, last_frame: str,
                  extend: str = "") -> _Shot:
     """The pictures and clip a shot names, read once; ValueError says what can't be found."""
-    from row_bot.tools.image_gen_tool import _resolve_image_source, resolve_references
+    from row_bot.tools.image_gen_tool import reference_picture, resolve_references
 
     return _Shot(references=resolve_references(references, character, style),
-                 last_frame=_resolve_image_source(last_frame) if last_frame.strip() else None,
+                 last_frame=reference_picture(last_frame) if last_frame.strip() else None,
                  extend=_resolve_clip(extend) if extend.strip() else None)
 
 
@@ -689,7 +689,7 @@ def _generate_video_omni(client, model: str, prompt: str, duration: int, aspect_
         response_format |= {"aspect_ratio": ar, "resolution": res}
         settings = _settings(dur, ar, res)
     else:
-        settings = f"Duration: {dur}s more | Aspect ratio and resolution: the clip's own"
+        settings = f"Duration: {dur}s more | Aspect ratio: the clip's own | Resolution: the clip's own"
     request: dict = {"model": model, "input": parts, "response_format": response_format}
     # One picture alone is a first frame unless the task says it's a reference; an extension says so too.
     task = "extend" if shot.extend is not None else "reference_to_video" if shot.references and not frames else ""
@@ -836,7 +836,8 @@ def _generate_video_xai(
     if shot.extend is not None:
         # The added part is 2-10 s; the clip keeps its own shape and resolution, up to 720p.
         dur = max(2, min(10, duration))
-        path, settings = "/videos/extensions", f"Duration: {dur}s more | Aspect ratio and resolution: the clip's own"
+        path = "/videos/extensions"
+        settings = f"Duration: {dur}s more | Aspect ratio: the clip's own | Resolution: up to 720p, the clip's own"
         body: dict = {"model": model, "prompt": prompt, "duration": dur,
                       "video": {"url": _data_uri(shot.extend, "video/mp4")}}
     else:
@@ -1155,7 +1156,8 @@ def _submit_atlascloud(provider_id: str, model: str, prompt: str, duration: int,
                        resolution: str, image: str, shot: _Shot) -> tuple[str, str]:
     # Each Atlas Cloud model names its own duration and size fields, so the model's defaults are used.
     job = _job_request(provider_id, "POST", "/model/generateVideo", json={"model": model, "prompt": prompt}).json()
-    return str((job.get("data") or {}).get("id") or ""), "Duration, aspect ratio and resolution: the model's own"
+    return str((job.get("data") or {}).get("id") or ""), (
+        "Duration: the model's own | Aspect ratio: the model's own | Resolution: the model's own")
 
 
 def _poll_atlascloud(provider_id: str, job_id: str) -> tuple[str, str]:
@@ -1377,7 +1379,7 @@ def _animate_image_tool(prompt: str, image_source: str = "last", duration_second
 
 # ── Pydantic input schemas ───────────────────────────────────────────────
 
-_PROMPT_WORDS = ("Plain shot words (close-up, wide, slow push-in, handheld) are kept as written.")
+_PROMPT_WORDS = "Use plain shot words (close-up, wide, slow push-in, handheld); they reach the model unchanged."
 _REFERENCES = ("Up to 3 pictures the shot holds to (a character, a product, a place): names of pictures in this "
                "chat's files, 'last' or file paths.")
 _CHARACTER = "A character saved in Library › Media (pictures tagged 'character: <name>'), by name."

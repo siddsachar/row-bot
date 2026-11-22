@@ -231,7 +231,8 @@ def test_xai_extends_a_clip_through_its_extensions_api(media, xai):
 
     assert xai[0] == ("POST", "/videos/extensions", {"model": "grok-imagine-video", "prompt": "the door opens",
                                                     "duration": 10, "video": {"url": _uri(CLIP, "video/mp4")}})
-    assert "Duration: 10s more | Aspect ratio and resolution: the clip's own | Mode: extension" in result
+    assert ("Duration: 10s more | Aspect ratio: the clip's own | Resolution: up to 720p, the clip's own | "
+            "Mode: extension") in result
     assert "Not used: the reference pictures. Extending continues the clip as it is." in result
     assert media.videos == [b"mp4-bytes"]
 
@@ -444,6 +445,32 @@ def test_a_saved_character_and_style_resolve_to_their_tagged_pictures(platform):
         resolve_references([], character="Ada")
     with pytest.raises(ValueError, match="up to 3 reference pictures"):
         resolve_references(["a", "b", "c", "d"])
+
+
+def test_references_a_last_frame_and_a_clip_are_read_only_where_tools_may_read(platform, monkeypatch):
+    """Each goes through media_sources.resolve: a name can't send any file on disk to a provider."""
+    from row_bot import tool_outputs
+    from row_bot.application.attachments import register_attachment
+    from row_bot.data_paths import private_data_dirs
+    from row_bot.tools.image_gen_tool import resolve_references
+    from row_bot.tools.video_gen_tool import _resolve_clip, _shot_inputs
+
+    monkeypatch.setattr(tool_outputs, "current_thread_id", lambda: "conversation-a")
+    register_attachment("conversation-a", "maya.png", MAYA, "image/png")
+    private = private_data_dirs()[0]
+    private.mkdir(parents=True, exist_ok=True)
+    (private / "secret.png").write_bytes(FIRST)
+    (private / "secret.mp4").write_bytes(CLIP)
+
+    assert resolve_references(["maya.png"]) == [MAYA]
+    assert _shot_inputs([], "", "", "maya.png").last_frame == MAYA
+    for read in (lambda: resolve_references([str(private / "secret.png")]),
+                 lambda: _shot_inputs([], "", "", str(private / "secret.png")),
+                 lambda: _resolve_clip(str(private / "secret.mp4"))):
+        with pytest.raises(ValueError, match="private data folder"):
+            read()
+    with pytest.raises(ValueError, match="Couldn't find nowhere.png"):
+        resolve_references(["nowhere.png"])
 
 
 def test_extending_last_continues_the_chats_newest_video(platform, monkeypatch):
