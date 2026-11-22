@@ -1,56 +1,52 @@
-"""The server's connection pool, and logs that never show where it connects.
+"""The server's connection pool.
 
-psycopg and its pool log connection failures and connections with their details (host, port, user,
-database). Those are parts of the database URL, a secret, so their records keep only the type of
-each argument other than numbers and the pool's own name.
+Each connection is autocommit (every transaction is explicit, so transaction-local settings end with
+it), has statement, lock and idle-in-transaction limits, is refused when its role could get past
+row-level security, and is reset when it comes back (settings, role, session authorization), so nothing
+a borrower set for its session reaches the next one.
+
+psycopg's own log records name the host, port, user and database: ``row_bot_org.logging`` keeps only
+their logger, level and exception type.
 """
 
 from __future__ import annotations
 
-import logging
-
+import psycopg
 from psycopg_pool import ConnectionPool
 
+from row_bot_org.db.checks import refuse_privileged_role
+
 POOL_NAME = "row_bot_org"
-_PSYCOPG_LOGGERS = ("psycopg", "psycopg.pool")
 
 
-def _shown(value: object) -> object:
-    if isinstance(value, (int, float)) or value == POOL_NAME:
-        return value
-    return type(value).__name__
+def _reset(conn: psycopg.Connection) -> None:
+    # Not DISCARD ALL: it drops the server's prepared statements behind psycopg's back. RESET ALL leaves
+    # out the role and the session authorization, so those are reset by name.
+    conn.execute("RESET ALL; RESET ROLE; RESET SESSION AUTHORIZATION")
 
 
-class _ConnectionDetailsFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args if isinstance(record.args, tuple) else (record.args,) if record.args else ()
-        try:
-            record.msg = str(record.msg) % tuple(_shown(arg) for arg in args) if args else str(record.msg)
-        except (TypeError, ValueError):
-            record.msg = f"{record.name} logged a record without its details"
-        record.args = None
-        if record.exc_info and record.exc_info[1] is not None:
-            record.msg += f" ({type(record.exc_info[1]).__name__})"
-        record.exc_info = None
-        record.exc_text = None
-        return True
-
-
-_FILTER = _ConnectionDetailsFilter()
-for _name in _PSYCOPG_LOGGERS:
-    logging.getLogger(_name).addFilter(_FILTER)
-
-
-def create_pool(conninfo: str, *, max_size: int = 10) -> ConnectionPool:
-    """A closed pool for ``conninfo`` (the app opens it at start). Its connections are autocommit:
-    every transaction is explicit, and transaction-local settings end with it."""
+def create_pool(
+    conninfo: str,
+    *,
+    max_size: int = 10,
+    statement_timeout: int = 30,
+    lock_timeout: int = 10,
+    idle_in_transaction_timeout: int = 60,
+) -> ConnectionPool:
+    """A closed pool for ``conninfo`` (the app opens it at start); the timeouts are in seconds."""
+    options = (
+        f"-c statement_timeout={statement_timeout}s -c lock_timeout={lock_timeout}s"
+        f" -c idle_in_transaction_session_timeout={idle_in_transaction_timeout}s"
+    )
     return ConnectionPool(
         conninfo,
         min_size=1,
         max_size=max_size,
         open=False,
         name=POOL_NAME,
-        kwargs={"autocommit": True},
+        kwargs={"autocommit": True, "options": options},
+        configure=refuse_privileged_role,
+        reset=_reset,
     )
 
 

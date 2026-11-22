@@ -5,9 +5,9 @@ and Kubernetes secrets), by the rules the app uses for its server secrets: a reg
 link, at most 64 KiB of UTF-8, with one trailing newline dropped. A variable wins over a file.
 
 Errors name the setting and what is wrong with it, never its value: some settings are secrets.
-``ROW_BOT_ORG_DATABASE_URL`` is one: ``remove_secret_variables`` takes it out of the process
-environment once it has been read, so no program the server starts inherits it, and it never
-appears in the settings' ``repr``.
+``ROW_BOT_ORG_DATABASE_URL`` and ``ROW_BOT_ORG_MIGRATION_DATABASE_URL`` are: ``remove_secret_variables``
+takes them out of the process environment once read, so no program the server starts inherits them,
+and they never appear in the settings' ``repr``.
 """
 
 from __future__ import annotations
@@ -27,8 +27,9 @@ SECRETS_DIR_ENV = "ROW_BOT_SECRETS_DIR"
 MAX_SECRET_FILE_BYTES = 64 * 1024
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 DATABASE_URL_ENV = ENV_PREFIX + "DATABASE_URL"
-# Taken out of the environment as soon as it is read (remove_secret_variables).
-SECRET_VARIABLES = (DATABASE_URL_ENV,)
+MIGRATION_DATABASE_URL_ENV = ENV_PREFIX + "MIGRATION_DATABASE_URL"
+# Taken out of the environment as soon as they are read (remove_secret_variables).
+SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV)
 _PR_SET_DUMPABLE = 4
 
 
@@ -47,10 +48,16 @@ class OrgSettings:
     log_level: str = "INFO"
     # Publishes /openapi.json. There is never an interactive docs page: it would load scripts from a CDN.
     openapi: bool = False
-    # The runtime role's connection (a secret). Every command but a bad-settings check needs it.
+    # The runtime role's connection (a secret): what `serve` and `check-config` use.
     database_url: str | None = dataclass_field(default=None, repr=False)
-    # `serve` applies pending migrations itself instead of refusing to start.
+    # The migrating role's connection (a secret): what `migrate`, and `serve` with auto-migrate, use.
+    migration_database_url: str | None = dataclass_field(default=None, repr=False)
+    # `serve` applies pending migrations itself (with the migration URL) instead of refusing to start.
     auto_migrate: bool = False
+    # Limits on every pooled connection, in seconds.
+    statement_timeout: int = 30
+    lock_timeout: int = 10
+    idle_in_transaction_timeout: int = 60
 
 
 class _Invalid(Exception):
@@ -92,10 +99,19 @@ def _flag(raw: str) -> bool:
 
 def _database_url(raw: str) -> str:
     value = raw.strip()
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise _Invalid("must not contain control characters")
     scheme, separator, rest = value.partition("://")
     if not (separator and scheme.lower() in {"postgresql", "postgres"} and rest):
         raise _Invalid("must be a postgresql:// address")
     return value
+
+
+def _seconds(raw: str) -> int:
+    value = raw.strip()
+    if not (len(value) <= 5 and value.isascii() and value.isdigit() and 1 <= int(value) <= 86400):
+        raise _Invalid("must be a number of seconds from 1 to 86400")
+    return int(value)
 
 
 _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
@@ -104,7 +120,11 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "LOG_LEVEL": ("log_level", _log_level),
     "OPENAPI": ("openapi", _flag),
     "DATABASE_URL": ("database_url", _database_url),
+    "MIGRATION_DATABASE_URL": ("migration_database_url", _database_url),
     "AUTO_MIGRATE": ("auto_migrate", _flag),
+    "STATEMENT_TIMEOUT": ("statement_timeout", _seconds),
+    "LOCK_TIMEOUT": ("lock_timeout", _seconds),
+    "IDLE_IN_TRANSACTION_TIMEOUT": ("idle_in_transaction_timeout", _seconds),
 }
 
 
@@ -165,6 +185,8 @@ def load_settings(environ: Mapping[str, str] | None = None) -> OrgSettings:
                 values[field] = parse(raw)
         except _Invalid as problem:
             problems.append(f"{name} {problem}")
+    if values.get("auto_migrate") and not values.get("migration_database_url"):
+        problems.append(f"{ENV_PREFIX}AUTO_MIGRATE needs {MIGRATION_DATABASE_URL_ENV}")
     if problems:
         raise SettingsError(problems)
     return OrgSettings(**values)
@@ -199,6 +221,6 @@ def keep_environment_private() -> None:
 
 
 __all__ = [
-    "DATABASE_URL_ENV", "ENV_PREFIX", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings", "SettingsError",
+    "DATABASE_URL_ENV", "MIGRATION_DATABASE_URL_ENV", "ENV_PREFIX", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings", "SettingsError",
     "keep_environment_private", "load_settings", "remove_secret_variables",
 ]

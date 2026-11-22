@@ -145,7 +145,9 @@ class PostgresCluster:
 
     def url(self, dbname: str = "postgres", user: str = SUPERUSER, password: str | None = None) -> str:
         secret = self.superuser_password if password is None else password
-        return f"postgresql://{quote(user, safe='')}:{quote(secret, safe='')}@127.0.0.1:{self.port}/{quote(dbname)}"
+        # SCRAM or nothing: libpq won't fall back to a weaker method the server offers.
+        return (f"postgresql://{quote(user, safe='')}:{quote(secret, safe='')}@127.0.0.1:{self.port}/{quote(dbname)}"
+                "?require_auth=scram-sha-256")
 
     def start(self) -> None:
         self._folder = self.programs.make_folder()

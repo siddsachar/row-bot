@@ -1,8 +1,9 @@
 """``row-bot-org`` and ``/readyz`` against a real (throwaway) Postgres: serve refuses a pending migration,
-readiness follows the migrations, check-config judges the role, and the URL never shows."""
+readiness follows the migrations, check-config judges the role, and the URLs never show."""
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -26,8 +27,8 @@ from psycopg_pool import PoolTimeout  # noqa: E402
 from row_bot_org import cli  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
 from row_bot_org.db import checks  # noqa: E402
-from row_bot_org.db.migrations import migrate  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
+from row_bot_org.logging import configure_logging  # noqa: E402
 from row_bot_org.settings import OrgSettings  # noqa: E402
 
 pytestmark = pytest.mark.postgres
@@ -69,6 +70,10 @@ def _applied(url: str) -> list[int]:
         return [version for (version,) in conn.execute("SELECT version FROM row_bot_org.schema_migrations")]
 
 
+def _bad_login(database) -> str:
+    return database.cluster.url(database.name, f"user_{MARKER}", f"password_{MARKER}")
+
+
 def test_serve_refuses_to_start_while_a_migration_is_pending(
     empty_org_database, monkeypatch: pytest.MonkeyPatch, served, capsys
 ) -> None:
@@ -83,16 +88,21 @@ def test_serve_refuses_to_start_while_a_migration_is_pending(
     )
 
 
-def test_serve_with_auto_migrate_applies_the_pending_migrations_first(
+def test_serve_with_auto_migrate_migrates_with_the_migration_url_and_serves_with_the_runtime_url(
     empty_org_database, monkeypatch: pytest.MonkeyPatch, served
 ) -> None:
-    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", empty_org_database.owner_url)
+    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", empty_org_database.runtime_url)
+    monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.owner_url)
     monkeypatch.setenv("ROW_BOT_ORG_AUTO_MIGRATE", "1")
 
     assert cli.main(["serve"]) == 0
 
+    assert "ROW_BOT_ORG_MIGRATION_DATABASE_URL" not in os.environ
     assert _applied(empty_org_database.owner_url) == [1]
-    assert "app" in served
+    with psycopg.connect(empty_org_database.owner_url) as conn:
+        # The tables belong to the migrating role, not to the role the server runs as.
+        assert conn.execute("SELECT nspowner::regrole::text FROM pg_namespace WHERE nspname = 'row_bot_org'"
+                            ).fetchone() == ("row_bot_org_owner",)
 
 
 def test_serve_listens_on_loopback_by_default_and_is_ready(
@@ -120,12 +130,12 @@ def test_serve_options_override_the_variables(org_database, monkeypatch: pytest.
     assert (served["host"], served["port"]) == ("0.0.0.0", 9001)
 
 
-def test_readyz_turns_ready_once_the_database_is_migrated(empty_org_database) -> None:
+def test_readyz_turns_ready_once_the_database_is_migrated_and_the_role_admitted(empty_org_database) -> None:
     app = create_app(OrgSettings(), create_pool(empty_org_database.runtime_url))
 
     with TestClient(app) as client:
         before = client.get("/readyz")
-        migrate(empty_org_database.owner_url)
+        empty_org_database.migrate_and_admit()
         after = client.get("/readyz")
 
     assert (before.status_code, before.json()) == (503, {"status": "not_ready", "checks": {"database": "failing"}})
@@ -133,45 +143,61 @@ def test_readyz_turns_ready_once_the_database_is_migrated(empty_org_database) ->
 
 
 def test_readyz_is_not_ready_and_quiet_when_the_database_cant_be_reached(
-    org_database, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    org_database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(checks, "READINESS_TIMEOUT", 1.0)
-    url = org_database.cluster.url(org_database.name, f"user_{MARKER}", f"password_{MARKER}")
-    app = create_app(OrgSettings(), create_pool(url))
+    stream = io.StringIO()
+    configure_logging("INFO", stream)
+    app = create_app(OrgSettings(), create_pool(_bad_login(org_database)))
 
-    with caplog.at_level(logging.INFO), TestClient(app) as client:
+    with TestClient(app) as client:
         response = client.get("/readyz")
 
     assert (response.status_code, response.json()) == (503, {"status": "not_ready", "checks": {"database": "failing"}})
-    assert "readiness check database failed: PoolTimeout" in caplog.text
-    assert "error connecting in 'row_bot_org': OperationalError" in caplog.text
-    assert MARKER not in caplog.text and org_database.name not in caplog.text
-    assert MARKER not in response.text
+    logs = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert any(line["logger"] == "row_bot_org.health" and line["msg"] == "readiness check database failed: PoolTimeout"
+               for line in logs)
+    assert any(line["logger"] == "psycopg.pool" and line["level"] == "WARNING" for line in logs)
+    assert MARKER not in stream.getvalue() and org_database.name not in stream.getvalue()
+    assert str(org_database.cluster.port) not in stream.getvalue() and MARKER not in response.text
 
 
-def test_the_pool_logs_no_part_of_the_url(org_database, caplog: pytest.LogCaptureFixture) -> None:
-    url = org_database.cluster.url(org_database.name, f"user_{MARKER}", f"password_{MARKER}")
-    pool = create_pool(url)
-
-    with caplog.at_level(logging.INFO, logger="psycopg"):
-        pool.open(wait=False)
+def test_database_log_records_and_errors_name_no_part_of_the_url(org_database) -> None:
+    """psycopg logs a failed rollback with the Transaction, whose repr has the host, user and database;
+    a connection error's message has the user."""
+    refused = None
+    try:
+        psycopg.connect(_bad_login(org_database))
+    except psycopg.OperationalError as error:
+        refused = error
+    assert refused is not None and MARKER in str(refused)
+    stream = io.StringIO()
+    configure_logging("INFO", stream)
+    with psycopg.connect(org_database.runtime_url, autocommit=True) as conn, conn.transaction() as transaction:
+        assert "row_bot_org_app" in repr(transaction)
+        for name in ("psycopg", "psycopg.transaction", "psycopg_pool.sched"):
+            logging.getLogger(name).warning("error ignored in rollback of %s: %s", transaction, "boom")
         try:
-            with pytest.raises(PoolTimeout), pool.connection(timeout=1.0):
-                pass
-        finally:
-            pool.close()
+            raise RuntimeError("the request failed") from refused
+        except RuntimeError as wrapped:
+            logging.getLogger("uvicorn.error").error("Exception in ASGI application", exc_info=wrapped)
 
-    assert "OperationalError" in caplog.text
-    assert MARKER not in caplog.text
-    assert org_database.name not in caplog.text and str(org_database.cluster.port) not in caplog.text
+    text = stream.getvalue()
+    assert "row_bot_org_app" not in text and org_database.name not in text and MARKER not in text
+    assert [(line["logger"], line["msg"], line.get("exc")) for line in map(json.loads, text.splitlines())] == [
+        ("psycopg", "details withheld: they can name the database", None),
+        ("psycopg.transaction", "details withheld: they can name the database", None),
+        ("psycopg_pool.sched", "details withheld: they can name the database", None),
+        ("uvicorn.error", "Exception in ASGI application", "RuntimeError"),
+    ]
 
 
 @pytest.mark.parametrize("command", ["serve", "migrate", "check-config"])
 def test_a_refused_connection_never_shows_the_url(
     org_database, monkeypatch: pytest.MonkeyPatch, served, capsys, command: str
 ) -> None:
-    url = org_database.cluster.url(org_database.name, f"user_{MARKER}", f"password_{MARKER}")
-    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", url)
+    variable = "ROW_BOT_ORG_MIGRATION_DATABASE_URL" if command == "migrate" else "ROW_BOT_ORG_DATABASE_URL"
+    monkeypatch.setenv(variable, _bad_login(org_database))
 
     assert cli.main([command]) == 1
 
@@ -179,6 +205,36 @@ def test_a_refused_connection_never_shows_the_url(
     assert output.err == "Row-Bot Org can't use the database (OperationalError).\n"
     assert MARKER not in output.out + output.err
     assert served == {}
+
+
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [
+        (f"postgresql://app:{MARKER}@127.0.0.1:1/db\x07tail", "must not contain control characters"),
+        (f"postgresql://app:{MARKER}@127.0.0.1:1/db?evil={MARKER}", "is not a usable postgresql:// address"),
+        (f"postgresql://app:{MARKER}%zz@127.0.0.1:1/db", "is not a usable postgresql:// address"),
+    ],
+    ids=["control-character", "unknown-option", "bad-percent-encoding"],
+)
+@pytest.mark.parametrize("command", ["check-config", "migrate"])
+def test_a_malformed_url_is_refused_before_connecting_without_showing_it(
+    monkeypatch: pytest.MonkeyPatch, capsys, command: str, url: str, message: str
+) -> None:
+    variable = "ROW_BOT_ORG_MIGRATION_DATABASE_URL" if command == "migrate" else "ROW_BOT_ORG_DATABASE_URL"
+    monkeypatch.setenv(variable, url)
+
+    assert cli.main([command]) == 1
+
+    err = capsys.readouterr().err
+    assert message in err and variable in err
+    assert MARKER not in err and "evil" not in err
+
+
+def test_a_url_with_a_bad_port_reports_only_the_error_type(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", f"postgresql://app:{MARKER}@127.0.0.1:notaport/db")
+
+    assert cli.main(["check-config"]) == 1
+    assert capsys.readouterr().err == "Row-Bot Org can't use the database (OperationalError).\n"
 
 
 def test_check_config_accepts_the_runtime_role_without_a_warning(
@@ -206,44 +262,16 @@ def test_check_config_says_when_migrations_are_pending(
     assert capsys.readouterr().out.endswith("the database is reachable, 1 migration pending (row-bot-org migrate).\n")
 
 
-@pytest.mark.parametrize(
-    ("role", "warnings"),
-    [
-        ("owner", ["owns (or is a member of the owner of) the row_bot_org schema"]),
-        ("superuser", ["is a superuser", "has BYPASSRLS", "owns (or is a member of the owner of) the row_bot_org schema"]),
-    ],
-)
-def test_check_config_warns_when_the_role_could_get_past_row_level_security(
-    org_database, monkeypatch: pytest.MonkeyPatch, capsys, role: str, warnings: list[str]
+def test_check_config_warns_when_the_role_owns_the_tables(
+    org_database, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    url = org_database.owner_url if role == "owner" else org_database.superuser_url
-    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", url)
+    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", org_database.owner_url)
 
     assert cli.main(["check-config"]) == 0
 
-    lines = capsys.readouterr().err.splitlines()
-    assert len(lines) == len(warnings)
-    assert all(line.startswith("Warning: the database role ") for line in lines)
-    assert all(expected in line for expected, line in zip(warnings, lines, strict=True))
-
-
-def test_check_config_warns_about_bypassrls(org_database, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    with psycopg.connect(org_database.superuser_url, autocommit=True) as admin:
-        admin.execute("CREATE ROLE row_bot_org_bypass LOGIN BYPASSRLS PASSWORD 'bypass-only-in-this-test'"
-                      " IN ROLE row_bot_org_runtime")
-    try:
-        monkeypatch.setenv(
-            "ROW_BOT_ORG_DATABASE_URL",
-            org_database.cluster.url(org_database.name, "row_bot_org_bypass", "bypass-only-in-this-test"),
-        )
-        assert cli.main(["check-config"]) == 0
-    finally:
-        with psycopg.connect(org_database.superuser_url, autocommit=True) as admin:
-            admin.execute("DROP ROLE row_bot_org_bypass")
-
     assert capsys.readouterr().err.splitlines() == [
-        "Warning: the database role has BYPASSRLS, so row-level security doesn't apply to it. "
-        "Serve with a role like deploy/org/README.md describes."
+        "Warning: the database role owns (or is a member of the owner of) the row_bot_org schema or its tables, "
+        "so it could turn row-level security off. Serve as a role like deploy/org/README.md describes."
     ]
 
 
@@ -286,4 +314,35 @@ def test_the_installed_command_serves_on_loopback_and_is_ready(org_database, tmp
         server.wait(timeout=30)
         output = server.stdout.read()
         server.stdout.close()
-    assert org_database.roles.app_password not in output
+    assert org_database.roles.app_password not in output and org_database.name not in output
+
+
+def test_pooled_connections_keep_their_statement_lock_and_idle_limits(org_database) -> None:
+    pool = create_pool(org_database.runtime_url, max_size=1, statement_timeout=7, lock_timeout=3,
+                       idle_in_transaction_timeout=11)
+    pool.open(wait=True, timeout=30)
+    try:
+        for _ in range(2):  # and again after DISCARD ALL wiped the session
+            with pool.connection() as conn:
+                assert conn.execute(
+                    "SELECT current_setting('statement_timeout'), current_setting('lock_timeout'),"
+                    " current_setting('idle_in_transaction_session_timeout')"
+                ).fetchone() == ("7s", "3s", "11s")
+                conn.execute("SET statement_timeout = '1h'")
+    finally:
+        pool.close()
+
+
+def test_no_pool_connection_is_made_while_unreachable_and_the_url_stays_out_of_its_logs(org_database) -> None:
+    stream = io.StringIO()
+    configure_logging("INFO", stream)
+    pool = create_pool(_bad_login(org_database))
+    pool.open(wait=False)
+    try:
+        with pytest.raises(PoolTimeout), pool.connection(timeout=1.0):
+            pass
+    finally:
+        pool.close()
+
+    assert '"logger": "psycopg.pool"' in stream.getvalue()
+    assert MARKER not in stream.getvalue() and org_database.name not in stream.getvalue()

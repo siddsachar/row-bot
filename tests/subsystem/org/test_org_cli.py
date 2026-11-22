@@ -14,7 +14,7 @@ import pytest
 import uvicorn
 
 from row_bot_org import cli
-from row_bot_org.logging import configure_logging
+from row_bot_org.logging import WITHHELD, configure_logging
 
 MARKER = "marker-value-7f3a"
 
@@ -48,12 +48,23 @@ def test_check_config_exits_1_and_names_the_bad_setting_only(monkeypatch: pytest
     assert MARKER not in output.err
 
 
-@pytest.mark.parametrize("command", [["serve"], ["migrate"], ["check-config"]], ids=lambda argv: argv[0])
-def test_every_command_needs_the_database_url(command: list[str], served, capsys) -> None:
-    assert cli.main(command) == 1
+@pytest.mark.parametrize(
+    ("command", "variable"),
+    [("serve", "ROW_BOT_ORG_DATABASE_URL"), ("check-config", "ROW_BOT_ORG_DATABASE_URL"),
+     ("migrate", "ROW_BOT_ORG_MIGRATION_DATABASE_URL")],
+)
+def test_every_command_needs_its_database_url(
+    monkeypatch: pytest.MonkeyPatch, command: str, variable: str, served, capsys
+) -> None:
+    # The other URL doesn't stand in: serve never runs as the migrating role, nor migrate as the runtime one.
+    other = "ROW_BOT_ORG_DATABASE_URL" if command == "migrate" else "ROW_BOT_ORG_MIGRATION_DATABASE_URL"
+    monkeypatch.setenv(other, f"postgresql://org:{MARKER}@db/org")
+
+    assert cli.main([command]) == 1
 
     assert served == {}
-    assert capsys.readouterr().err == "Row-Bot Org settings are not valid: ROW_BOT_ORG_DATABASE_URL is not set\n"
+    assert capsys.readouterr().err == f"Row-Bot Org settings are not valid: {variable} is not set\n"
+    assert other not in os.environ
 
 
 def test_serve_refuses_to_start_with_bad_settings(served, capsys) -> None:
@@ -74,6 +85,35 @@ def test_the_database_url_leaves_the_environment_even_when_a_setting_is_bad(
     assert "ROW_BOT_ORG_DATABASE_URL" not in os.environ
     assert private_environment == [True]
     assert MARKER not in capsys.readouterr().err
+
+
+def test_database_library_records_keep_only_their_logger_level_and_exception_type() -> None:
+    stream = io.StringIO()
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    try:
+        configure_logging("INFO", stream)
+        for name in ("psycopg", "psycopg.pool", "psycopg_pool.sched", "psycopg.transaction"):
+            logging.getLogger(name).warning("error connecting to %s", f"host=db user={MARKER}")
+        try:
+            raise ConnectionError(f"user={MARKER}")
+        except ConnectionError:
+            logging.getLogger("psycopg.pool").exception(f"connection {MARKER} failed")
+        logging.getLogger("psycopgish").warning("not the library: %s", "kept")
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)
+
+    lines = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert MARKER not in stream.getvalue()
+    assert [(line["logger"], line["level"], line["msg"], line.get("exc")) for line in lines] == [
+        ("psycopg", "WARNING", WITHHELD, None),
+        ("psycopg.pool", "WARNING", WITHHELD, None),
+        ("psycopg_pool.sched", "WARNING", WITHHELD, None),
+        ("psycopg.transaction", "WARNING", WITHHELD, None),
+        ("psycopg.pool", "ERROR", WITHHELD, "ConnectionError"),
+        ("psycopgish", "WARNING", "not the library: kept", None),
+    ]
 
 
 def test_logs_are_json_lines() -> None:

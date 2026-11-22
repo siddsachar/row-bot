@@ -22,10 +22,10 @@ from row_bot_org.db.rls import principal_transaction  # noqa: E402
 pytestmark = pytest.mark.postgres
 
 # A principal-scoped table as a later migration makes one (the pattern in 0001_foundation.sql), made by
-# the migrating role so it gets the runtime role's default grants.
+# the migrating role, which then grants the runtime group access to it.
 SCRATCH_TABLE = """
 CREATE TABLE row_bot_org.notes (
-    id serial PRIMARY KEY,
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     owner text NOT NULL DEFAULT row_bot_org.row_bot_principal(),
     team text,
     body text NOT NULL
@@ -37,6 +37,7 @@ CREATE POLICY notes_owner ON row_bot_org.notes
     WITH CHECK (owner = row_bot_org.row_bot_principal());
 CREATE POLICY notes_team_reads ON row_bot_org.notes FOR SELECT
     USING (team IS NOT NULL AND row_bot_org.row_bot_in_group(team));
+CALL row_bot_org.grant_runtime_access('row_bot_org.notes');
 """
 
 
@@ -176,3 +177,66 @@ def test_forced_row_level_security_holds_the_tables_owner_too(org_database, pool
 
     with psycopg.connect(org_database.owner_url) as owner:
         assert owner.execute("SELECT count(*) FROM row_bot_org.notes").fetchone() == (0,)
+
+
+def test_a_session_wide_setting_doesnt_outlive_the_borrow(org_database, pool: ConnectionPool) -> None:
+    _add(pool, "alice", "alice's note")
+    with pool.connection() as conn:
+        backend = conn.info.backend_pid
+        # Application code that sets a principal or a role for the whole session, by mistake.
+        conn.execute("SELECT set_config('row_bot.principal', 'alice', false)")
+        conn.execute(f'SET ROLE "{org_database.runtime_group()}"')
+
+    with pool.connection() as conn:
+        assert conn.info.backend_pid == backend
+        assert conn.execute("SELECT current_user").fetchone() == ("row_bot_org_app",)
+        assert conn.execute("SELECT row_bot_org.row_bot_principal()").fetchone() == (None,)
+        assert conn.execute("SELECT count(*) FROM row_bot_org.notes").fetchone() == (0,)
+    assert _bodies(pool, "bob") == []
+
+
+def test_a_connection_handed_back_inside_a_transaction_carries_no_principal_on(pool: ConnectionPool) -> None:
+    with pool.connection() as conn:
+        conn.execute("BEGIN")
+        conn.execute("SELECT set_config('row_bot.principal', 'alice', true)")
+        conn.execute("INSERT INTO row_bot_org.notes (body) VALUES ('alice, by hand')")
+
+    with pool.connection() as conn:
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        assert conn.execute("SELECT row_bot_org.row_bot_principal()").fetchone() == (None,)
+        assert conn.execute("SELECT count(*) FROM row_bot_org.notes").fetchone() == (0,)
+    # The pool ended that transaction (committing it, as a block that didn't raise); the row stays alice's.
+    assert _bodies(pool, "bob") == []
+    assert _bodies(pool, "alice") == ["alice, by hand"]
+
+
+def test_prepared_statements_survive_the_reset(pool: ConnectionPool) -> None:
+    for _ in range(3):
+        with pool.connection() as conn:
+            for _ in range(8):  # past psycopg's prepare threshold, so the server holds a prepared statement
+                conn.execute("SELECT count(*) FROM row_bot_org.notes WHERE body = %s", ("x",))
+
+
+def test_a_table_without_row_level_security_gets_no_grant(org_database, pool: ConnectionPool) -> None:
+    with psycopg.connect(org_database.owner_url) as owner:
+        owner.execute("CREATE TABLE row_bot_org.forgot (owner text, body text)")
+        owner.execute("INSERT INTO row_bot_org.forgot VALUES ('alice', 'unprotected')")
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match="permission denied for table forgot"):
+        with principal_transaction(pool, "bob") as conn:
+            conn.execute("SELECT * FROM row_bot_org.forgot")
+    with psycopg.connect(org_database.owner_url) as owner, pytest.raises(
+        psycopg.errors.RaiseException, match="needs ENABLE and FORCE ROW LEVEL SECURITY"
+    ):
+        owner.execute("CALL row_bot_org.grant_runtime_access('row_bot_org.forgot')")
+
+
+def test_the_principal_functions_are_inlined_into_queries(pool: ConnectionPool) -> None:
+    with principal_transaction(pool, "alice", ("eng",)) as conn:
+        plan = "\n".join(row for (row,) in conn.execute(
+            "EXPLAIN (VERBOSE, COSTS OFF) SELECT row_bot_org.row_bot_principal(), row_bot_org.row_bot_in_group('eng')"
+        ).fetchall())
+        values = conn.execute("SELECT row_bot_org.row_bot_principal(), row_bot_org.row_bot_in_group('eng')").fetchone()
+
+    assert "current_setting" in plan and "row_bot_principal" not in plan and "row_bot_in_group" not in plan
+    assert values == ("alice", True)

@@ -1,9 +1,9 @@
 """Org server fixtures: the throwaway Postgres cluster (tests/fixtures/postgres.py) and databases in it.
 
 The session's cluster gets the two roles a deployment has (deploy/org/README.md): ``row_bot_org_owner``
-migrates and owns the tables; ``row_bot_org_app`` is the runtime login, a member of
-``row_bot_org_runtime``. A template database is migrated once; each test gets a fresh copy of it, or an
-empty database that hasn't been migrated.
+migrates and owns the tables; ``row_bot_org_app`` is the runtime login, a member of the database's
+runtime group (``row_bot_org.runtime_role()``). A template database is migrated once; each test gets a
+fresh copy of it (whose runtime group is the template's), or an empty database that hasn't been migrated.
 """
 
 from __future__ import annotations
@@ -56,6 +56,19 @@ class OrgDatabase:
     def superuser_url(self) -> str:
         return self.cluster.url(self.name)
 
+    def runtime_group(self) -> str:
+        import psycopg
+
+        with psycopg.connect(self.superuser_url) as conn:
+            return conn.execute("SELECT row_bot_org.runtime_role()").fetchone()[0]
+
+    def migrate_and_admit(self) -> None:
+        """Migrate as the owner, then make the app role a member of the runtime group, as an operator would."""
+        from row_bot_org.db.migrations import migrate
+
+        migrate(self.owner_url)
+        _admin(self.cluster, f'GRANT "{self.runtime_group()}" TO {APP}')
+
 
 def _admin(cluster: PostgresCluster, sql: str, dbname: str = "postgres") -> None:
     import psycopg
@@ -81,11 +94,7 @@ def _empty_database(cluster: PostgresCluster, roles: OrgRoles, name: str) -> Org
 
 @pytest.fixture(scope="session")
 def org_template(postgres_cluster: PostgresCluster, org_roles: OrgRoles) -> str:  # noqa: F811
-    from row_bot_org.db.migrations import migrate
-
-    template = _empty_database(postgres_cluster, org_roles, _TEMPLATE)
-    migrate(template.owner_url)
-    _admin(postgres_cluster, f"GRANT row_bot_org_runtime TO {APP}")
+    _empty_database(postgres_cluster, org_roles, _TEMPLATE).migrate_and_admit()
     return _TEMPLATE
 
 

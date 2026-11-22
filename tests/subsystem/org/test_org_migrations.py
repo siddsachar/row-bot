@@ -166,11 +166,99 @@ def test_a_checkout_with_crlf_line_endings_holds_the_same_migrations(tmp_path: P
 def test_the_migrate_command_applies_then_reports_nothing_pending(
     empty_org_database, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", empty_org_database.owner_url)
+    monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.owner_url)
     assert cli.main(["migrate"]) == 0
     assert capsys.readouterr().out == "Applied 0001_foundation.sql.\n"
-    assert "ROW_BOT_ORG_DATABASE_URL" not in os.environ
+    assert "ROW_BOT_ORG_MIGRATION_DATABASE_URL" not in os.environ
 
-    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", empty_org_database.owner_url)
+    monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.owner_url)
     assert cli.main(["migrate"]) == 0
     assert capsys.readouterr().out == "The database is up to date: no migration was pending.\n"
+
+
+def test_a_migration_older_than_the_newest_applied_is_refused(empty_org_database, tmp_path: Path) -> None:
+    url = empty_org_database.owner_url
+    first = _folder(tmp_path, **{"0002_second.sql": "CREATE TABLE row_bot_org.second (id integer);"})
+    migrate(url, load_migrations(first))
+    (first / "0001_slipped_in.sql").write_text("CREATE TABLE row_bot_org.first (id integer);", encoding="utf-8")
+
+    with pytest.raises(MigrationError, match=r"0001_slipped_in.sql is older than the newest applied one \(0002\)"):
+        migrate(url, load_migrations(first))
+    assert "first" not in _tables(url)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "CREATE TABLE row_bot_org.open (body text); GRANT SELECT ON row_bot_org.open TO PUBLIC;",
+        "CREATE TABLE row_bot_org.open (body text); GRANT SELECT (body) ON row_bot_org.open TO PUBLIC;",
+        "CREATE TABLE row_bot_org.open (body text); ALTER TABLE row_bot_org.open ENABLE ROW LEVEL SECURITY;"
+        " GRANT SELECT ON row_bot_org.open TO PUBLIC;",
+        "CREATE VIEW row_bot_org.open AS SELECT 1 AS one; GRANT SELECT ON row_bot_org.open TO PUBLIC;",
+    ],
+    ids=["no-rls", "column-grant", "enabled-not-forced", "definer-view"],
+)
+def test_a_migration_that_opens_an_unprotected_table_is_rolled_back(
+    empty_org_database, tmp_path: Path, sql: str
+) -> None:
+    url = empty_org_database.owner_url
+    migrations = load_migrations(_folder(tmp_path, **{"0001_open.sql": sql}))
+
+    with pytest.raises(MigrationError, match="0001_open.sql failed: it leaves open open to other roles without forced"):
+        migrate(url, migrations)
+    assert "open" not in _tables(url) and _ledger(url) == []
+
+
+def test_the_shipped_migrations_leave_no_table_open_without_forced_row_level_security(empty_org_database) -> None:
+    url = empty_org_database.owner_url
+    migrate(url)
+
+    with psycopg.connect(url) as conn:
+        open_tables = conn.execute(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = 'row_bot_org' AND c.relkind IN ('r', 'p') AND c.relname <> 'schema_migrations'"
+            " AND has_table_privilege(row_bot_org.runtime_role(), c.oid, 'SELECT, INSERT, UPDATE, DELETE')"
+            " AND NOT (c.relrowsecurity AND c.relforcerowsecurity)"
+        ).fetchall()
+        ledger = conn.execute(
+            "SELECT has_table_privilege(row_bot_org.runtime_role(), 'row_bot_org.schema_migrations', 'INSERT'),"
+            " has_table_privilege(row_bot_org.runtime_role(), 'row_bot_org.schema_migrations', 'SELECT')"
+        ).fetchone()
+    assert open_tables == []
+    assert ledger == (False, True)
+
+
+def test_a_schema_someone_else_made_first_is_refused(empty_org_database) -> None:
+    database = empty_org_database
+    with psycopg.connect(database.superuser_url, autocommit=True) as admin:
+        admin.execute("CREATE ROLE squatter LOGIN PASSWORD 'only-in-this-test'")
+        admin.execute(f"GRANT CREATE ON DATABASE {database.name} TO squatter")
+    try:
+        with psycopg.connect(database.cluster.url(database.name, "squatter", "only-in-this-test"),
+                             autocommit=True) as squatter:
+            squatter.execute("CREATE SCHEMA row_bot_org")
+            squatter.execute(
+                "CREATE TABLE row_bot_org.schema_migrations (version integer PRIMARY KEY, name text NOT NULL,"
+                " checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())"
+            )
+            squatter.execute("INSERT INTO row_bot_org.schema_migrations (version, name, checksum) VALUES (%s, %s, %s)",
+                             (SHIPPED[0].version, SHIPPED[0].name, SHIPPED[0].checksum))
+            squatter.execute("GRANT USAGE, CREATE ON SCHEMA row_bot_org TO row_bot_org_owner")
+            squatter.execute("GRANT SELECT, INSERT ON row_bot_org.schema_migrations TO row_bot_org_owner")
+
+        with pytest.raises(MigrationError, match="belongs to a role the migrating role isn't a member of"):
+            migrate(database.owner_url)
+    finally:
+        with psycopg.connect(database.superuser_url, autocommit=True) as admin:
+            admin.execute("DROP SCHEMA IF EXISTS row_bot_org CASCADE")
+            admin.execute(f"REVOKE ALL ON DATABASE {database.name} FROM squatter")
+            admin.execute("DROP ROLE squatter")
+
+
+def test_a_runner_gives_up_waiting_for_the_lock(empty_org_database) -> None:
+    url = empty_org_database.owner_url
+    with psycopg.connect(url, autocommit=True) as holder:
+        holder.execute("SELECT pg_advisory_lock(%s)", (LOCK_KEY,))
+        with pytest.raises(MigrationError, match="another row-bot-org migrate held the migration lock for 0.5 s"):
+            migrate(url, lock_wait=0.5)
+    assert "schema_migrations" not in _tables(url)
