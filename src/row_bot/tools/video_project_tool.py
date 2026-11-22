@@ -8,7 +8,9 @@ with the music ducked under the voice, and saves it to the chat's files. The cal
 (``MAKE_SECONDS``); a video that takes longer carries on, and a wait wakes the chat when it's made.
 
 Approvals: downloading ffmpeg the first time, as in edit_video. Reading the chat's files and
-the workspace, and writing new files to the chat, needs none.
+the workspace, and writing new files to the chat, needs none. Footage elsewhere on this computer
+is asked about by the approval level when it joins a video; that project then reads that exact
+file in place, and any other file elsewhere asks again.
 """
 
 from __future__ import annotations
@@ -27,15 +29,20 @@ MAKE_SECONDS = 120.0
 
 class _Scene(BaseModel):
     scene_id: str = Field(default="", description="Keep a scene's id when changing it (new scenes: leave empty).")
-    source: str = Field(default="", description="Its video: a recording (rec-…), an edit (edit-…), a file in this "
-                                                "chat or a workspace path. Empty: a title card (its card on the "
-                                                "brand colour for end seconds, 3 by default), so a title, an end "
-                                                "card or a whole video of cards needs no made-up background video.")
+    source: str = Field(default="", description="Its footage, a video or a picture: a recording (rec-…), an edit "
+                                                "(edit-…), a file in this chat, a workspace path, or a full path "
+                                                "on this computer (read where it is, never copied; asks first). "
+                                                "A picture is held with a slow push in. Empty: a title card (its "
+                                                "card on the brand colour for `end` seconds, 3 by default), so a "
+                                                "title, an end card or a whole video of cards needs no made-up "
+                                                "background video.")
     start: float = Field(default=0.0, description="Seconds into that video.")
-    end: float | None = Field(default=None, description="Seconds into that video (empty: to its end).")
+    end: float | None = Field(default=None, description="Seconds into that video (empty: to its end). A picture: "
+                                                        "how long it shows (empty: its line's length, else 3.5).")
     speed: float = Field(default=1.0, description="2 = twice as fast (shows a 2× badge), 0.5 = half.")
     zoom: list[float] | None = Field(default=None, description="Leave empty: on a recording the camera follows "
-                                                             "what was done. [x, y, width, height], 0-1: hold there.")
+                                                             "what was done. [x, y, width, height], 0-1: hold there "
+                                                             "(on a picture: push in to there).")
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
@@ -179,7 +186,9 @@ def _both_downloads_consent() -> tuple[str, str] | None:
     return "", line
 
 
-def _make(project, number: int | None) -> str:
+def _make(project, number: int | None, approved: list[str] | None = None) -> str:
+    """Make a version's video and wait for it; the result leads with every approval given for it (*approved*:
+    reading footage outside the workspace, so the chat's step shows who allowed it)."""
     from row_bot import video_projects
     from row_bot.tools.approval_gate import with_approval
     from row_bot.tools.video_editing_tool import ffmpeg_consent
@@ -209,6 +218,7 @@ def _make(project, number: int | None) -> str:
     text = video_projects.summary(fresh, version.number)
     if not made:
         text += "\n" + _check_back(fresh, version.number)
+    line = "\n".join(part for part in (*(approved or []), line) if part)
     return with_approval(line, text) if line else text
 
 
@@ -255,8 +265,9 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                           narration=narration or "",
                                           captions=bool(captions), voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
-                                          note=note, voice=voice or "", voice_speed=voice_speed)
-            return _make(found, None)
+                                          note=note, voice=voice or "", voice_speed=voice_speed,
+                                          approvals=(approved := []))
+            return _make(found, None, approved)
         found = video_projects.get(project, conversation)
         if found is None:
             return f"{project or 'That'} isn't a video project in this chat: use action create."
@@ -264,8 +275,9 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             changed = video_projects.change(found, by="row-bot", note=note, scenes=raw if scenes is not None else None,
                                             title=title or None, music=music, music_volume=music_volume, narration=narration,
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
-                                            brand=brand, voice=voice, voice_speed=voice_speed)
-            return _make(found, changed.number)
+                                            brand=brand, voice=voice, voice_speed=voice_speed,
+                                            approvals=(approved := []))
+            return _make(found, changed.number, approved)
         if action == "undo":
             if len(found.versions) < 2:
                 return "There's no earlier version to go back to."
@@ -313,7 +325,7 @@ def langchain_tool():
         name="video",
         description=(
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
-            "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
+            "(start, end) or a picture, with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
             "saved to this chat. create, change, make and export wait for the video; a longer one checks back "
             "here when it's made: never poll status. Each made video comes with its checks, by scene and time: fix "
