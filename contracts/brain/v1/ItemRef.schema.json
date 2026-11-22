@@ -1,0 +1,34 @@
+{
+  "$defs": {
+    "ItemKind": {
+      "description": "The kinds of item a brain holds.",
+      "enum": [
+        "fact",
+        "relation",
+        "skill",
+        "source"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A reference to an item: its kind and its opaque id.",
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ItemKind"
+    }
+  },
+  "required": [
+    "id",
+    "kind"
+  ],
+  "title": "ItemRef",
+  "type": "object"
+}

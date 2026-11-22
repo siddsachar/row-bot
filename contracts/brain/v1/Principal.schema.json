@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Who is asking: an authenticated person (or service) and the groups their identity provider gives.",
+  "properties": {
+    "groups": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+        "type": "string"
+      },
+      "maxItems": 1024,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "groups",
+    "id"
+  ],
+  "title": "Principal",
+  "type": "object"
+}

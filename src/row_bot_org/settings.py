@@ -4,8 +4,10 @@ A host can hand any setting as a file of the same name in ``ROW_BOT_SECRETS_DIR`
 and Kubernetes secrets), by the rules the app uses for its server secrets: a regular file, not a
 link, at most 64 KiB of UTF-8, with one trailing newline dropped. A variable wins over a file.
 
-Errors name the setting and what is wrong with it, never its value: settings that later WPs add
-(the database address, the sign-in client secret) are secrets.
+Errors name the setting and what is wrong with it, never its value: some settings are secrets.
+``ROW_BOT_ORG_DATABASE_URL`` and ``ROW_BOT_ORG_MIGRATION_DATABASE_URL`` are: ``remove_secret_variables``
+takes them out of the process environment once read, so no program the server starts inherits them,
+and they never appear in the settings' ``repr``.
 """
 
 from __future__ import annotations
@@ -13,8 +15,10 @@ from __future__ import annotations
 import ipaddress
 import os
 import stat
-from collections.abc import Callable, Mapping
+import sys
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +26,11 @@ ENV_PREFIX = "ROW_BOT_ORG_"
 SECRETS_DIR_ENV = "ROW_BOT_SECRETS_DIR"
 MAX_SECRET_FILE_BYTES = 64 * 1024
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+DATABASE_URL_ENV = ENV_PREFIX + "DATABASE_URL"
+MIGRATION_DATABASE_URL_ENV = ENV_PREFIX + "MIGRATION_DATABASE_URL"
+# Taken out of the environment as soon as they are read (remove_secret_variables).
+SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV)
+_PR_SET_DUMPABLE = 4
 
 
 class SettingsError(ValueError):
@@ -39,6 +48,16 @@ class OrgSettings:
     log_level: str = "INFO"
     # Publishes /openapi.json. There is never an interactive docs page: it would load scripts from a CDN.
     openapi: bool = False
+    # The runtime role's connection (a secret): what `serve` and `check-config` use.
+    database_url: str | None = dataclass_field(default=None, repr=False)
+    # The migrating role's connection (a secret): what `migrate`, and `serve` with auto-migrate, use.
+    migration_database_url: str | None = dataclass_field(default=None, repr=False)
+    # `serve` applies pending migrations itself (with the migration URL) instead of refusing to start.
+    auto_migrate: bool = False
+    # Limits on every pooled connection, in seconds.
+    statement_timeout: int = 30
+    lock_timeout: int = 10
+    idle_in_transaction_timeout: int = 60
 
 
 class _Invalid(Exception):
@@ -78,11 +97,34 @@ def _flag(raw: str) -> bool:
     raise _Invalid("must be 1, true, 0 or false")
 
 
+def _database_url(raw: str) -> str:
+    value = raw.strip()
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise _Invalid("must not contain control characters")
+    scheme, separator, rest = value.partition("://")
+    if not (separator and scheme.lower() in {"postgresql", "postgres"} and rest):
+        raise _Invalid("must be a postgresql:// address")
+    return value
+
+
+def _seconds(raw: str) -> int:
+    value = raw.strip()
+    if not (len(value) <= 5 and value.isascii() and value.isdigit() and 1 <= int(value) <= 86400):
+        raise _Invalid("must be a number of seconds from 1 to 86400")
+    return int(value)
+
+
 _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "HOST": ("host", _host),
     "PORT": ("port", _port),
     "LOG_LEVEL": ("log_level", _log_level),
     "OPENAPI": ("openapi", _flag),
+    "DATABASE_URL": ("database_url", _database_url),
+    "MIGRATION_DATABASE_URL": ("migration_database_url", _database_url),
+    "AUTO_MIGRATE": ("auto_migrate", _flag),
+    "STATEMENT_TIMEOUT": ("statement_timeout", _seconds),
+    "LOCK_TIMEOUT": ("lock_timeout", _seconds),
+    "IDLE_IN_TRANSACTION_TIMEOUT": ("idle_in_transaction_timeout", _seconds),
 }
 
 
@@ -143,9 +185,42 @@ def load_settings(environ: Mapping[str, str] | None = None) -> OrgSettings:
                 values[field] = parse(raw)
         except _Invalid as problem:
             problems.append(f"{name} {problem}")
+    if values.get("auto_migrate") and not values.get("migration_database_url"):
+        problems.append(f"{ENV_PREFIX}AUTO_MIGRATE needs {MIGRATION_DATABASE_URL_ENV}")
     if problems:
         raise SettingsError(problems)
     return OrgSettings(**values)
 
 
-__all__ = ["ENV_PREFIX", "SECRETS_DIR_ENV", "OrgSettings", "SettingsError", "load_settings"]
+def remove_secret_variables(environ: MutableMapping[str, str] | None = None) -> None:
+    """Take the secret settings out of ``environ`` (the process environment by default).
+
+    Read the settings from a copy first. Shells, workers and every other child get a copy of the
+    environment; a secret still in it would reach them all.
+    """
+    env = os.environ if environ is None else environ
+    for name in SECRET_VARIABLES:
+        env.pop(name, None)
+
+
+def keep_environment_private() -> None:
+    """On Linux, show this process's starting environment to root alone.
+
+    ``remove_secret_variables`` keeps a secret from the programs the server starts, but the kernel
+    still shows the environment a process started with at ``/proc/<pid>/environ`` to every program
+    of the same user. A process that isn't dumpable shows it (and its memory) to root alone.
+    Elsewhere this does nothing. (As ``row_bot.environment_secrets``; the server never imports the app.)
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    import ctypes
+
+    library = ctypes.CDLL(None, use_errno=True)
+    if library.prctl(_PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "Row-Bot Org couldn't keep its environment private")
+
+
+__all__ = [
+    "DATABASE_URL_ENV", "MIGRATION_DATABASE_URL_ENV", "ENV_PREFIX", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings", "SettingsError",
+    "keep_environment_private", "load_settings", "remove_secret_variables",
+]

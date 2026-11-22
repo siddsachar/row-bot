@@ -271,6 +271,9 @@ COMMANDS: dict[str, CommandSpec] = {
         "client-platform-contracts", "uv", "run", "python", "scripts/generate_client_platform_contracts.py", "--check",
         env=TEST_ENV,
     ),
+    "brain-contracts": _cmd(
+        "brain-contracts", "uv", "run", "python", "scripts/brain/export_schemas.py", "--check", env=TEST_ENV,
+    ),
     "audit-contracts": _cmd(
         "audit-contracts", "uv", "run", "python", "scripts/audit/export_schemas.py", "--check", env=TEST_ENV,
     ),
@@ -305,6 +308,10 @@ COMMANDS: dict[str, CommandSpec] = {
         env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
     ),
     "contracts": _pytest("contracts", "tests/contracts"),
+    # The Org server's tests against a throwaway Postgres cluster (D14, tests/fixtures/postgres.py), and
+    # the contract suites' Postgres runs. Needs `uv sync ... --group org` and ROW_BOT_TEST_PG_BIN (or, on
+    # Windows, ROW_BOT_TEST_PG_WSL_DISTRO); without them these tests skip. CI's Org job runs it.
+    "org": _pytest("org", "tests/subsystem/org", "tests/contracts", marker=f"postgres and {DETERMINISTIC}"),
     "subsystem": _pytest("subsystem", "tests/subsystem", *PARALLEL),
     "installer-contracts": _pytest("installer-contracts", "tests/subsystem/installer", "tests/contracts/installers"),
     "docs": _pytest("docs", "tests/docs", "tests/marketing"),
@@ -347,6 +354,7 @@ QUALITY = (
     "dependency-requirements",
     "client-platform-boundaries",
     "client-platform-contracts",
+    "brain-contracts",
     "audit-contracts",
 )
 
@@ -369,9 +377,10 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
     "deterministic": ("deterministic",),
     "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts",
-             "audit-contracts", "contracts"),
+             "brain-contracts", "audit-contracts", "contracts"),
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
+    "org": ("org",),
     "subsystem": ("subsystem",),
     "installer-contracts": ("installer-contracts",),
     "docs": ("docs",),
@@ -419,7 +428,8 @@ def changed_files_from_git(base: str) -> list[str]:
 
 def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list[str]:
     """The tests for changed files, by convention: changed test files themselves;
-    for `src/row_bot/<package>/...` the `tests/<lane>/<package>` folders; for
+    for `src/row_bot_org/...` the `tests/subsystem/org` folder; for
+    `src/row_bot/<package>/...` the `tests/<lane>/<package>` folders; for
     `src/row_bot/<module>.py` the `test_<module>*.py` files. A local shortcut:
     the PR lane runs everything."""
     selected: list[str] = []
@@ -427,6 +437,8 @@ def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list
         parts = name.split("/")
         if parts[0] == "tests" and parts[-1].startswith("test_") and name.endswith(".py"):
             candidates = [root / name]
+        elif name.startswith("src/row_bot_org/"):
+            candidates = [root / "tests" / "subsystem" / "org"]
         elif name.startswith("src/row_bot/") and len(parts) > 3:
             candidates = [root / "tests" / lane / parts[2] for lane in ("contracts", "subsystem", "integration")]
         elif name.startswith("src/row_bot/") and name.endswith(".py"):
@@ -438,6 +450,10 @@ def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list
             if candidate.exists() and relative not in selected:
                 selected.append(relative)
     return selected
+
+
+# The Org server and the brain it serves (F-4): a change to either also runs the org tier.
+ORG_SOURCES = ("src/row_bot_org/", "src/row_bot/brain/")
 
 
 def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
@@ -452,8 +468,13 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
         commands.append(COMMANDS["install-count-worker"])
     if any(path.replace("\\", "/").startswith("services/railway-relay/") for path in changed_files):
         commands.append(COMMANDS["railway-relay-worker"])
+    org = any(path.replace("\\", "/").startswith(ORG_SOURCES) for path in changed_files)
     if paths := changed_test_paths(changed_files):
-        commands.append(_pytest("changed-tests", *paths))
+        # With the org tier in the run, it alone runs the postgres tests.
+        commands.append(_pytest("changed-tests", *paths, marker=f"not postgres and {DETERMINISTIC}" if org
+                                else DETERMINISTIC))
+    if org:
+        commands.append(COMMANDS["org"])
     return commands
 
 

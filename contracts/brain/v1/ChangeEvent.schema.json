@@ -1,0 +1,632 @@
+{
+  "$defs": {
+    "ChangeOp": {
+      "description": "A change-feed operation: an item was written or changed, or it was retracted (forgotten).",
+      "enum": [
+        "upsert",
+        "retract"
+      ],
+      "type": "string"
+    },
+    "Fact": {
+      "additionalProperties": false,
+      "description": "A fact about a subject (the knowledge graph's entity). ``owner_principal`` names who answers for a team or company fact, and ``verified_at`` when they last confirmed it.",
+      "properties": {
+        "audience": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entity_type": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:[a-z][a-z0-9_]*)$",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(?:(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)?)$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fact"
+        },
+        "lineage": {
+          "$ref": "#/$defs/Lineage"
+        },
+        "owner_principal": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "portable": {
+          "type": "boolean"
+        },
+        "properties": {
+          "description": "Any JSON object: at most 16384 bytes as compact JSON and 8 levels deep.",
+          "type": "object"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "space": {
+          "$ref": "#/$defs/Space"
+        },
+        "subject": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4000,
+          "type": "string"
+        },
+        "validity": {
+          "$ref": "#/$defs/Validity"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "audience",
+        "entity_type",
+        "id",
+        "kind",
+        "lineage",
+        "owner_principal",
+        "portable",
+        "properties",
+        "provenance",
+        "space",
+        "subject",
+        "text",
+        "validity",
+        "verified_at"
+      ],
+      "type": "object"
+    },
+    "ItemKind": {
+      "description": "The kinds of item a brain holds.",
+      "enum": [
+        "fact",
+        "relation",
+        "skill",
+        "source"
+      ],
+      "type": "string"
+    },
+    "ItemRef": {
+      "additionalProperties": false,
+      "description": "A reference to an item: its kind and its opaque id.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ItemKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "Layer": {
+      "description": "Where an item lives: the person's own layers, or a team's or the company's shared one.",
+      "enum": [
+        "personal",
+        "work",
+        "team",
+        "company"
+      ],
+      "type": "string"
+    },
+    "Lineage": {
+      "additionalProperties": false,
+      "description": "The items this one was derived from; forgetting any of them retracts this one too.",
+      "properties": {
+        "derived_from": {
+          "items": {
+            "$ref": "#/$defs/ItemRef"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "derived_from"
+      ],
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Where an item came from: the citation recall shows.",
+      "properties": {
+        "actor": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "source_kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "source_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "system": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "actor",
+        "captured_at",
+        "confidence",
+        "source_kind",
+        "source_ref",
+        "system"
+      ],
+      "type": "object"
+    },
+    "Relation": {
+      "additionalProperties": false,
+      "description": "A typed edge between two facts of the same space.",
+      "properties": {
+        "audience": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(?:(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)?)$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "relation"
+        },
+        "lineage": {
+          "$ref": "#/$defs/Lineage"
+        },
+        "portable": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "relation": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:[a-z][a-z0-9_]*)$",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ItemRef"
+        },
+        "space": {
+          "$ref": "#/$defs/Space"
+        },
+        "target": {
+          "$ref": "#/$defs/ItemRef"
+        },
+        "validity": {
+          "$ref": "#/$defs/Validity"
+        }
+      },
+      "required": [
+        "audience",
+        "id",
+        "kind",
+        "lineage",
+        "portable",
+        "provenance",
+        "relation",
+        "source",
+        "space",
+        "target",
+        "validity"
+      ],
+      "type": "object"
+    },
+    "Skill": {
+      "additionalProperties": false,
+      "description": "A procedure: a SKILL.md body, versioned. A new version supersedes the old one. ``signature`` and ``signature_key_id`` are placeholders for the signed publication of a reviewed skill.",
+      "properties": {
+        "audience": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "body": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(?:(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)?)$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "skill"
+        },
+        "lineage": {
+          "$ref": "#/$defs/Lineage"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:[a-z0-9][a-z0-9_-]*)$",
+          "type": "string"
+        },
+        "portable": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signature": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9_=-]+)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signature_key_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "space": {
+          "$ref": "#/$defs/Space"
+        },
+        "validity": {
+          "$ref": "#/$defs/Validity"
+        },
+        "version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+-]*)$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "audience",
+        "body",
+        "description",
+        "id",
+        "kind",
+        "lineage",
+        "name",
+        "portable",
+        "provenance",
+        "reviewed_by",
+        "signature",
+        "signature_key_id",
+        "space",
+        "validity",
+        "version"
+      ],
+      "type": "object"
+    },
+    "SourceDoc": {
+      "additionalProperties": false,
+      "description": "An indexed document or connector item, by reference and content hash. In a team or company space its upstream ACL groups are the item's ``audience``.",
+      "properties": {
+        "audience": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "content_hash": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^(?:sha256:[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "fetched_at": {
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^(?:(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)?)$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "source"
+        },
+        "lineage": {
+          "$ref": "#/$defs/Lineage"
+        },
+        "portable": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "space": {
+          "$ref": "#/$defs/Space"
+        },
+        "title": {
+          "maxLength": 300,
+          "type": "string"
+        },
+        "uri": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "validity": {
+          "$ref": "#/$defs/Validity"
+        }
+      },
+      "required": [
+        "audience",
+        "content_hash",
+        "fetched_at",
+        "id",
+        "kind",
+        "lineage",
+        "portable",
+        "provenance",
+        "space",
+        "title",
+        "uri",
+        "validity"
+      ],
+      "type": "object"
+    },
+    "SourceKind": {
+      "description": "Where an item came from.",
+      "enum": [
+        "conversation",
+        "document",
+        "connector",
+        "tool",
+        "statement",
+        "promotion",
+        "import"
+      ],
+      "type": "string"
+    },
+    "Space": {
+      "additionalProperties": false,
+      "description": "A brain space: a person's personal or work space (``space_id`` is the person's id), or a team's or the company's (``space_id`` is the team or company id).",
+      "properties": {
+        "layer": {
+          "$ref": "#/$defs/Layer"
+        },
+        "space_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "space_id"
+      ],
+      "type": "object"
+    },
+    "Validity": {
+      "additionalProperties": false,
+      "description": "Bi-temporal validity. ``valid_from``/``valid_to`` say when the item is true in the world; the brain sets ``recorded_at`` when it records the item and ``superseded_by``/``superseded_at`` when a newer one replaces it.",
+      "properties": {
+        "recorded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "superseded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "superseded_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "valid_from": {
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+          "type": "string"
+        },
+        "valid_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "recorded_at",
+        "superseded_at",
+        "superseded_by",
+        "valid_from",
+        "valid_to"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One entry of a space's change feed. ``seq`` increases within the space (with gaps where forgotten items' events were removed); an upsert carries the item as it then was, a retract carries none.",
+  "properties": {
+    "at": {
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+      "type": "string"
+    },
+    "item": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Fact"
+            },
+            {
+              "$ref": "#/$defs/Relation"
+            },
+            {
+              "$ref": "#/$defs/Skill"
+            },
+            {
+              "$ref": "#/$defs/SourceDoc"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "op": {
+      "$ref": "#/$defs/ChangeOp"
+    },
+    "ref": {
+      "$ref": "#/$defs/ItemRef"
+    },
+    "seq": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "at",
+    "item",
+    "op",
+    "ref",
+    "seq"
+  ],
+  "title": "ChangeEvent",
+  "type": "object"
+}
