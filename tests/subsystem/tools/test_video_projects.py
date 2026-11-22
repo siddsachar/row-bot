@@ -680,10 +680,10 @@ def footage(studio, tmp_path, monkeypatch):
     camera.mkdir()
     (camera / "DSC0001.JPG").write_bytes(b"\xff\xd8\xff photo")
     registry.set_tool_config("filesystem", "workspace_root", str(workspace))
-    asked: list[dict] = []
-    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "approve")
-    monkeypatch.setattr("langgraph.types.interrupt", lambda payload: asked.append(payload) or True)
-    return {"workspace": workspace, "photo": camera / "DSC0001.JPG", "asked": asked, **studio}
+    state = {"workspace": workspace, "photo": camera / "DSC0001.JPG", "asked": [], "answer": True, **studio}
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "approve")  # Ask: the person answers.
+    monkeypatch.setattr("langgraph.types.interrupt", lambda payload: state["asked"].append(payload) or state["answer"])
+    return state
 
 
 def test_a_picture_is_a_scene_held_for_its_line_and_never_sped_or_trimmed(footage):
@@ -742,7 +742,8 @@ def test_footage_moved_or_deleted_later_is_named_by_its_scene(footage):
         {"card": "Day one"}, {"source": "clips/beach.mp4", "start": 2, "end": 9}, {"source": "signup.mp4"}])
     (footage["workspace"] / "clips" / "beach.mp4").unlink()
 
-    words = "Footage missing: scene 2 (clips/beach.mp4): moved, renamed or deleted since it joined the video."
+    words = ("Footage missing: scene 2 (clips/beach.mp4): moved, renamed or deleted since it joined the video. Ask "
+             "the person to put it back, or give those scenes other footage.")
     assert words in video_projects.summary(video_projects.get(project.project_id))
     video_projects.make(project, 1)
     failed = _wait(project.project_id, 1)
@@ -773,3 +774,44 @@ def test_a_video_holds_two_hundred_scenes_from_a_hundred_videos_and_pictures(foo
                             ([*scenes[:100], {"source": "signup.mp4"}], "at most 100 different videos and pictures")):
         with pytest.raises(video_projects.ProjectError, match=words):
             video_projects.create("conversation-a", "Too long", too_many)
+
+
+def test_a_file_elsewhere_is_allowed_for_that_video_only_and_a_new_one_asks_again(footage, tmp_path):
+    """Allowing a camera's photo for one video is never a general permission to read outside the workspace: the
+    project remembers that exact file, another file elsewhere asks, and another video asks for the same file."""
+    from row_bot import video_projects
+
+    photo = str(footage["photo"])
+    other = tmp_path / "camera" / "DSC0002.JPG"
+    other.write_bytes(b"\xff\xd8\xff photo")
+    asked = footage["asked"]
+    project = video_projects.create("conversation-a", "Holiday", [{"source": photo}])
+    assert len(asked) == 1 and project.outside == [str(footage["photo"].resolve())]
+
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    assert len(asked) == 1 and footage["started"][0].sources[0].path == footage["photo"].resolve(), \
+        "made without asking again"
+    video_projects.change(project, by="row-bot", scenes=[{"source": photo}, {"source": str(other)}])
+    assert [item["description"] for item in asked[1:]] == [f"Outside the workspace: {other.resolve()}"], \
+        "only the new file is asked about"
+    video_projects.create("conversation-a", "Another video", [{"source": photo}])
+    assert [item["description"] for item in asked[2:]] == [f"Outside the workspace: {footage['photo'].resolve()}"], \
+        "another video asks for the same file"
+
+    footage["answer"] = False
+    with pytest.raises(video_projects.ProjectError, match="nothing outside the workspace was read"):
+        video_projects.create("conversation-a", "Refused", [{"source": str(other)}])
+
+
+def test_footage_inside_row_bots_data_folder_is_refused_by_its_full_path(footage):
+    """A chat's own files are named by their name, never by where Row-Bot keeps them."""
+    from row_bot import video_projects
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    kept = get_row_bot_data_dir() / "media" / "secret.mp4"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_bytes(MP4)
+    with pytest.raises(video_projects.ProjectError, match="Row-Bot's private data folder"):
+        video_projects.create("conversation-a", "Peek", [{"source": str(kept)}])
+    assert footage["asked"] == [], "refused before anything is asked"

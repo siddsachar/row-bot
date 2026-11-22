@@ -9,7 +9,8 @@ with the music ducked under the voice, and saves it to the chat's files. The cal
 
 Approvals: downloading ffmpeg the first time, as in edit_video. Reading the chat's files and
 the workspace, and writing new files to the chat, needs none. Footage elsewhere on this computer
-is asked about once, when it joins the video, and read in place from then on.
+is asked about by the approval level when it joins a video; that project then reads that exact
+file in place, and any other file elsewhere asks again.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ class _Scene(BaseModel):
                                                 "(edit-…), a file in this chat, a workspace path, or a full path "
                                                 "on this computer (read where it is, never copied; asks first). "
                                                 "A picture is held with a slow push in. Empty: a title card (its "
-                                                "card on the brand colour for end seconds, 3 by default), so a "
+                                                "card on the brand colour for `end` seconds, 3 by default), so a "
                                                 "title, an end card or a whole video of cards needs no made-up "
                                                 "background video.")
     start: float = Field(default=0.0, description="Seconds into that video.")
