@@ -53,7 +53,8 @@ row_bot_org_runtime_row_bot_org NOLOGIN`) before the first `migrate`, and grants
 `serve` and `check-config` refuse a role that is a superuser, has `BYPASSRLS`, or can `SET ROLE` to one
 that is, and the server checks again on every new database connection and every `/readyz`. Owning the
 schema or its tables is a warning: forced row-level security still applies to the owner, but an owner
-could turn it off.
+could turn it off. `migrate` refuses a superuser too: the migrating role owns the functions the server
+calls before anyone has signed in, and a superuser's would run past every check.
 
 Migrations only go forward. `migrate` takes a lock (and gives up after 2 minutes), so two at once are
 safe. It refuses a database whose applied migrations changed, that a newer server migrated, whose schema
@@ -86,26 +87,49 @@ only says `ok` or `failing` for it, never where it is.
 
 ## Sign-in
 
-People sign in with OpenID Connect (authorization code with PKCE) at `/auth/login?idp=<name>`; the
-provider sends them back to `<public URL>/auth/callback`, which you register with it as the redirect
-URI. Every route but `/healthz`, `/readyz` and the two sign-in steps needs a session: without one, 401.
-Requests that change something must come from the public URL's origin.
+People sign in with OpenID Connect (authorization code with PKCE) at `/auth/login`, with the server's one
+identity provider; the provider sends them back to `<public URL>/auth/callback`, which you register with
+it as the redirect URI, and they land on `/admin/`. Every route but `/healthz`, `/readyz` and the two
+sign-in steps needs a session: without one, 401. Requests that change something must come from the
+public URL's origin.
 
 - `ROW_BOT_ORG_PUBLIC_URL`: the origin browsers use, `https://org.example.com` (http only on loopback).
-- `ROW_BOT_ORG_IDPS`: a JSON list of providers, for example
-  `[{"name": "contoso", "kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0",
-  "client_id": "...", "allowed_tenants": ["<tenant id>"]}]`. `kind` is `entra`, `okta` or `google`.
-  Optional: `groups_claim` (`groups`), `group_map` (provider group to Row-Bot group; others are dropped),
-  `allowed_email_domains` (sign-in then needs a verified email in one of them) and `client_auth`
-  (`client_secret_basic`, or `private_key_jwt`). Entra needs the tenant's own issuer and
-  `allowed_tenants`: the `common` and `organizations` authorities are refused, so use one entry per
-  tenant. Past 200 groups Entra sends a reference instead of the groups, and sign-in is refused: limit
-  the groups claim to groups assigned to the application.
-- `ROW_BOT_ORG_IDP_CLIENT_SECRETS`: a JSON object from each provider's name to its client secret (or a
-  private JWK for `private_key_jwt`). A secret.
+- `ROW_BOT_ORG_IDP`: the provider, a JSON object, for example
+  `{"kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0", "client_id": "...",
+  "allowed_tenants": ["<tenant id>"]}`. `kind` is `entra`, `okta` or `google` (Google's issuer is
+  `https://accounts.google.com`). Optional: `groups_claim` (`groups`), `group_map` (provider group to
+  Row-Bot group; others are dropped) and `allowed_email_domains` (sign-in then needs a verified email in
+  one of them). Entra needs the tenant's own issuer and `allowed_tenants`: the `common` and
+  `organizations` authorities are refused. Past 200 groups Entra sends a reference instead of the groups,
+  and sign-in is refused: limit the groups claim to groups assigned to the application.
+- `ROW_BOT_ORG_IDP_CLIENT_SECRET`: the application's client secret (sent as `client_secret_basic`). A secret.
 - `ROW_BOT_ORG_HMAC_PEPPER`: at least 32 random characters, the key of every stored verifier. A secret:
   changing it signs everyone out.
 - `ROW_BOT_ORG_SESSION_LIFETIME` and `ROW_BOT_ORG_SESSION_IDLE_TIMEOUT`: seconds, 43200 and 3600 by default.
+- `ROW_BOT_ORG_SIGN_IN_RATE_LIMIT`: requests to the two sign-in steps a minute from one client address
+  (an IPv6 address counts by its /64), 60 by default; past it, 429.
+- `ROW_BOT_ORG_TRUSTED_PROXIES`: the reverse proxies in front of the server, as comma-separated addresses
+  or networks (`172.18.0.0/16`). Only from these are `X-Forwarded-For` and `X-Forwarded-Proto` believed;
+  from anyone else they are ignored. Without it, behind a proxy every client is the proxy's address, so
+  they all share one sign-in limit.
 
 The server asks only for `openid email profile` and keeps no provider token. `row-bot-org principals
 revoke-sessions <principal id>`, with the owner's address, signs a person out everywhere.
+
+## Models
+
+With sign-in and `ROW_BOT_ORG_GATEWAY_KEY` set, the server holds the company's model endpoints and
+connected Row-Bots call models through it, so the endpoints' keys never reach a laptop.
+
+- `ROW_BOT_ORG_GATEWAY_KEY`: 32 random bytes, base64
+  (`python -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"`).
+  A secret: it seals every endpoint key in the database, and keys sealed with another one can't be used.
+- Until roles arrive, admins are the members of the group `row-bot-org-admins` (map your provider's admin
+  group to it with `group_map`). They manage, under `/api/admin/`: `endpoints` (`api` `openai` for any
+  OpenAI-compatible server, with the SDK's base URL such as `http://gpu-box:8000/v1`, or `anthropic` with
+  `https://api.anthropic.com`; `api_key`, `timeout_seconds`, `enabled`), `models` (the `name` people call,
+  the endpoint's `upstream_model`, `kind` `chat` or `embeddings`, prices per million tokens,
+  `allowed_groups`, empty for everyone, and `is_default`), `budgets` (monthly, per person or group, `soft_limit`
+  adds a warning header, `hard_limit` refuses) and `usage?by=person|group|model&start=&end=`.
+- People list their models at `/api/models` and call them at `/api/gateway/openai/v1/chat/completions`,
+  `/api/gateway/openai/v1/embeddings` and `/api/gateway/anthropic/v1/messages`.

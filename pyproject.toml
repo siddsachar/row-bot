@@ -182,6 +182,8 @@ org = [
   "psycopg-pool>=3.2,<4.0",
   # OIDC sign-in (row_bot_org.identity): ID tokens, JWKS.
   "joserfc>=1.0,<2.0",
+  # The model gateway's sealed endpoint keys (row_bot_org.gateway.keys): AES-GCM.
+  "cryptography>=44.0",
 ]
 test = [
   "pytest>=9.0.3,<10.0",
