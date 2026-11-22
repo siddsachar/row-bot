@@ -114,7 +114,8 @@ def test_a_real_tiny_encode(studio, tmp_path):
         {"op": "zoom", "region": [0.25, 0.25, 0.5, 0.5], "start": 0, "end": 1},
     ])
 
-    assert ": saved 0:02 of video" in result, result
+    assert result.splitlines()[0].endswith(': Output "tiny" v1 (working) · tiny.mp4'), result
+    assert "\nSaved 0:02 of video" in result, result
     from row_bot.application.attachments import read_attachment
 
     edit = studio["edits"].get(result.split(":", 1)[0].removeprefix("Video edit "))
