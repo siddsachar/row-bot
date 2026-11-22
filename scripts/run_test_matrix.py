@@ -274,6 +274,9 @@ COMMANDS: dict[str, CommandSpec] = {
     "brain-contracts": _cmd(
         "brain-contracts", "uv", "run", "python", "scripts/brain/export_schemas.py", "--check", env=TEST_ENV,
     ),
+    "policy-contracts": _cmd(
+        "policy-contracts", "uv", "run", "python", "scripts/policy/export_schemas.py", "--check", env=TEST_ENV,
+    ),
     "runtime-deps": _cmd(
         "runtime-deps", "uv", "run", "python", "scripts/verify_runtime_dependencies.py", "all", env=TEST_ENV,
     ),
@@ -355,6 +358,7 @@ QUALITY = (
     "client-platform-boundaries",
     "client-platform-contracts",
     "brain-contracts",
+    "policy-contracts",
 )
 
 TIER_COMMANDS: dict[str, tuple[str, ...]] = {
@@ -376,7 +380,7 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
     "deterministic": ("deterministic",),
     "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts",
-             "brain-contracts", "contracts"),
+             "brain-contracts", "policy-contracts", "contracts"),
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
     "org": ("org",),
@@ -451,8 +455,8 @@ def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list
     return selected
 
 
-# The Org server and the brain it serves (F-4): a change to either also runs the org tier.
-ORG_SOURCES = ("src/row_bot_org/", "src/row_bot/brain/")
+# The Org server and the brain and policy it serves (F-4): a change to any of them also runs the org tier.
+ORG_SOURCES = ("src/row_bot_org/", "src/row_bot/brain/", "src/row_bot/policy/")
 
 
 def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
