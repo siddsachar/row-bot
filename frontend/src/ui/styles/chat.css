@@ -544,7 +544,12 @@
   margin: 6px 0 0;
 }
 .message-fix-line .status-indicator {
+  align-items: flex-start;
   font-size: var(--text-13);
+}
+.message-fix-line .status-indicator-dot {
+  margin-top: 0.5lh;
+  transform: translateY(-50%);
 }
 .message-fix-line .error-fix.button {
   flex: none;
