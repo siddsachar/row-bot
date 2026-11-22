@@ -16,6 +16,17 @@ export function buddyVoiceLevel(now = performance.now()): number {
   return now - updated < 250 ? level : 0;
 }
 
+let listening = false;
+
+/** Row-Bot Voice is listening to the person: Buddy listens too. */
+export function setBuddyListening(value: boolean) {
+  listening = value;
+}
+
+export function buddyListening(): boolean {
+  return listening;
+}
+
 const WINDOW_MS = 20;
 
 /**

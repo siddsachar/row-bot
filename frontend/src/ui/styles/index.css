@@ -11,6 +11,7 @@
 @import '../styles.css';
 @import './primitives.css';
 @import './chat.css';
+@import './voice.css';
 @import './shell.css';
 @import './settings.css';
 @import './home.css';

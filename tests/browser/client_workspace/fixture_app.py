@@ -922,6 +922,74 @@ def p4_voice(x_fixture_token: str = Header(default="")) -> dict:
     return dict(_voice_fixture)
 
 
+VOICE_FIXTURE_REQUEST = "What's on my calendar today?"
+
+
+def _install_voice_engine_fixture() -> None:
+    """Row-Bot Voice's real engine and socket, with synthetic hearing and speech.
+
+    Loud audio counts as speech, a pause ends the turn, the transcript is a
+    fixed request and each spoken sentence is a quiet tone as long as its text.
+    """
+    import numpy as np
+
+    from row_bot.voice import client_duplex
+    from row_bot.voice.engine.session import EngineParts
+    from row_bot.voice.streaming_base import SpeechAudio, TranscriptUpdate
+
+    class LoudIsSpeech:
+        window_samples = 512
+
+        def confidence(self, pcm16: bytes) -> float:
+            return 1.0 if np.abs(np.frombuffer(pcm16, dtype="<i2")).max(initial=0) > 3000 else 0.0
+
+    class TurnEnds:
+        async def complete_probability(self, pcm16: bytes) -> float:
+            return 0.95
+
+    class Stream:
+        def __init__(self) -> None:
+            self.size = 0
+
+        def push(self, pcm16: bytes) -> None:
+            self.size += len(pcm16)
+            _voice_fixture["bytes"] += len(pcm16)
+
+        def partial(self):
+            return TranscriptUpdate("", final=False)
+
+        def finish(self):
+            _voice_fixture["transcriptions"] += 1
+            return TranscriptUpdate(VOICE_FIXTURE_REQUEST, final=True)
+
+        def close(self) -> None:
+            pass
+
+    class Listen:
+        provider_id = "fixture_listen"
+
+        def warm(self) -> None:
+            pass
+
+        def open(self, *, language=None):
+            return Stream()
+
+    class Speak:
+        provider_id = "fixture_speak"
+
+        def warm(self) -> None:
+            pass
+
+        def synthesize(self, text: str):
+            _voice_fixture["syntheses"] += 1
+            samples = np.arange(int(24_000 * min(4.0, 0.06 * len(text))))
+            tone = (np.sin(samples * 2 * np.pi * 220 / 24_000) * 1200).astype("<i2")
+            return SpeechAudio(tone.tobytes(), 24_000)
+
+    client_duplex.LocalVoiceEngine.readiness = lambda self: None
+    client_duplex.LocalVoiceEngine.build = lambda self: EngineParts(Listen(), Speak(), LoudIsSpeech(), TurnEnds())
+
+
 class SyntheticRequestDiagnostics:
     """Observe lifecycle only; never read or serialize authentication/content."""
 
@@ -1889,8 +1957,8 @@ def _s5_stream(text: str, config: dict):
                      "send it to your devices instead: use the button below.")
         else:
             args = {"files": ["q3-report.pdf"], "to": "devices"}
-            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop and tap "
-                     "Download; it's there for 7 days.")
+            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop to see it "
+                     "there.")
         steps = [("send_file", args,
                   lambda: (_s4_in_thread(thread, lambda: file_delivery_tool._send_file(**args)), []))]
         yield from _s3_steps(thread, identity, steps)
@@ -5931,9 +5999,6 @@ def main() -> None:
 
     voice = get_voice_service()
     voice.whisper_model_available = lambda: True
-    def deny_host_capture():
-        raise AssertionError("Browser fixture must never start host audio capture")
-    voice.start = deny_host_capture
     from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
     def transcribe_fixture(session_key, audio, mime, *, validate, mode="dictate"):
         validate()
@@ -5960,6 +6025,9 @@ def main() -> None:
                                        # No ffmpeg: Show Row-Bot how's narration says why it can't run.
                                        ffmpeg_command=lambda: None)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
+    # The synthetic voice stands in for Kokoro, so Read aloud is ready (the plain "Read aloud" label).
+    from row_bot.application import read_aloud
+    read_aloud.read_aloud_reason = lambda: "available"
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):
         import time
@@ -5971,6 +6039,7 @@ def main() -> None:
         _voice_fixture['exchanges'] += 1
         return b'v=0\r\nsynthetic-browser-answer'
     client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
+    _install_voice_engine_fixture()
 
     # The middleware stack is built on the first request. Wrap the completed
     # stack so the middlewares' own exceptions are observed too.

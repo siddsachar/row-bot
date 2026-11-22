@@ -1,13 +1,13 @@
 ---
 title: "Settings: Voice"
-description: "Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics."
+description: "Configure Talk, dictation, Read aloud, the speech models, and the voice Row-Bot speaks with."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Voice
 
-Voice gives Row-Bot microphone input and optional spoken output. Dictate turns speech into text for the composer. Talk is a conversation mode. Realtime voice uses a low-latency provider path when configured.
+Voice lets you speak to Row-Bot and hear it. Dictate turns speech into text for the composer. Talk is a spoken conversation. Read aloud speaks a reply you choose. Realtime voice uses a low-latency provider path when configured.
 
 <Screenshot id="settings-voice" alt="Settings: Voice in Row-Bot." caption="The Voice page manages Talk, Dictate, read-aloud, voice model readiness, and diagnostics." />
 
@@ -17,17 +17,18 @@ Open **Settings**, then choose **Voice** in the **Models** group, or search for 
 
 ## Controls
 
-- Talk settings decide whether spoken input submits directly to Row-Bot.
-- Dictate settings decide whether speech is inserted into the composer for review before sending.
-- Read-aloud settings control spoken assistant responses.
-- Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate. Once SenseVoice is installed, **Speech engine** (**Talk listens with**, **Dictation listens with**) chooses it for each mode, in Talk and Dictation in the browser too.
-- A saved Whisper size, SenseVoice model or read-aloud voice and speed applies to the next use, without restarting Row-Bot.
-- **Test voice**, beside the read-aloud voice, plays the test phrase in this browser, not on the computer running Row-Bot.
+- **Talk** chooses what listens to you (**Listen with**): Whisper on the computer running Row-Bot, or OpenAI Realtime. **Live captions** shows your words while you speak.
+- **Dictation** chooses what turns your speech into composer text, and the Whisper **Speech model** size.
+- **Read aloud** sets the voice Row-Bot speaks with: Kokoro, on the computer running Row-Bot. **Voice** and **Speech speed** apply to Read aloud on a reply and to Talk's spoken answers. Until Kokoro is installed, the group says so and offers **Install** (a one-time download of the model and voices from GitHub).
+- **Test voice**, beside **Voice**, plays the test phrase in this browser, not on the computer running Row-Bot.
+- Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate. Once SenseVoice is installed, **Speech engine** (**Talk listens with**, **Dictation listens with**) chooses it for each mode.
+- A saved Whisper size, SenseVoice model, or Kokoro voice and speed applies to the next use, without restarting Row-Bot.
 - SenseVoice readiness shows whether the platform, packaged runtime, and verified local model snapshot are ready. Its install action is always explicit.
-- Realtime voice controls use provider-backed low-latency voice models.
-- Device controls select microphone and output devices.
-- Voice Models shows runtime defaults and provider voice models.
-- Diagnostics checks local audio and provider readiness.
+- Realtime voice controls (under **Advanced**, while Talk listens with OpenAI Realtime) choose the realtime voice and model.
+- **Voice models** lists each speech model and whether it is installed.
+- **Diagnostics** says what Settings knows without checking: opening Settings never probes a microphone or a provider.
+
+Row-Bot listens through the microphone your browser uses; choose a different one in the browser or your operating system's sound settings.
 
 Talk and Dictate controls live in the full chat composer, not the compact Buddy desktop overlay. If Buddy is undocked, use **Open full thread** before starting a microphone session; Buddy will continue to reflect the selected thread's response and approval state.
 
@@ -38,6 +39,12 @@ Talk and Dictate controls live in the full chat composer, not the compact Buddy 
 3. Choose local Whisper for the default local path, or install and select SenseVoice Small when you want the optional FunASR engine.
 4. Treat the SenseVoice install as a deliberate approximately 940 MB ModelScope download. After verification, normal transcription stays local and cache-only.
 5. Choose realtime voice when latency matters and you accept provider requirements, cost, and internet use.
+
+## Read Aloud
+
+**Read aloud** is a button on each Row-Bot reply (on a phone, press and hold the reply). It speaks the reply with Kokoro in the voice and speed chosen here, and plays it in the browser you are using. Code blocks, tables and web addresses are left out. The first sentence starts quickly and the rest follows in order; press **Stop reading** to stop. Buddy's mouth moves while it reads. Row-Bot reads the reply from the saved conversation, so it only ever speaks what the reply says.
+
+Talk and Read aloud say the words you've taught Row-Bot to pronounce; the chat and captions keep the written words. If Kokoro isn't installed, Read aloud says so and offers **Open Voice settings**; it never falls back to your device's own voice.
 
 ## What Is Saved
 
@@ -53,7 +60,8 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If the microphone is silent, check the selected input device and browser/app permissions.
+- If the microphone is silent, check that the browser may use the microphone, and which microphone the browser or your operating system uses.
+- If **Read aloud** says "Read aloud needs the Kokoro voice", install Kokoro under **Read aloud** in Voice settings.
 - "SenseVoice isn't ready on this computer." means the engine chosen for Talk or Dictation needs installing: install it in Voice settings, or choose Whisper.
 - If **Test voice** says "This browser couldn't play the test phrase.", check the browser's sound output and that the page is allowed to play audio.
 - If SenseVoice is missing or invalid, use its install or reinstall action in Voice settings. Source installs also require the `voice` extra.

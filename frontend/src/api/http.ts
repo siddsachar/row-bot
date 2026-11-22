@@ -2003,8 +2003,25 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  voiceControl<M extends 'talk' | 'realtime'>(
-    mode: M,
+  stopTalk(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.stopTalk(this.base, this.session(), handle, signal);
+  }
+  talkTicket(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.talkTicket(this.base, this.session(), handle, signal);
+  }
+  openVoiceSocket() {
+    // Same origin as every other request; the session cookie authenticates it.
+    const url = new URL(
+      `${this.base}/api/v1/voice/stream`,
+      window.location.href,
+    );
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    return socket;
+  }
+  voiceControl(
+    mode: 'realtime',
     handle: wire.DictationHandle,
     action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
@@ -2018,38 +2035,23 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  transcribeTalk(
-    handle: wire.DictationHandle,
-    utterance: string,
-    audio: Blob,
-    signal?: AbortSignal,
-  ) {
-    return wire.transcribeTalk(
-      this.base,
-      this.session(),
-      handle,
-      utterance,
-      audio,
-      signal,
-    );
-  }
-  talkOutput(
-    handle: wire.DictationHandle,
-    run: string,
-    output: string,
-    signal?: AbortSignal,
-  ) {
-    return wire.talkOutput(
-      this.base,
-      this.session(),
-      handle,
-      run,
-      output,
-      signal,
-    );
-  }
   speechTest(signal?: AbortSignal) {
     return wire.speechTest(this.base, this.session(), signal);
+  }
+  readAloud(
+    conversationId: string,
+    messageId: string,
+    part: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.readAloud(
+      this.base,
+      this.session(),
+      conversationId,
+      messageId,
+      part,
+      signal,
+    );
   }
   realtimeEvent(
     handle: wire.DictationHandle,
@@ -2072,7 +2074,7 @@ export class HttpTransport implements ClientTransport {
     );
   }
   voiceRun(
-    mode: 'talk' | 'realtime',
+    mode: 'realtime',
     handle: wire.DictationHandle,
     signal?: AbortSignal,
   ) {

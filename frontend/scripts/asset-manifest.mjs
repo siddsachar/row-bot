@@ -31,12 +31,18 @@ for (const entry of Object.values(build)) {
 // built scripts start with new Worker(new URL(".../assets/<name>.js", ...)).
 const workerStart =
   /new (?:Shared)?Worker\(new URL\(["'][^"']*\/assets\/([A-Za-z0-9_.-]+\.js)["']/g;
+// Audio worklets (Row-Bot Voice's capture) are worker bundles imported by URL
+// (?worker&url): their names end .worklet-<hash>.js.
+const workletUrl =
+  /["'][^"']*\/assets\/([A-Za-z0-9_-]+\.worklet-[A-Za-z0-9_-]+\.js)["']/g;
 for (const path of [...paths])
-  if (/^assets\/[A-Za-z0-9_.-]+\.js$/.test(path))
-    for (const [, name] of (
-      await readFile(resolve(root, path), 'utf8')
-    ).matchAll(workerStart))
+  if (/^assets\/[A-Za-z0-9_.-]+\.js$/.test(path)) {
+    const code = await readFile(resolve(root, path), 'utf8');
+    for (const [, name] of code.matchAll(workerStart))
       paths.add(`assets/${name}`);
+    for (const [, name] of code.matchAll(workletUrl))
+      paths.add(`assets/${name}`);
+  }
 const files = {};
 for (const path of [...paths].sort()) {
   if (
