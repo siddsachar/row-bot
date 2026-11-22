@@ -1,7 +1,7 @@
 """Forward-only SQL migrations: numbered ``NNNN_name.sql`` files shipped in ``migrations/``.
 
 ``migrate`` takes a Postgres advisory lock (so two runners never interleave), keeps a ledger in
-``row_bot_org.schema_migrations`` with each file's SHA-256, and applies each pending file in its own
+``row_bot_org.schema_migrations`` with each file's SHA-256 (of its text with LF line endings), and applies each pending file in its own
 transaction together with its ledger row. It refuses to go on when an applied file has changed or the
 database records a migration this server doesn't know (a newer server migrated it). There is no
 "down": a mistake is fixed by a new migration.
@@ -60,7 +60,8 @@ def load_migrations(folder: Traversable | Path | None = None) -> tuple[Migration
         version = int(match.group(1))
         if version in found:
             raise MigrationError(f"{entry.name} has the same number as {found[version].file_name}")
-        raw = entry.read_bytes()
+        # Line endings don't count: a Windows checkout (CRLF) and the image (LF) hold the same migration.
+        raw = entry.read_bytes().replace(b"\r\n", b"\n")
         found[version] = Migration(version, match.group(2), raw.decode("utf-8"), hashlib.sha256(raw).hexdigest())
     return tuple(found[version] for version in sorted(found))
 

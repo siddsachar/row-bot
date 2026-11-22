@@ -155,6 +155,14 @@ def test_two_migration_files_cant_share_a_number(tmp_path: Path) -> None:
         load_migrations(folder)
 
 
+def test_a_checkout_with_crlf_line_endings_holds_the_same_migrations(tmp_path: Path) -> None:
+    folder = tmp_path / "crlf"
+    folder.mkdir()
+    (folder / "0001_foundation.sql").write_bytes(SHIPPED[0].sql.replace("\n", "\r\n").encode("utf-8"))
+
+    assert load_migrations(folder) == SHIPPED[:1]
+
+
 def test_the_migrate_command_applies_then_reports_nothing_pending(
     empty_org_database, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
