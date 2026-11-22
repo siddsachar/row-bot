@@ -177,7 +177,10 @@ row-bot-org = "row_bot_org.cli:main"
 # The Row-Bot Org server (src/row_bot_org), installed only by its own image (deploy/org). A group,
 # not an extra: the installer and update-part exports take every extra and no group, so nothing
 # here can reach a desktop build. FastAPI and uvicorn are core already.
-org = []
+org = [
+  "psycopg[binary]>=3.2,<4.0",
+  "psycopg-pool>=3.2,<4.0",
+]
 test = [
   "pytest>=9.0.3,<10.0",
   "pytest-cov>=6.0,<8.0",
@@ -212,6 +215,8 @@ where = ["src"]
 # Learning (preview): the training engine's own locked project and entry (O46), and the recipes.
 "row_bot.learning_engine" = ["pyproject.toml", "uv.lock", "*.py"]
 "row_bot.learning.training.recipes" = ["*.json"]
+# The Org server's forward-only migrations (src/row_bot_org/db).
+"row_bot_org.db" = ["migrations/*.sql"]
 "row_bot" = [
   "static/client-v2/index.html",
   "static/client-v2/app.webmanifest",

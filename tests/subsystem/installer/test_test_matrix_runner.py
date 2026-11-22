@@ -65,6 +65,23 @@ def test_changed_tier_selects_tests_by_convention(tmp_path) -> None:
                      "tests/subsystem/workflows/test_tasks_recovery.py", "tests/test_goal_mode.py"]
 
 
+@pytest.mark.parametrize("source", ["src/row_bot_org/db/migrations.py", "src/row_bot/brain/protocol.py"])
+def test_an_org_server_or_brain_change_runs_the_postgres_tests_once(source: str) -> None:
+    commands = {spec.name: spec.argv for spec in matrix.changed_commands([source, "tests/subsystem/org/test_org_rls.py"])}
+
+    assert commands["org"] == matrix.COMMANDS["org"].argv
+    assert "postgres and not live_provider and not e2e" in commands["org"]
+    assert "not postgres and not live_provider and not e2e" in commands["changed-tests"]
+    assert "tests/subsystem/org" in matrix.changed_test_paths(["src/row_bot_org/db/migrations.py"])
+
+
+def test_other_changes_leave_the_org_tier_out() -> None:
+    commands = {spec.name: spec.argv for spec in matrix.changed_commands(["src/row_bot/tasks.py"])}
+
+    assert "org" not in commands
+    assert "not live_provider and not e2e" in commands["changed-tests"]
+
+
 def test_client_checks_never_install_and_fail_fast(tmp_path, monkeypatch) -> None:
     import scripts.run_client_checks as client
 

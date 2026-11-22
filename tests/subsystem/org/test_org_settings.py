@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from row_bot_org.settings import OrgSettings, SettingsError, load_settings
+from row_bot_org.settings import OrgSettings, SettingsError, load_settings, remove_secret_variables
 
 # Reads secret files from a folder: paths, links and file types differ by OS.
 pytestmark = pytest.mark.platform
@@ -28,6 +28,7 @@ def test_defaults_listen_on_loopback_without_openapi() -> None:
 
     assert settings == OrgSettings()
     assert (settings.host, settings.port, settings.log_level, settings.openapi) == ("127.0.0.1", 8100, "INFO", False)
+    assert (settings.database_url, settings.auto_migrate) == (None, False)
 
 
 def test_variables_set_each_setting() -> None:
@@ -131,3 +132,43 @@ def test_a_linked_secret_file_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(SettingsError, match="ROW_BOT_ORG_PORT in the secrets folder must not be a link"):
         load_settings({"ROW_BOT_SECRETS_DIR": str(folder)})
+
+
+DATABASE_URL = f"postgresql://org_app:{MARKER}@db.internal:5432/org"
+
+
+def test_the_database_url_and_auto_migrate_are_settings() -> None:
+    settings = load_settings({"ROW_BOT_ORG_DATABASE_URL": f" {DATABASE_URL} ", "ROW_BOT_ORG_AUTO_MIGRATE": "1"})
+
+    assert (settings.database_url, settings.auto_migrate) == (DATABASE_URL, True)
+    assert load_settings({"ROW_BOT_ORG_DATABASE_URL": "postgres://db/org"}).database_url == "postgres://db/org"
+
+
+def test_the_database_url_can_come_from_the_secrets_folder(tmp_path: Path) -> None:
+    folder = _secrets(tmp_path, ROW_BOT_ORG_DATABASE_URL=f"{DATABASE_URL}\n".encode())
+
+    assert load_settings({"ROW_BOT_SECRETS_DIR": str(folder)}).database_url == DATABASE_URL
+
+
+def test_the_database_url_never_shows_in_the_settings_repr() -> None:
+    settings = load_settings({"ROW_BOT_ORG_DATABASE_URL": DATABASE_URL})
+
+    assert MARKER not in repr(settings) and "db.internal" not in str(settings)
+
+
+@pytest.mark.parametrize("url", [f"mysql://org:{MARKER}@db/org", f"{MARKER}@db/org", "postgresql://"],
+                         ids=["other-scheme", "no-scheme", "nothing-after-scheme"])
+def test_a_database_url_that_isnt_postgres_is_refused_without_its_value(url: str) -> None:
+    with pytest.raises(SettingsError) as raised:
+        load_settings({"ROW_BOT_ORG_DATABASE_URL": url})
+
+    assert raised.value.problems == ["ROW_BOT_ORG_DATABASE_URL must be a postgresql:// address"]
+    assert MARKER not in str(raised.value)
+
+
+def test_the_secret_variables_leave_the_environment_and_the_rest_stay() -> None:
+    environ = {"ROW_BOT_ORG_DATABASE_URL": DATABASE_URL, "ROW_BOT_ORG_PORT": "9000", "PATH": "unrelated"}
+
+    remove_secret_variables(environ)
+
+    assert environ == {"ROW_BOT_ORG_PORT": "9000", "PATH": "unrelated"}
