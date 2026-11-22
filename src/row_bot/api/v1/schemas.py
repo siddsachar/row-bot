@@ -6391,8 +6391,8 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
-    # Footage on the backdrop or edge to edge; a camera that follows what was done or stays still.
-    framing: Literal["framed", "full"] = "framed"
+    # Footage edge to edge (the default) or inset on the backdrop; a camera that follows what was done or stays still.
+    framing: Literal["framed", "full"] = "full"
     camera: Literal["follow", "still"] = "follow"
     # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
     voice: str = Field(default="", max_length=64)
@@ -6521,7 +6521,7 @@ class WaitView(WireModel):
     wait_id: str = Field(pattern=r"^[0-9a-f]{12}$")
     conversation_id: OpaqueId
     conversation_title: str = Field(max_length=160)
-    kind: Literal["process", "check", "time", "conversation", "watch"]
+    kind: Literal["process", "check", "time", "conversation", "watch", "video"]
     label: str = Field(min_length=1, max_length=120)
     # "checks every 5 min" or "watching"; a watch's "every 10 min" or "every 5–60 min"; "" for a time wait.
     how: str = Field(max_length=40)
@@ -6966,13 +6966,15 @@ DeliveryId = Annotated[str, StringConstraints(pattern=r"^send-[0-9a-f]{8}$")]
 
 class DeliveryFile(WireModel):
     """One file a delivery sent, or tried to (F7): its name and size, never where it came from."""
-    index: int = Field(ge=0, le=9)
+    index: int = Field(ge=0, le=49)  # A send holds up to file_deliveries.MAX_FILES (50) files.
     name: str = Field(min_length=1, max_length=120)
     size_bytes: int = Field(ge=0)
     mime_type: str = Field(max_length=128)
     sent: bool
     # Sent to the person's devices and not expired: the download works with their session.
     downloadable: bool
+    # Sent to the person's devices as the chat's own file: the card plays it inline, after the link expires too.
+    media_ref: str | None = Field(default=None, max_length=512)
 
 
 class DeliveryView(WireModel):
@@ -6994,7 +6996,7 @@ class DeliveryView(WireModel):
     detail: str = Field(max_length=600)
     # The size limit that applied, when the problem is size.
     limit_bytes: int | None = Field(ge=0)
-    files: list[DeliveryFile] = Field(max_length=10)
+    files: list[DeliveryFile] = Field(max_length=50)
     created_at: str = Field(max_length=80)
     # When the downloads end (devices only).
     expires_at: str | None = Field(max_length=80)
@@ -9527,6 +9529,11 @@ class MediaAvailable(WireModel):
     ]
     # The prompt a media tool made it from, on one line (5.3.3): it names the output in the chat's Outputs.
     prompt: str = Field(default="", max_length=1000)
+    # What it is to the person (finals first): a final (presented, or AI-made), a draft to look at, or a
+    # working file made on the way, which the chat folds away; "" for one from before roles.
+    role: Literal["", "final", "draft", "working"] = ""
+    # A presented final's name in the chat's files.
+    name: str = Field(default="", max_length=240)
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
 
@@ -10024,6 +10031,10 @@ class TraceMediaReference(WireModel):
     mime_type: str = Field(max_length=128)
     # The prompt a media tool made it from, on one line (5.3.3); empty for older chats and other tools.
     prompt: str = Field(default="", max_length=1000)
+    # What it is to the person (finals first): final, draft or working; "" in chats from before roles.
+    role: Literal["", "final", "draft", "working"] = ""
+    # A presented final's name in the chat's files.
+    name: str = Field(default="", max_length=240)
 
 
 class TraceAppRef(WireModel):

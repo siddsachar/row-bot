@@ -8,7 +8,9 @@ shown under it. Music (``make_music``, or the person's own file) plays under the
 and dips while a line is said.
 
 A version is made in one shape (16:9, 1:1 or 9:16; by default its first video's), and the same
-version can be exported in the other shapes, each scene reframed on its zoom, or as a GIF.
+version can be exported in the other shapes, each scene reframed on its zoom, or as a GIF. Every
+scene fills the frame: a video of another shape is cropped around where the action is, never shown
+with bars. A scene's ``fit`` (or the brand kit's framed look) sets its picture inset instead.
 
 Every change is a new version, by the person or by Row-Bot with a note of what changed. Going
 back is a new version too, so nothing is lost. Making a version's video voices each line whose
@@ -73,6 +75,9 @@ class Scene:
     voiced: str = ""
     # Who said it: the voice and speed Row-Bot voiced it in ("af_heart@1"), or "given" for a file made for it.
     voiced_as: str = ""
+    # True: its whole picture inset on the brand colour; False: it fills the frame, cropped around the action; None:
+    # the brand kit's framing (full by default).
+    fit: bool | None = None
 
 
 @dataclass
@@ -150,7 +155,7 @@ def _scene_from(data: dict[str, Any]) -> Scene:
         end=None if data.get("end") is None else float(data["end"]), speed=float(data.get("speed") or 1),
         zoom=[float(value) for value in zoom][:4] if zoom else None, card=str(data.get("card") or ""),
         line=str(data.get("line") or ""), voice=str(data.get("voice") or ""), voiced=str(data.get("voiced") or ""),
-        voiced_as=str(data.get("voiced_as") or ""),
+        voiced_as=str(data.get("voiced_as") or ""), fit=None if data.get("fit") is None else bool(data["fit"]),
     )
 
 
@@ -302,10 +307,12 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
             voice, voiced, voiced_as = old.voice, old.voiced, old.voiced_as
         else:
             voice, voiced, voiced_as = "", "", ""
+        # The Video panel doesn't send fit, so a scene it edits keeps its own; the video tool always sends it.
+        fit = (None if data["fit"] is None else bool(data["fit"])) if "fit" in data else old.fit if old else None
         scenes.append(Scene(scene_id=scene_id, source=source, start=start, end=end,
                             speed=round(speed, 3) if source else 1.0,
                             zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
-                            voiced=voiced, voiced_as=voiced_as))
+                            voiced=voiced, voiced_as=voiced_as, fit=fit if source else None))
     if len({scene.source for scene in scenes if scene.source}) > MAX_INPUTS:
         raise ProjectError(f"A video can use at most {MAX_INPUTS} different sources: join some first.")
     return scenes
@@ -464,7 +471,7 @@ def changed_scenes(project: Project, version: Version) -> list[str]:
     if before is None:
         return []
     old = {scene.scene_id: scene for scene in before.scenes}
-    keys = ("source", "start", "end", "speed", "zoom", "card", "line")
+    keys = ("source", "start", "end", "speed", "zoom", "card", "line", "fit")
     return [scene.scene_id for scene in version.scenes
             if scene.scene_id not in old or any(getattr(scene, key) != getattr(old[scene.scene_id], key)
                                                 for key in keys)]
@@ -507,6 +514,20 @@ def needs_voice(version: Version) -> list[Scene]:
             if scene.line and (not scene.voice or scene.voiced != scene.line or scene.voiced_as not in ("given", said))]
 
 
+def render_of(version: Version, shape: str = "") -> tuple[Any, bool]:
+    """The edit making a version's video (or its export in *shape*), or None before it starts; and whether that's
+    over: made, failed or stopped."""
+    from row_bot import video_edits
+
+    if shape:
+        edit = video_edits.get(version.exports.get(shape, ""))
+        return edit, shape in version.export_problems or (edit is not None and not edit.active)
+    edit = video_edits.get(version.edit_id) if version.edit_id else None
+    if edit is None:
+        return None, version.status not in ("voicing", "rendering")
+    return edit, not edit.active
+
+
 def _says_lines(version: Version) -> bool:
     """Its scenes' lines are said one by one: voice lines on, and no narration said over the whole video."""
     return version.voice_lines and not version.narration
@@ -525,16 +546,19 @@ def export(project: Project, shape: str, number: int | None = None, *, download:
     made = video_edits.get(version.edit_id) if version.edit_id else None
     if made is None or made.status != "saved":
         raise ProjectError("Make this version first: its exports come from it.")
-    if shape in version.export_problems:
+    if shape in version.export_problems or shape in version.exports:  # Made again: the last one's gone.
         _update(project, version.number,
+                exports={key: value for key, value in version.exports.items() if key != shape},
                 export_problems={key: value for key, value in version.export_problems.items() if key != shape})
+        version = (get(project.project_id, project.conversation_id) or project).version(version.number) or version
     if shape == "gif":
         from row_bot.media_sources import resolve
 
         edit = video_edits.start(video_edits.Request(
             conversation_id=project.conversation_id, kind="video", sources=resolve(made.edit_id,
                                                                                project.conversation_id),
-            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True))
+            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True,
+            role="draft", output_id=project.project_id, version=version.number))
         _update(project, version.number, exports={**version.exports, shape: edit.edit_id})
     else:
         thread = threading.Thread(target=_make, args=(project.project_id, project.conversation_id, version.number,
@@ -676,7 +700,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          voice=scene.voice if _says_lines(version) else "",
                          voice_seconds=lasts.get(scene.voice, 0.0) if _says_lines(version) else 0.0,
                          focus=None if scene.zoom or not scene.source
-                         else pointer_focus(scene.source, scene.start, scene.end),
+                         else pointer_focus(scene.source, scene.start, scene.end), fit=scene.fit,
                          camera=scene_camera(scene.source, scene.start, scene.end, scene.speed)
                          if scene.source and not scene.zoom else (),
                          waits=scene_waits(scene.source, scene.start, scene.end) if scene.source else ())
@@ -696,6 +720,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
             output_name=_file_name(project.title, ".mp4", f"v{number} {shape.replace(':', 'x')}".strip()),
             download=download, sounds=sounds, check=True,
+            role="draft", output_id=project.project_id, version=number,
         ))
         if shape:
             fresh = get(project_id, conversation_id)
@@ -834,9 +859,13 @@ def summary(project: Project, number: int | None = None) -> str:
              f"{data['latest']}, {len(data['scenes'])} scenes, {words}."]
     if data["problem"]:
         lines.append(f"Why: {data['problem']}")
+    shown = project.version(data["number"])
+    fits = [scene.fit for scene in shown.scenes] if shown is not None else []
     for index, scene in enumerate(data["scenes"], start=1):
         span = f"{scene['start']:g}–{'end' if scene['end'] is None else format(scene['end'], 'g')} s"
+        fit = fits[index - 1] if index <= len(fits) else None
         extras = [f"{scene['speed']:g}×" if scene["speed"] != 1 else "", "zoom" if scene["zoom"] else "",
+                  {True: "fit", False: "fill"}.get(fit, ""),
                   f"card \"{scene['card']}\"" if scene["card"] else ""]
         extra = ", ".join(item for item in extras if item)
         line = f" — \"{scene['line']}\"" if scene["line"] else ""
@@ -845,6 +874,11 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["narration"]:
         lines.append(f"Narration: {data['narration']}, said over the whole video (the lines above aren't said "
                      "one by one).")
+    from row_bot import video_brand
+
+    if shown is not None and shown.brand and video_brand.load().framing == "framed":
+        lines.append("Framed: the brand kit sets 16:9 footage inset on its colour. To fill the frame, video action "
+                     "brand with framing full.")
     if data["edit"] and data["status"] == "made":
         lines.append(f"Video: {data['edit']['output_name']} ({data['edit']['edit_id']}) in this chat's files.")
     if data["checks"]:
@@ -857,7 +891,6 @@ def summary(project: Project, number: int | None = None) -> str:
         state = {"saved": f"made: {made['output_name']}", "failed": f"not made: {made.get('detail') or 'it failed'}",
                  "stopped": "stopped"}.get(made["status"], "being made")
         lines.append(f"Export {item['shape']}: {state}.")
-    shown = project.version(data["number"])
     for shape, words in (shown.export_problems if shown is not None else {}).items():
         lines.append(f"Export {shape}: not made: {words}")
     return "\n".join(lines)

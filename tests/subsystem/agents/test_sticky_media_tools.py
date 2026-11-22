@@ -118,6 +118,20 @@ def test_a_small_window_binds_only_the_media_tools_the_chat_used(chat, monkeypat
     assert {"video", "make_music", "transcribe", "send_file", "media_find", "browser_record"} <= set(on_demand)
 
 
+@pytest.mark.parametrize("window", [32_768, 200_000])
+def test_a_chat_apps_turn_never_gets_present_back_from_the_sticky_set(chat, monkeypatch, window):
+    """present shows a final in a Row-Bot chat; a chat app's turn delivers with send_file."""
+    monkeypatch.setattr(chat.agent, "get_context_size", lambda *args, **kwargs: window)
+    real_context = chat.agent._set_active_runtime_context
+    monkeypatch.setattr(chat.agent, "_set_active_runtime_context",
+                        lambda **kwargs: real_context(**{**kwargs, "runtime_surface": "channel"}))
+    _history(chat.thread_id, ("speak", {"text": "Hello"}), ("present", {"files": ["Hello.mp3"]}))
+
+    bound, on_demand = chat.graph()
+
+    assert "speak" in bound and "present" not in bound and "present" not in on_demand
+
+
 def test_a_turns_scope_still_refuses_a_bound_media_tool_it_leaves_out(chat):
     _history(chat.thread_id, ("speak", {"text": "Hello"}))
 

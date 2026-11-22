@@ -12,6 +12,10 @@ import { DeliveryCard } from './DeliveryCard';
 import { cardOf } from './TranscriptCards';
 import { DeliveryIoContext, type DeliveryIo } from './deliveries';
 import { stepVerb } from './tool-activity';
+import type { ClientController } from '../../api/controller';
+import type { ClientPlatform } from '../../platform';
+import { RuntimeContext } from '../../runtime';
+import { OverlayProvider } from '../../ui/overlays';
 
 const saving = vi.hoisted(() => ({
   save: vi.fn(),
@@ -108,6 +112,60 @@ it('files sent to your devices save the one way every download saves', async () 
     }),
   );
   expect(within(card).queryByRole('alert')).toBeNull();
+});
+
+it('a file sent to your devices plays in the card, after its phone link ends too', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:sent');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  const download = vi.fn(
+    async () => new Blob(['video'], { type: 'video/mp4' }),
+  );
+  const film = {
+    index: 0,
+    name: 'Birthday montage.mp4',
+    size_bytes: 2 * MB,
+    mime_type: 'video/mp4',
+    sent: true,
+    downloadable: false,
+    media_ref: 'conversation-a:film',
+  };
+  const deliveries = io({
+    'send-1a2b3c4d': view({
+      files: [film],
+      status: 'expired',
+      expires_at: new Date(Date.now() - DAY).toISOString(),
+    }),
+  });
+  const { container } = render(
+    <RuntimeContext.Provider
+      value={{
+        controller: { download } as unknown as ClientController,
+        platform: {} as ClientPlatform,
+      }}
+    >
+      <OverlayProvider>
+        <DeliveryIoContext.Provider value={deliveries}>
+          <DeliveryCard deliveryId="send-1a2b3c4d" />
+        </DeliveryIoContext.Provider>
+      </OverlayProvider>
+    </RuntimeContext.Provider>,
+  );
+
+  const card = await screen.findByRole('group', {
+    name: 'Sent to your devices: Sent',
+  });
+  expect(card).toHaveTextContent('On all your signed-in devices');
+  expect(card).not.toHaveTextContent('Expired');
+  await waitFor(() =>
+    expect(container.querySelector('video')).toHaveAttribute(
+      'src',
+      'blob:sent',
+    ),
+  );
+  expect(download).toHaveBeenCalledWith(
+    'conversation-a:film',
+    expect.anything(),
+  );
 });
 
 it('says plainly when the download has ended, and reads the card again', async () => {

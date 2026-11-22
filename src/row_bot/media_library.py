@@ -3,8 +3,10 @@
 Recordings, video edits, voice lines, music, pictures Row-Bot made and files the person added are all
 kept with their chat (``application.attachments``). This reads them across chats: newest first,
 found by name, tag, kind or chat title. Tags are kept in their own table beside the chats. An incognito chat's
-files are never listed. ``bring`` copies an item into another chat's files, which is how one chat
-or workflow hands media to another; ``locate`` gives a tool that sends an item on (``x_post``) its file.
+files are never listed. A saved character or style is a tag too: "character: maya" on a few pictures of Maya,
+"style: noir" on a still with the look, which the image and video tools take by name (``look_pictures``).
+``bring`` copies an item into another chat's files, which is how one chat or workflow hands media to
+another; ``locate`` gives a tool that sends an item on (``x_post``) its file.
 """
 from __future__ import annotations
 
@@ -23,7 +25,10 @@ KINDS: dict[str, Kind] = {"image/png": "image", "image/jpeg": "image", "image/gi
                           "audio/flac": "audio", "audio/aac": "audio"}
 MAX_TAGS = 12
 REF = re.compile(r"[\w-]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-_TAG = re.compile(r"[^\W_][\w .&+-]{0,39}", re.UNICODE)
+_TAG = re.compile(r"[^\W_][\w .&+:-]{0,39}", re.UNICODE)
+# A saved character's or style's tag, and how many of its newest pictures a shot holds to.
+LOOKS = {"character": 3, "style": 2}
+_LOOK = re.compile(r"(character|style): (.+)")
 _LOCK = threading.Lock()
 
 
@@ -61,11 +66,12 @@ def clean_tags(tags: list[str]) -> list[str]:
     """Tags as kept: trimmed, lower case, each once, up to MAX_TAGS of up to 40 characters."""
     kept: list[str] = []
     for tag in tags:
-        text = " ".join(str(tag).split()).lower()
+        text = re.sub(r"\s*:\s*", ": ", " ".join(str(tag).split()).lower())
         if not text:
             continue
         if not _TAG.fullmatch(text):
-            raise MediaError(f"A tag is up to 40 letters, digits, spaces and . & + -: {str(tag)[:40]!r} isn't one.")
+            raise MediaError(f"A tag is up to 40 letters, digits, spaces and . & + : - "
+                             f"({str(tag)[:40]!r} isn't one).")
         if text not in kept:
             kept.append(text)
     if len(kept) > MAX_TAGS:
@@ -175,6 +181,29 @@ def bring(ref: str, conversation_id: str) -> dict[str, Any]:
         return {**meta, "name": named.get(ref, meta["name"])}
     try:
         meta, data = read_attachment(ref)
-        return register_attachment(conversation_id, meta["name"], data, meta["mime_type"])
+        return register_attachment(conversation_id, meta["name"], data, meta["mime_type"], role="working",
+                                   made_from=[meta["name"]])
     except AttachmentError as exc:
         raise MediaError(f"That item couldn't be copied into this chat ({exc}).") from None
+
+
+def looks(kind: str, name: str = "") -> dict[str, list[dict[str, Any]]]:
+    """The saved characters or styles (*kind*), or the one named: each name's pictures, newest first."""
+    wanted = " ".join(name.split()).lower()
+    found: dict[str, list[dict[str, Any]]] = {}
+    for item in items(kind="image", limit=100_000):
+        for tag in item["tags"]:
+            look = _LOOK.fullmatch(tag)
+            if look and look.group(1) == kind and (not wanted or look.group(2) == wanted):
+                found.setdefault(look.group(2), []).append(item)
+    return found
+
+
+def look_pictures(kind: str, name: str) -> list[bytes]:
+    """A saved character's or style's newest pictures, read in place, for a shot or a picture to hold to."""
+    wanted = " ".join(name.split()).lower()
+    pictures = looks(kind, wanted).get(wanted)
+    if not pictures:
+        raise MediaError(f"There's no {kind} named {name.strip()!r} in Library › Media. Save one by tagging a few "
+                         f"of its pictures '{kind}: {wanted}' with media_tag.")
+    return [locate(item["ref"])[1].read_bytes() for item in pictures[:LOOKS[kind]]]

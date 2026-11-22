@@ -361,7 +361,7 @@ def test_beats_are_marked_while_recording_and_kept_with_the_saved_recording(brow
     video.write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 64)
     from row_bot.application import attachments
 
-    monkeypatch.setattr(attachments, "register_attachment", lambda conversation, name, data: {
+    monkeypatch.setattr(attachments, "register_attachment", lambda conversation, name, data, **_lineage: {
         "attachment_ref": f"{conversation}:rec", "mime_type": "video/mp4"})
     recordings.finished(record, "agent", video)
     assert record.beats == [[12.0, "work", "Waiting for the build", ""],
