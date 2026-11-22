@@ -7,14 +7,22 @@ Sources, checked in this order; the first one present is used and the others are
 2. macOS: the managed preferences of ``ai.row-bot`` (``/Library/Managed Preferences/ai.row-bot.plist``, as a
    configuration profile writes it), then ``/Library/Application Support/Row-Bot/org-policy.json``.
 3. Linux: ``/etc/row-bot/org-policy.json``.
-4. Anywhere: the file ``ROW_BOT_POLICY_FILE`` names (servers and containers).
+4. Servers and containers only (``ROW_BOT_DEPLOYMENT_MODE=server`` or ``ROW_BOT_CONTAINERIZED=1``): the file
+   ``ROW_BOT_POLICY_FILE`` names. A desktop build ignores the variable and reports it as ignored.
 
-Checking for a source costs one stat (one registry open on Windows). A JSON file may be signed: a detached
-Ed25519 signature in ``<file>.sig`` (base64) by a key pinned in ``org-policy-keys.json`` beside it. While that
-keys file is present, or when the policy sets ``require_signature``, an unsigned file is refused.
+Checking for a source costs one stat (one registry open on Windows). Only "nothing there" counts as absent:
+any other failure to look (a folder the person may not list) locks down, so tightening an ACL can never hide a
+policy. A policy folder that exists without its file is checked too, so a folder a person created in advance
+locks down instead of waiting for IT's file.
+
+A JSON file may be signed: a detached Ed25519 signature in ``<file>.sig`` (base64) by a key pinned in
+``org-policy-keys.json`` beside it. While that keys file is present, or when the policy sets
+``require_signature``, an unsigned file is refused, and so is a higher-precedence source that can't be signed
+(the registry, managed preferences).
 
 Anything present but unreadable, untrusted, invalid or badly signed gives ``Lockdown``; nothing present gives
-``NoPolicy``. The OS is reached only through ``System``, so tests run every path with fakes.
+``NoPolicy``. No exception leaves ``load_policy``. The OS is reached only through ``System``, so tests run
+every path with fakes.
 """
 
 from __future__ import annotations
@@ -30,6 +38,7 @@ from typing import Any, Literal
 from row_bot.policy.model import IgnoredSource, Lockdown, NoPolicy, OrgPolicy, Policy, PolicySource
 from row_bot.policy.schema import SECTIONS, InvalidPolicy, parse, parse_keys, specs
 from row_bot.policy.trust import trust_problem
+from row_bot.runtime_paths import is_containerized_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +48,14 @@ MAC_MANAGED_PREFERENCES = Path("/Library/Managed Preferences") / f"{MAC_DOMAIN}.
 MAC_POLICY_FILE = Path("/Library/Application Support/Row-Bot/org-policy.json")
 LINUX_POLICY_FILE = Path("/etc/row-bot/org-policy.json")
 POLICY_FILE_ENV = "ROW_BOT_POLICY_FILE"
+DEPLOYMENT_MODE_ENV = "ROW_BOT_DEPLOYMENT_MODE"
 KEYS_FILE = "org-policy-keys.json"
 MAX_BYTES = 256 * 1024
 REG_SZ, REG_DWORD = 1, 4
 LIST_MARKER = "_set"  # ``<list>_set`` = 1: the admin set this list, so no entries means an empty list
 
 Platform = Literal["windows", "macos", "linux"]
+Trust = Callable[..., str | None]  # (path, boundary, *, folder, any_device) -> why it's refused, or None
 
 
 @dataclass(frozen=True)
@@ -69,7 +80,7 @@ class System:
     mac_managed_preferences: Path = MAC_MANAGED_PREFERENCES
     mac_policy_file: Path = MAC_POLICY_FILE
     linux_policy_file: Path = LINUX_POLICY_FILE
-    trust: Callable[[Path, Path | None], str | None] = trust_problem
+    trust: Trust = trust_problem
 
 
 def os_system() -> System:
@@ -77,6 +88,33 @@ def os_system() -> System:
     if sys.platform == "win32":
         return System("windows", os.environ, registry=read_registry, program_data=_program_data)
     return System("macos" if sys.platform == "darwin" else "linux", os.environ)
+
+
+def server_mode(environ: Mapping[str, str]) -> bool:
+    """Row-Bot runs as a server or in its container, where ``ROW_BOT_POLICY_FILE`` is how a host sets policy."""
+    return (is_containerized_runtime(environ)
+            or str(environ.get(DEPLOYMENT_MODE_ENV) or "").strip().lower() == "server")
+
+
+def _present(path: Path) -> bool:
+    """Whether anything is at *path*. Only "nothing there" is False; any other failure to look raises."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return True
+
+
+def _why(exc: BaseException) -> str:
+    return getattr(exc, "strerror", None) or exc.__class__.__name__
+
+
+def _exists(path: Path) -> bool:
+    """``_present``, with a failure to look as an unreadable policy."""
+    try:
+        return _present(path)
+    except OSError as exc:
+        raise InvalidPolicy("unreadable", f"{path}: Row-Bot can't look for it ({_why(exc)})") from None
 
 
 # --- Discovery ----------------------------------------------------------------------------------------------
@@ -87,62 +125,102 @@ class _Candidate:
     path: Path | None = None
     boundary: Path | None = None
     registry: RegistryKey | None = None
-    error: str = ""
+    error: InvalidPolicy | None = None
 
 
-def _candidates(system: System) -> list[_Candidate]:
-    found: list[_Candidate] = []
+@dataclass
+class _Discovery:
+    found: list[_Candidate] = field(default_factory=list)
+    ignored: list[IgnoredSource] = field(default_factory=list)
+    keys_file: Path | None = None  # the pinned keys beside the platform's file source
 
-    def file(kind: Literal["file", "env_file"], path: Path, boundary: Path | None = None) -> None:
-        found.append(_Candidate(PolicySource(kind, str(path)), path=path, boundary=boundary))
+
+def _discover(system: System) -> _Discovery:
+    seen = _Discovery()
+    server = server_mode(system.environ)
+
+    def probe(source: PolicySource, look: Callable[[], _Candidate | None]) -> None:
+        try:
+            candidate = look()
+        except InvalidPolicy as exc:
+            candidate = _Candidate(source, error=exc)
+        except Exception as exc:  # whatever failed while looking, a policy may be there: fail closed
+            logger.debug("Looking for the organisation policy at %s failed", source.location, exc_info=True)
+            candidate = _Candidate(source, error=InvalidPolicy(
+                "unreadable", f"{source.location}: Row-Bot can't look for it ({_why(exc)})"))
+        if candidate is not None:
+            seen.found.append(candidate)
+
+    def policy_file(path: Path, boundary: Path | None, folders: tuple[Path, ...]) -> _Candidate | None:
+        source = PolicySource("file", str(path))
+        if _present(path):
+            return _Candidate(source, path=path, boundary=boundary)
+        for folder in reversed(folders):  # the deepest folder that exists stands for the ones above it
+            if _present(folder):
+                problem = system.trust(folder, boundary, folder=True, any_device=server)
+                if problem:
+                    return _Candidate(source, error=InvalidPolicy("untrusted_location", problem))
+                return None
+        return None
 
     if system.platform == "windows":
-        location = f"HKLM\\{REGISTRY_KEY}"
-        try:
+        def registry() -> _Candidate | None:
             tree = system.registry()
-        except OSError as exc:
-            found.append(_Candidate(PolicySource("registry", location), error=exc.strerror or str(exc)))
-        else:
-            if tree is not None and not tree.empty():
-                found.append(_Candidate(PolicySource("registry", location), registry=tree))
+            if tree is None or tree.empty():
+                return None
+            return _Candidate(PolicySource("registry", f"HKLM\\{REGISTRY_KEY}"), registry=tree)
+
+        def program_data() -> _Candidate | None:
+            root = system.program_data()
+            folder = root / "Row-Bot" / "policy"
+            seen.keys_file = folder / KEYS_FILE
+            return policy_file(folder / "org-policy.json", root, (root / "Row-Bot", folder))
+
+        probe(PolicySource("registry", f"HKLM\\{REGISTRY_KEY}"), registry)
         if system.program_data is not None:
-            try:
-                program_data = system.program_data()
-            except OSError as exc:
-                found.append(_Candidate(PolicySource("file", r"%ProgramData%\Row-Bot\policy\org-policy.json"),
-                                        error=str(exc)))
-            else:
-                path = program_data / "Row-Bot" / "policy" / "org-policy.json"
-                if os.path.lexists(path):
-                    file("file", path, program_data)
+            probe(PolicySource("file", r"%ProgramData%\Row-Bot\policy\org-policy.json"), program_data)
     elif system.platform == "macos":
-        if os.path.lexists(system.mac_managed_preferences):
-            found.append(_Candidate(PolicySource("managed_preferences", str(system.mac_managed_preferences)),
-                                    path=system.mac_managed_preferences))
-        if os.path.lexists(system.mac_policy_file):
-            file("file", system.mac_policy_file)
-    elif os.path.lexists(system.linux_policy_file):
-        file("file", system.linux_policy_file)
+        plist = system.mac_managed_preferences
+        probe(PolicySource("managed_preferences", str(plist)), lambda: _Candidate(
+            PolicySource("managed_preferences", str(plist)), path=plist) if _present(plist) else None)
+        seen.keys_file = system.mac_policy_file.parent / KEYS_FILE
+        probe(PolicySource("file", str(system.mac_policy_file)),
+              lambda: policy_file(system.mac_policy_file, None, (system.mac_policy_file.parent,)))
+    else:
+        probe(PolicySource("file", str(system.linux_policy_file)),
+              lambda: policy_file(system.linux_policy_file, None, (system.linux_policy_file.parent,)))
     named = (system.environ.get(POLICY_FILE_ENV) or "").strip()
     if named:
-        # Named on purpose, so a missing file is a broken policy, not an absent one.
-        path = Path(named)
-        file("env_file", path, Path(path.anchor) if system.platform == "windows" else None)
-    return found
+        source = PolicySource("env_file", named)
+        if not server:
+            seen.ignored.append(IgnoredSource(source, f"{POLICY_FILE_ENV} is read only in server and container "
+                                                      "mode"))
+        else:
+            # Named on purpose, so a missing file is a broken policy, not an absent one.
+            path = Path(named)
+            seen.found.append(_Candidate(source, path=path,
+                                         boundary=Path(path.anchor) if system.platform == "windows" else None))
+    return seen
 
 
 def load_policy(system: System) -> Policy:
-    """The effective policy on *system*."""
-    candidates = _candidates(system)
-    if not candidates:
-        return NoPolicy()
-    chosen, rest = candidates[0], candidates[1:]
-    ignored = tuple(IgnoredSource(candidate.source, "a higher-precedence source is used") for candidate in rest)
+    """The effective policy on *system*. Never raises."""
+    try:
+        seen = _discover(system)
+    except Exception:  # a bug while looking must not decide "no policy"
+        logger.exception("Looking for the organisation policy failed")
+        return Lockdown(reason="unreadable", detail="Row-Bot couldn't look for its organisation policy",
+                        source=PolicySource("file", "unknown"))
+    if not seen.found:
+        return NoPolicy(ignored=tuple(seen.ignored))
+    chosen, rest = seen.found[0], seen.found[1:]
+    ignored = tuple(IgnoredSource(candidate.source, "a higher-precedence source is used")
+                    for candidate in rest) + tuple(seen.ignored)
     if ignored:
         logger.info("Organisation policy from %s; ignoring %s", chosen.source.location,
                     ", ".join(item.source.location for item in ignored))
     try:
-        settings, signer = _read(system, chosen)
+        settings, signer = _read(system, chosen, seen.keys_file)
     except InvalidPolicy as exc:
         reason, detail = exc.code, exc.detail
     except Exception:  # a policy is present: whatever went wrong reading it, fail closed (GHSA-68j6-243q-h2hp)
@@ -157,18 +235,23 @@ def load_policy(system: System) -> Policy:
 
 # --- Reading one source -------------------------------------------------------------------------------------
 
-def _read(system: System, candidate: _Candidate) -> tuple[Any, str | None]:
-    if candidate.error:
-        raise InvalidPolicy("unreadable", f"{candidate.source.location}: {candidate.error}")
+def _read(system: System, candidate: _Candidate, keys_file: Path | None) -> tuple[Any, str | None]:
+    if candidate.error is not None:
+        raise candidate.error
+    if candidate.source.kind in ("registry", "managed_preferences") and keys_file is not None and _exists(keys_file):
+        raise InvalidPolicy("unsigned_source_with_pinned_keys",
+                            f"{keys_file} pins signing keys, but the policy in {candidate.source.location} "
+                            "can't be signed")
     if candidate.registry is not None:
         return _unsigned(parse(document_from_registry(candidate.registry)), "registry")
     assert candidate.path is not None
     if candidate.source.kind == "env_file" and not candidate.path.is_absolute():
         raise InvalidPolicy("untrusted_location", f"{POLICY_FILE_ENV}: {candidate.path} is not an absolute path")
-    data = _trusted_bytes(system, candidate.path, candidate.boundary)
+    server = server_mode(system.environ)
+    data = _trusted_bytes(system, candidate.path, candidate.boundary, server)
     if candidate.source.kind == "managed_preferences":
         return _unsigned(parse(_plist(data, candidate.path)), "managed preferences")
-    return _signed_file(system, candidate, data)
+    return _signed_file(system, candidate, data, server)
 
 
 def _unsigned(parsed: tuple[Any, bool], where: str) -> tuple[Any, None]:
@@ -178,20 +261,38 @@ def _unsigned(parsed: tuple[Any, bool], where: str) -> tuple[Any, None]:
     return settings, None
 
 
-def _trusted_bytes(system: System, path: Path, boundary: Path | None) -> bytes:
-    if not os.path.lexists(path):
+def _trusted_bytes(system: System, path: Path, boundary: Path | None, server: bool) -> bytes:
+    """The bytes of *path*, once it passed the trust check. The file opened must be the one checked (same
+    device and inode) and have no other hard link."""
+    if not _exists(path):
         raise InvalidPolicy("unreadable", f"{path}: not found")
-    problem = system.trust(path, boundary)
+    try:
+        checked = os.stat(path)
+    except OSError as exc:
+        raise InvalidPolicy("unreadable", f"{path}: {_why(exc)}") from None
+    problem = system.trust(path, boundary, folder=False, any_device=server)
     if problem:
         raise InvalidPolicy("untrusted_location", problem)
     try:
         with open(path, "rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if (opened.st_dev, opened.st_ino) != (checked.st_dev, checked.st_ino):
+                raise InvalidPolicy("untrusted_location", f"{path}: changed while Row-Bot was checking it")
+            if opened.st_nlink > 1:
+                raise InvalidPolicy("untrusted_location", f"{path}: has another hard link, which may be anywhere")
             data = handle.read(MAX_BYTES + 1)
     except OSError as exc:
-        raise InvalidPolicy("unreadable", f"{path}: {exc.strerror or exc.__class__.__name__}") from None
+        raise InvalidPolicy("unreadable", f"{path}: {_why(exc)}") from None
     if len(data) > MAX_BYTES:
         raise InvalidPolicy("invalid", f"{path}: larger than {MAX_BYTES // 1024} KiB")
     return data
+
+
+def _text(data: bytes) -> str:
+    """UTF-8 (with or without a BOM) or UTF-16 with a BOM, as PowerShell 5.1's ``Out-File`` writes it."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    return data.decode("utf-8-sig")
 
 
 def _json(data: bytes, path: Path, code: str = "invalid") -> object:
@@ -209,11 +310,28 @@ def _json(data: bytes, path: Path, code: str = "invalid") -> object:
         raise InvalidPolicy(code, f"{path}: {name} is not allowed")
 
     try:
-        return json.loads(data.decode("utf-8-sig"), object_pairs_hook=unique, parse_constant=no_constant)
+        return json.loads(_text(data), object_pairs_hook=unique, parse_constant=no_constant)
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         if isinstance(exc, InvalidPolicy):
             raise
         raise InvalidPolicy(code, f"{path}: not valid JSON") from None
+
+
+class _UniqueKeys(dict):
+    """A property-list dictionary that refuses a key it already holds; plistlib keeps the last one silently."""
+
+    def __setitem__(self, key: object, value: object) -> None:
+        if key in self:
+            raise InvalidPolicy("invalid", f"{key} appears twice")
+        super().__setitem__(key, value)
+
+
+def _plain(value: object) -> object:
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    return value
 
 
 def _plist(data: bytes, path: Path) -> object:
@@ -221,27 +339,31 @@ def _plist(data: bytes, path: Path) -> object:
     from xml.parsers.expat import ExpatError
 
     try:
-        return plistlib.loads(data)
+        return _plain(plistlib.loads(data, dict_type=_UniqueKeys))
+    except InvalidPolicy as exc:
+        raise InvalidPolicy("invalid", f"{path}: {exc.detail}") from None
     except (plistlib.InvalidFileException, ExpatError, ValueError, OverflowError, TypeError, KeyError) as exc:
         raise InvalidPolicy("invalid", f"{path}: not a property list ({exc.__class__.__name__})") from None
 
 
-def _signed_file(system: System, candidate: _Candidate, data: bytes) -> tuple[Any, str | None]:
+def _signed_file(system: System, candidate: _Candidate, data: bytes, server: bool) -> tuple[Any, str | None]:
     path = candidate.path
     assert path is not None
     keys_path = path.parent / KEYS_FILE
     signature_path = path.with_name(path.name + ".sig")
     keys: tuple[tuple[str, str], ...] = ()
-    if os.path.lexists(keys_path):
+    if _exists(keys_path):
         try:
-            keys = parse_keys(_json(_trusted_bytes(system, keys_path, candidate.boundary), keys_path, "keys_invalid"))
+            keys = parse_keys(_json(_trusted_bytes(system, keys_path, candidate.boundary, server), keys_path,
+                                    "keys_invalid"))
         except InvalidPolicy as exc:
             raise InvalidPolicy("keys_invalid" if exc.code == "invalid" else exc.code, exc.detail) from None
     signer = None
-    if os.path.lexists(signature_path):
+    if _exists(signature_path):
         if not keys:
             raise InvalidPolicy("signature_key_missing", f"{signature_path} is present but {keys_path} is not")
-        signer = _verify(data, _trusted_bytes(system, signature_path, candidate.boundary), keys, signature_path)
+        signer = _verify(data, _trusted_bytes(system, signature_path, candidate.boundary, server), keys,
+                         signature_path)
     elif keys:
         raise InvalidPolicy("signature_missing", f"{keys_path} pins signing keys, but {signature_path} is missing")
     settings, require_signature = parse(_json(data, path))

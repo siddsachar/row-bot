@@ -15,14 +15,14 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from row_bot.policy.sources import KEYS_FILE, REG_DWORD, REG_SZ, Platform, RegistryKey, System
 
 
-def trusting(path: Path, boundary: Path | None) -> str | None:
+def trusting(path: Path, boundary: Path | None, **_: object) -> str | None:
     """A trust check that accepts every file, standing in for an administrator-owned location."""
     return None
 
 
 def fake_system(root: Path, platform: Platform = "linux", *, registry: RegistryKey | None = None,
                 environ: dict[str, str] | None = None,
-                trust: Callable[[Path, Path | None], str | None] = trusting) -> System:
+                trust: Callable[..., str | None] = trusting) -> System:
     return System(
         platform, environ or {}, registry=lambda: registry, program_data=lambda: root / "ProgramData",
         mac_managed_preferences=root / "Managed Preferences" / "ai.row-bot.plist",

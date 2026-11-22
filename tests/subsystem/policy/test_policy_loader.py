@@ -24,6 +24,7 @@ from tests.helpers.policy_fakes import (
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 ASK = {"schema_version": 1, "approvals": {"max_level": "approve"}}
+SERVER = {"ROW_BOT_DEPLOYMENT_MODE": "server"}
 
 
 def _linux_file(root: Path) -> Path:
@@ -43,7 +44,7 @@ def _lockdown(policy: object, reason: str) -> Lockdown:
 def test_with_no_policy_anywhere_nothing_is_read_and_nothing_changes(tmp_path: Path, platform: str) -> None:
     checked: list[Path] = []
 
-    def trust(path: Path, boundary: Path | None) -> str | None:
+    def trust(path: Path, boundary: Path | None, **_: object) -> str | None:
         checked.append(path)
         return None
 
@@ -92,7 +93,7 @@ def _write_source(root: Path, kind: str) -> tuple[str, dict[str, str], RegistryK
     elif kind == "linux file":
         write_policy(_linux_file(root), ASK)
     else:
-        environ[sources.POLICY_FILE_ENV] = str(write_policy(root / "server" / "policy.json", ASK))
+        environ.update(SERVER, **{sources.POLICY_FILE_ENV: str(write_policy(root / "server" / "policy.json", ASK))})
     return kind.split()[0] if kind != "env file" else "linux", environ, registry
 
 
@@ -119,7 +120,7 @@ def test_the_env_file_is_read_on_every_platform_after_the_os_sources(tmp_path: P
     named = write_policy(tmp_path / "server" / "policy.json", ASK)
 
     for platform in ("windows", "macos", "linux"):
-        policy = load_policy(fake_system(tmp_path, platform, environ={sources.POLICY_FILE_ENV: str(named)}))
+        policy = load_policy(fake_system(tmp_path, platform, environ={**SERVER, sources.POLICY_FILE_ENV: str(named)}))
         assert isinstance(policy, OrgPolicy) and policy.source.location == str(named)
 
 
@@ -149,7 +150,7 @@ def test_a_broken_first_source_locks_down_rather_than_falling_back(tmp_path: Pat
     write_bytes(windows_policy_file(tmp_path), b"{not json")
     named = write_policy(tmp_path / "server" / "policy.json", ASK)
 
-    policy = load_policy(fake_system(tmp_path, "windows", environ={sources.POLICY_FILE_ENV: str(named)}))
+    policy = load_policy(fake_system(tmp_path, "windows", environ={**SERVER, sources.POLICY_FILE_ENV: str(named)}))
 
     _lockdown(policy, "invalid")
     assert [item.source.location for item in policy.ignored] == [str(named)]
@@ -209,8 +210,9 @@ def test_lockdown_names_every_core_tool_as_kept_or_refused(tmp_path: Path, monke
 def test_a_named_policy_file_that_is_missing_locks_down(tmp_path: Path) -> None:
     missing = tmp_path / "server" / "policy.json"
 
-    _lockdown(load_policy(fake_system(tmp_path, environ={sources.POLICY_FILE_ENV: str(missing)})), "unreadable")
-    _lockdown(load_policy(fake_system(tmp_path, environ={sources.POLICY_FILE_ENV: "policy.json"})),
+    _lockdown(load_policy(fake_system(tmp_path, environ={**SERVER, sources.POLICY_FILE_ENV: str(missing)})),
+              "unreadable")
+    _lockdown(load_policy(fake_system(tmp_path, environ={**SERVER, sources.POLICY_FILE_ENV: "policy.json"})),
               "untrusted_location")
 
 
@@ -224,7 +226,7 @@ def test_a_registry_that_cant_be_read_locks_down(tmp_path: Path) -> None:
 def test_an_unexpected_failure_reading_a_present_policy_locks_down(tmp_path: Path) -> None:
     write_policy(_linux_file(tmp_path), ASK)
 
-    def broken(path: Path, boundary: Path | None) -> str | None:
+    def broken(path: Path, boundary: Path | None, **_: object) -> str | None:
         raise RuntimeError("unexpected")
 
     _lockdown(load_policy(fake_system(tmp_path, trust=broken)), "unreadable")
@@ -246,7 +248,7 @@ def test_a_policy_file_a_person_can_write_is_refused(tmp_path: Path) -> None:
 
     linux = load_policy(fake_system(tmp_path, trust=trust_problem))
     env = load_policy(fake_system(tmp_path / "none", trust=trust_problem,
-                                  environ={sources.POLICY_FILE_ENV: str(named)}))
+                                  environ={**SERVER, sources.POLICY_FILE_ENV: str(named)}))
 
     for policy in (linux, env):
         _lockdown(policy, "untrusted_location")
@@ -259,7 +261,7 @@ def test_a_signature_file_a_person_can_write_is_refused(tmp_path: Path) -> None:
     pin(path, signer)
     signature = signer.sign(path)
 
-    policy = load_policy(fake_system(tmp_path, trust=lambda p, b: "writable" if p == signature else None))
+    policy = load_policy(fake_system(tmp_path, trust=lambda p, b, **_: "writable" if p == signature else None))
 
     _lockdown(policy, "untrusted_location")
 

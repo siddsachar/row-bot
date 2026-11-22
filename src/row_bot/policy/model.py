@@ -29,6 +29,7 @@ LockdownReason = Literal[
     "signature_missing",  # a signature is required and there is none
     "signature_invalid",  # a signature is present and no pinned key made it
     "signature_key_missing",  # a signature is present but no keys are pinned
+    "unsigned_source_with_pinned_keys",  # keys are pinned, but a higher source (registry, profile) wins unsigned
 ]
 
 
