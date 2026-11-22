@@ -18,8 +18,22 @@ export const DeliveryIoContext = createContext<DeliveryIo | null>(null);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Sent to the devices as the chat's own files: they play in the card for as
+ * long as the chat keeps them; only a phone's download link ends.
+ */
+export function deliveryInChat(view: DeliveryView) {
+  const sent = view.files.filter((file) => file.sent);
+  return (
+    view.target === 'devices' &&
+    sent.length > 0 &&
+    sent.every((file) => file.media_ref)
+  );
+}
+
 /** Sent to the devices, and its downloads have run out (by the server or this device's clock). */
 export function deliveryExpired(view: DeliveryView, now = Date.now()) {
+  if (deliveryInChat(view)) return false;
   if (view.status === 'expired') return true;
   if (view.target !== 'devices' || !view.expires_at) return false;
   const end = Date.parse(view.expires_at);
@@ -84,7 +98,9 @@ export function deliveryStatus(
       };
     if (sent < total)
       return { tone: 'warning', label: `${sent} of ${total} sent` };
-    return { tone: 'success', label: 'Ready to download' };
+    return deliveryInChat(view)
+      ? { tone: 'success', label: 'Sent' }
+      : { tone: 'success', label: 'Ready to download' };
   }
   if (sent === total) return { tone: 'success', label: 'Sent' };
   if (sent) return { tone: 'warning', label: `${sent} of ${total} sent` };
@@ -111,6 +127,7 @@ export function deliveryStatus(
 export function deliveryPlace(view: DeliveryView, now = Date.now()) {
   if (view.target === 'devices') {
     if (deliveryExpired(view, now)) return '';
+    if (deliveryInChat(view)) return 'On all your signed-in devices';
     return view.files.some((file) => file.sent)
       ? `On all your signed-in devices · ${daysLeft(view, now)}`
       : '';

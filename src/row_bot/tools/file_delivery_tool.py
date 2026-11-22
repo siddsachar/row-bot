@@ -1,6 +1,6 @@
 """Send files from the chat (F7): one ``send_file`` tool, to the person's devices or to a chat app.
 
-- ``to=devices``: the files show in this conversation as downloads on every device signed in to
+- ``to=devices``: the files show in this conversation, playing inline, on every device signed in to
   Row-Bot, with "Row-Bot sent you …" in every open Row-Bot window (``file_deliveries``). This never
   asks, at any level (Block too): the files go only to the person's own sessions, like writing a new
   file to the chat's files (video editing's rule).
@@ -122,20 +122,19 @@ def _approved_by(line: str) -> str:
 
 
 def _keep_in_chat(conversation: str, sources, delivery) -> None:
-    """A picture, video or sound sent from the workspace is kept with the chat too, so Library › Media lists it
-    with the rest of the chat's media. A file already in the chat's files, or one too big to keep, isn't."""
-    from row_bot.application.attachments import MAX_ATTACHMENT_BYTES, AttachmentError, register_attachment
+    """A picture, video or sound sent to a chat app from the workspace is kept with the chat too (its final), so
+    Library › Media lists it with the rest of the chat's media. One too big to keep isn't."""
+    from row_bot import file_deliveries as deliveries
     from row_bot.media_library import KINDS
+    from row_bot.media_sources import SourceError
 
     for source, sent in zip(sources, delivery.files):
-        if not sent.sent or source.ref or source.path is None or source.mime_type not in KINDS:
-            continue
-        if source.size_bytes > MAX_ATTACHMENT_BYTES:
+        if not sent.sent or source.ref or source.mime_type not in KINDS:
             continue
         try:
-            register_attachment(conversation, source.name, source.path.read_bytes(), source.mime_type)
-        except (AttachmentError, OSError):
-            logger.warning("A sent file couldn't be kept with its chat", exc_info=True)
+            deliveries.chat_output(conversation, source)
+        except SourceError:
+            logger.info("A sent file couldn't be kept with its chat", exc_info=True)
 
 
 def _send_file(files: list[str] | None = None, to: str = "devices", caption: str = "") -> str:
@@ -150,7 +149,7 @@ def _send_file(files: list[str] | None = None, to: str = "devices", caption: str
     names = [str(value).strip() for value in files or [] if str(value or "").strip()]
     if not names:
         return ("Name the files to send in files: a file in this chat by name, a workspace path, a recording "
-                "(rec-…) or a video edit (edit-…).")
+                "(rec-…), a video edit (edit-…) or a video project (vid-…).")
     if len(names) > deliveries.MAX_FILES:
         return f"At most {deliveries.MAX_FILES} files can be sent at once; nothing was sent."
     already = sent_this_reply(conversation)
@@ -167,7 +166,6 @@ def _send_file(files: list[str] | None = None, to: str = "devices", caption: str
         delivery = deliveries.send_to_devices(conversation, sources)
         if delivery.status != "failed":
             _count(conversation, sum(item.sent for item in delivery.files))
-            _keep_in_chat(conversation, sources, delivery)
         return with_approval(APPROVAL_NOT_NEEDED_OWN_DEVICES, deliveries.summary(delivery))
 
     try:
@@ -205,7 +203,7 @@ def _send_file(files: list[str] | None = None, to: str = "devices", caption: str
 
 class _SendInput(BaseModel):
     files: list[str] = Field(description=(
-        "In order: a file in this chat by name, a workspace path, a recording (rec-…) or a video edit (edit-…)."))
+        "In order: a file in this chat by name, a workspace path, or rec-…, edit-…, vid-…."))
     to: Destination = Field(default="devices", description=(
         "devices: the person's own signed-in devices. A chat app: their own chat there, or this chat if it came "
         "from there."))

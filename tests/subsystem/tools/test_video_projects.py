@@ -89,6 +89,12 @@ def test_every_change_is_a_new_version_that_keeps_voices_whose_lines_stayed_and_
     video_projects.make(project, 1)
     made = _wait(project.project_id, 1)
     assert studio["said"] == ["First, sign up.", "Then pick a plan."], "each line is voiced in the person's voice"
+    render = studio["started"][0]  # Its render is a draft, version 1 of the project; its voice lines are working.
+    assert (render.role, render.output_id, render.version) == ("draft", project.project_id, 1)
+    from row_bot.application.attachments import list_conversation_files
+
+    assert {item["role"] for item in list_conversation_files("conversation-a")
+            if item["name"].endswith(".wav")} == {"working"}
     assert all(scene.voice and scene.voiced == scene.line for scene in made.scenes)
 
     scenes = [dict(SCENES[0], scene_id=made.scenes[0].scene_id),
