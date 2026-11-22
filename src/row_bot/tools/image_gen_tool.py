@@ -1,8 +1,8 @@
 """Image generation tool — generate and edit images with any provider in providers/media.py.
 
 The agent calls ``generate_image`` to create images from text prompts, or
-``edit_image`` to modify an existing image (pasted, last generated, or from
-a file path).  Generated images are rendered inline in the chat via the
+``edit_image`` to modify an existing image (pasted, last generated, or a
+file in the workspace).  Generated images are rendered inline in the chat via the
 ``captured_images`` pipeline (same as vision / browser screenshots).
 
 The user picks a provider+model combination in Settings › Models (e.g.
@@ -1170,7 +1170,7 @@ def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto"
 _SIZES = ("'1024x1024' (square), '1536x1024' (landscape), '1024x1536' (portrait), '1536x864' (16:9), "
           "'864x1536' (9:16), '1024x1280' (4:5).")
 _REFERENCES = ("Up to 3 pictures to hold to (a character, a product, a style): names of pictures in this chat's "
-               "files, 'last' or file paths.")
+               "files, 'last' or files in the workspace.")
 _CHARACTER = "A character saved in Library › Media (pictures tagged 'character: <name>'), by name."
 _STYLE = "A style saved in Library › Media (a still tagged 'style: <name>'), by name."
 
@@ -1213,7 +1213,7 @@ class _EditImageInput(BaseModel):
         description=(
             "Where to get the image to edit. Use 'last' for the last "
             "generated image (default). Use the filename for an attached/"
-            "pasted image (e.g. 'photo.jpg'). Or use a file path on disk."
+            "pasted image (e.g. 'photo.jpg'). Or use a file in the workspace."
         ),
     )
     size: str = Field(
@@ -1287,7 +1287,7 @@ class ImageGenTool(BaseTool):
                     "Edit or modify an existing image using a text prompt. "
                     "Use 'last' to edit the most recently generated image, "
                     "or specify a filename for a pasted/attached image, or "
-                    "a file path. Use this when the user wants to change, "
+                    "a file in the workspace. Use this when the user wants to change, "
                     "modify, adjust, or transform an existing image."
                 ),
                 args_schema=_EditImageInput,

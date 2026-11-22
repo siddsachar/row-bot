@@ -1384,7 +1384,7 @@ def _animate_image_tool(prompt: str, image_source: str = "last", duration_second
 
 _PROMPT_WORDS = "Use plain shot words (close-up, wide, slow push-in, handheld); they reach the model unchanged."
 _REFERENCES = ("Up to 3 pictures the shot holds to (a character, a product, a place): names of pictures in this "
-               "chat's files, 'last' or file paths.")
+               "chat's files, 'last' or files in the workspace.")
 _CHARACTER = "A character saved in Library › Media (pictures tagged 'character: <name>'), by name."
 _STYLE = "A style saved in Library › Media (a still tagged 'style: <name>'), by name."
 _LAST_FRAME = "A picture the shot ends on, so the next shot can start there; named as references are."
@@ -1430,7 +1430,7 @@ class _AnimateImageInput(BaseModel):
         default="last",
         description=(
             "The picture the shot starts on: 'last' for the last generated image (default), the filename of "
-            "an attached or pasted image (e.g. 'photo.jpg'), or a file path on disk."
+            "an attached or pasted image (e.g. 'photo.jpg'), or a file in the workspace."
         ),
     )
     duration_seconds: int = Field(
@@ -1499,8 +1499,8 @@ class VideoGenTool(BaseTool):
                 description=(
                     "Turn a still image into a short video clip that starts on it. Use this when the user "
                     "wants to animate an existing image — the last generated image, an attached/pasted "
-                    "image, or a file on disk. Describe how the image should move; references, character, "
-                    "style and last_frame work as in generate_video."
+                    "image, or a file in the workspace. Describe how the image should move; references, "
+                    "character, style and last_frame work as in generate_video."
                 ),
                 args_schema=_AnimateImageInput,
             ),
