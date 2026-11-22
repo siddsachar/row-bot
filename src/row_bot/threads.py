@@ -171,6 +171,9 @@ def _init_thread_db(*, raise_on_error: bool = False):
         # failed 47 times ("database is locked", R13).
         with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
             _use_wal(conn)
+            # The columns are read and added under the write lock: two connections setting up a new database
+            # at once each found a column missing, and the second ALTER failed ("duplicate column name").
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS thread_meta "
                 "(thread_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)"
