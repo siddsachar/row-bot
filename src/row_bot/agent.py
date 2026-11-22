@@ -11,7 +11,7 @@ import time
 import re
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Iterator
 
 from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, is_local_custom_endpoint, get_cloud_provider, set_active_model_override, _active_model_override
@@ -6344,18 +6344,32 @@ class StickyMedia:
         return parent in self.groups or name in self.tools
 
 
-def sticky_media_tools(messages: Any, *, small: bool) -> StickyMedia:
-    """What a chat binds, beyond its window's own set, once it makes media (M7).
+def sticky_media_for(called: Iterable[str], *, small: bool) -> StickyMedia:
+    """What a chat binds, beyond its window's own set, once it makes media (M7): the whole rule.
 
-    *messages* are the conversation's saved messages; a media tool (``MEDIA_TOOLS``) called in them,
-    by name or through ``tool_invoke``, makes the chat a media chat. Then a large window binds the
-    video-editing, sound, file-delivery and media groups and the recorders (each only when its group
-    is enabled). A *small* one (the middle tier and the small profile:
-    64K or less, or a local model up to 128K) binds only the media tools the chat has called, and
-    ``present``. A turn's @mention or media scope still refuses a call it leaves out. Learning's
-    training shape calls this too, so the tools it rebuilds are the ones served.
+    *called* are the names of the tools the chat has called; one of ``MEDIA_TOOLS`` among them makes
+    it a media chat. Then a large window binds the video-editing, sound, file-delivery and media
+    groups and the recorders (each only when its group is enabled). A *small* one (the middle tier
+    and the small profile: 64K or less, or a local model up to 128K) binds only the media tools the
+    chat has called, and ``present``. A turn's @mention or media scope still refuses a call it
+    leaves out. Learning's training shape calls this too, so the tools it rebuilds are the ones served.
     """
-    used: set[str] = set()
+    used = frozenset(called) & MEDIA_TOOLS
+    if not used:
+        return StickyMedia()
+    if small:
+        return StickyMedia(tools=used | {"present"})
+    return StickyMedia(groups=STICKY_MEDIA_GROUPS, tools=STICKY_MEDIA_TOOLS)
+
+
+def sticky_media_tools(messages: Any, *, small: bool) -> StickyMedia:
+    """``sticky_media_for`` over a conversation's saved messages (LangChain messages or their dicts):
+    the tools they call, by name or through ``tool_invoke``."""
+    return sticky_media_for(_tools_called(messages), small=small)
+
+
+def _tools_called(messages: Any) -> set[str]:
+    called: set[str] = set()
     for message in messages or ():
         calls = message.get("tool_calls") if isinstance(message, Mapping) else getattr(message, "tool_calls", None)
         for call in calls or ():
@@ -6363,22 +6377,40 @@ def sticky_media_tools(messages: Any, *, small: bool) -> StickyMedia:
             if name == "tool_invoke":
                 args = call.get("args")
                 name = str(args.get("name") or "") if isinstance(args, Mapping) else ""
-            if name in MEDIA_TOOLS:
-                used.add(name)
-    if not used:
-        return StickyMedia()
-    if small:
-        return StickyMedia(tools=frozenset(used | {"present"}))
-    return StickyMedia(groups=STICKY_MEDIA_GROUPS, tools=STICKY_MEDIA_TOOLS)
+            called.add(name)
+    return called
 
 
 def _sticky_media_for_this_chat(*, small: bool) -> StickyMedia:
+    """This chat's sticky media tools from its recorded list: one row read, not its history. A chat from
+    before the list is read from its history once, and the list saved."""
     thread_id = _current_thread_id_var.get("")
     if not thread_id:
         return StickyMedia()
-    from row_bot.threads import get_latest_checkpoint_messages
+    from row_bot import threads
 
-    return sticky_media_tools(get_latest_checkpoint_messages(thread_id), small=small)
+    used = threads.load_media_tools(thread_id)
+    if used is None:
+        used = frozenset(_tools_called(threads.get_latest_checkpoint_messages(thread_id))) & MEDIA_TOOLS
+        threads.save_media_tools(thread_id, used)
+    return sticky_media_for(used, small=small)
+
+
+def _note_media_tool_call(call: Any) -> None:
+    """Add the media tool a call runs to the chat's recorded list, as its saved call would add it to the
+    history: the tool list built next (the next turn, or a resume) binds it."""
+    used = frozenset(_tools_called([{"tool_calls": [call]}])) & MEDIA_TOOLS
+    thread_id = _current_thread_id_var.get("")
+    if not used or not thread_id:
+        return
+    try:
+        from row_bot import threads
+
+        known = threads.load_media_tools(thread_id)
+        if known is not None and not used <= known:
+            threads.save_media_tools(thread_id, known | used)
+    except Exception as exc:
+        logger.debug("The chat's media tools were not recorded (%s)", type(exc).__name__)
 
 
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
@@ -7129,6 +7161,14 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     ]
                     bridges = list(build_tool_discovery_tools(
                         bridge_records,
+                        # A media tool bound once the chat makes media still runs through tool_invoke: a
+                        # call made before it was bound (an approval's resume) or out of habit (M7).
+                        invokable=[
+                            ExternalToolRecord.from_tool(entry["tool"], source=entry["source"],
+                                                         parent=entry["parent"])
+                            for entry in eager_core_entries
+                            if sticky_media.binds(str(entry["parent"]), str(getattr(entry["tool"], "name", "")))
+                        ],
                         context_tokens=effective_context,
                         in_turn=lambda record: _turn_scope_refusal(
                             record.name, source=record.source, parent=record.parent) is None,
@@ -7960,6 +8000,7 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
+    _note_media_tool_call(request.tool_call or {})
     from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY, collect_quoted_conversations
     from row_bot.tools.approval_gate import collect_activity
     with tool_attachment_scope() as caches, collect_activity() as decisions, collect_quoted_conversations() as quoted:

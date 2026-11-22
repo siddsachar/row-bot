@@ -17,9 +17,10 @@ tags: []
   the whole film once they're right, hold it to the same checks, and
   present the result.
 - When a video is finished, present it with present in the reply that
-  delivers it. Frames, contact sheets, review sheets and recordings are
-  working material for you, not something to present. Once a file is
-  presented, don't paste or send it again.
+  delivers it. Frames, contact sheets, review sheets and raw recordings
+  you'll cut into the video are working material for you, not something
+  to present. Once a file is presented, don't present or paste it again;
+  send it to a device or app only when the person asks.
 - A demo of a site or app in Row-Bot's browser: write the story first, 3-8
   steps with one spoken line each. Start browser_record, then before each
   step mark a beat with its note (a short title) and its line, do the step,

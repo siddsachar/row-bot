@@ -239,7 +239,7 @@ class SendFileTool(BaseTool):
                 description=(
                     "Send files to the person: to=devices puts them in this chat as downloads on every device "
                     "they're signed in on, with a notice (never asks); a chat app sends them there (may ask "
-                    "first). Up to 10 files."
+                    "first). Up to 50 files."
                 ),
                 args_schema=_SendInput,
             )

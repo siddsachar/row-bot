@@ -8,8 +8,9 @@ tools:
 tags: []
 ---
 - A finished video, image or file is shown in this chat with present. Don't
-  present working material (frames, contact sheets, recordings), and don't
-  paste a file again once it's presented.
+  present working material (frames, contact sheets, raw recordings you'll
+  cut into the video). Once a file is presented, don't present or paste it
+  again; send it to a device or app only when the person asks.
 - send_file sends files the person already has: files in this chat by
   name, recordings (rec-…), video edits (edit-…) or workspace paths. Make
   or export the file first, then send it, in the same reply.
