@@ -965,8 +965,8 @@ def _status(version: Version, edit: Any) -> str:
 REVIEW = ("Review sheet: {sheet} (frames of each scene, for the person to open). The checks above already "
           "include one look at it: don't look at it again with analyze_image. Fix what they list and make the video "
           "again; it's ready to share only when they pass. A line starting \"Check\" is worth a look but doesn't "
-          "stop it. If something can't be fixed, tell the person. If a problem is still listed after two makes, stop "
-          "and tell the person what's left.")
+          "stop it. If something can't be fixed, tell the person. If a problem is still listed after two makes, stop, "
+          "tell the person what's left, and ask whether to present it as it is.")
 
 
 def summary(project: Project, number: int | None = None) -> str:

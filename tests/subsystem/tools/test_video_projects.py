@@ -562,7 +562,8 @@ def test_a_made_video_comes_with_a_review_sheet_the_checks_already_looked_at(stu
     assert "Review sheet: Launch demo v1 review.jpg" in words
     # C8: the checks already include one look at the sheet; Row-Bot fixes what they list, it doesn't look again.
     assert "don't look at it again with analyze_image" in words and "Look at it with analyze_image" not in words
-    assert "If a problem is still listed after two makes, stop and tell the person what's left." in words
+    assert ("If a problem is still listed after two makes, stop, tell the person what's left, and ask whether to "
+            "present it as it is.") in words
     assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"
 
 
