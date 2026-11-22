@@ -62,9 +62,9 @@ def _tags() -> dict[str, list[str]]:
     return found
 
 
-def tags_of(ref: str) -> list[str]:
-    """One item's tags."""
-    return _tags().get(ref, [])
+def look_of(ref: str) -> str:
+    """The saved character or style one item shows, as its tag ("character: maya"), or "" (``looks``)."""
+    return next((tag for tag in _tags().get(ref, []) if _LOOK.fullmatch(tag)), "")
 
 
 def clean_tags(tags: list[str]) -> list[str]:

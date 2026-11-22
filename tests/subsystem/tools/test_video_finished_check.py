@@ -105,26 +105,30 @@ def test_a_frozen_or_black_stretch_and_a_narrations_quiet_gaps_need_fixing():
     assert "Black: 0:20–0:23. Cut it, or put a picture there." in black.lines and not black.passed
 
 
-def test_an_upscaled_480p_clip_and_a_tight_zoom_on_sharp_footage_look_soft(clips, tmp_path):
-    sharp, small = clips("sharp.mp4", size=(640, 360)), clips("small.mp4", size=(320, 180))
+def test_a_clip_shown_far_larger_than_it_was_made_is_soft_and_a_little_larger_is_worth_a_look(clips, tmp_path):
+    """Past 2× (a small clip at full size, a 720p clip zoomed in) a scene needs fixing; from 1.5× to 2× (a camera's
+    zoom on a recording, a wide clip in a tall export) it's worth a look but doesn't hold the video back."""
+    sharp, small = clips("sharp.mp4", size=(640, 360)), clips("small.mp4", size=(264, 148))
     render = _render([sharp, small], [SceneCut(input=0, end=3), SceneCut(input=1, end=3),
-                                      SceneCut(input=0, end=3, zoom=(0.25, 0.25, 0.5, 0.5))], folder=tmp_path)
+                                      SceneCut(input=0, end=3, zoom=(0.2, 0.2, 0.625, 0.625))], folder=tmp_path)
 
-    found = [item.line for item in video_check.findings(render, FINE)]
+    found = [(item.line, item.fix) for item in video_check.findings(render, FINE)]
     assert found == [
-        "Scene 2, 0:03–0:06: soft. Its 320×180 footage is shown 2.0× larger. Use a sharper or larger copy.",
-        "Scene 3, 0:06–0:09: soft. Its 640×360 footage is shown 2.0× larger, zoomed in 2.0×. Use a sharper or larger "
-        "copy, or zoom in less."], "scene 1 shows its footage as it was made"
+        ("Scene 2, 0:03–0:06: soft. Its 264×148 footage is shown 2.4× larger. Use a sharper or larger copy.", True),
+        ("Check scene 3, 0:06–0:09: a little soft. Its 640×360 footage is shown 1.6× larger, zoomed in 1.6×. Use a "
+         "sharper or larger copy, or zoom in less.", False)], "scene 1 shows its footage as it was made"
+    assert not video_check.checks(WIDE, FINE, video_check.findings(render, FINE)).passed, "2.4× needs fixing"
     gentle = _render([sharp], [SceneCut(input=0, end=3, zoom=(0.2, 0.2, 0.7, 0.7))], folder=tmp_path)
     assert video_check.findings(gentle, FINE) == [], "1.4× larger is still sharp enough"
 
     # The same wide footage exported tall: cropped to fill 9:16, its middle is shown 1.8× larger.
     tall = Step(op="scenes", scenes=[SceneCut(input=0, end=3)], aspect="9:16")
     drawn = build_plan([InputVideo("scenes.mp4", VideoInfo(3.0, 360, 640, 10.0, False))], [tall], "output.mp4")
-    assert [item.line for item in video_check.findings(Render(plan=drawn, inputs=[sharp], step=tall,
-                                                              folder=tmp_path), FINE)] == [
-        "Scene 1, 0:00–0:03: soft. Its 640×360 footage is shown 1.8× larger. Use a sharper or larger copy, or show "
-        "its whole picture (fit)."]
+    export = video_check.findings(Render(plan=drawn, inputs=[sharp], step=tall, folder=tmp_path), FINE)
+    assert [item.line for item in export] == [
+        "Check scene 1, 0:00–0:03: a little soft. Its 640×360 footage is shown 1.8× larger. Use a sharper or larger "
+        "copy, or show its whole picture (fit)."]
+    assert video_check.checks(WIDE, FINE, export).passed, "a tall export of wide footage is ready to share"
 
 
 def test_a_caption_over_what_is_being_clicked_needs_fixing_and_one_clear_of_it_doesnt():

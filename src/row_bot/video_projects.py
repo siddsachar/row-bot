@@ -664,9 +664,8 @@ def scene_footage(source: str, ref: str) -> Any:
     from row_bot.video_check import Footage
 
     record = recordings.get(source) if str(source).startswith("rec-") else None
-    look = next((tag for tag in (media_library.tags_of(ref) if ref else []) if tag.startswith(("character",
-                                                                                                "style"))), "")
-    return Footage(actions=tuple(tuple(action) for action in record.actions) if record else (), look=look)
+    return Footage(actions=tuple(tuple(action) for action in record.actions) if record else (),
+                   look=media_library.look_of(ref) if ref else "")
 
 
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:

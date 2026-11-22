@@ -192,7 +192,7 @@ def test_the_finished_check_knows_what_a_recording_did_and_which_character_a_sho
     recordings._ensure_loaded()
     recordings._RECORDS[record.recording_id] = record
     shot = register_attachment("conversation-a", "maya-at-the-door.mp4", MP4)
-    media_library.set_tags(shot["attachment_ref"], ["character maya", "draft"])
+    media_library.set_tags(shot["attachment_ref"], ["character: maya", "draft"])
     project = video_projects.create("conversation-a", "Maya", [
         {"source": "rec-0c8c8c8c", "end": 3, "line": "Send it."}, {"card": "Later", "end": 2},
         {"source": "maya-at-the-door.mp4", "line": "Maya comes home."}])
@@ -201,7 +201,7 @@ def test_the_finished_check_knows_what_a_recording_did_and_which_character_a_sho
 
     assert studio["started"][0].footage == [
         Footage(actions=((1.0, 2.0, "click", 0.4, 0.9, 0.1, 0.05, "button \"Send\""),)), Footage(),
-        Footage(look="character maya")]
+        Footage(look="character: maya")]
 
 
 def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_runs_long(studio):

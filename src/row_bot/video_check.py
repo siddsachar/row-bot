@@ -31,8 +31,9 @@ from row_bot.video_editing import (
 
 logger = logging.getLogger(__name__)
 
-# Shown more than this many times larger than its footage was made, a picture looks soft.
-SOFT = 1.5
+# Shown more than this many times larger than its footage was made, a picture is worth a look (a camera's zoom on a
+# recording, a wide clip in a tall export); more than BLURRED, it's plainly soft (480p at 1080p, 720p zoomed in).
+SOFT, BLURRED = 1.5, 2.0
 # Loudness (LUFS, integrated) a video plays well at, and the true peak (dBTP) it stays under so it never clips.
 LOUDEST, QUIETEST, PEAK = -9.0, -23.0, -1.0
 # A gap this long in a narrated video, or a picture held this long, is a pause a viewer notices; a narrated video's
@@ -259,16 +260,23 @@ def _sharpness(render: Render, shots: list[_Shot]) -> list[Finding]:
                 whole = min(shot.frame.size[0] / info.width, shot.frame.size[1] / info.height) <= SOFT
                 fix = (", or zoom in less" if zoomed else ", or show its whole picture (fit)"
                        if whole and shot.frame.framing == "full" else "")
-                found.append(Finding(f"{_where(shot.number, shot.begin, shot.end)}: soft. Its {info.width}×"
-                                     f"{info.height} footage is shown {larger:.1f}× larger"
-                                     f"{f', zoomed in {max(zooms):.1f}×' if zoomed else ''}. Use a sharper or larger "
-                                     f"copy{fix}."))
+                found.append(_soft(_where(shot.number, shot.begin, shot.end),
+                                   f"Its {info.width}×{info.height} footage is shown {larger:.1f}× larger"
+                                   f"{f', zoomed in {max(zooms):.1f}×' if zoomed else ''}. Use a sharper or larger "
+                                   f"copy{fix}.", larger))
         return found
     for begin, end, larger in render.plan.enlarged:
         if larger > SOFT:
-            found.append(Finding(f"{_where(None, begin, end)}: soft. It's shown {larger:.1f}× larger than it was "
-                                 "made. Use a sharper or larger copy, or zoom in less."))
+            found.append(_soft(_where(None, begin, end), f"It's shown {larger:.1f}× larger than it was made. Use a "
+                               "sharper or larger copy, or zoom in less.", larger))
     return found
+
+
+def _soft(where: str, words: str, larger: float) -> Finding:
+    """Past BLURRED a fix; from SOFT to BLURRED a line worth a look, which doesn't hold the video back."""
+    if larger > BLURRED:
+        return Finding(f"{where}: soft. {words}")
+    return Finding(f"Check {where[0].lower()}{where[1:]}: a little soft. {words}", fix=False)
 
 
 def _over_the_action(plan: Plan, shots: list[_Shot]) -> list[Finding]:
