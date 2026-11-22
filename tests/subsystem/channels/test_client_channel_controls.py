@@ -560,7 +560,7 @@ def test_a_switch_shows_its_value_and_takes_only_on_or_off(environment) -> None:
         return {field["key"]: field for field in state["fields"]}
 
     assert fields()["voice_replies"]["value"] is True  # its default until changed
-    assert fields()["voice_replies"]["configured"] is True
+    assert fields()["voice_replies"]["configured"] is False  # a default is not a saved setting
     assert "value" not in fields()["bot_token"]  # other fields never show theirs
     for wrong in ("off", 0, None):
         with pytest.raises(controls.ChannelControlError, match="invalid_command"):
@@ -575,5 +575,6 @@ def test_a_switch_shows_its_value_and_takes_only_on_or_off(environment) -> None:
     assert result["status"] == "completed"
     assert owners["config_owner"].writes == [("slack", "voice_replies", False)]
     assert fields()["voice_replies"]["value"] is False
+    assert fields()["voice_replies"]["configured"] is True
     assert fields()["voice_replies"]["source"] == "channel config"
     assert channel.messages == []

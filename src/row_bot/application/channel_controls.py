@@ -254,12 +254,13 @@ def _field_status(
     else:
         raise ChannelControlError("channel_status_unavailable")
     if field_type == "toggle":
-        # A switch always has a value: what the person saved, else its default.
+        # A switch always has a value: what the person saved, else its default. Only a saved
+        # choice is "configured": an untouched default is not a setting the person made.
         default = getattr(field, "default", False) is True
         return (
             {
                 **common,
-                "configured": True,
+                "configured": type(raw) is bool,
                 "source": "channel config" if present else "",
                 "fingerprint": "",
                 "externally_managed": False,

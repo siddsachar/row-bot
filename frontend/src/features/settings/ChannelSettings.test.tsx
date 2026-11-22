@@ -394,7 +394,7 @@ function telegramWithSwitch(on: boolean, help: string): ChannelPage {
             field_type: 'toggle',
             storage: 'config',
             help_text: help,
-            configured: true,
+            configured: !on,
             source: on ? '' : 'channel config',
             fingerprint: '',
             externally_managed: false,

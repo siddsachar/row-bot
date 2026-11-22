@@ -673,7 +673,9 @@ export default function ChannelSettings({
       steps.push({
         id: 'settings',
         text: 'Fill in its settings.',
-        done: channel.fields.every((field) => field.configured === true),
+        done: channel.fields.every(
+          (field) => field.field_type === 'toggle' || field.configured === true,
+        ),
         children: (
           <div className="stack">
             {channel.fields.map((field) => fieldEditor(channel, field))}
