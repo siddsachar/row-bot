@@ -379,7 +379,7 @@ export function LocalModelSheet({
             >
               <SettingRow
                 label="Reply length"
-                description="The most one reply may write. A limit stops a reply that runs on."
+                description="How much one reply may write. A limit stops a reply that runs on."
                 control={
                   <SizePicker
                     label="Reply length"
