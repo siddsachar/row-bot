@@ -76,27 +76,27 @@ class ReferenceBrain:
 
     # ── Protocol ────────────────────────────────────────────────────────────
 
-    def write(self, principal: Principal, item: Item) -> Item:
+    def write(self, principal: Principal, item: Item) -> ItemRef:
         self._check_principal(principal)
         if not isinstance(item, _ITEM_CLASSES):
             raise InvalidRecord("an item is required")
         # Access first: nothing about the space's content may show in an error to someone who can't write it.
         if not can_write_space(principal, item.space, self._access.get(item.space)):
             raise AccessDenied()
-        self._check_new(item)
+        self._check_new(principal, item)
         now = self._now()
         stored = self._record(item, now)
         self._emit(ChangeOp.UPSERT, stored, now)
-        return stored
+        return stored.ref
 
-    def supersede(self, principal: Principal, old: ItemRef, new: Item) -> Item:
+    def supersede(self, principal: Principal, old: ItemRef, new: Item) -> ItemRef:
         self._check_principal(principal)
         previous = self._readable(principal, old)
         if not can_write_space(principal, previous.space, self._access.get(previous.space)):
             raise AccessDenied()
         if type(new) is not type(previous) or new.space != previous.space:
             raise InvalidRecord("supersede: the new item must be of the same kind and space")
-        self._check_new(new)
+        self._check_new(principal, new)
         if isinstance(new, Skill) and new.name != previous.name:
             raise InvalidRecord("supersede: a new version of a skill keeps its name")
         if previous.validity.superseded_at is not None:
@@ -108,7 +108,7 @@ class ReferenceBrain:
         self._items[replaced.ref] = replaced
         self._emit(ChangeOp.UPSERT, stored, now)
         self._emit(ChangeOp.UPSERT, replaced, now)
-        return stored
+        return stored.ref
 
     def get(self, principal: Principal, ref: ItemRef) -> Item:
         self._check_principal(principal)
@@ -197,14 +197,15 @@ class ReferenceBrain:
         if not isinstance(principal, Principal):
             raise InvalidRecord("a Principal is required")
 
-    def _check_new(self, item: Item) -> None:
-        """A new item for a space the caller may write."""
+    def _check_new(self, principal: Principal, item: Item) -> None:
+        """A new item for a space ``principal`` may write."""
         if item.id or item.validity.recorded_at is not None or item.validity.superseded_by is not None:
             raise InvalidRecord("a new item has no id, recorded_at or supersession: the brain records those")
         if isinstance(item, Relation):
             for end in (item.source, item.target):
                 other = self._items.get(end)
-                if other is None or other.space != item.space:
+                # An endpoint the writer can't read is refused exactly like a missing one.
+                if other is None or other.space != item.space or not self._can_read(principal, other):
                     raise InvalidRecord("Relation: source and target must be facts of the same space")
 
     def _can_read(self, principal: Principal, item: Item) -> bool:

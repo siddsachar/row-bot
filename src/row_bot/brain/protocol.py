@@ -7,10 +7,13 @@ Access (enforced inside the implementation, never left to callers):
 
 * A personal or work space is read and written only by its person (``principal.id == space.space_id``).
 * A team or company space is read by principals in one of its ``SpaceAccess.readers`` (or ``publishers``)
-  groups. An item's non-empty ``audience`` narrows that to principals in one of those groups; publishers
-  read every item of their space.
+  groups. An item's non-empty ``audience`` (often the upstream system's ACL) narrows that, for everyone,
+  publishers included, to principals in one of those groups: the brain never shows what the source would
+  deny.
 * Team and company content arrives through promotion. Directly, only a principal in one of the space's
-  ``publishers`` groups may write, supersede or forget there.
+  ``publishers`` groups may write there, and may supersede or forget only an item they can also read.
+  A publisher may write an item whose audience they are not in (a connector does), and then can't read it
+  back; so ``write`` and ``supersede`` return only the new item's ref, whoever writes.
 * Anything else raises ``AccessDenied``, with the same message whether or not the item or space exists.
   A shared space with no ``SpaceAccess`` is readable by nobody.
 """
@@ -42,12 +45,10 @@ def can_write_space(principal: Principal, space: Space, access: SpaceAccess | No
 
 
 def can_read_item(principal: Principal, space: Space, audience: frozenset[str], access: SpaceAccess | None) -> bool:
-    """Whether ``principal`` may read an item of ``space`` with this ``audience``."""
+    """Whether ``principal`` may read an item of ``space`` with this ``audience``; publishing grants nothing."""
     if not can_read_space(principal, space, access):
         return False
-    if not audience or can_write_space(principal, space, access):
-        return True
-    return bool(principal.groups & audience)
+    return not audience or bool(principal.groups & audience)
 
 
 def recall_label(space: Space, access: SpaceAccess | None) -> str:
@@ -64,22 +65,24 @@ def recall_label(space: Space, access: SpaceAccess | None) -> str:
 class Brain(Protocol):
     """A store of layered items. Every call checks access first (see the module docstring)."""
 
-    def write(self, principal: Principal, item: Item) -> Item:
-        """Record a new item and return it as stored.
+    def write(self, principal: Principal, item: Item) -> ItemRef:
+        """Record a new item and return its ref, never the stored item.
 
         ``item`` must not be recorded yet: an empty ``id`` and no ``recorded_at`` or supersession. The brain
-        mints the id and stamps ``recorded_at`` with its clock. A relation's endpoints must be facts of the
-        same space. Lineage refs are not resolved: a ref to nothing is inert. Raises ``AccessDenied`` or
-        ``InvalidRecord``.
+        mints the id and stamps ``recorded_at`` with its clock; ``get`` returns the stored item to whoever may
+        read it. A relation's endpoints must be facts of the same space that the writer can read (an
+        unreadable endpoint is refused exactly like a missing one). Lineage refs are not resolved: a ref to
+        nothing is inert. Raises ``AccessDenied`` or ``InvalidRecord``.
         """
         ...
 
-    def supersede(self, principal: Principal, old: ItemRef, new: Item) -> Item:
-        """Record ``new`` as the replacement of ``old`` and return it as stored.
+    def supersede(self, principal: Principal, old: ItemRef, new: Item) -> ItemRef:
+        """Record ``new`` as the replacement of ``old`` and return the new item's ref.
 
-        ``new`` is a new item of the same kind and space (a skill keeps its name). ``old`` gains
-        ``superseded_by`` and ``superseded_at`` (the brain's clock) and stays readable as history. Raises
-        ``AccessDenied``, ``InvalidRecord``, or ``Conflict`` when ``old`` is already superseded.
+        The caller must be able to read ``old`` and write its space. ``new`` is a new item of the same kind
+        and space (a skill keeps its name). ``old`` gains ``superseded_by`` and ``superseded_at`` (the brain's
+        clock) and stays readable as history. Raises ``AccessDenied``, ``InvalidRecord``, or ``Conflict``
+        when ``old`` is already superseded.
         """
         ...
 
@@ -107,8 +110,8 @@ class Brain(Protocol):
         Retracted items are gone: ``get`` and ``recall`` no longer return them, even with ``as_of`` or
         ``include_superseded``, and their earlier upsert events leave the change feed, which gains a
         ``retract`` event for each. ``reason`` (1 to 500 characters) is for the implementation's audit log.
-        Returns the retracted refs the caller could read, ``ref`` first. Needs write access to ``ref``'s
-        space; raises ``AccessDenied`` or ``InvalidRecord``.
+        Returns the retracted refs the caller could read, ``ref`` first. The caller must be able to read
+        ``ref`` and write its space; raises ``AccessDenied`` or ``InvalidRecord``.
         """
         ...
 

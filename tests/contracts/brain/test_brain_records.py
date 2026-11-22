@@ -17,7 +17,8 @@ from row_bot.brain import (
     ReferenceBrain, Relation, Space, SpaceAccess, Validity, from_dict, to_dict,
 )
 from tests.contracts.brain.suite import (
-    ACME, ALICE, ALICE_NOTES, ALICE_WORK, LEGAL, PAYMENTS, PRIYA, SPACES, START, FakeClock, fact, skill, source,
+    ACME, ALICE, ALICE_NOTES, ALICE_WORK, LEGAL, PAYMENTS, PRIYA, SPACES, START, FakeClock, fact, provenance, skill,
+    source,
 )
 
 pytestmark = pytest.mark.contract
@@ -36,20 +37,28 @@ def _records() -> list:
                                     verified_at=START, properties={"days": 5, "tags": ["a", None]},
                                     audience=frozenset({"team-payments"})))
     desk = brain.write(PRIYA, fact(PAYMENTS, "Refund desk", "The desk", actor="priya"))
-    edge = brain.write(PRIYA, Relation(space=PAYMENTS, provenance=first.provenance, validity=Validity(valid_from=START),
-                                       source=first.ref, relation="handled_by", target=desk.ref))
+    edge = brain.write(PRIYA, Relation(space=PAYMENTS, provenance=provenance("priya"),
+                                       validity=Validity(valid_from=START), source=first, relation="handled_by",
+                                       target=desk))
     doc = brain.write(PRIYA, source(PAYMENTS, "refund policy", actor="priya"))
     how = brain.write(PRIYA, skill(PAYMENTS, "1.0"))
     old = brain.write(LEGAL, fact(ACME, "Refunds", "Company refunds", actor="lee"))
-    brain.supersede(LEGAL, old.ref, fact(ACME, "Refunds", "Company refunds in ten days", actor="lee"))
-    brain.forget(PRIYA, desk.ref, "test")
+    brain.supersede(LEGAL, old, fact(ACME, "Refunds", "Company refunds in ten days", actor="lee"))
+    items = [brain.get(PRIYA, ref) for ref in (first, edge, doc, how)] + [brain.get(LEGAL, old)]
+    brain.forget(PRIYA, desk, "test")
     hits = brain.recall(RecallQuery(text="refund refunds", principal=PRIYA, include_superseded=True))
     pages = [brain.changes(PRIYA, PAYMENTS), brain.changes(PRIYA, ACME)]
     events = [event for page in pages for event in page.events]
-    return [*SPACES, PRIYA, first, edge, doc, how, brain.get(LEGAL, old.ref), first.ref, first.provenance,
-            first.space, first.validity, first.lineage, *hits, *pages, *events,
+    stored = items[0]
+    return [*SPACES, PRIYA, *items, first, stored.provenance, stored.space, stored.validity, stored.lineage,
+            *hits, *pages, *events,
             RecallQuery(text="refunds", principal=ALICE, spaces=frozenset({ALICE_NOTES, PAYMENTS}),
                         kinds=frozenset({ItemKind.FACT}), as_of=START, include_superseded=True)]
+
+
+def _stored_fact() -> Fact:
+    brain = ReferenceBrain(clock=FakeClock())
+    return brain.get(ALICE, brain.write(ALICE, fact(ALICE_NOTES, "Tea", "green")))
 
 
 def test_what_the_brain_returns_validates_against_the_published_schemas():
@@ -63,7 +72,7 @@ def test_what_the_brain_returns_validates_against_the_published_schemas():
 
 
 def test_the_published_schemas_refuse_what_from_dict_refuses():
-    good = to_dict(ReferenceBrain(clock=FakeClock()).write(ALICE, fact(ALICE_NOTES, "Tea", "green")))
+    good = to_dict(_stored_fact())
     validator = _schema("Fact")
     validator.validate(good)
     for change in ({"surprise": 1}, {"kind": "skill"}, {"subject": ""}, {"entity_type": "Not A Name"},
@@ -105,7 +114,7 @@ def test_the_published_schemas_refuse_what_from_dict_refuses():
                  id="repeated lineage"),
 ])
 def test_from_dict_refuses_bad_input(change):
-    data = to_dict(ReferenceBrain(clock=FakeClock()).write(ALICE, fact(ALICE_NOTES, "Tea", "green")))
+    data = to_dict(_stored_fact())
     from_dict(Fact, copy.deepcopy(data))  # The unchanged record is fine.
     change(data)
     with pytest.raises(InvalidRecord):
