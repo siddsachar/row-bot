@@ -2051,6 +2051,21 @@ export class HttpTransport implements ClientTransport {
   speechTest(signal?: AbortSignal) {
     return wire.speechTest(this.base, this.session(), signal);
   }
+  readAloud(
+    conversationId: string,
+    messageId: string,
+    part: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.readAloud(
+      this.base,
+      this.session(),
+      conversationId,
+      messageId,
+      part,
+      signal,
+    );
+  }
   realtimeEvent(
     handle: wire.DictationHandle,
     event: wire.RealtimeEvent,

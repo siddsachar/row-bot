@@ -114,19 +114,6 @@ class OpenAIRealtimeProvider:
             config["instructions"] = f"{config['instructions']}\n\nUse {REALTIME_WAIT_TOOL} for non-addressed or idle audio."
         return config
 
-    def transcription_session_config(self, *, language: str = "en") -> dict[str, Any]:
-        return {
-            "type": "transcription",
-            "audio": {
-                "input": {
-                    "transcription": {
-                        "model": "gpt-realtime-whisper",
-                        "language": language,
-                    },
-                },
-            },
-        }
-
     def create_client_secret(
         self,
         *,

@@ -20,7 +20,7 @@ pytestmark = pytest.mark.subsystem
 @pytest.fixture
 def api(service):
     voice = Voice()
-    coordinator = VoiceSessionCoordinator(voice)
+    coordinator = VoiceSessionCoordinator()
     effects = []
     def transcribe(key, audio, mime, *, validate, mode):
         validate()
@@ -75,7 +75,7 @@ def test_actual_talk_transcription_normal_chat_final_speech_and_exclusive_stop(a
     api.service.stream_factory = ScriptedAgentStream((barrier, ('token', 'Saved voice answer'),
         CheckpointCommit((AIMessage(id='spoken-output', content='Saved voice answer'),), 'spoken-output'), ('done', None))).stream
     capture = start(api)
-    assert not api.effects and not api.voice.effects
+    assert not api.effects
     assert start(api) == capture
     headers = {**api.headers, 'Content-Type': 'audio/webm', 'X-Dictation-Utterance': str(uuid4()),
                'X-Voice-Session-Id': str(capture['handle']['voice_session_id']), 'X-Server-Epoch': capture['handle']['server_epoch']}
@@ -119,7 +119,7 @@ def test_talk_context_is_exact_and_another_client_cannot_keep_or_stop_lease(api)
     response = api.client.post(url(api, capture, action='stop'), headers=api.headers, json=identity(capture))
     assert response.status_code == 200 and response.json()['quiesced']
     assert api.service.dictation.coordinator._dictation_lease.chat_context is None
-    assert not api.effects and not api.voice.effects
+    assert not api.effects
 
 
 def test_realtime_explicit_start_redacted_status_restricted_bridge_and_stop(api):
@@ -127,7 +127,7 @@ def test_realtime_explicit_start_redacted_status_restricted_bridge_and_stop(api)
     capture = started['snapshot']
     assert started['client_secret'] is None and started['exchange_available'] is True
     assert 'synthetic-ephemeral-only' not in str(started)
-    assert api.effects == ['ephemeral-credential'] and not api.voice.effects
+    assert api.effects == ['ephemeral-credential']
     response = api.client.post(url(api, capture, 'realtime', 'heartbeat'), headers=api.headers, json=identity(capture))
     assert response.status_code == 200 and 'synthetic-ephemeral-only' not in response.text
     event = {'event_id': str(uuid4()), 'type': 'function_call_ready', 'call_id': 'synthetic-call',
@@ -146,7 +146,7 @@ def test_stale_conversation_context_rejects_before_local_or_remote_start(api):
     for mode in ('talk', 'realtime'):
         response = api.client.post(api.base + mode, headers=api.headers, json=api.body)
         assert response.status_code == 409 and response.json()['code'] == 'revision_conflict'
-    assert not api.effects and not api.voice.effects
+    assert not api.effects
 
 
 @pytest.mark.slow
@@ -225,7 +225,7 @@ def test_local_talk_start_during_typed_run_has_no_capture_or_second_generation(a
         assert barrier.entered.wait(5)
         response = api.client.post(api.base + 'talk', headers=api.headers, json=api.body)
         assert response.status_code == 409 and response.json()['code'] == 'generation_active'
-        assert not api.effects and not api.voice.effects
+        assert not api.effects
         assert api.service.registry.active(api.conversation) == (handle,)
     finally:
         barrier.release.set()
@@ -275,7 +275,7 @@ def test_speech_test_plays_only_the_fixed_phrase_to_the_requesting_browser(api):
     assert response.headers['Cache-Control'] == 'no-store'
     assert api.effects == [('synthesize', SPEECH_TEST_PHRASE)]
     # It needs no voice session and never touches host audio.
-    assert api.service.dictation.coordinator._dictation_lease is None and not api.voice.effects
+    assert api.service.dictation.coordinator._dictation_lease is None
 
 
 def test_speech_test_reports_missing_voice_instead_of_playing_on_the_host(service):  # noqa: F811
