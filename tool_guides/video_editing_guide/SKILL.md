@@ -15,12 +15,7 @@ tags: []
   when a look needs more than it offers, a script of your own (ffmpeg,
   Pillow) is the fallback: check still frames of each scene first, render
   the whole film once they're right, hold it to the same checks, and
-  present the result.
-- When a video is finished, present it with present in the reply that
-  delivers it. Frames, contact sheets, review sheets and raw recordings
-  you'll cut into the video are working material for you, not something
-  to present. Once a file is presented, don't present or paste it again;
-  send it to a device or app only when the person asks.
+  present the result once it passes them.
 - A demo of a site or app in Row-Bot's browser: write the story first, 3-8
   steps with one spoken line each. Start browser_record, then before each
   step mark a beat with its note (a short title) and its line, do the step,
@@ -38,10 +33,18 @@ tags: []
   videos should look ("full screen", a voice, a mood), save it with video
   action brand, so the next video starts that way.
 - Captions only when the person asks for them: a narrated video needs none.
-- After make, read the checks and look at the review sheet with
-  analyze_image. Fix what's off (a dull or long stretch: trim or speed it
-  up; a line that doesn't match its picture: rewrite it) and make it again;
-  it's done only when both are right.
+- After make, read the checks: they list what to fix by scene and time, and
+  already include one look at the review sheet, so don't look again with
+  analyze_image. Fix what they list (soft: a sharper clip or less zoom;
+  words over the action: a zoom that shows it higher, or shorter words; a
+  dull or long stretch: trim or speed it up; a line that doesn't match its
+  picture: rewrite it) and make it again; it's ready to share only when the
+  checks pass.
+- Once the checks pass, the video is finished: present it with present in
+  the reply that delivers it. Frames, contact sheets, review sheets and raw
+  recordings you'll cut into the video are working material for you, not
+  something to present. Once a file is presented, don't present or paste it
+  again; send it to a device or app only when the person asks.
 - edit_video edits videos the person already has: recordings (rec-…),
   earlier edits (edit-…), files in this chat by name, or workspace paths.
   It never generates video (that is generate_video, when it is on).

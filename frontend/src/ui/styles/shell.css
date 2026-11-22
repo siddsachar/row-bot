@@ -2155,6 +2155,10 @@
 .library-group:first-child {
   margin-top: 4px;
 }
+/* Loading rows start where the first group's rows will, below its heading. */
+.library-list-loading {
+  padding-top: calc(8px + var(--leading-12));
+}
 .library-row {
   position: relative;
   display: flex;

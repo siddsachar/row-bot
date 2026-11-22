@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from row_bot.voice.coordinator import VoiceSessionCoordinator
     from row_bot.voice.browser_local import BrowserLocalVoiceService
     from row_bot.voice.client_transport import ClientDictationTransport
+    from row_bot.conversation_resources import ResourceSnapshot
 
 from row_bot.runtime import admissions
 from row_bot.runtime.executions import generation_registry
@@ -750,11 +751,15 @@ class ClientPlatformService:
         awaiting_approval: bool | None = None,
         goal_waiting: bool | None = None,
         started_from: str | None = None,
+        row: dict | None = None,
+        resources: ResourceSnapshot | None = None,
     ) -> dict:
-        row = self._metadata(conversation_id)
+        # A listing page passes each row's metadata and bindings, read for the whole page at once.
+        row = row if row is not None else self._metadata(conversation_id)
         from row_bot import threads
-        from row_bot.conversation_resources import list_bindings
-        resources = list_bindings(conversation_id)
+        if resources is None:
+            from row_bot.conversation_resources import list_bindings
+            resources = list_bindings(conversation_id)
         if parent_conversation_id is None:
             from row_bot import agent_runs
             own_run = agent_runs.get_agent_run_for_thread(conversation_id)
@@ -879,19 +884,28 @@ class ClientPlatformService:
         goals_waiting = self._goals_waiting([row[0] for row in selected])
         from row_bot.linked_conversations import started_from as linked_sources
         sources = linked_sources([row[0] for row in selected])
+        # The page's metadata and bindings in two reads, not two connections per conversation.
+        metadata: dict[str, dict] = {}
+        if selected:
+            with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+                conn.row_factory = sqlite3.Row
+                metadata = {str(meta["thread_id"]): dict(meta) for meta in conn.execute(
+                    f"SELECT * FROM thread_meta WHERE thread_id IN ({','.join('?' for _ in selected)})",
+                    [row[0] for row in selected])}
+        from row_bot.conversation_resources import list_bindings_many
+        bindings = list_bindings_many(list(metadata))
         items = []
         for row in selected:
-            try:
-                items.append(self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
-                             parent_conversation_id=parent_ids.get(row[0], ""),
-                             orchestration_activity=activity.get(row[0], {}),
-                             awaiting_approval=row[0] in awaiting, goal_waiting=row[0] in goals_waiting,
-                             started_from=sources.get(row[0], "")))
-            except ClientPlatformError as error:
-                if error.code != "not_found":
-                    raise
-                # Deleted while the page was read (a workflow's conversation goes with its workflow):
-                # it is left out, never the whole list.
+            # One deleted while the page was read (a workflow's conversation goes with its workflow)
+            # is left out, never the whole list.
+            if row[0] not in metadata or row[0] not in bindings:
+                continue
+            items.append(self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
+                         parent_conversation_id=parent_ids.get(row[0], ""),
+                         orchestration_activity=activity.get(row[0], {}),
+                         awaiting_approval=row[0] in awaiting, goal_waiting=row[0] in goals_waiting,
+                         started_from=sources.get(row[0], ""), row=metadata[row[0]],
+                         resources=bindings[row[0]]))
         return {"items": items, "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 

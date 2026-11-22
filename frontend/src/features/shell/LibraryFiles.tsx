@@ -19,8 +19,8 @@ import {
   EmptyState,
   ErrorState,
   Input,
+  ListSkeleton,
   Segmented,
-  Skeleton,
 } from '../../ui/primitives';
 import { requestPagePanel } from '../pages/open-page';
 import { shortTime } from './conversation-groups';
@@ -74,19 +74,26 @@ const matchesKind = (file: MadeFile, kind: FileKind) =>
   (kind === 'media' && Boolean(file.media));
 
 /**
- * What Row-Bot made, from what the client can already read: the designs and
- * code folders bound to the newest chats, every page and every picture,
- * video and sound. Newest first.
+ * The designs and code folders bound to the newest chats. Those chats are
+ * read from their own listings, not the whole library; each one's folder
+ * and design names take a read of its own, so they come after the rest.
  */
-async function loadMadeFiles(
+async function loadResources(
   controller: ClientController,
   signal: AbortSignal,
 ): Promise<MadeFile[]> {
-  const [conversations, pages, media] = await Promise.all([
-    controller.readConversationLibrary(signal),
-    controller.pages(undefined, signal),
-    controller.media({}, signal),
+  const [designs, folders] = await Promise.all([
+    controller.conversationsOfGroup('artifact', RESOURCE_CHATS, signal),
+    controller.conversationsOfGroup('workspace', RESOURCE_CHATS, signal),
   ]);
+  const conversations = [
+    ...new Map(
+      [...(designs?.items ?? []), ...(folders?.items ?? [])].map((row) => [
+        row.id,
+        row,
+      ]),
+    ).values(),
+  ];
   // A helper's thread shares its chat's folder; the chat lists it.
   const bound = conversations
     .filter(
@@ -127,8 +134,19 @@ async function loadMadeFiles(
       });
     }
   });
+  return resources;
+}
+
+/** Every page, and every picture, video and sound in the chats. */
+async function loadPagesAndMedia(
+  controller: ClientController,
+  signal: AbortSignal,
+): Promise<MadeFile[]> {
+  const [pages, media] = await Promise.all([
+    controller.pages(undefined, signal),
+    controller.media({}, signal),
+  ]);
   return [
-    ...resources,
     ...(pages?.items ?? []).map((page) => ({
       id: `page:${page.page_id}`,
       kind: 'page' as const,
@@ -147,7 +165,7 @@ async function loadMadeFiles(
       at: item.added_at,
       media: item,
     })),
-  ].sort((a, b) => time(b.at) - time(a.at));
+  ];
 }
 
 /**
@@ -161,7 +179,10 @@ export default function LibraryFiles({
   initialKind?: FileKind;
 }) {
   const { controller } = useRuntime();
+  // Each part shows as it arrives: pages and media first, then the designs
+  // and folders, which take a read per chat.
   const [files, setFiles] = useState<MadeFile[] | null>(null);
+  const [resources, setResources] = useState<MadeFile[] | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<FileKind>(initialKind);
@@ -170,26 +191,30 @@ export default function LibraryFiles({
   useEffect(() => {
     const abort = new AbortController();
     setError('');
-    loadMadeFiles(controller, abort.signal).then(
-      (result) => {
-        if (!abort.signal.aborted) setFiles(result);
-      },
-      (cause) => {
-        if (!abort.signal.aborted) setError(clientError(cause).message);
-      },
-    );
+    const failed = (cause: unknown) => {
+      if (!abort.signal.aborted) setError(clientError(cause).message);
+    };
+    loadPagesAndMedia(controller, abort.signal).then((result) => {
+      if (!abort.signal.aborted) setFiles(result);
+    }, failed);
+    loadResources(controller, abort.signal).then((result) => {
+      if (!abort.signal.aborted) setResources(result);
+    }, failed);
     return () => abort.abort();
   }, [controller, attempt]);
 
   const words = query.trim().toLowerCase();
-  const shown = (files ?? []).filter(
-    (file) =>
-      matchesKind(file, kind) &&
-      (!words ||
-        `${file.title} ${file.conversationTitle}`
-          .toLowerCase()
-          .includes(words)),
-  );
+  const shown = [...(files ?? []), ...(resources ?? [])]
+    .sort((a, b) => time(b.at) - time(a.at))
+    .filter(
+      (file) =>
+        matchesKind(file, kind) &&
+        (!words ||
+          `${file.title} ${file.conversationTitle}`
+            .toLowerCase()
+            .includes(words)),
+    );
+  const resourcesPending = !resources && kind !== 'page' && kind !== 'media';
   const now = new Date();
   return (
     <section className="library-files" aria-label="Files">
@@ -223,8 +248,8 @@ export default function LibraryFiles({
         >
           {error}
         </ErrorState>
-      ) : !files ? (
-        <Skeleton label="Loading files" />
+      ) : !files || (shown.length === 0 && resourcesPending) ? (
+        <ListSkeleton label="Loading files" rows={9} />
       ) : shown.length === 0 ? (
         words || kind !== 'all' ? (
           <EmptyState title="Nothing matches">
@@ -288,6 +313,9 @@ export default function LibraryFiles({
             );
           })}
         </ul>
+      )}
+      {!error && files && shown.length > 0 && resourcesPending && (
+        <ListSkeleton label="Loading designs and folders" rows={2} />
       )}
     </section>
   );
