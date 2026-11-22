@@ -130,8 +130,8 @@ def test_a_projects_recorded_scenes_reach_the_edit_as_one_drawn_clip_however_man
     assert (inputs[0].info.width, inputs[0].info.height) == (1920, 1080)
     card, *scenes = drawn.scenes
     assert card.input is None and all(scene.input == 0 and scene.camera == () for scene in scenes)
-    assert [scene.start for scene in scenes] == pytest.approx([0.2 * index for index in range(12)])
-    assert build_plan(inputs, [drawn], "output.mp4").duration == pytest.approx(2 + 2.4)
+    assert [scene.start for scene in scenes] == pytest.approx([5 / 24 * index for index in range(12)], abs=1e-3),         "one after another, each a whole number of frames at the video's rate (24 at least)"
+    assert build_plan(inputs, [drawn], "output.mp4").duration == pytest.approx(2 + 12 * 5 / 24, abs=0.01)
 
 
 def _drawn(folder, sources, step):
@@ -167,7 +167,7 @@ def test_clips_of_other_shapes_fill_the_frame_by_default_and_are_inset_only_when
 
     inputs, frames = _drawn(tmp_path / "plain", sources, Step(op="scenes", aspect="16:9", scenes=scenes))
     assert [(item.info.width, item.info.height) for item in inputs] == [(1920, 1080)]
-    assert frames[0].size == (1920, 1080) and len(frames) == 10
+    assert frames[0].size == (1920, 1080) and len(frames) == 24, "at 24 frames a second at least: smooth motion"
     for picture in (frames[0], frames[-1]):  # A 4:3 clip, then a 9:16 one.
         assert all(min(pixel) > 200 for pixel in _edges(picture)), "the clip to every edge: no bars, no backdrop"
 
@@ -254,3 +254,156 @@ def test_a_videos_voice_lines_are_laid_at_their_times_into_one_track(tmp_path):
     assert sound.size == 4 * rate, "as long as the video"
     loud = [abs(sound[round(at * rate):round((at + 0.25) * rate)]).mean() > 0.2 for at in (0.5, 1.1, 2.0, 2.6, 3.5)]
     assert loud == [False, True, False, True, False], "each line at its time, quiet between them"
+
+
+# ── Any footage (C2): pictures, any frame rate, phones, long clips, many scenes ───────────────────────────────
+
+
+def _frames(path):
+    import av
+
+    with av.open(str(path)) as reader:
+        stream = reader.streams.video[0]
+        frames = list(reader.decode(video=0))
+        return stream.average_rate, frames
+
+
+def test_a_picture_is_held_filling_the_frame_upright_and_pushed_in_slowly(clip, tmp_path):
+    """A photo, a screenshot or generated art is a scene of its own: cropped to fill the video's shape, stood up
+    by its EXIF orientation, and moving (Ken Burns), never a frozen slide."""
+    upright = Image.new("RGB", (400, 300), (240, 240, 240))
+    upright.paste((20, 60, 200), (0, 0, 400, 120))  # Its top 40% blue.
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Saved on its side, as a phone saves a photo, with the orientation that stands it up.
+    upright.rotate(90, expand=True).save(tmp_path / "photo.jpg", exif=exif, quality=95)
+    info = video_studio.still_info(tmp_path / "photo.jpg")
+    assert (info.width, info.height, info.still) == (400, 300, True)
+
+    seconds = 4.0
+    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=30)
+    assert studio.still(tmp_path / "photo.jpg", seconds, video_studio.push_in(seconds), Frame((320, 180))) == \
+        (0.0, 4.0)
+    studio.close()
+
+    rate, frames = _frames(tmp_path / "scenes.mp4")
+    assert rate == 30 and len(frames) == 120 and (frames[0].width, frames[0].height) == (320, 180)
+    first, last = frames[0].to_image(), frames[-1].to_image()
+
+    def edge(picture):  # Where the blue top ends, down the middle.
+        return next(y for y in range(180) if picture.getpixel((160, y))[0] > 150)
+
+    assert first.getpixel((160, 4))[0] < 100 < first.getpixel((160, 175))[0], "upright: blue at the top"
+    assert all(min(first.getpixel((x, 120))) > 200 for x in (2, 317)), "filling the frame: no bars either side"
+    assert edge(last) <= edge(first) - 3, "pushed in over the scene: the picture grows towards its middle"
+    assert video_studio.view(video_studio.push_in(seconds), seconds / 2)[2] < video_studio.PUSH_IN, "gently"
+
+
+def test_a_pictures_scene_lasts_its_line_else_a_few_seconds_and_never_less_than_its_line():
+    from row_bot.video_editing import LINE_PAD, SceneCut
+
+    assert video_studio.still_seconds(SceneCut(input=0)) == video_studio.STILL_SECONDS
+    said = SceneCut(input=0, line="Our first morning.", voice="line.wav", voice_seconds=5.0)
+    assert video_studio.still_seconds(said) == 5.0 + LINE_PAD
+    assert video_studio.still_seconds(SceneCut(input=0, end=8.0)) == 8.0, "as long as asked"
+    assert video_studio.still_seconds(SceneCut(input=0, end=2.0, voice="line.wav", voice_seconds=5.0)) == \
+        5.0 + LINE_PAD, "never cut off mid-line"
+
+
+def test_footage_at_any_frame_rate_and_a_turned_phone_clip_come_out_at_one_rate_upright_in_hd_colour(tmp_path):
+    """Phone clips (turned, 30 fps), AI shots (24 or 25) and 60 fps clips mix in one video: each comes out at the
+    rate most of the footage has, upright, in BT.709 colour and TV range, with silence where a clip has no sound."""
+    from row_bot.video_editing import InputVideo, SceneCut, Step, VideoInfo
+
+    phone = video(tmp_path / "phone.mp4", sound=False, size=(180, 320), rotation=90, seconds=2)
+    sixty = video(tmp_path / "sixty.mp4", sound=False, rate=60, seconds=2)
+    pal = video(tmp_path / "pal.mp4", sound=True, rate=25, seconds=2)
+    given = [InputVideo(path=str(phone), info=VideoInfo(2.0, 180, 320, 10.0, False)),
+             InputVideo(path=str(sixty), info=VideoInfo(2.0, 320, 180, 60.0, False)),
+             InputVideo(path=str(pal), info=VideoInfo(2.0, 320, 180, 25.0, True))]
+    scenes = [SceneCut(input=0, start=1.0, end=2.0), SceneCut(input=1, start=0.5, end=2.0),
+              SceneCut(input=2, start=1.0, end=1.5)]
+    inputs, step = video_studio.prepare(given, Step(op="scenes", scenes=scenes), tmp_path)
+
+    assert [item.path for item in inputs] == ["scenes.mp4"] and inputs[0].info.fps == 60.0, \
+        "the rate most of the footage plays at (1.5 s of the 3 s at 60)"
+    assert [(scene.start, scene.end) for scene in step.scenes] == [(0.0, 1.0), (1.0, 2.5), (2.5, 3.0)]
+    rate, frames = _frames(tmp_path / "scenes.mp4")
+    assert rate == 60 and len(frames) == 180 and (frames[0].width, frames[0].height) == (180, 320)
+    phone_frame = frames[30].to_image()
+    assert phone_frame.getpixel((170, 160))[1] < 80 < phone_frame.getpixel((10, 160))[1], \
+        "the phone clip upright: its right half red, as it was filmed"
+    assert frames[89].to_image().getpixel((170, 160))[1] > 200 > frames[91].to_image().getpixel((170, 160))[1], \
+        "the 60 fps clip from half a second in: red from its second second, on time"
+    assert {(frame.colorspace, frame.color_range) for frame in frames} == {(1, 1)}, "BT.709, TV range"
+    import av
+
+    with av.open(str(tmp_path / "scenes.mp4")) as reader:
+        sound = sum(frame.samples for frame in reader.decode(audio=0))
+    assert abs(sound / 48000 - 3.0) < 0.1, "sound all along: silence under the clips that have none"
+
+
+def test_a_long_clip_is_read_only_around_the_part_used(tmp_path):
+    """Real footage is long: a clip used for one second is read from a seek to the key frame before it."""
+    long = video(tmp_path / "long.mp4", sound=True, seconds=30)
+    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10, sound=True)
+    assert studio.add(long, 25.0, 26.0, (), Frame((320, 180))) == (0.0, 1.0)
+    studio.close()
+
+    assert studio.decoded <= 25, "a second or two of pictures decoded, not the 250 before it"
+    _rate, frames = _frames(tmp_path / "scenes.mp4")
+    assert len(frames) == 10 and frames[0].to_image().getpixel((300, 90))[1] < 80, "the part used, from 25 s"
+
+
+def test_two_hundred_scenes_from_a_hundred_videos_and_pictures_make_one_short_ffmpeg_command(tmp_path, monkeypatch):
+    """60 scenes and 10 sources were the most a video could have, and every source was one more input on
+    ffmpeg's command. Now every scene is drawn into one clip, one source at a time, and the command stays short."""
+    from row_bot.video_editing import InputVideo, Look, SceneCut, Step, VideoInfo, build_plan
+
+    drawn: list[tuple] = []
+
+    class Drawing:  # The drawing itself is tested above: here, what is drawn, in what order, how long.
+        def __init__(self, output, size, *, fps, sound):
+            self.fps, self.written, self.has_sound = fps, 0, sound
+            drawn.append(("clip", size, fps, sound))
+
+        def add(self, source, start, end, keys, frame, *, stopped):
+            return self._take(("video", source.name, start, end), end - start)
+
+        def still(self, source, seconds, keys, frame):
+            return self._take(("picture", source.name, seconds, keys[-1][3]), seconds)
+
+        def _take(self, what, seconds):
+            drawn.append(what)
+            at = self.written / self.fps
+            self.written += round(seconds * self.fps)
+            return at, round(seconds * self.fps) / self.fps
+
+        def close(self):
+            drawn.append("closed")
+
+    monkeypatch.setattr(video_studio, "Studio", Drawing)
+    phone = VideoInfo(duration=600.0, width=2160, height=3840, fps=29.97, has_audio=True)
+    picture = VideoInfo(duration=0.0, width=4032, height=3024, fps=30.0, has_audio=False, still=True)
+    given = [InputVideo(path=f"D:/Footage/clip-{index:02d}.mov", info=phone) for index in range(80)]
+    given += [InputVideo(path=f"D:/Footage/photo-{index:02d}.jpg", info=picture) for index in range(20)]
+    scenes = []
+    for number in range(200):
+        source = number % 100
+        line = f"Line {number}." if number % 2 else ""
+        voice = {"voice": f"line-{number}.wav", "voice_seconds": 2.0} if line else {}
+        start = 10.0 * (number // 100) + 5
+        scenes.append(SceneCut(input=source, start=start if source < 80 else 0.0,
+                               end=start + 3 if source < 80 else None, line=line, card=f"Day {number}"
+                               if number % 10 == 0 else "", **voice))
+    sounds = {scene.voice: f"C:/voices/{scene.voice}" for scene in scenes if scene.voice}
+    step = Step(op="scenes", aspect="16:9", scenes=scenes, style="caption", look=Look())
+    inputs, cut = video_studio.prepare(given, step, tmp_path)
+
+    assert drawn[0] == ("clip", (1920, 1080), 30.0, True) and drawn[-1] == "closed"
+    assert len(drawn) == 202 and drawn[1] == ("video", "clip-00.mov", 5.0, 8.0)
+    held = [what for what in drawn[1:-1] if what[0] == "picture"]
+    assert len(held) == 40 and {what[2] for what in held} == {video_studio.STILL_SECONDS, 2.6}, \
+        "a picture lasts its line, else a few seconds"
+    plan = build_plan(inputs, [cut], "output.mp4", sounds=sounds)
+    assert len(plan.args) < 80 and plan.args.count("-i") == 3, "one clip, the voice track and the pictures laid"
+    assert len(plan.marks) == 201 and len(plan.voices) == 100

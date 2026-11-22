@@ -8,7 +8,8 @@ with the music ducked under the voice, and saves it to the chat's files. The cal
 (``MAKE_SECONDS``); a video that takes longer carries on, and a wait wakes the chat when it's made.
 
 Approvals: downloading ffmpeg the first time, as in edit_video. Reading the chat's files and
-the workspace, and writing new files to the chat, needs none.
+the workspace, and writing new files to the chat, needs none. Footage elsewhere on this computer
+is asked about once, when it joins the video, and read in place from then on.
 """
 
 from __future__ import annotations
@@ -27,15 +28,20 @@ MAKE_SECONDS = 120.0
 
 class _Scene(BaseModel):
     scene_id: str = Field(default="", description="Keep a scene's id when changing it (new scenes: leave empty).")
-    source: str = Field(default="", description="Its video: a recording (rec-…), an edit (edit-…), a file in this "
-                                                "chat or a workspace path. Empty: a title card (its card on the "
-                                                "brand colour for end seconds, 3 by default), so a title, an end "
-                                                "card or a whole video of cards needs no made-up background video.")
+    source: str = Field(default="", description="Its footage, a video or a picture: a recording (rec-…), an edit "
+                                                "(edit-…), a file in this chat, a workspace path, or a full path "
+                                                "on this computer (read where it is, never copied; asks first). "
+                                                "A picture is held with a slow push in. Empty: a title card (its "
+                                                "card on the brand colour for end seconds, 3 by default), so a "
+                                                "title, an end card or a whole video of cards needs no made-up "
+                                                "background video.")
     start: float = Field(default=0.0, description="Seconds into that video.")
-    end: float | None = Field(default=None, description="Seconds into that video (empty: to its end).")
+    end: float | None = Field(default=None, description="Seconds into that video (empty: to its end). A picture: "
+                                                        "how long it shows (empty: its line's length, else 3.5).")
     speed: float = Field(default=1.0, description="2 = twice as fast (shows a 2× badge), 0.5 = half.")
     zoom: list[float] | None = Field(default=None, description="Leave empty: on a recording the camera follows "
-                                                             "what was done. [x, y, width, height], 0-1: hold there.")
+                                                             "what was done. [x, y, width, height], 0-1: hold there "
+                                                             "(on a picture: push in to there).")
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
@@ -313,7 +319,7 @@ def langchain_tool():
         name="video",
         description=(
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
-            "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
+            "(start, end) or a picture, with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
             "saved to this chat. create, change, make and export wait for the video; a longer one checks back "
             "here when it's made: never poll status. Read the checks and look at its review sheet: never say it's "

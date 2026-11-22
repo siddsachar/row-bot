@@ -12,7 +12,8 @@ A tool names a source in one of these ways, and nothing else is ever opened:
   the workspace aren't checked (the person chose it), and cloud-file placeholders (OneDrive's
   "online only" files and folders, also reparse points) aren't taken for links;
 - a file elsewhere on this computer, by its full path, read in place once the person allows it by
-  the approval level (5.3.1 A1); Row-Bot's own data folder never.
+  the approval level (5.3.1 A1); Row-Bot's own data folder never. A video project asks once, when the file
+  becomes one of its scenes' footage, and reads it in place from then on (``asked``).
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ class Media:
     kind: Kind
     path: Path | None = None
     ref: str = ""
+    # A file outside the workspace, read in place (only once the person allowed it).
+    outside: bool = False
 
     def read_bytes(self, limit: int = MAX_IMAGE_BYTES) -> bytes:
         if self.ref:
@@ -131,8 +134,9 @@ def _leaves(root: Path, path: Path) -> bool:
     return relative == os.pardir or relative.startswith(os.pardir + os.sep)
 
 
-def _outside_file(value: str, place: Workspace | None) -> Path | None:
-    """A file outside the workspace named by its full path, once the person allows reading it; else None."""
+def _outside_file(value: str, place: Workspace | None, *, asked: bool = False) -> Path | None:
+    """A file outside the workspace named by its full path, once the person allows reading it (``asked``: they
+    already did); else None."""
     from row_bot.data_paths import is_private_data_path
 
     given = Path(value.strip().strip('"')).expanduser()
@@ -145,6 +149,8 @@ def _outside_file(value: str, place: Workspace | None) -> Path | None:
         raise SourceError(f"{value} isn't a file.")
     if _kind_of(path.name) is None:
         raise SourceError(f"{value} isn't a video or a picture.")
+    if asked:
+        return path
     from row_bot.tools.filesystem_tool import outside_workspace_refusal
 
     refusal, _line = outside_workspace_refusal("read_file", [path])
@@ -275,8 +281,9 @@ def _edit_frame(edit_id: str, name: str, conversation_id: str) -> Media:
     return Media(label=f"Frame at {video_edits.clock(moment)}", kind="image", ref=edit.frame_refs[index])
 
 
-def resolve(value: str, conversation_id: str) -> list[Media]:
-    """The videos or pictures a source names (an edit that saved frames names several)."""
+def resolve(value: str, conversation_id: str, *, asked: bool = False) -> list[Media]:
+    """The videos or pictures a source names (an edit that saved frames names several). ``asked``: a file outside
+    the workspace is read without asking, because the person allowed it already (a video project's footage)."""
     text = str(value or "").strip()
     if not text:
         raise SourceError("A source is empty.")
@@ -304,9 +311,9 @@ def resolve(value: str, conversation_id: str) -> list[Media]:
                     for ref, moment in zip(edit.frame_refs, edit.frame_times)]
         return [Media(label=edit.output_name or "Edited video", kind="video", ref=edit.media_ref)]
     place = workspace(conversation_id)
-    outside = _outside_file(text, place)
+    outside = _outside_file(text, place, asked=asked)
     if outside is not None:
-        return [Media(label=str(outside), kind=_kind_of(outside.name) or "video", path=outside)]
+        return [Media(label=str(outside), kind=_kind_of(outside.name) or "video", path=outside, outside=True)]
     refused: SourceError | None = None
     if place is not None:
         try:

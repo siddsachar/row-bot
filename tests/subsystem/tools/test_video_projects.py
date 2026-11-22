@@ -289,7 +289,7 @@ def test_an_export_that_cannot_be_made_says_why_in_the_videos_summary(studio, mo
     saved = register_attachment("conversation-a", "Launch demo v1.mp4", MP4)
     video_edits._set(made, status="saved", media_ref=saved["attachment_ref"], mime_type="video/mp4")
 
-    def gone(value, conversation):
+    def gone(value, conversation, **_options):
         raise media_sources.SourceError(f"{value} isn't in this chat any more.")
 
     found = media_sources.resolve
@@ -300,7 +300,7 @@ def test_an_export_that_cannot_be_made_says_why_in_the_videos_summary(studio, mo
             break
         threading.Event().wait(0.01)
     summary = video_projects.summary(video_projects.get(project.project_id))
-    assert "Export 9:16: not made: signup.mp4 isn't in this chat any more." in summary
+    assert "Export 9:16: not made: Footage missing: scene 1 (signup.mp4), scene 2 (pricing.mp4)" in summary
     assert video_projects.get(project.project_id).latest.edit_id == made.edit_id, "the version's own video stays"
 
     monkeypatch.setattr(media_sources, "resolve", found)
@@ -663,3 +663,113 @@ def test_how_the_person_says_videos_should_look_is_saved_for_every_next_video(st
     assert "every new video starts this way" in said and "framing full" in said
     assert _video(action="brand", music_mood="loud").startswith("The music mood is"), "a wrong value is refused"
     assert video_brand.load().music_mood == "upbeat"
+
+
+# ── Any footage (C2) ────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def footage(studio, tmp_path, monkeypatch):
+    """A workspace with a clip, a camera folder elsewhere with a photo, and the person answering approvals."""
+    from row_bot.tools import approval_gate, registry
+
+    workspace = tmp_path / "workspace"
+    (workspace / "clips").mkdir(parents=True)
+    (workspace / "clips" / "beach.mp4").write_bytes(MP4)
+    camera = tmp_path / "camera"
+    camera.mkdir()
+    (camera / "DSC0001.JPG").write_bytes(b"\xff\xd8\xff photo")
+    registry.set_tool_config("filesystem", "workspace_root", str(workspace))
+    asked: list[dict] = []
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "approve")
+    monkeypatch.setattr("langgraph.types.interrupt", lambda payload: asked.append(payload) or True)
+    return {"workspace": workspace, "photo": camera / "DSC0001.JPG", "asked": asked, **studio}
+
+
+def test_a_picture_is_a_scene_held_for_its_line_and_never_sped_or_trimmed(footage):
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment("conversation-a", "sunset.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    project = video_projects.create("conversation-a", "Holiday", [
+        {"source": "sunset.png", "start": 4, "speed": 2, "line": "The last evening."},
+        {"source": "sunset.png", "end": 6, "zoom": [0.6, 0.2, 0.3, 0.3]},
+        {"source": "signup.mp4", "start": 1, "end": 4}])
+    held, pushed, clip = project.latest.scenes
+    assert (held.start, held.end, held.speed) == (0.0, None, 1.0), "a picture has no time of its own to cut"
+    assert (pushed.end, pushed.zoom) == (6.0, [0.6, 0.2, 0.3, 0.3]), "shown 6 s, pushed in to its region"
+    text = video_projects.summary(project)
+    assert "sunset.png picture, as long as its line (else 3.5 s)" in text and "sunset.png picture, 6 s" in text
+
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    request = footage["started"][0]
+    assert [(media.label, media.kind) for media in request.sources] == [("sunset.png", "image"),
+                                                                       ("signup.mp4", "video")]
+
+
+def test_footage_in_the_workspace_and_elsewhere_is_used_where_it_is_never_copied_into_the_chat(footage):
+    """Real footage is big: a phone's clip in the workspace or a camera's photo elsewhere is read in place when the
+    video is made, never copied into the chat (whose files hold 200 MB at most). A file elsewhere is asked about
+    once, when it joins the video."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import list_conversation_files
+
+    photo = str(footage["photo"])
+    before = [item["name"] for item in list_conversation_files("conversation-a")]
+    project = video_projects.create("conversation-a", "Holiday", [
+        {"source": "clips/beach.mp4", "start": 2, "end": 9}, {"source": photo}, {"source": photo, "end": 2}])
+    assert [asked["description"] for asked in footage["asked"]] == [
+        f"Outside the workspace: {footage['photo'].resolve()}"], "asked once, for the file outside the workspace"
+
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    [request] = footage["started"]
+    assert [(media.path, media.ref) for media in request.sources] == [
+        (footage["workspace"] / "clips" / "beach.mp4", ""), (footage["photo"].resolve(), "")], "read in place"
+    assert [item["name"] for item in list_conversation_files("conversation-a")] == before, "nothing copied in"
+
+    video_projects.change(project, by="row-bot", scenes=[
+        *[{"scene_id": scene.scene_id, "source": scene.source, "start": scene.start, "end": scene.end}
+          for scene in project.latest.scenes], {"card": "The end"}])
+    assert len(footage["asked"]) == 1, "footage already in the video isn't asked about again"
+
+
+def test_footage_moved_or_deleted_later_is_named_by_its_scene(footage):
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Holiday", [
+        {"card": "Day one"}, {"source": "clips/beach.mp4", "start": 2, "end": 9}, {"source": "signup.mp4"}])
+    (footage["workspace"] / "clips" / "beach.mp4").unlink()
+
+    words = "Footage missing: scene 2 (clips/beach.mp4): moved, renamed or deleted since it joined the video."
+    assert words in video_projects.summary(video_projects.get(project.project_id))
+    video_projects.make(project, 1)
+    failed = _wait(project.project_id, 1)
+    assert failed.status == "failed" and failed.problem.startswith(words) and footage["started"] == []
+
+
+def test_a_video_holds_two_hundred_scenes_from_a_hundred_videos_and_pictures(footage):
+    """60 scenes and 10 different sources were the most a video could have: too few for real footage."""
+    from row_bot import video_edits, video_projects
+
+    clips = footage["workspace"] / "clips"
+    for index in range(100):
+        (clips / (f"clip-{index:02d}.mp4" if index < 80 else f"photo-{index:02d}.jpg")).write_bytes(MP4)
+    names = [f"clips/clip-{index:02d}.mp4" if index < 80 else f"clips/photo-{index:02d}.jpg" for index in range(100)]
+    scenes = [{"source": names[number % 100], "start": 5, "end": 8} for number in range(200)]
+    project = video_projects.create("conversation-a", "Year in review", scenes)
+    assert len(project.latest.scenes) == 200
+
+    video_projects.make(project, 1)
+    edit = video_edits.get(_wait(project.project_id, 1).edit_id)
+    assert len(footage["started"][0].sources) == 100 and len(footage["started"][0].steps[0].scenes) == 200
+    video_edits._set(edit, status="saved", marks=[round(3.0 * index, 1) for index in range(201)])
+    video_edits.sweep_leftovers()  # Read back from its saved record, as after a restart.
+    shown = video_projects.view(video_projects.get(project.project_id))["scenes"]
+    assert (shown[199]["at"], shown[199]["length"]) == (597.0, 3.0), "every scene's place on the made video is kept"
+
+    for too_many, words in ((scenes + [{"card": "One more"}], "At most 200 scenes"),
+                            ([*scenes[:100], {"source": "signup.mp4"}], "at most 100 different videos and pictures")):
+        with pytest.raises(video_projects.ProjectError, match=words):
+            video_projects.create("conversation-a", "Too long", too_many)

@@ -64,16 +64,28 @@ def test_inputs_are_local_video_files_only_and_the_result_is_an_h264_mp4():
 
 
 def test_trim_cuts_picture_and_sound_together():
-    plan = _plan([{"op": "trim", "start": 1, "end": 4}])
-    assert "trim=start=1:end=4,setpts=PTS-STARTPTS" in plan.graph
-    assert "atrim=start=1:end=4,asetpts=PTS-STARTPTS" in plan.graph
-    assert plan.duration == 3
+    plan = _plan([{"op": "trim", "start": 1, "end": 4}, {"op": "text", "text": "Hi"}])
+    assert plan.args[plan.args.index("-i") - 8:plan.args.index("-i") - 4] == ["-ss", "1", "-t", "3"],         "only the trim is read, found by seeking: nothing before it is decoded"
+    assert "trim=" not in plan.graph
+    assert (plan.duration, plan.summary) == (3, "Trimmed and added a badge")
+    joined = _plan([{"op": "trim", "start": 1, "end": 4}], [InputVideo("input-1.mp4", HD)] * 2)
+    assert "-ss" not in joined.args, "a trim of joined videos cuts the joined film"
+    assert "trim=start=1:end=4,setpts=PTS-STARTPTS" in joined.graph
+    assert "atrim=start=1:end=4,asetpts=PTS-STARTPTS" in joined.graph
+
+
+def test_an_hours_video_trimmed_to_ten_seconds_is_read_from_a_seek_to_the_trim():
+    hour = VideoInfo(duration=3600.0, width=3840, height=2160, fps=30.0, has_audio=True)
+    plan = _plan([{"op": "trim", "start": 1800, "end": 1810}], [InputVideo("C:/footage/day.mov", hour)])
+    before_input = plan.args[:plan.args.index("-i")]
+    assert before_input[before_input.index("-ss") + 1] == "1800" and before_input[before_input.index("-t") + 1] == "10"
+    assert plan.duration == 10
 
 
 def test_join_fills_every_video_to_the_first_and_fills_missing_sound_with_silence():
     plan = _plan([], [InputVideo("input-1.mp4", HD), InputVideo("C:/work/clips/b.mp4", SILENT)])
     # A 4:3 clip joined to a 16:9 one fills its frame, cropped: one film, never black bars.
-    assert "[1:v]scale=640:360:force_original_aspect_ratio=increase,crop=640:360" in plan.graph
+    assert "[1:v]scale=640:360:force_original_aspect_ratio=increase:out_color_matrix=bt709:out_range=tv,crop=640:360"         in plan.graph, "and in HD colour, as every input is"
     assert "pad=" not in plan.graph
     assert "fps=30" in plan.graph
     assert "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=4" in plan.graph
