@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "Layer": {
+      "description": "Where an item lives: the person's own layers, or a team's or the company's shared one.",
+      "enum": [
+        "personal",
+        "work",
+        "team",
+        "company"
+      ],
+      "type": "string"
+    },
+    "Space": {
+      "additionalProperties": false,
+      "description": "A brain space: a person's personal or work space (``space_id`` is the person's id), or a team's or the company's (``space_id`` is the team or company id).",
+      "properties": {
+        "layer": {
+          "$ref": "#/$defs/Layer"
+        },
+        "space_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "space_id"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A team or company space's access list: groups that read it, groups that may publish to it directly, and its display title for recall labels.",
+  "properties": {
+    "publishers": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+        "type": "string"
+      },
+      "maxItems": 1024,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "readers": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+        "type": "string"
+      },
+      "maxItems": 1024,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "space": {
+      "$ref": "#/$defs/Space"
+    },
+    "title": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "publishers",
+    "readers",
+    "space",
+    "title"
+  ],
+  "title": "SpaceAccess",
+  "type": "object"
+}
