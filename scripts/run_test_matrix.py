@@ -164,6 +164,9 @@ BROWSER_SMOKE_SPECS = (
     # Back and sheets for the native shells (A3): Back closes the open sheet or menu first, one level per Back,
     # then leaves; theme-color follows the theme; no pull-to-refresh; the desktop unchanged. Appended likewise.
     "phone-back",
+    # Row-Bot Voice (V1): a spoken turn through the real capture worklet, socket and engine; the voice bar in
+    # every state at desktop and phone width, light and dark. Appended likewise.
+    "voice-duplex",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
