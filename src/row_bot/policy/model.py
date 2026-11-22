@@ -12,7 +12,10 @@ range refuses the whole document, ``PolicyError``):
   it sets is merged with the company's by that setting's rule (``Spec.widen``), and the more permissive value
   wins. A list the company takes away (disabled tools) is named in an override by what it gives back
   (``enabled_groups``, ``enabled_tools``), so a later change to the company policy is never undone by an
-  override that restated it. A person in several groups gets the union of what each group adds.
+  override that restated it. A person in several groups gets the union of what each group adds. An override
+  can't hold a value that never widens (false, the lowest choice, 0, an empty list); ``not_wider`` names what
+  an override would add nothing to a given company policy, and ``still_granted`` what overrides still grant
+  after a company change took it away.
 
 ``resolve(company, overrides)`` is the effective policy of one person. ``lockdown_policy()`` is what a
 Row-Bot falls back to when its cached policy is too old (``offline.max_days``): chat with local models only.
@@ -49,6 +52,7 @@ EXTENSION_ID = r"[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199}"
 MAX_LIST_ITEMS = 512
 MAX_VERSION = 2**63 - 1
 MAX_DOCUMENT_BYTES = 256 * 1024
+ONLY_WIDEN = "a group override can only widen; put restrictions in the company policy"
 
 # The registry tools that reach outside Row-Bot (a shell, a browser, the screen and camera, the network, other
 # accounts, code and processes, channels, public links, cloud generation, a vault folder outside the
@@ -85,6 +89,8 @@ class Spec:
     maximum: int = 0
     # The key a group override uses instead, for a list it gives back ("remove").
     override_key: str = ""
+    # For an app's allow-list, the sibling setting holding its mode (any grants every entry).
+    mode: str = ""
 
 
 def _setting(default: Any, kind: Kind, widen: Widen, lockdown: Any, title: str, help: str, **spec: Any) -> Any:
@@ -134,26 +140,28 @@ class Approvals:
 class Apps:
     """Which plugins, MCP servers, Skills Hub skills and channels people may use."""
 
-    plugins: str = _setting("any", "enum", "max", "none", "Plugins",
+    # Plugins and MCP servers run third-party code on the person's computer: off until an admin allows them.
+    plugins: str = _setting("none", "enum", "max", "none", "Plugins",
                             "none, allow-list (only allowed_plugins) or any.", choices=APP_MODES)
     allowed_plugins: frozenset[str] = _setting(frozenset(), "list", "union", frozenset(), "Allowed plugins",
-                                               "Plugin ids, used when plugins is allow-list.", pattern=EXTENSION_ID)
-    mcp_servers: str = _setting("any", "enum", "max", "none", "MCP servers",
+                                               "Plugin ids, used when plugins is allow-list.", pattern=EXTENSION_ID,
+                                               mode="plugins")
+    mcp_servers: str = _setting("none", "enum", "max", "none", "MCP servers",
                                 "none, allow-list (only allowed_mcp_servers) or any.", choices=APP_MODES)
     allowed_mcp_servers: frozenset[str] = _setting(frozenset(), "list", "union", frozenset(), "Allowed MCP servers",
                                                    "MCP server names, used when mcp_servers is allow-list.",
-                                                   pattern=EXTENSION_ID)
+                                                   pattern=EXTENSION_ID, mode="mcp_servers")
     skills_hub: str = _setting("any", "enum", "max", "none", "Skills Hub",
                                "none, allow-list (only allowed_skills) or any.", choices=APP_MODES)
     allowed_skills: frozenset[str] = _setting(frozenset(), "list", "union", frozenset(), "Allowed skills",
                                               "Skills Hub skill ids, used when skills_hub is allow-list.",
-                                              pattern=EXTENSION_ID)
+                                              pattern=EXTENSION_ID, mode="skills_hub")
     channels: str = _setting("allow-list", "enum", "max", "none", "Channels",
                              "none, allow-list (only allowed_channels) or any.", choices=APP_MODES)
     allowed_channels: frozenset[str] = _setting(DEFAULT_CHANNELS, "list", "union", frozenset(), "Allowed channels",
                                                 "Channel ids, used when channels is allow-list. The WhatsApp "
                                                 "bridge (whatsapp) is unofficial, so it is allowed only when "
-                                                "named.", pattern=CHANNEL_ID)
+                                                "named.", pattern=CHANNEL_ID, mode="channels")
 
 
 @dataclass(frozen=True)
@@ -252,11 +260,13 @@ def loads(text: str | bytes) -> object:
                           parse_constant=_refuse_constant)
     except UnicodeDecodeError:
         raise PolicyError("policy: not UTF-8") from None
+    except RecursionError:
+        raise PolicyError("policy: nested too deeply") from None
     except json.JSONDecodeError as error:
         raise PolicyError(f"policy: not JSON ({error.msg} at line {error.lineno} column {error.colno})") from None
 
 
-def _value(spec: Spec, raw: object, path: str) -> Any:
+def _checked(spec: Spec, raw: object, path: str) -> Any:
     if spec.kind == "bool":
         if type(raw) is not bool:
             raise PolicyError(f"{path}: expected true or false")
@@ -276,6 +286,16 @@ def _value(spec: Spec, raw: object, path: str) -> Any:
             raise PolicyError(f"{path}[{index}]: not a valid entry")
     entries = frozenset(raw)
     return frozenset({ALL_MODELS}) if ALL_MODELS in entries else entries
+
+
+def _value(spec: Spec, raw: object, path: str, *, override: bool) -> Any:
+    value = _checked(spec, raw, path)
+    # false, the lowest choice, 0 and an empty list can never widen anything.
+    never_widens = (value is False or value == frozenset() or (spec.kind == "int" and value == 0)
+                    or (spec.kind == "enum" and value == spec.choices[0]))
+    if override and never_widens:
+        raise PolicyError(f"{path}: {ONLY_WIDEN}")
+    return value
 
 
 def _object(raw: object, path: str) -> dict[str, Any]:
@@ -302,7 +322,7 @@ def _parse(raw: object, *, override: bool) -> Document:
             if key not in keys:
                 kind = "group override" if override else "company policy"
                 raise PolicyError(f"{section}.{key}: not a {kind} setting")
-            parsed[keys[key]] = _value(specs(section)[keys[key]], item, f"{section}.{key}")
+            parsed[keys[key]] = _value(specs(section)[keys[key]], item, f"{section}.{key}", override=override)
         settings[section] = parsed
     return Document(settings, override=override, version=version)
 
@@ -351,6 +371,68 @@ def resolve(company: Document | None, overrides: Iterable[Document] = ()) -> Pol
                   **{section: SECTIONS[section](**values) for section, values in sections.items()})
 
 
+def _values(policy: Policy, section: str) -> dict[str, Any]:
+    return {name: getattr(getattr(policy, section), name) for name in specs(section)}
+
+
+def _rank(spec: Spec, value: Any) -> int:
+    return spec.choices.index(value) if spec.kind == "enum" else value
+
+
+def _gives(values: Mapping[str, Any], spec: Spec, name: str, entry: str) -> bool:
+    """Whether an allow-list setting (with its section's resolved ``values``) already grants ``entry``."""
+    return ALL_MODELS in values[name] or (bool(spec.mode) and values[spec.mode] == "any") or entry in values[name]
+
+
+def _granted(company: Policy, override: Document, report: Any) -> list[str]:
+    found: list[str] = []
+    for section in SECTIONS:
+        settings = override.settings.get(section, {})
+        for name, spec in specs(section).items():
+            if name in settings:
+                found += report(f"{section}.{document_key(spec, name, override=True)}", spec, name,
+                                settings[name], _values(company, section))
+    return found
+
+
+def not_wider(company: Document | None, override: Document) -> list[str]:
+    """What ``override`` sets that adds nothing to ``company`` (the setting, or ``setting: entry`` for a
+    list): a switch the company already turns on, a choice or number no higher than the company's, an entry
+    the company already allows, a tool the company doesn't switch off. An admin writing such an override
+    most likely meant a restriction, which only the company policy can make."""
+
+    def report(path: str, spec: Spec, name: str, offered: Any, current: dict[str, Any]) -> list[str]:
+        if spec.widen == "any":
+            return [path] if current[name] else []
+        if spec.widen == "max":
+            return [path] if _rank(spec, offered) <= _rank(spec, current[name]) else []
+        if spec.widen == "union":
+            return [f"{path}: {entry}" for entry in sorted(offered) if _gives(current, spec, name, entry)]
+        return [f"{path}: {entry}" for entry in sorted(offered - current[name])]
+
+    return _granted(resolve(company), override, report)
+
+
+def still_granted(previous: Document | None, company: Document, override: Document) -> list[str]:
+    """What ``override`` still grants of what changing the company policy from ``previous`` to ``company``
+    took away, as for ``not_wider``: for the console to warn that a restriction doesn't reach that group."""
+    before, after = resolve(previous), resolve(company)
+
+    def report(path: str, spec: Spec, name: str, offered: Any, current: dict[str, Any]) -> list[str]:
+        had = _values(before, path.split(".", 1)[0])
+        if spec.widen == "any":
+            return [path] if had[name] and not current[name] else []
+        if spec.widen == "max":
+            taken = _rank(spec, current[name]) < _rank(spec, had[name])
+            return [f"{path}: {offered}"] if taken and _rank(spec, offered) > _rank(spec, current[name]) else []
+        if spec.widen == "union":
+            return [f"{path}: {entry}" for entry in sorted(offered)
+                    if _gives(had, spec, name, entry) and not _gives(current, spec, name, entry)]
+        return [f"{path}: {entry}" for entry in sorted(offered & (current[name] - had[name]))]
+
+    return _granted(after, override, report)
+
+
 # -- writing ------------------------------------------------------------------------------------------
 
 def _json(value: Any) -> Any:
@@ -384,7 +466,8 @@ def canonical_json(value: object) -> bytes:
 
 __all__ = [
     "ALL_MODELS", "APPROVAL_LEVELS", "APP_MODES", "DEFAULT_CHANNELS", "DEFAULT_POLICY", "MAX_DOCUMENT_BYTES",
-    "OUTSIDE_TOOLS", "SECTIONS", "Apps", "Approvals", "Data", "Document", "Models", "Offline", "Policy",
-    "PolicyError", "Spec", "Tools", "canonical_json", "document_key", "document_to_dict", "loads",
-    "lockdown_policy", "parse_override", "parse_policy", "policy_to_dict", "resolve", "specs",
+    "ONLY_WIDEN", "OUTSIDE_TOOLS", "SECTIONS", "Apps", "Approvals", "Data", "Document", "Models", "Offline",
+    "Policy", "PolicyError", "Spec", "Tools", "canonical_json", "document_key", "document_to_dict", "loads",
+    "lockdown_policy", "not_wider", "parse_override", "parse_policy", "policy_to_dict", "resolve", "specs",
+    "still_granted",
 ]

@@ -46,11 +46,24 @@ CREATE POLICY policies_admin_write ON row_bot_org.policies FOR INSERT
 
 CALL row_bot_org.grant_runtime_access('row_bot_org.policies');
 
+-- check-config's one question, asked before any principal: does any group have an override (its newest
+-- version not cleared)? It answers yes or no and reads nothing else.
+CREATE FUNCTION row_bot_org.has_group_overrides() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+    AS $$
+        SELECT EXISTS (
+            SELECT 1 FROM (SELECT DISTINCT ON (p.group_name) p.document FROM row_bot_org.policies p
+                           WHERE p.group_name IS NOT NULL ORDER BY p.group_name, p.version DESC) newest
+            WHERE newest.document OPERATOR(pg_catalog.<>) '{}'::pg_catalog.jsonb);
+    $$;
+
 REVOKE ALL ON FUNCTION row_bot_org.row_bot_is_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION row_bot_org.has_group_overrides() FROM PUBLIC;
 DO $$
 BEGIN
     EXECUTE pg_catalog.format('REVOKE UPDATE, DELETE ON row_bot_org.policies FROM %I', row_bot_org.runtime_role());
-    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION row_bot_org.row_bot_is_admin() TO %I',
-                              row_bot_org.runtime_role());
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION row_bot_org.row_bot_is_admin(), '
+                              'row_bot_org.has_group_overrides() TO %I', row_bot_org.runtime_role());
 END
 $$;

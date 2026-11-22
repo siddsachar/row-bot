@@ -125,6 +125,8 @@ def _check_config(settings: OrgSettings, url: str) -> int:
             problems = privileged_role_problems(conn)
             warnings = runtime_role_warnings(conn)
             pending = migration_status(conn, load_migrations()).pending
+            overrides = not any(migration.name == "policies" for migration in pending) and conn.execute(
+                "SELECT row_bot_org.has_group_overrides()").fetchone()[0]
     except MigrationError as error:
         return _fail(f"Row-Bot Org's database doesn't match its migrations: {error}.")
     except psycopg.Error as error:
@@ -141,6 +143,11 @@ def _check_config(settings: OrgSettings, url: str) -> int:
     )
     for warning in warnings:
         sys.stderr.write(f"Warning: {warning}. {ROLE_ADVICE}\n")
+    if overrides and settings.idp is not None and not settings.idp.group_map:
+        sys.stderr.write(
+            "Warning: group policy overrides exist but ROW_BOT_ORG_IDP has no group_map, so groups are the "
+            "provider's names as sent. Map the provider's immutable group ids to the groups the overrides name "
+            "(deploy/org/README.md, Policy).\n")
     return 0
 
 

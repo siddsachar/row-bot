@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Row-Bot company policy",
-  "description": "The company's policy for every connected Row-Bot. A setting it leaves out takes its default. Unknown keys are refused.\n\n| Setting | Default | In a group override | Lockdown |\n| --- | --- | --- | --- |\n| `models.allowed` | * | every entry the company or any of the person's groups allows | [] |\n| `models.personal_api_keys` | false | on if the company or any of the person's groups turns it on | false |\n| `models.consumer_sign_ins` | false | on if the company or any of the person's groups turns it on | false |\n| `models.local_models` | true | on if the company or any of the person's groups turns it on | true |\n| `tools.disabled_groups` | [] | `tools.enabled_groups`: the company's list, less every entry any of the person's groups gives back | agents, arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, designer, developer, duckduckgo, file_delivery, gmail, image_gen, linked_conversations, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, task, url_reader, video_editing, video_gen, vision, waits, weather, web_search, wiki, wikipedia, wolfram_alpha, x, youtube |\n| `tools.disabled_tools` | [] | `tools.enabled_tools`: the company's list, less every entry any of the person's groups gives back | [] |\n| `approvals.max_level` | auto | the most permissive of the company's and the groups' values | block |\n| `apps.plugins` | any | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_plugins` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.mcp_servers` | any | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_mcp_servers` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.skills_hub` | any | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_skills` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.channels` | allow-list | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_channels` | discord, slack, sms, telegram | every entry the company or any of the person's groups allows | [] |\n| `data.chat_export` | true | on if the company or any of the person's groups turns it on | false |\n| `data.share_to_company` | true | on if the company or any of the person's groups turns it on | false |\n| `offline.max_days` | 7 | the most permissive of the company's and the groups' values | 0 |",
+  "description": "The company's policy for every connected Row-Bot. A setting it leaves out takes its default. Unknown keys are refused.\n\n| Setting | Default | In a group override | Lockdown |\n| --- | --- | --- | --- |\n| `models.allowed` | * | every entry the company or any of the person's groups allows | [] |\n| `models.personal_api_keys` | false | on if the company or any of the person's groups turns it on | false |\n| `models.consumer_sign_ins` | false | on if the company or any of the person's groups turns it on | false |\n| `models.local_models` | true | on if the company or any of the person's groups turns it on | true |\n| `tools.disabled_groups` | [] | `tools.enabled_groups`: the company's list, less every entry any of the person's groups gives back | agents, arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, designer, developer, duckduckgo, file_delivery, gmail, image_gen, linked_conversations, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, task, url_reader, video_editing, video_gen, vision, waits, weather, web_search, wiki, wikipedia, wolfram_alpha, x, youtube |\n| `tools.disabled_tools` | [] | `tools.enabled_tools`: the company's list, less every entry any of the person's groups gives back | [] |\n| `approvals.max_level` | auto | the most permissive of the company's and the groups' values | block |\n| `apps.plugins` | none | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_plugins` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.mcp_servers` | none | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_mcp_servers` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.skills_hub` | any | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_skills` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.channels` | allow-list | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_channels` | discord, slack, sms, telegram | every entry the company or any of the person's groups allows | [] |\n| `data.chat_export` | true | on if the company or any of the person's groups turns it on | false |\n| `data.share_to_company` | true | on if the company or any of the person's groups turns it on | false |\n| `offline.max_days` | 7 | the most permissive of the company's and the groups' values | 0 |",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "version": {
       "title": "Version",
-      "description": "The server's version of this document. On a write, the version it replaces (refused when that is no longer the newest).",
+      "description": "The server's version of this document. Required on a write: the version it replaces (0 for the first), refused when that is no longer the newest.",
       "type": "integer",
       "minimum": 0,
       "maximum": 9223372036854775807
@@ -109,8 +109,8 @@
       "properties": {
         "plugins": {
           "title": "Plugins",
-          "description": "none, allow-list (only allowed_plugins) or any. Default: any.",
-          "default": "any",
+          "description": "none, allow-list (only allowed_plugins) or any. Default: none.",
+          "default": "none",
           "type": "string",
           "enum": [
             "none",
@@ -131,8 +131,8 @@
         },
         "mcp_servers": {
           "title": "MCP servers",
-          "description": "none, allow-list (only allowed_mcp_servers) or any. Default: any.",
-          "default": "any",
+          "description": "none, allow-list (only allowed_mcp_servers) or any. Default: none.",
+          "default": "none",
           "type": "string",
           "enum": [
             "none",

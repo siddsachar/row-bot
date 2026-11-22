@@ -9,15 +9,15 @@ Standard library only, and nothing else from ``row_bot``, so the Company Server 
 """
 
 from .model import (
-    ALL_MODELS, APP_MODES, APPROVAL_LEVELS, DEFAULT_POLICY, MAX_DOCUMENT_BYTES, Apps, Approvals, Data, Document,
-    Models, Offline, Policy, PolicyError, Tools, canonical_json, document_to_dict, loads, lockdown_policy,
-    parse_override, parse_policy, policy_to_dict, resolve,
+    ALL_MODELS, APP_MODES, APPROVAL_LEVELS, DEFAULT_POLICY, MAX_DOCUMENT_BYTES, ONLY_WIDEN, Apps, Approvals, Data,
+    Document, Models, Offline, Policy, PolicyError, Tools, canonical_json, document_to_dict, loads,
+    lockdown_policy, not_wider, parse_override, parse_policy, policy_to_dict, resolve, still_granted,
 )
 from .schema import json_schema, settings_table
 
 __all__ = [
-    "ALL_MODELS", "APPROVAL_LEVELS", "APP_MODES", "DEFAULT_POLICY", "MAX_DOCUMENT_BYTES", "Apps", "Approvals",
-    "Data", "Document", "Models", "Offline", "Policy", "PolicyError", "Tools", "canonical_json",
-    "document_to_dict", "json_schema", "loads", "lockdown_policy", "parse_override", "parse_policy",
-    "policy_to_dict", "resolve", "settings_table",
+    "ALL_MODELS", "APPROVAL_LEVELS", "APP_MODES", "DEFAULT_POLICY", "MAX_DOCUMENT_BYTES", "ONLY_WIDEN", "Apps",
+    "Approvals", "Data", "Document", "Models", "Offline", "Policy", "PolicyError", "Tools", "canonical_json",
+    "document_to_dict", "json_schema", "loads", "lockdown_policy", "not_wider", "parse_override", "parse_policy",
+    "policy_to_dict", "resolve", "settings_table", "still_granted",
 ]

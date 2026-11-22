@@ -33,10 +33,15 @@ def create_pool(
     lock_timeout: int = 10,
     idle_in_transaction_timeout: int = 60,
 ) -> ConnectionPool:
-    """A closed pool for ``conninfo`` (the app opens it at start); the timeouts are in seconds."""
+    """A closed pool for ``conninfo`` (the app opens it at start); the timeouts are in seconds.
+
+    Transactions are READ COMMITTED whatever the database's default: a check made after taking a lock
+    (the policy writes' version check) must see what was committed before the lock was granted.
+    """
     options = (
         f"-c statement_timeout={statement_timeout}s -c lock_timeout={lock_timeout}s"
         f" -c idle_in_transaction_session_timeout={idle_in_transaction_timeout}s"
+        r" -c default_transaction_isolation=read\ committed"
     )
     return ConnectionPool(
         conninfo,

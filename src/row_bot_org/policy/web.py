@@ -3,11 +3,15 @@
 - ``GET /api/policy/effective``: the signed-in person's effective policy (the company policy widened by
   their groups' overrides, ``row_bot.policy.resolve``) with its ``version``, an ``ETag`` of the body, and
   304 for a matching ``If-None-Match``.
-- ``GET /api/admin/policy``: the newest company policy and group overrides, as written.
+- ``GET /api/admin/policy``: the newest version of every scope, as written (a cleared group's is
+  ``{"version": N}``).
 - ``PUT /api/admin/policy`` and ``PUT /api/admin/policy/groups/{group}``: a new version of the company
-  policy or of one group's override, checked strictly (422 with the setting at fault). A ``version`` in the
-  body must be the newest one of that scope (409 otherwise); without one the write goes ahead. An empty
-  override (``{}``) takes the group's override away. Each write emits ``policy.changed``.
+  policy or of one group's override, checked strictly (422 with the setting at fault). The body's
+  ``version`` is required (428 without one) and must be the newest one of that scope (409 otherwise). An
+  override must widen the current company policy in everything it sets (422 naming what adds nothing). An
+  empty override (``{}``) takes the group's override away. The answer is ``{"policy": ...}``; a company
+  write adds ``still_granted_by``, the overrides that still grant what it took away, for the console to
+  warn about. Each write emits ``policy.changed``.
 - ``GET /api/admin/policy/history``: every version, newest first (``limit``, ``before``).
 
 The admin routes need an admin (``identity.roles``; 403 otherwise, before the body is parsed).
@@ -23,7 +27,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from row_bot.policy import (
-    MAX_DOCUMENT_BYTES, PolicyError, canonical_json, document_to_dict, loads, parse_override, parse_policy,
+    MAX_DOCUMENT_BYTES, ONLY_WIDEN, PolicyError, canonical_json, document_to_dict, loads, parse_override, parse_policy,
     policy_to_dict,
 )
 from row_bot_org import audit
@@ -88,8 +92,7 @@ def policy_router() -> APIRouter:
         company, overrides = store.current(conn)
         return JSONResponse({
             "company": document_to_dict(company.document) if company else {"version": 0},
-            "groups": {revision.group: document_to_dict(revision.document)
-                       for revision in overrides if revision.document.settings},
+            "groups": {revision.group: document_to_dict(revision.document) for revision in overrides},
         })
 
     def _put(conn: psycopg.Connection, principal: RequestPrincipal, group: str | None,
@@ -105,13 +108,22 @@ def policy_router() -> APIRouter:
             document = parse_policy(raw) if group is None else parse_override(raw)
         except PolicyError as error:
             return _error(422, "invalid_policy", detail=error.detail)
+        if document.version is None:
+            return _error(428, "version_required")
         try:
-            revision = store.put(conn, group, document, changed_by=principal.principal_id)
+            written = store.put(conn, group, document, changed_by=principal.principal_id)
         except store.VersionConflict as conflict:
             return _error(409, "version_conflict", current=conflict.current)
+        except store.NotWider as narrow:
+            return _error(422, "invalid_policy", settings=narrow.settings,
+                          detail=f"{ONLY_WIDEN}: {', '.join(narrow.settings)} add nothing to the company policy")
+        revision = written.revision
         audit.emit(conn, "policy.changed", actor=principal.principal_id,
                    details={"group": group, "version": revision.version})
-        return JSONResponse(document_to_dict(revision.document))
+        answer: dict[str, Any] = {"policy": document_to_dict(revision.document)}
+        if group is None:
+            answer["still_granted_by"] = written.still_granted_by
+        return JSONResponse(answer)
 
     @router.put("/api/admin/policy")
     def put_company(body: bytes | None = Depends(_body), principal: RequestPrincipal = Depends(request_principal),

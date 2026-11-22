@@ -11,10 +11,13 @@ from datetime import datetime
 import psycopg
 from psycopg.types.json import Jsonb
 
-from row_bot.policy import Document, Policy, document_to_dict, parse_override, parse_policy, resolve
+from row_bot.policy import (
+    Document, Policy, document_to_dict, not_wider, parse_override, parse_policy, resolve, still_granted,
+)
 
 # pg_advisory_xact_lock key for policy writes, so a version check and its write can't interleave with
-# another's: the bytes of "RBOrgPol".
+# another's: the bytes of "RBOrgPol". (Pooled connections are READ COMMITTED, so the check after the lock
+# sees every write committed before it.)
 WRITE_LOCK = int.from_bytes(b"RBOrgPol", "big")
 
 
@@ -26,6 +29,14 @@ class VersionConflict(Exception):
         self.current = current
 
 
+class NotWider(Exception):
+    """A group override sets something that adds nothing to the company policy (``not_wider``)."""
+
+    def __init__(self, settings: list[str]):
+        super().__init__(", ".join(settings))
+        self.settings = settings
+
+
 @dataclass(frozen=True)
 class Revision:
     """One stored version: the company policy (``group`` None) or one group's override."""
@@ -35,6 +46,15 @@ class Revision:
     document: Document
     changed_by: str
     changed_at: datetime
+
+
+@dataclass(frozen=True)
+class Written:
+    """A stored version and, for a company policy, what each group's override still grants of what the
+    change took away (``still_granted``)."""
+
+    revision: Revision
+    still_granted_by: dict[str, list[str]]
 
 
 def _document(version: int, group: str | None, stored: dict) -> Document:
@@ -68,7 +88,8 @@ def effective(conn: psycopg.Connection, groups: Iterable[str]) -> Policy:
 
 
 def current(conn: psycopg.Connection) -> tuple[Revision | None, list[Revision]]:
-    """The newest company policy and the newest override of every group (an admin's transaction)."""
+    """The newest company policy and the newest override of every group, cleared ones (``{}``) included
+    (an admin's transaction)."""
     revisions = [_revision(row) for row in conn.execute(
         f"SELECT DISTINCT ON (group_name) {_COLUMNS} FROM row_bot_org.policies"
         " ORDER BY group_name, version DESC").fetchall()]
@@ -83,22 +104,36 @@ def history(conn: psycopg.Connection, *, limit: int, before: int | None = None) 
         " ORDER BY version DESC LIMIT %(limit)s", {"before": before, "limit": limit}).fetchall()]
 
 
-def put(conn: psycopg.Connection, group: str | None, document: Document, *, changed_by: str) -> Revision:
+def put(conn: psycopg.Connection, group: str | None, document: Document, *, changed_by: str) -> Written:
     """Store ``document`` as the newest version of the company policy (``group`` None) or of a group's
-    override. A ``document.version`` must be the newest version of that scope (0 when there is none), or
-    ``VersionConflict``."""
+    override. ``document.version`` must be the newest version of that scope (0 when there is none), or
+    ``VersionConflict``. An override must widen the current company policy in everything it sets, or
+    ``NotWider``."""
     if document.override != (group is not None):
         raise ValueError("a group takes an override, the company a company policy")
+    if document.version is None:
+        raise ValueError("a write names the version it replaces")
     conn.execute("SELECT pg_advisory_xact_lock(%s)", (WRITE_LOCK,))
     (newest,) = conn.execute("SELECT COALESCE(max(version), 0) FROM row_bot_org.policies"
                              " WHERE group_name IS NOT DISTINCT FROM %s::text", (group,)).fetchone()
-    if document.version is not None and document.version != newest:
+    if document.version != newest:
         raise VersionConflict(newest)
+    company, overrides = current(conn)
+    previous = company.document if company else None
+    still: dict[str, list[str]] = {}
+    if group is not None:
+        if narrow := not_wider(previous, document):
+            raise NotWider(narrow)
+    else:
+        for override in overrides:
+            if granted := still_granted(previous, document, override.document):
+                still[override.group or ""] = granted
     stored = document_to_dict(replace(document, version=None))
     row = conn.execute(
         f"INSERT INTO row_bot_org.policies (group_name, document, changed_by) VALUES (%s, %s, %s)"
         f" RETURNING {_COLUMNS}", (group, Jsonb(stored), changed_by)).fetchone()
-    return _revision(row)
+    return Written(_revision(row), still)
 
 
-__all__ = ["WRITE_LOCK", "Revision", "VersionConflict", "current", "effective", "history", "put"]
+__all__ = ["WRITE_LOCK", "NotWider", "Revision", "VersionConflict", "Written", "current", "effective", "history",
+           "put"]

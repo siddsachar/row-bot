@@ -58,15 +58,18 @@ def _property(section: str, name: str, spec: Spec, *, override: bool) -> dict[st
     schema: dict[str, Any] = {"title": spec.title, "description": description}
     if not override:
         schema["default"] = sorted(default) if isinstance(default, frozenset) else default
+    # An override can't hold a value that never widens: false, 0, the lowest choice or an empty list.
     if spec.kind == "bool":
-        schema["type"] = "boolean"
+        schema.update({"type": "boolean", "const": True} if override else {"type": "boolean"})
     elif spec.kind == "int":
-        schema.update(type="integer", minimum=0, maximum=spec.maximum)
+        schema.update(type="integer", minimum=1 if override else 0, maximum=spec.maximum)
     elif spec.kind == "enum":
-        schema.update(type="string", enum=list(spec.choices))
+        schema.update(type="string", enum=list(spec.choices[1:] if override else spec.choices))
     else:
         schema.update(type="array", maxItems=MAX_LIST_ITEMS,
                       items={"type": "string", "pattern": f"^(?:{spec.pattern})$"})
+        if override:
+            schema["minItems"] = 1
     return schema
 
 
@@ -74,9 +77,9 @@ def json_schema(*, override: bool = False) -> dict[str, Any]:
     """The JSON Schema of a company policy (and of the effective policy, which sets every setting), or of a
     group override."""
     properties: dict[str, Any] = {
-        "version": {"title": "Version", "description": "The server's version of this document. On a write, "
-                                                        "the version it replaces (refused when that is no "
-                                                        "longer the newest).",
+        "version": {"title": "Version", "description": "The server's version of this document. Required on "
+                                                        "a write: the version it replaces (0 for the first), "
+                                                        "refused when that is no longer the newest.",
                     "type": "integer", "minimum": 0, "maximum": MAX_VERSION},
     }
     for section, cls in SECTIONS.items():
@@ -93,7 +96,9 @@ def json_schema(*, override: bool = False) -> dict[str, Any]:
         title = "Row-Bot group override"
         description = ("What one company group gets on top of the company policy. An override can only widen: "
                        "each setting it sets is merged with the company's, and the more permissive value wins. "
-                       "A person in several groups gets the union.\n\n" + settings_table())
+                       "A value that never widens (false, the lowest choice, 0, an empty list) is refused, and the "
+                       "server also refuses a setting that adds nothing to the current company policy. A person "
+                       "in several groups gets the union.\n\n" + settings_table())
     else:
         title = "Row-Bot company policy"
         description = ("The company's policy for every connected Row-Bot. A setting it leaves out takes its "

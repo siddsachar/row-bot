@@ -12,8 +12,8 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from row_bot.policy import (
-    DEFAULT_POLICY, MAX_DOCUMENT_BYTES, PolicyError, document_to_dict, json_schema, loads, lockdown_policy,
-    parse_override, parse_policy, policy_to_dict, resolve,
+    DEFAULT_POLICY, MAX_DOCUMENT_BYTES, ONLY_WIDEN, PolicyError, document_to_dict, json_schema, loads,
+    lockdown_policy, not_wider, parse_override, parse_policy, policy_to_dict, resolve, still_granted,
 )
 from row_bot.policy.model import SECTIONS, specs
 
@@ -61,7 +61,8 @@ def test_a_policy_sets_what_it_names_and_keeps_the_rest_default() -> None:
     assert policy.tools.disabled_groups == {"shell", "computer_use"} and policy.tools.disabled_tools == {"run_command"}
     assert policy.approvals.max_level == "approve"
     assert (policy.apps.mcp_servers, policy.apps.allowed_mcp_servers) == ("allow-list", {"github"})
-    assert policy.apps.plugins == "any"
+    assert policy.apps.plugins == "none"  # third-party code stays off until an admin allows it
+    assert policy.apps.skills_hub == "any"
     assert policy.data.chat_export is False and policy.data.share_to_company is True
     assert policy.offline.max_days == 0
 
@@ -121,7 +122,8 @@ def test_the_error_names_the_setting_at_fault() -> None:
     '{"models": ',
     b'{"models": {"allowed": ["\xff"]}}',
     '{"x": "' + "a" * MAX_DOCUMENT_BYTES + '"}',
-], ids=["duplicate", "nan", "infinity", "truncated", "not-utf8", "oversize"])
+    "[" * 100_000 + "]" * 100_000,
+], ids=["duplicate", "nan", "infinity", "truncated", "not-utf8", "oversize", "nested-too-deeply"])
 def test_strict_json_refuses_duplicates_constants_bad_bytes_and_oversize(text: str | bytes) -> None:
     with pytest.raises(PolicyError):
         loads(text)
@@ -173,7 +175,9 @@ def test_the_published_schemas_accept_what_the_parser_accepts_and_refuse_what_it
         assert not company.is_valid(bad), bad
         with pytest.raises(PolicyError):
             parse_policy(bad)
-    for bad in ({"tools": {"disabled_groups": ["shell"]}}, {"apps": {"plugins": "some"}}):
+    for bad in ({"tools": {"disabled_groups": ["shell"]}}, {"apps": {"plugins": "some"}},
+                {"data": {"chat_export": False}}, {"apps": {"plugins": "none"}}, {"offline": {"max_days": 0}},
+                {"models": {"allowed": []}}):
         assert not override.is_valid(bad), bad
         with pytest.raises(PolicyError):
             parse_override(bad)
@@ -200,21 +204,69 @@ def test_without_overrides_the_effective_policy_is_the_company_policy() -> None:
     assert effective(company) == effective(company, {})
 
 
-@pytest.mark.parametrize("company,override", [
-    ({"models": {"personal_api_keys": True}}, {"models": {"personal_api_keys": False}}),
-    ({}, {"models": {"local_models": False}}),
-    ({"approvals": {"max_level": "full"}}, {"approvals": {"max_level": "block"}}),
-    ({}, {"approvals": {"max_level": "approve"}}),
-    ({}, {"apps": {"plugins": "none", "mcp_servers": "allow-list"}}),
-    ({"apps": {"skills_hub": "allow-list", "allowed_skills": ["a"]}}, {"apps": {"skills_hub": "none"}}),
-    ({}, {"models": {"allowed": ["gpt-5"]}}),  # the company allows every model; one named model takes none away
-    ({"models": {"allowed": ["gpt-5", "claude"]}}, {"models": {"allowed": ["gpt-5"]}}),
-    ({"offline": {"max_days": 30}}, {"offline": {"max_days": 1}}),
-    ({}, {"data": {"chat_export": False, "share_to_company": False}}),
-    ({"tools": {"disabled_groups": ["shell"]}}, {"tools": {"enabled_groups": ["browser"]}}),
+@pytest.mark.parametrize("override", [
+    {"models": {"personal_api_keys": False}},
+    {"data": {"chat_export": False}},
+    {"approvals": {"max_level": "block"}},
+    {"apps": {"mcp_servers": "none"}},
+    {"offline": {"max_days": 0}},
+    {"models": {"allowed": []}},
+    {"tools": {"enabled_groups": []}},
 ])
-def test_an_override_never_narrows_the_company_policy(company: dict, override: dict) -> None:
-    assert effective(company, override) == effective(company)
+def test_an_override_refuses_a_value_that_can_never_widen(override: dict) -> None:
+    with pytest.raises(PolicyError) as error:
+        parse_override(override)
+    assert error.value.detail.endswith(": " + ONLY_WIDEN)
+    if "tools" not in override:
+        parse_policy(override)  # the same restriction is the company policy's to make
+
+
+@pytest.mark.parametrize("company,override,adds_nothing", [
+    ({"models": {"personal_api_keys": True}}, {"models": {"personal_api_keys": True}}, ["models.personal_api_keys"]),
+    ({"approvals": {"max_level": "full"}}, {"approvals": {"max_level": "approve"}}, ["approvals.max_level"]),
+    ({}, {"approvals": {"max_level": "auto"}}, ["approvals.max_level"]),
+    ({"apps": {"skills_hub": "any"}}, {"apps": {"skills_hub": "allow-list", "allowed_skills": ["a"]}},
+     ["apps.skills_hub", "apps.allowed_skills: a"]),
+    ({}, {"models": {"allowed": ["gpt-5"]}}, ["models.allowed: gpt-5"]),  # the company allows every model
+    ({"models": {"allowed": ["gpt-5", "claude"]}}, {"models": {"allowed": ["gpt-5", "new"]}},
+     ["models.allowed: gpt-5"]),
+    ({"offline": {"max_days": 30}}, {"offline": {"max_days": 1}}, ["offline.max_days"]),
+    ({"tools": {"disabled_groups": ["shell"]}}, {"tools": {"enabled_groups": ["browser", "shell"]}},
+     ["tools.enabled_groups: browser"]),
+])
+def test_not_wider_names_what_an_override_adds_nothing_to(company: dict, override: dict,
+                                                          adds_nothing: list[str]) -> None:
+    assert not_wider(parse_policy(company), parse_override(override)) == adds_nothing
+    # Whatever it names, the merge still never narrows.
+    assert _at_least_as_permissive(effective(company, override), effective(company))
+
+
+def test_an_override_that_widens_everything_it_sets_adds_something_everywhere() -> None:
+    company = parse_policy({"models": {"allowed": ["a"]}, "tools": {"disabled_groups": ["shell"]},
+                            "approvals": {"max_level": "approve"}, "apps": {"plugins": "allow-list"}})
+    override = parse_override({"models": {"allowed": ["b"], "personal_api_keys": True},
+                               "tools": {"enabled_groups": ["shell"]}, "approvals": {"max_level": "auto"},
+                               "apps": {"plugins": "any", "allowed_plugins": ["jira"]}, "offline": {"max_days": 8}})
+    assert not_wider(company, override) == []
+    assert not_wider(None, parse_override({})) == []
+
+
+def test_still_granted_names_what_an_override_keeps_after_a_company_restriction() -> None:
+    before = parse_policy({"models": {"allowed": ["a", "b"]}, "approvals": {"max_level": "full"},
+                           "data": {"chat_export": True}, "apps": {"plugins": "any"}})
+    after = parse_policy({"models": {"allowed": ["a"]}, "approvals": {"max_level": "approve"},
+                          "data": {"chat_export": False}, "tools": {"disabled_groups": ["shell"]},
+                          "apps": {"plugins": "allow-list", "allowed_plugins": ["corp"]}})
+    engineering = parse_override({"models": {"allowed": ["b", "c"]}, "approvals": {"max_level": "auto"},
+                                  "data": {"chat_export": True}, "tools": {"enabled_groups": ["shell"]},
+                                  "apps": {"allowed_plugins": ["extra"]}})
+
+    assert still_granted(before, after, engineering) == [
+        "models.allowed: b", "tools.enabled_groups: shell", "approvals.max_level: auto",
+        "apps.allowed_plugins: extra", "data.chat_export"]
+    # A change that takes nothing away leaves nothing to report.
+    assert still_granted(after, after, engineering) == []
+    assert still_granted(after, before, engineering) == []
 
 
 def test_an_override_widens_each_kind_of_setting() -> None:
@@ -267,7 +319,7 @@ def test_a_person_in_two_groups_gets_what_either_group_adds() -> None:
 def test_conflicting_overrides_resolve_to_the_more_permissive() -> None:
     company = {"apps": {"plugins": "allow-list", "allowed_plugins": ["base-plugin"]}}
     allow_list = {"apps": {"plugins": "allow-list", "allowed_plugins": ["eng-plugin"]}, "offline": {"max_days": 3}}
-    none = {"apps": {"plugins": "none", "allowed_plugins": []}, "offline": {"max_days": 30}}
+    none = {"offline": {"max_days": 30}}
     everything = {"apps": {"plugins": "any"}}
 
     merged = effective(company, allow_list, none)
@@ -326,15 +378,17 @@ def _random_document(rng: random.Random, *, override: bool) -> dict:
             if rng.random() < 0.5:
                 continue
             key = spec.override_key if override and spec.override_key else name
+            # An override holds only values that can widen something (never false, 0, the lowest, []).
+            low = 1 if override else 0
             if spec.kind == "bool":
-                value: object = rng.random() < 0.5
+                value: object = override or rng.random() < 0.5
             elif spec.kind == "int":
-                value = rng.randint(0, spec.maximum)
+                value = rng.randint(low, spec.maximum)
             elif spec.kind == "enum":
-                value = rng.choice(spec.choices)
+                value = rng.choice(spec.choices[low:])
             else:
                 value = rng.sample(words + (["*"] if name == "allowed" and section == "models" else []),
-                                   rng.randint(0, 3))
+                                   rng.randint(low, 3))
             document.setdefault(section, {})[key] = value
     return document
 
