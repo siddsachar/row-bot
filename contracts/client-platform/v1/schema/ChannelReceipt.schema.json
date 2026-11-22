@@ -97,7 +97,8 @@
             "text",
             "password",
             "number",
-            "slider"
+            "slider",
+            "toggle"
           ],
           "title": "Field Type",
           "type": "string"
@@ -136,6 +137,18 @@
           ],
           "title": "Storage",
           "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
         },
         "writable": {
           "title": "Writable",

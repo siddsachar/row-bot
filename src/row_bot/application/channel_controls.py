@@ -166,7 +166,8 @@ def _field_status(
         "password",
         "number",
         "slider",
-    }:
+        "toggle",
+    } or (field_type == "toggle" and storage != "config"):
         raise ChannelControlError("channel_status_unavailable")
     common = {
         "key": key,
@@ -252,6 +253,21 @@ def _field_status(
         proof = raw
     else:
         raise ChannelControlError("channel_status_unavailable")
+    if field_type == "toggle":
+        # A switch always has a value: what the person saved, else its default.
+        default = getattr(field, "default", False) is True
+        return (
+            {
+                **common,
+                "configured": True,
+                "source": "channel config" if present else "",
+                "fingerprint": "",
+                "externally_managed": False,
+                "writable": True,
+                "value": raw if type(raw) is bool else default,
+            },
+            {"key": key, "value": proof},
+        )
     return (
         {
             **common,
@@ -586,6 +602,10 @@ def _configuration_value(field: Any, value: Any) -> Any:
     storage = getattr(field, "storage", "")
     if storage not in {"env", "config"}:
         raise ChannelControlError("action_unavailable")
+    if field_type == "toggle":
+        if type(value) is not bool:
+            raise ChannelControlError("invalid_command")
+        return value
     if value is None:
         return None
     if field_type in {"text", "password"}:

@@ -171,13 +171,14 @@ class VoiceService:
         audio_bytes: bytes,
         *,
         allow_download: bool = False,
+        language: str | None = "en",
     ) -> str:
-        """Transcribe 16 kHz mono signed-16 PCM."""
+        """Transcribe 16 kHz mono signed-16 PCM; *language* None detects it."""
         # Keep this call's model: a saved size change may drop the shared one.
         model = self._ensure_whisper(allow_download=allow_download)
         f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         segs, _ = model.transcribe(
-            f32, beam_size=5, language="en", vad_filter=True,
+            f32, beam_size=5, language=language, vad_filter=True,
         )
         return " ".join(s.text.strip() for s in segs).strip()
 
