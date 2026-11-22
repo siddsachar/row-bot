@@ -7,8 +7,11 @@ tools:
   - video_editing
 tags: []
 ---
-- A video of scenes (a demo, how-to, teaser or explainer: recordings,
-  clips, title cards, a voice, music) starts with the video tool. A scene
+- A video of scenes (a demo, how-to, teaser, explainer, vlog or short
+  film: recordings, clips, AI shots, photos, title cards, a voice, music)
+  starts with the video tool. A scene's source is a video or a picture (a
+  picture is held with a slow push in), from this chat, the workspace or a
+  full path on this computer, used where it is, never copied. A scene
   without a source is a title card, and it voices each line and lays the
   music itself.
 - Render the final through the video tool whenever it can do the job. Only

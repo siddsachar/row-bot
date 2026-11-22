@@ -1,9 +1,10 @@
 """Video projects (5.3.1 B3): a video as scenes, versioned, shared by the Video panel and Row-Bot.
 
-A project is its scenes in order. Each scene is a piece of a source (a recording, a video edit,
-or a video in the chat's files or the workspace) from its start to its end, with its speed, a
-zoom on a region, a card laid over its first seconds, and its line: the words said over it,
-voiced in the person's chosen voice (or a voice file made with ``speak``) and, with captions on,
+A project is its scenes in order. Each scene's footage is a piece of a video from its start to its
+end (a recording, a video edit, a clip in the chat's files, the workspace or anywhere on this
+computer, an AI shot) or a picture held with a slow push in (a photo, a screenshot, generated
+art), with its speed, a zoom on a region, a card laid over its first seconds, and its line: the
+words said over it, voiced in the person's chosen voice (or a voice file made with ``speak``) and, with captions on,
 shown under it. Music (``make_music``, or the person's own file) plays under the whole video
 and dips while a line is said.
 
@@ -17,6 +18,12 @@ back is a new version too, so nothing is lost. Making a version's video voices e
 voice is missing or says other words, then renders the whole version as one video edit that
 also gives it the finished check (``video_check``) for the review card. The video is
 saved to the conversation's files like any edit.
+
+Footage is used where it is: a workspace file, or a file elsewhere on this computer once the
+person allows reading it by the approval level, is read in place when the video is made, never
+copied into the chat, however large or long. The person is asked when such a file joins the
+video; the project remembers that exact file and who allowed it (``Project.outside``), for this
+project only, and any other file elsewhere asks again. Footage moved or deleted later is named by its scene.
 """
 
 from __future__ import annotations
@@ -39,7 +46,9 @@ logger = logging.getLogger(__name__)
 PROJECT_ID = re.compile(r"vid-[0-9a-f]{8}")
 SCENE_ID = re.compile(r"s[0-9a-f]{6}")
 By = Literal["you", "row-bot"]
-MAX_SCENES = 60
+MAX_SCENES = 200
+# Different videos and pictures one video uses (each is read in place, one at a time, into one clip).
+MAX_SOURCES = 100
 MAX_VERSIONS = 50
 MAX_TITLE = 80
 MAX_CARD = 120
@@ -117,6 +126,9 @@ class Project:
     title: str
     created_at: float
     versions: list[Version] = field(default_factory=list)
+    # The files outside the workspace this project may read, each allowed when it joined: {"path": its full path,
+    # "by": who allowed it, "person", "reviewer" (Auto), "hands_off", or the person's "rule" or "chat_grant"}.
+    outside: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def latest(self) -> Version:
@@ -187,7 +199,8 @@ def _load(path: Path) -> Project | None:
             return None
         return Project(project_id=data["project_id"], conversation_id=str(data["conversation_id"]),
                        title=str(data.get("title") or "Video"), created_at=float(data["created_at"]),
-                       versions=versions)
+                       versions=versions, outside=[{"path": str(item["path"]), "by": str(item.get("by") or "")}
+                                                  for item in data.get("outside") or [] if isinstance(item, dict)])
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
 
@@ -247,27 +260,64 @@ def _number(value: Any, name: str, number: int) -> float | None:
     return round(result, 3)
 
 
-def _check_source(value: str, conversation_id: str, number: int) -> None:
-    from row_bot.media_sources import SourceError, resolve
+def _kinds(sources: dict[str, int], conversation_id: str, allowed: dict[str, str],
+           approvals: list[str] | None = None) -> dict[str, str]:
+    """Each source's kind ("video" or "image"), checked (source -> its first scene's number). Files outside the
+    workspace that this project wasn't allowed to read yet are asked about by the approval level, all in one
+    question; once allowed, those exact files join *allowed* (the project's own: path -> who allowed it), and the
+    approval line joins *approvals* for the tool's result (the chat's step shows who approved)."""
+    from row_bot.media_sources import SourceError, outside_path, resolve
 
-    try:
-        found = resolve(value, conversation_id)
-    except SourceError as error:
-        raise ProjectError(f"Scene {number}: {error}") from None
-    if len(found) != 1 or found[0].kind != "video":
-        raise ProjectError(f"Scene {number}: {value} isn't a video.")
+    asking: list[Path] = []
+    for value, number in sources.items():
+        try:
+            path = outside_path(value, conversation_id)
+        except SourceError as error:
+            raise ProjectError(f"Scene {number}: {error}") from None
+        if path is not None and str(path) not in allowed and path not in asking:
+            asking.append(path)
+    if asking:
+        from row_bot.tools.filesystem_tool import outside_workspace_refusal
+
+        from row_bot.tools.approval_gate import decided_by
+
+        refusal, line = outside_workspace_refusal("read_file", asking, tool="video")
+        if refusal:
+            raise ProjectError(refusal)
+        allowed.update({str(path): decided_by() or "person" for path in asking})
+        if line and approvals is not None:
+            approvals.append(line)
+    kinds: dict[str, str] = {}
+    for value, number in sources.items():
+        try:
+            found = resolve(value, conversation_id, allowed=frozenset(Path(item) for item in allowed))
+        except SourceError as error:
+            raise ProjectError(f"Scene {number}: {error}") from None
+        if len(found) != 1:
+            raise ProjectError(f"Scene {number}: {value} is several pictures: name one of them.")
+        kinds[value] = found[0].kind
+    return kinds
 
 
-def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> list[Scene]:
-    """The scenes as given, checked; a scene that keeps its id keeps its voice while its line is the same."""
+def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], allowed: dict[str, str],
+                  approvals: list[str] | None = None) -> list[Scene]:
+    """The scenes as given, checked; a scene that keeps its id keeps its voice while its line is the same. A file
+    outside the workspace the person allows reading joins *allowed*."""
     if not raw:
         raise ProjectError("A video needs at least one scene.")
     if len(raw) > MAX_SCENES:
         raise ProjectError(f"At most {MAX_SCENES} scenes fit in one video: join some.")
-    from row_bot.video_editing import CARD_SECONDS, MAX_INPUTS
+    from row_bot.video_editing import CARD_SECONDS
 
+    named: dict[str, int] = {}
+    for number, item in enumerate(raw, start=1):
+        source = _text((item if isinstance(item, dict) else dict(item)).get("source"), 512)
+        if source:
+            named.setdefault(source, number)
+    if len(named) > MAX_SOURCES:
+        raise ProjectError(f"A video can use at most {MAX_SOURCES} different videos and pictures: join some first.")
+    kinds = _kinds(named, conversation_id, allowed, approvals)
     known = {scene.scene_id: scene for scene in before}
-    checked: dict[str, None] = {}
     scenes: list[Scene] = []
     for number, item in enumerate(raw, start=1):
         data = item if isinstance(item, dict) else dict(item)
@@ -277,18 +327,19 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
         source = _text(data.get("source"), 512)
         card = _text(data.get("card"), MAX_CARD)
         if not source and not card:
-            raise ProjectError(f"Scene {number}: name its video (a recording rec-…, an edit edit-…, a file in "
-                               "this chat or a workspace path), or give it a card to make it a title card.")
-        if source and source not in checked:
-            _check_source(source, conversation_id, number)
-            checked[source] = None
+            raise ProjectError(f"Scene {number}: name its footage (a video or picture: a recording rec-…, an edit "
+                               "edit-…, a file in this chat, a workspace path or a full path), or give it a card to "
+                               "make it a title card.")
         start = _number(data.get("start"), "start", number) or 0.0
         end = _number(data.get("end"), "end", number)
+        picture = kinds.get(source) == "image"
         if not source:  # A title card: its card on the brand's colour, end seconds long.
             start, end = 0.0, CARD_SECONDS if end is None else end
+        elif picture:  # A picture: held end seconds (by default its line's length), pushed in slowly.
+            start = 0.0
         if end is not None and end - start < 0.1:
             raise ProjectError(f"Scene {number}: it ends before it starts.")
-        speed = float(data.get("speed") or 1)
+        speed = 1.0 if picture else float(data.get("speed") or 1)
         if not SPEEDS[0] <= speed <= SPEEDS[1]:
             raise ProjectError(f"Scene {number}: speed is {SPEEDS[0]:g} to {SPEEDS[1]:g} (2 = twice as fast).")
         zoom = data.get("zoom")
@@ -313,9 +364,11 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
                             speed=round(speed, 3) if source else 1.0,
                             zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
                             voiced=voiced, voiced_as=voiced_as, fit=fit if source else None))
-    if len({scene.source for scene in scenes if scene.source}) > MAX_INPUTS:
-        raise ProjectError(f"A video can use at most {MAX_INPUTS} different sources: join some first.")
     return scenes
+
+
+def _grants(allowed: dict[str, str]) -> list[dict[str, str]]:
+    return [{"path": path, "by": by} for path, by in sorted(allowed.items())]
 
 
 def _aspect(value: Any) -> str:
@@ -365,16 +418,20 @@ def _add_version(project: Project, version: Version) -> Version:
 
 def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = "", music_volume: float = 0.3,
            narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
-           by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None) -> Project:
-    """A new project with its first version."""
+           by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None,
+           approvals: list[str] | None = None) -> Project:
+    """A new project with its first version; the approval lines of reading files outside the workspace join
+    *approvals*."""
     conversation = str(conversation_id or "").strip()
     if not conversation:
         raise ProjectError("Video projects belong to a conversation.")
     with _LOCK:
+        allowed: dict[str, str] = {}
+        cleaned = _clean_scenes(scenes, conversation, [], allowed, approvals)
         project = Project(project_id=f"vid-{uuid.uuid4().hex[:8]}", conversation_id=conversation,
-                          title=_text(title, MAX_TITLE) or "Video", created_at=time.time())
+                          title=_text(title, MAX_TITLE) or "Video", created_at=time.time(), outside=_grants(allowed))
         version = Version(number=1, at=time.time(), by=by, note=_text(note, MAX_NOTE) or "First version",
-                          scenes=_clean_scenes(scenes, conversation, []), music=_text(music, 200),
+                          scenes=cleaned, music=_text(music, 200),
                           music_volume=_volume(music_volume), narration=_text(narration, 200), captions=bool(captions),
                           voice_lines=bool(voice_lines), aspect=_aspect(aspect), brand=bool(brand),
                           voice=_voice(voice), voice_speed=_voice_speed(voice_speed))
@@ -414,9 +471,10 @@ def _volume(value: Any) -> float:
 def change(project: Project, *, by: By, note: str = "", base: int | None = None, scenes: list[Any] | None = None,
            title: str | None = None, music: str | None = None, music_volume: float | None = None,
            narration: str | None = None, captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
-           brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None) -> Version:
+           brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None,
+           approvals: list[str] | None = None) -> Version:
     """A new version with these changes; ``base`` is the version they were made on (refused when it isn't the
-    latest, so two editors never overwrite each other)."""
+    latest, so two editors never overwrite each other). Approval lines join *approvals*, as in ``create``."""
     with _LOCK:
         fresh = get(project.project_id, project.conversation_id)
         if fresh is None:
@@ -427,9 +485,11 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
                                "it.", stale=True)
         if title is not None and _text(title, MAX_TITLE):
             fresh.title = _text(title, MAX_TITLE)
+        allowed = {item["path"]: item["by"] for item in fresh.outside}
         version = Version(
             number=latest.number + 1, at=time.time(), by=by, note=_text(note, MAX_NOTE) or "Changed",
-            scenes=(_clean_scenes(scenes, fresh.conversation_id, latest.scenes) if scenes is not None
+            scenes=(_clean_scenes(scenes, fresh.conversation_id, latest.scenes, allowed, approvals)
+                    if scenes is not None
                     else [Scene(**asdict(scene)) for scene in latest.scenes]),
             music=latest.music if music is None else _text(music, 200),
             music_volume=latest.music_volume if music_volume is None else _volume(music_volume),
@@ -441,8 +501,9 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
             voice=latest.voice if voice is None else _voice(voice),
             voice_speed=latest.voice_speed if voice_speed is None else _voice_speed(voice_speed),
         )
+        fresh.outside = _grants(allowed)
         _add_version(fresh, version)
-        project.title, project.versions = fresh.title, fresh.versions
+        project.title, project.versions, project.outside = fresh.title, fresh.versions, fresh.outside
     return version
 
 
@@ -658,6 +719,51 @@ def scene_waits(source: str, start: float, end: float | None) -> tuple[tuple[flo
     return tuple(waits)
 
 
+def footage(project: Project, version: Version) -> tuple[dict[str, Any], list[tuple[int, str]], list[tuple[int, str]]]:
+    """Each source of a version's scenes as the edit reads it, in order (source -> media); the scenes whose source
+    can't be found any more, moved, renamed or deleted since it joined the video; and those whose source is a file
+    outside the workspace this project wasn't allowed to read: (scene number, source). Nothing is asked."""
+    from row_bot.media_sources import SourceError, outside_path, resolve
+
+    allowed = frozenset(Path(item["path"]) for item in project.outside)
+    found: dict[str, Any] = {}  # source -> its media; None: not found; "": not allowed.
+    missing: list[tuple[int, str]] = []
+    refused: list[tuple[int, str]] = []
+    for number, scene in enumerate(version.scenes, start=1):
+        if not scene.source:
+            continue
+        if scene.source not in found:
+            try:
+                path = outside_path(scene.source, project.conversation_id)
+                if path is not None and path not in allowed:
+                    found[scene.source] = ""
+                else:
+                    media = resolve(scene.source, project.conversation_id, allowed=allowed)
+                    found[scene.source] = media[0] if len(media) == 1 else None
+            except (SourceError, OSError, ValueError):
+                found[scene.source] = None
+        if found[scene.source] == "":
+            refused.append((number, scene.source))
+        elif found[scene.source] is None:
+            missing.append((number, scene.source))
+    return {source: media for source, media in found.items() if media}, missing, refused
+
+
+def _scenes_words(scenes: list[tuple[int, str]]) -> str:
+    shown = ", ".join(f"scene {number} ({source})" for number, source in scenes[:5])
+    return shown + (f" and {len(scenes) - 5} more" if len(scenes) > 5 else "")
+
+
+def missing_words(missing: list[tuple[int, str]]) -> str:
+    return (f"Footage missing: {_scenes_words(missing)}: moved, renamed or deleted since it joined the video. Ask "
+            "the person to put it back, or give those scenes other footage.")
+
+
+def refused_words(refused: list[tuple[int, str]]) -> str:
+    return (f"Footage not allowed: {_scenes_words(refused)}: outside the workspace, and the person hasn't allowed "
+            "this video to read it. To ask the person, change the video again with those scenes.")
+
+
 def scene_footage(source: str, ref: str) -> Any:
     """What the finished check knows of a scene's footage beyond its cut (``video_check.Footage``): what its
     recording logged being done, and the character or style its file is tagged with in Library › Media."""
@@ -672,7 +778,7 @@ def scene_footage(source: str, ref: str) -> Any:
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:
     """Voice what needs it, then make the version's video (or, with ``shape``, the same in that shape)."""
     from row_bot import sound, video_edits
-    from row_bot.media_sources import SourceError, resolve
+    from row_bot.media_sources import SourceError
     from row_bot.tools.sound_tool import _save as save_sound
     from row_bot.tools.sound_tool import _source as sound_source
     from row_bot.video_check import Footage
@@ -699,13 +805,11 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             lasts[scene.voice] = _voice_seconds(path, data, suffix)
         if _says_lines(version) and not shape:
             _update(project, number, scenes=version.scenes, status="rendering")
-        sources = list(dict.fromkeys(scene.source for scene in version.scenes if scene.source))
-        media = []
-        for value in sources:
-            found = resolve(value, conversation_id)
-            if len(found) != 1 or found[0].kind != "video":
-                raise SourceError(f"{value} isn't a video any more.")
-            media.append(found[0])
+        found, missing, refused = footage(project, version)
+        if missing or refused:
+            raise SourceError(" ".join(words for words in (missing and missing_words(missing),
+                                                           refused and refused_words(refused)) if words))
+        sources, media = list(found), list(found.values())
         cuts = [SceneCut(input=sources.index(scene.source) if scene.source else None, start=scene.start,
                          end=scene.end, speed=scene.speed,
                          zoom=tuple(scene.zoom) if scene.zoom else None, card=scene.card, line=scene.line,
@@ -728,12 +832,12 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             steps.append(Step(op="sound", source=version.narration, role="voice", start=0.0))
         if version.music:
             steps.append(Step(op="sound", source=version.music, role="music", volume=version.music_volume))
-        footage = {value: scene_footage(value, item.ref or "") for value, item in zip(sources, media, strict=True)}
+        known = {value: scene_footage(value, item.ref or "") for value, item in zip(sources, media, strict=True)}
         edit = video_edits.start(video_edits.Request(
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
             output_name=_file_name(project.title, ".mp4", f"v{number} {shape.replace(':', 'x')}".strip()),
             download=download, sounds=sounds, check=True,
-            footage=[footage.get(scene.source, Footage()) for scene in version.scenes],
+            footage=[known.get(scene.source, Footage()) for scene in version.scenes],
             role="draft", output_id=project.project_id, version=number,
         ))
         if shape:
@@ -783,7 +887,7 @@ class _Refs:
             from row_bot.media_sources import SourceError, resolve
 
             try:
-                found = resolve(value, self.conversation_id)
+                found = resolve(value, self.conversation_id, allowed=frozenset())  # Chat files: nothing else plays.
             except (SourceError, ValueError, OSError):
                 found = []
             self._sources[value] = found[0].ref or None if len(found) == 1 and found[0].kind == "video" else None
@@ -875,9 +979,16 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["problem"]:
         lines.append(f"Why: {data['problem']}")
     shown = project.version(data["number"])
+    found, missing, refused = footage(project, shown) if shown is not None else ({}, [], [])
+    for words in (missing and missing_words(missing), refused and refused_words(refused)):
+        if words and words not in data["problem"]:
+            lines.append(words)
     fits = [scene.fit for scene in shown.scenes] if shown is not None else []
     for index, scene in enumerate(data["scenes"], start=1):
         span = f"{scene['start']:g}–{'end' if scene['end'] is None else format(scene['end'], 'g')} s"
+        if getattr(found.get(scene["source"]), "kind", "") == "image":
+            span = (f"picture, {scene['end']:g} s" if scene["end"] is not None
+                    else "picture, as long as its line (else 3.5 s)")
         fit = fits[index - 1] if index <= len(fits) else None
         extras = [f"{scene['speed']:g}×" if scene["speed"] != 1 else "", "zoom" if scene["zoom"] else "",
                   {True: "fit", False: "fill"}.get(fit, ""),
