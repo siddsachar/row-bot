@@ -653,7 +653,10 @@ def classify_model_capabilities(
             capabilities.add("image_edit")
         tool_calling = False
         streaming = False
-    elif declares_video or any(part in lower for part in ("veo", "video")):
+    elif declares_video or any(part in lower for part in ("veo", "video")) or (
+        # Gemini Omni makes clips through the Interactions API (video_gen_tool), not chat.
+        provider_id == "google" and bare.startswith("gemini-omni")
+    ):
         tasks = {ModelTask.VIDEO_GENERATION.value}
         output_modalities = {ModelModality.VIDEO.value}
         capabilities = {"video_generation"}
