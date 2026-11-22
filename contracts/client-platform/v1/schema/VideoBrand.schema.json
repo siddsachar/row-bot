@@ -26,7 +26,7 @@
       "type": "string"
     },
     "framing": {
-      "default": "framed",
+      "default": "full",
       "enum": [
         "framed",
         "full"

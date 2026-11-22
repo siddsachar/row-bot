@@ -165,9 +165,11 @@ class SceneCut:
     card: str = ""
     line: str = ""
     voice: str = ""
-    # Where the action is when there's no zoom (the recording's pointer, 0–1 across): a square or tall cut
-    # is centred there, so what's being used stays in frame.
+    # Where the action is when there's no zoom (the recording's pointer, 0–1 across): a picture of another shape is
+    # cropped to fill around it, so what's being used stays in frame.
     focus: tuple[float, float] | None = None
+    # Its whole picture inset on the brand colour instead of filling the frame.
+    fit: bool = False
     # How long its voice line lasts: the scene is made at least that long (``fit_to_lines``).
     voice_seconds: float = 0.0
     # Stretches of its recording (seconds on the input) where nothing was clicked, typed or scrolled.
@@ -234,9 +236,9 @@ class Look:
     logo_corner: str = "top-left"
     intro: str = ""
     outro: str = ""
-    # How footage sits in a 16:9 video: "framed" (on the backdrop, rounded, shadowed) or "full" (edge to edge); and
-    # whether the camera follows what was done ("follow") or stays on the whole picture ("still").
-    framing: str = "framed"
+    # How footage sits in a 16:9 video: "full" (filling the frame, the default) or "framed" (inset on the backdrop,
+    # rounded, shadowed); and whether the camera follows what was done ("follow") or stays still ("still").
+    framing: str = "full"
     camera: str = "follow"
 ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
 # A video of title cards only has no picture to take its size from.
@@ -828,8 +830,9 @@ class _Builder:
         pieces: list[str] = []
         for index, item in enumerate(inputs):
             video = self.label("v")
-            self.add(f"[{index}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                     f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={fps},format=yuv420p{video}")
+            # Each fills the first one's frame, cropped around its middle: one film, no black bars.
+            self.add(f"[{index}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
+                     f"setsar=1,fps={fps},format=yuv420p{video}")
             pieces.append(video)
             if self.has_audio:
                 audio = self.label("a")
@@ -1072,7 +1075,6 @@ class _Builder:
             factor = speeds[index]
             if abs(factor - 1) > 1e-3:
                 begin = sum(lengths[:index])
-                # Its badge is laid after the reframe, so a tall shape never cuts it off.
                 self.speed(Step(op="speed", start=begin, end=begin + lengths[index], factor=factor, label=False))
         finals = [length / speed for length, speed in zip(lengths, speeds)]
         self.marks = [round(sum(finals[:index]), 3) for index in range(len(finals) + 1)]
@@ -1081,8 +1083,6 @@ class _Builder:
                 x, y, width, height = scene.zoom
                 self.zoom(Step(op="zoom", start=self.marks[index], end=self.marks[index + 1], x=x, y=y,
                                width=width, height=height))
-        if step.aspect:
-            self._reframe(step.aspect, step.scenes)
         if look.intro or look.outro:
             self._bookends(look)
         # A sped-up scene carries no "2.5×" badge: in a finished demo it reads as a leftover label (U26). A speed
@@ -1149,49 +1149,6 @@ class _Builder:
         shift = BOOKEND_SECONDS if look.intro else 0.0
         self.marks = [round(mark + shift, 3) for mark in self.marks]
         self.duration += BOOKEND_SECONDS * (bool(look.intro) + bool(look.outro))
-
-    def _reframe(self, aspect: str, scenes: list[SceneCut]) -> None:
-        """Each scene in the shape at its standard size (1080×1920, 1080×1080). In a tall cut a scene's picture
-        (its zoom, else the whole picture) is shown whole, fitted to the width over a blurred copy of itself, when
-        it is wider than the cut: a crop would leave only a middle third, words cut in half. A title card, a
-        picture that is tall enough and every scene of a square cut are cropped around their focus (the middle
-        of the zoom, else where the pointer was, else the middle). A shape the video already has changes
-        nothing."""
-        if aspect not in ASPECTS:
-            raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {aspect}.")
-        target, w, h = ASPECTS[aspect], self.width, self.height
-        if abs(w / h - target) < 0.01:
-            return
-        cw, ch = (_even(h * target), h) if w / h > target else (w, _even(w / target))
-        ow, oh = CARD_SIZES[aspect]
-        cuts = [(self.marks[index], self.marks[index + 1]) for index in range(len(scenes))]
-        videos, _ = self._pieces(cuts, audio=False)
-        for index, scene in enumerate(scenes):
-            out = self.label("v")
-            zw, zh = (scene.zoom[2] * w, scene.zoom[3] * h) if scene.zoom else (w, h)
-            if aspect == "9:16" and scene.input is not None and zw / zh > target * 1.15:
-                source = videos[index]
-                if scene.zoom:
-                    region = self.label("v")
-                    self.add(f"{source}crop={_even(zw)}:{_even(zh)}:{int(scene.zoom[0] * w)}:"
-                             f"{int(scene.zoom[1] * h)}{region}")
-                    source = region
-                back, front, blurred = self.label("v"), self.label("v"), self.label("v")
-                self.add(f"{source}split{back}{front}")
-                self.add(f"{back}scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh},"
-                         f"boxblur=24:2,eq=brightness=-0.12{blurred}")
-                fitted = self.label("v")
-                self.add(f"{front}scale={ow}:-2:flags=lanczos{fitted}")
-                self.add(f"{blurred}{fitted}overlay=(W-w)/2:(H-h)/2,setsar=1{out}")
-            else:
-                fx, fy = ((scene.zoom[0] + scene.zoom[2] / 2, scene.zoom[1] + scene.zoom[3] / 2) if scene.zoom
-                          else scene.focus or (0.5, 0.5))
-                left = int(min(max(0.0, fx * w - cw / 2), w - cw))
-                top = int(min(max(0.0, fy * h - ch / 2), h - ch))
-                self.add(f"{videos[index]}crop={cw}:{ch}:{left}:{top},scale={ow}:{oh}:flags=lanczos,setsar=1{out}")
-            videos[index] = out
-        self._join(videos, [])
-        self.width, self.height = ow, oh
 
     def _amix(self, labels: list[str]) -> str:
         if len(labels) == 1:

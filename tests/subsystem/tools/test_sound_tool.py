@@ -85,6 +85,58 @@ def test_the_voice_says_row_bot_and_version_numbers_as_people_do(chat, voice):
     assert voice[1]["text"] == "Roe Bot ships today.", "the caller's pronunciation goes first"
 
 
+def test_a_name_taught_once_is_said_right_in_every_later_voice_file_and_video_line(chat, voice, monkeypatch):
+    """M9 (22 Nov): narration needed "Roe-bot" written into the script, and a later file said it wrong again. A
+    pronunciation the person teaches is kept; only the voice hears it, and captions keep the written word."""
+    import threading
+
+    from row_bot import video_edits, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools.sound_tool import _speak
+
+    taught = _speak("Meet Qwen and Ollama.", name="intro", pronunciations={"Qwen": "Kwen"}, remember=True)
+    assert "Saved how to say Qwen for every later voice file and video line." in taught
+    assert "Kwen" not in taught.split("Saved")[0], "the result names the word, never a saved list"
+    _speak("Qwen again, and QWEN.", name="later")
+    _speak("Qwen once more.", name="other", pronunciations={"Qwen": "Chwen"})
+    assert [said["text"] for said in voice] == ["Meet Kwen and Ollama.", "Kwen again, and Kwen.",
+                                                 "Chwen once more."], "saved for later; a call's own goes first"
+
+    register_attachment(chat, "clip.mp4", b"\x00\x00\x00\x18ftypmp42" + b"0" * 64)
+    started: list = []
+    monkeypatch.setattr(video_edits, "start", lambda request: started.append(request) or video_edits.VideoEdit(
+        edit_id="edit-0000000a", conversation_id=chat, kind="video", summary="", output_name="x.mp4", started_at=1.0))
+    project = video_projects.create(chat, "Launch", [{"source": "clip.mp4", "line": "Qwen runs here."}])
+    video_projects.make(project, 1)
+    for _ in range(300):
+        if started:
+            break
+        threading.Event().wait(0.01)
+    assert voice[-1]["text"] == "Kwen runs here.", "a video's line is voiced with the saved pronunciation"
+    assert started[0].steps[0].scenes[0].line == "Qwen runs here.", "its caption keeps the written word"
+
+    forgot = _speak("Qwen at last.", name="plain", pronunciations={"Qwen": ""}, remember=True)
+    assert "Forgot how to say Qwen." in forgot and voice[-1]["text"] == "Qwen at last."
+
+
+def test_a_transcript_of_a_respelled_voice_shows_the_written_word(chat, monkeypatch):
+    from row_bot import sound, voice as voice_module
+    from row_bot.application.attachments import read_attachment, register_attachment
+    from row_bot.tools.sound_tool import _transcribe
+
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    register_attachment(chat, "intro.wav", _wav(2.0, rate=16_000))
+    heard = [sound.Segment(0.0, 1.5, "Meet Kwen, our model.", ((0.0, 0.4, "Meet"), (0.4, 0.9, "Kwen")))]
+    monkeypatch.setattr(voice_module, "get_voice_service", lambda: SimpleNamespace(
+        whisper_model_available=lambda: True, transcribe_words=lambda pcm: (heard, "en")))
+
+    result = _transcribe("intro.wav")
+
+    assert "[0:00] Meet Qwen, our model." in result and "Kwen" not in result
+    subtitles = read_attachment(_files(chat)["intro-subtitles.srt"]["attachment_ref"])[1].decode()
+    assert "Meet Qwen, our model." in subtitles
+
+
 def test_a_voice_file_needs_a_known_voice(chat, voice):
     from row_bot.tools.sound_tool import _speak
 

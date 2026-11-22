@@ -51,8 +51,11 @@ class _SpeakInput(BaseModel):
     voice: str = Field(default="", description="A Row-Bot voice id (empty: the one in Settings › Voice).")
     speed: float = Field(default=0.0, description="0.9 to 1.5; 0 keeps the saved speed. Never slow a voice to "
                                                 "fill time: write more words or cut the video shorter.")
-    pronunciations: dict[str, str] = Field(default_factory=dict,
-                                           description='How to say words, e.g. {"Qwen": "Kwen"}.')
+    pronunciations: dict[str, str] = Field(
+        default_factory=dict, description='How to say words, e.g. {"Qwen": "Kwen"}: only the voice hears them; '
+                                          'write the real words.')
+    remember: bool = Field(default=False, description="Keep them for every later voice file and video line (an "
+                                                      "empty one forgets the word).")
 
 
 def voice_consent(tool: str, purpose: str) -> tuple[str, str]:
@@ -125,7 +128,7 @@ def speech_model_consent(tool: str) -> tuple[str, str]:
 
 
 def _speak(text: str, name: str = "", voice: str = "", speed: float = 0.0,
-           pronunciations: dict[str, str] | None = None) -> str:
+           pronunciations: dict[str, str] | None = None, remember: bool = False) -> str:
     from row_bot import sound
     from row_bot.tools.approval_gate import with_approval
 
@@ -133,12 +136,20 @@ def _speak(text: str, name: str = "", voice: str = "", speed: float = 0.0,
     if refusal:
         return refusal
     try:
+        # Kept before speaking, so a word taught here is said right in this file too.
+        kept = sound.remember_pronunciations(pronunciations or {}) if remember and pronunciations else []
         speech = sound.speak(text, voice=voice, speed=speed, pronunciations=pronunciations)
         saved = _save(_name(name, "voice", ".wav"), speech.wav)
     except ValueError as error:
         return f"Not made: {error}"
     text = (f"Voice file {saved}: {speech.seconds:.1f} seconds, voice {speech.voice}. Use it by that name in the "
             "video tools or send_file.")
+    taught = [word for word in kept if str((pronunciations or {}).get(word) or "").strip()]
+    forgot = [word for word in kept if word not in taught]
+    if taught:
+        text += f" Saved how to say {', '.join(taught)} for every later voice file and video line."
+    if forgot:
+        text += f" Forgot how to say {', '.join(forgot)}."
     return with_approval(line, text) if line else text
 
 
@@ -218,6 +229,7 @@ def _transcript(label: str, path: Path | None, data: bytes | None, suffix: str, 
         return f"Not transcribed: {error}"
     if not segments:
         return f"No speech was heard in {label}."
+    segments = sound.written(segments)
     try:
         saved = _save(_name(name, Path(label).stem + "-subtitles", ".srt"), sound.srt(segments).encode("utf-8"))
     except ValueError as error:

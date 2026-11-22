@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401
+from tests.subsystem.agents.test_linked_conversations import linked, settle  # noqa: F401
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
@@ -449,7 +450,7 @@ def test_the_video_tool_makes_a_project_and_its_step_shows_the_project_card(stud
     from row_bot.tools import video_project_tool
 
     monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
-    monkeypatch.setattr(video_project_tool, "INLINE_SECONDS", 0.5)
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
     monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
 
     result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES, note="First cut")
@@ -577,6 +578,73 @@ def test_a_wait_in_a_recorded_scene_needs_attention_once_its_line_is_said(studio
         "Waiting: 0:06–0:40 shows nothing being done. Speed that part up or cut it.",
         "Waiting: 0:41–0:50 shows nothing being done. Speed that part up or cut it."]
     assert not [line for line in review(8.0) if line.startswith("Waiting")], "sped up, the waits pass quickly"
+
+
+def test_make_returns_the_finished_video_when_it_is_made_within_the_wait(studio, monkeypatch):
+    """92 status calls in one chat (22 Nov): make waits for the video instead of being polled."""
+    from row_bot import ffmpeg_runtime, video_edits, waits
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    capture = video_edits.start
+
+    def made(request):  # The renderer: done as soon as it starts.
+        edit = capture(request)
+        video_edits._set(edit, status="saved", ended_at=2.0)
+        edit.done.set()
+        return edit
+
+    monkeypatch.setattr(video_edits, "start", made)
+
+    result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES)
+
+    assert "2 scenes, made." in result.splitlines()[0] and "Video: Launch demo v1.mp4" in result
+    assert "checks back" not in result and waits.waiting("conversation-a") == []
+
+
+def test_a_video_that_takes_longer_checks_back_by_itself_when_it_is_made(studio, linked, platform, monkeypatch):  # noqa: F811
+    from row_bot import ffmpeg_runtime, video_edits, waits
+    from row_bot.tools import video_project_tool
+    from tests.subsystem.workflows.test_workflow_runs_as_chat import Recording, reply
+
+    fake = Recording(reply("The video is made: here it is."))
+    platform.stream_factory = fake.stream
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+
+    result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES)
+
+    assert "Row-Bot checks back here when it's made" in result and "don't call status meanwhile" in result
+    project_id = result.split()[2].rstrip(":")
+    edit = video_edits.get(_wait(project_id, 1).edit_id)
+    [record] = waits.waiting("conversation-a")
+    assert (record["kind"], record["label"]) == ("video", "“Launch demo” version 1 is made")
+    assert "checks back" in video_project_tool._video(action="status", project=project_id)
+    assert len(waits.waiting("conversation-a")) == 1, "asking again sets no second wait"
+    assert waits.tick(record["next_at"] + 1) == 0 and fake.prompts == [], "nothing runs while it's being made"
+
+    video_edits._set(edit, status="saved", ended_at=2.0)
+    assert waits.tick(record["next_at"] + 1 + waits.TICK_SECONDS) == 1
+    settle(platform, "conversation-a")
+
+    assert fake.prompts[0].startswith("Checked back: “Launch demo” version 1 is made.")
+    assert "2 scenes, made." in fake.prompts[0] and waits.waiting("conversation-a") == []
+
+
+def test_a_kit_saved_before_full_bleed_was_the_default_loads_full_and_a_chosen_framing_stays(studio):
+    import json
+
+    from row_bot import video_brand
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    path = get_row_bot_data_dir() / "video-brand.json"
+    path.write_text(json.dumps({"colour": "#112233", "framing": "framed"}), encoding="utf-8")
+    assert (video_brand.load().framing, video_brand.load().colour) == ("full", "#112233"), \
+        "its old default, not a choice"
+    video_brand.update({"framing": "framed"})
+    assert video_brand.load().framing == "framed", "chosen since: kept"
 
 
 def test_how_the_person_says_videos_should_look_is_saved_for_every_next_video(studio):

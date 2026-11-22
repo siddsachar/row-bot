@@ -134,6 +134,66 @@ def test_a_projects_recorded_scenes_reach_the_edit_as_one_drawn_clip_however_man
     assert build_plan(inputs, [drawn], "output.mp4").duration == pytest.approx(2 + 2.4)
 
 
+def _drawn(folder, sources, step):
+    """The drawn clip of a project's scenes from these (path, size) videos: (its inputs, its frames)."""
+    import av
+
+    from row_bot.video_editing import InputVideo, VideoInfo
+
+    folder.mkdir(exist_ok=True)
+    given = [InputVideo(path=str(path), info=VideoInfo(duration=3.0, width=size[0], height=size[1], fps=10.0,
+                                                      has_audio=False)) for path, size in sources]
+    inputs, _step = video_studio.prepare(given, step, folder)
+    with av.open(str(folder / "scenes.mp4")) as reader:
+        return inputs, [frame.to_image() for frame in reader.decode(video=0)]
+
+
+def _edges(picture):
+    width, height = picture.size
+    return [picture.getpixel(at) for at in ((2, height // 2), (width - 3, height // 2), (width // 2, 2),
+                                            (width // 2, height - 3))]
+
+
+def test_clips_of_other_shapes_fill_the_frame_by_default_and_are_inset_only_when_asked(clip, tmp_path):
+    """M8 (22 Nov): a video's footage came out in a rounded inset on a backdrop although the person kept asking for
+    full screen, and AI clips and screen footage of other sizes didn't play as one film."""
+    from dataclasses import replace
+
+    from row_bot.video_editing import Look, SceneCut, Step
+
+    sources = [(video(tmp_path / "photo.mp4", sound=False, size=(320, 240)), (320, 240)),
+               (video(tmp_path / "short.mp4", sound=False, size=(180, 320)), (180, 320))]
+    scenes = [SceneCut(input=0, end=0.5), SceneCut(input=1, end=0.5)]
+
+    inputs, frames = _drawn(tmp_path / "plain", sources, Step(op="scenes", aspect="16:9", scenes=scenes))
+    assert [(item.info.width, item.info.height) for item in inputs] == [(1920, 1080)]
+    assert frames[0].size == (1920, 1080) and len(frames) == 10
+    for picture in (frames[0], frames[-1]):  # A 4:3 clip, then a 9:16 one.
+        assert all(min(pixel) > 200 for pixel in _edges(picture)), "the clip to every edge: no bars, no backdrop"
+
+    _inputs, framed = _drawn(tmp_path / "framed", sources,
+                             Step(op="scenes", aspect="16:9", look=Look(framing="framed"), scenes=scenes))
+    assert all(max(pixel) < 150 for pixel in _edges(framed[0])) and min(framed[0].getpixel((960, 540))) > 200, \
+        "the brand kit's framed look: the clip inset on the backdrop"
+    _inputs, fitted = _drawn(tmp_path / "fit", sources,
+                             Step(op="scenes", aspect="16:9", scenes=[replace(scenes[0], fit=True), scenes[1]]))
+    assert all(max(pixel) < 150 for pixel in _edges(fitted[0])), "a scene's fit: its whole picture, inset"
+    assert all(min(pixel) > 200 for pixel in _edges(fitted[-1])), "the next scene fills the frame again"
+
+
+def test_a_wide_recording_in_a_tall_video_fills_it_cropped_around_where_its_pointer_was(clip, tmp_path):
+    from row_bot.video_editing import SceneCut, Step
+
+    # From a second in, the recording's right half is red.
+    scenes = [SceneCut(input=0, start=1.0, end=1.5, focus=(0.9, 0.5)), SceneCut(input=0, start=1.0, end=1.5)]
+    inputs, frames = _drawn(tmp_path / "tall", [(clip, (320, 180))], Step(op="scenes", aspect="9:16", scenes=scenes))
+
+    assert (inputs[0].info.width, inputs[0].info.height) == (1080, 1920) and frames[0].size == (1080, 1920)
+    assert all(pixel[1] < 80 for pixel in _edges(frames[0])), "cropped on the right, where the pointer was"
+    assert frames[-1].getpixel((2, 960))[1] > 200 and frames[-1].getpixel((1077, 960))[1] < 80, \
+        "no pointer: its middle, the grey and the red"
+
+
 def test_a_phones_picture_is_set_in_a_device_on_the_backdrop():
     picture = Image.new("RGB", (390, 844), (250, 250, 250))
     framed = compose(picture, Frame((1920, 1080), "framed", (20, 60, 140)))
