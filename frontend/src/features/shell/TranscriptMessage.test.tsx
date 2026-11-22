@@ -258,7 +258,9 @@ it(
       'Read aloud needs the Kokoro voice',
     );
     fireEvent.click(button);
-    const alert = await screen.findByRole('alert');
+    // A setup step, not an error.
+    const alert = await screen.findByRole('status');
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(alert).toHaveTextContent(
       'Read aloud needs the Kokoro voice. Install it in Voice settings.',
     );

@@ -1197,8 +1197,9 @@ def _query_voice() -> str:
             tts_path = _DATA_DIR / "tts_settings.json"
             from row_bot.tts import TTSService
 
-            lines.append(f"- Read aloud and spoken replies: Kokoro, "
-                         f"{'installed' if TTSService().is_installed() else 'not installed'}")
+            lines.append("- Read aloud and spoken replies: Kokoro, installed" if TTSService().is_installed() else
+                         "- Read aloud and spoken replies: Kokoro, not installed (only the person can start the "
+                         "download: [Voice](/settings/voice#read-aloud))")
             if tts_path.is_file():
                 tts = json.loads(tts_path.read_text(encoding="utf-8"))
                 lines.append(f"- TTS voice: {tts.get('voice', 'af_heart')}")

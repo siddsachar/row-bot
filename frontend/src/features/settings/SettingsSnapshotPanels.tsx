@@ -2081,7 +2081,7 @@ export function VoiceSnapshotPanel({
       <SettingsGroup
         title="Read aloud"
         anchor="read-aloud"
-        note={`Read aloud on a reply, and Talk’s answers, speak with Kokoro ${place.onAgain}.`}
+        note={`Replies you read aloud and Talk’s answers speak with Kokoro, ${place.onAgain}.`}
       >
         {!snapshot.tts.installed && (
           <SettingsItem

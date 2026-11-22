@@ -1120,14 +1120,26 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             {error}
           </p>
         )}
-        {readFailure && (
-          <p role="alert" className="message-error message-error-with-fix">
-            <span>{readFailure.message}</span>
-            {readFailure.action?.kind === 'open_setting' && (
-              <ErrorFix action={readFailure.action} />
-            )}
-          </p>
-        )}
+        {readFailure &&
+          (readFailure.code === 'kokoro_model_missing' ? (
+            // A voice still to install is a setup step, not an error.
+            <p role="status" className="message-fix-line">
+              <span className="status-indicator" data-tone="warning">
+                <span className="status-indicator-dot" aria-hidden />
+                <span>{readFailure.message}</span>
+              </span>
+              {readFailure.action?.kind === 'open_setting' && (
+                <ErrorFix action={readFailure.action} />
+              )}
+            </p>
+          ) : (
+            <p role="alert" className="message-error message-fix-line">
+              <span>{readFailure.message}</span>
+              {readFailure.action?.kind === 'open_setting' && (
+                <ErrorFix action={readFailure.action} />
+              )}
+            </p>
+          ))}
       </div>
     </article>
   );

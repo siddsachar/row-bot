@@ -506,7 +506,7 @@ it('renders real voice controls without probing a device or provider', async () 
   // Read aloud says what speaks it; there is no switch that does nothing.
   expect(
     screen.getByText(
-      'Read aloud on a reply, and Talk’s answers, speak with Kokoro on this computer.',
+      'Replies you read aloud and Talk’s answers speak with Kokoro, on this computer.',
     ),
   ).toBeVisible();
   expect(screen.getByLabelText('Voice')).toHaveValue('af_heart');
