@@ -454,14 +454,12 @@ def _voice(root: Path) -> dict[str, Any]:
             "speech_output_model": _text(
                 runtime.get("speech_output_model") or "local-kokoro", 128
             ),
-            "speech_output_voice": _text(
-                runtime.get("speech_output_voice") or tts_voice, 64
-            ),
             "realtime_voice": realtime_voice,
             "captions_enabled": runtime.get("captions_enabled") is not False,
-            "talk_auto_start": runtime.get("talk_auto_start") is True,
-            "realtime_fallback_to_local": runtime.get("realtime_fallback_to_local")
-            is not False,
+            "turn_eagerness": runtime.get("turn_eagerness")
+            if runtime.get("turn_eagerness") in {"relaxed", "normal", "eager"}
+            else "normal",
+            "push_to_talk": runtime.get("push_to_talk") is True,
         },
         "local": {
             "whisper_model": whisper,
@@ -474,10 +472,8 @@ def _voice(root: Path) -> dict[str, Any]:
         "tts": {
             "installed": (root / "kokoro" / "kokoro-v1.0.fp16.onnx").is_file()
             and (root / "kokoro" / "voices-v1.0.bin").is_file(),
-            "enabled": tts.get("enabled") is True,
             "voice": tts_voice,
             "speed": speed,
-            "auto_speak": tts.get("auto_speak") is not False,
         },
         "openai_realtime_credential": _credential_status("OPENAI_API_KEY"),
         "talk_providers": _choice_rows(
@@ -1728,13 +1724,11 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "runtime.speech_output_model": "local-kokoro",
         "runtime.realtime_voice": "marin",
         "runtime.captions_enabled": True,
-        "runtime.talk_auto_start": False,
-        "runtime.realtime_fallback_to_local": True,
+        "runtime.turn_eagerness": "normal",
+        "runtime.push_to_talk": False,
         "local.whisper_model": "small",
-        "tts.enabled": False,
         "tts.voice": "af_heart",
         "tts.speed": 1.0,
-        "tts.auto_speak": True,
     },
     "system": {
         "remote_access.listen_mode": "local_only",

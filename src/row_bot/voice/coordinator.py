@@ -2,55 +2,13 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from functools import wraps
 import threading
 import time
 from typing import Literal
 
-from row_bot.voice import VoiceService
-
-
-def _legacy_start(method):
-    @wraps(method)
-    def guarded(self, *args, **kwargs):
-        with self._dictation_lock:
-            owner = threading.get_ident()
-            transition = self._legacy_transition_owner
-            if self._dictation_busy() or (transition is not None and transition != owner):
-                from row_bot.voice.client_transport import DictationError
-                raise DictationError("voice_session_busy")
-            if self._dictation_lease is not None:
-                self._dictation_adapter._invalidate(self._dictation_lease)
-            self._legacy_transition_owner = owner
-        try:
-            return method(self, *args, **kwargs)
-        finally:
-            if transition is None:
-                with self._dictation_lock:
-                    self._legacy_transition_owner = None
-    return guarded
-
-
-def _legacy_control(method):
-    @wraps(method)
-    def guarded(self, *args, **kwargs):
-        with self._dictation_lock:
-            owner = threading.get_ident()
-            transition = self._legacy_transition_owner
-            if self._dictation_busy() or (transition is not None and transition != owner):
-                return None
-            self._legacy_transition_owner = owner
-        try:
-            return method(self, *args, **kwargs)
-        finally:
-            if transition is None:
-                with self._dictation_lock:
-                    self._legacy_transition_owner = None
-    return guarded
-
 
 VoiceMode = Literal["talk", "dictate"]
-VoiceTransport = Literal["local", "browser", "realtime"]
+VoiceTransport = Literal["browser", "realtime", "duplex"]
 
 
 @dataclass(frozen=True)
@@ -71,20 +29,16 @@ class VoiceCallbackIdentity:
 
 
 class VoiceSessionCoordinator:
-    """Owns the active Talk/Dictate session around the existing VoiceService."""
+    """The active browser Talk, Dictate or Realtime session's state (the browser records and plays)."""
 
-    def __init__(self, voice_service: VoiceService) -> None:
+    def __init__(self) -> None:
         self._dictation_lock = threading.RLock()
         self._dictation_lease = None
         self._dictation_adapter = None
         self._dictation_clock = time.monotonic
         self._dictation_closed = False
-        # Reserve transitions without holding the admission lock during a host
-        # voice thread's bounded shutdown/join. Nested same-thread calls retain it.
-        self._legacy_transition_owner: int | None = None
-        self.voice_service = voice_service
         self.mode: VoiceMode = "talk"
-        self.transport: VoiceTransport = "local"
+        self.transport: VoiceTransport = "browser"
         self.realtime_state = "stopped"
         self.realtime_last_error = ""
         self._session_id = 0
@@ -115,9 +69,7 @@ class VoiceSessionCoordinator:
     def is_running(self) -> bool:
         if self.transport == "realtime":
             return self._active and self.realtime_state not in {"stopped", "error"}
-        if self.transport == "browser":
-            return self._active
-        return self._active and self.voice_service.is_running
+        return self._active
 
     @property
     def state(self) -> str:
@@ -125,145 +77,7 @@ class VoiceSessionCoordinator:
             return "stopped"
         if self.transport == "realtime":
             return self.realtime_state
-        if self.transport == "browser":
-            lease = self._dictation_lease
-            if lease is not None and lease.mode == "talk" and lease.handle.voice_session_id == self.session_id:
-                if lease.phase == "submit":
-                    return "thinking"
-                if lease.phase == "speech":
-                    return "speaking"
-                if lease.phase == "worker":
-                    return "transcribing"
-            return "listening"
-        return self.voice_service.state
-
-    def start_talk(self) -> int:
-        return self.start("talk")
-
-    def _dictation_busy(self) -> bool:
-        """Called only under the coordinator lock; expiry never releases a worker."""
-        lease = self._dictation_lease
-        if lease is None:
-            return False
-        self._dictation_adapter._expire(lease)
-        return lease.starting or lease.operation is not None or (not lease.revoked and
-                (lease.mode == "talk" or lease.state != "completed"))
-
-    @_legacy_start
-    def start_realtime_talk(self) -> int:
-        if self._active:
-            self.stop()
-        self._session_id += 1
-        self.mode = "talk"
-        self.transport = "realtime"
-        self.realtime_state = "connecting"
-        self.realtime_last_error = ""
-        self._active = True
-        self._last_activity_at = time.monotonic()
-        self._reset_realtime_runtime_state()
-        self.mark_realtime_latency("talk_activation")
-        self._emit("session_started")
-        self._emit("realtime_connecting")
-        return self._session_id
-
-    @_legacy_start
-    def start_browser(self, mode: VoiceMode = "talk") -> int:
-        """Start browser capture without opening a server audio device."""
-        if self._active:
-            self.stop()
-        self._session_id += 1
-        self.mode = mode
-        self.transport = "browser"
-        self.realtime_state = "stopped"
-        self._active = True
-        self._last_activity_at = time.monotonic()
-        self._emit("session_started")
-        self._emit("browser_capture_started")
-        return self._session_id
-
-    def start_dictation(self) -> int:
-        return self.start("dictate")
-
-    @_legacy_start
-    def start(self, mode: VoiceMode) -> int:
-        if self._active and self.mode == mode and self.voice_service.is_running:
-            return self._session_id
-        if self._active:
-            self.stop()
-        self._session_id += 1
-        self.mode = mode
-        self.transport = "local"
-        self.realtime_state = "stopped"
-        self._active = True
-        self._emit("session_started")
-        self._apply_selected_local_stt_model(mode)
-        self.voice_service.start()
-        self._last_activity_at = time.monotonic()
-        return self._session_id
-
-    def _apply_selected_local_stt_model(self, mode: VoiceMode) -> None:
-        try:
-            from row_bot.voice.runtime import load_voice_runtime_settings
-
-            settings = load_voice_runtime_settings()
-            selected_model = (
-                settings.dictation_model if mode == "dictate" else settings.talk_model
-            )
-            if selected_model:
-                self.voice_service.stt_model = selected_model
-        except Exception:
-            return
-
-    @_legacy_control
-    def stop(self, *, session_id: int | None = None) -> None:
-        if session_id is not None and session_id != self._session_id:
-            self._emit("stale_stop_ignored", detail=str(session_id))
-            return
-        was_active = self._active
-        self._active = False
-        if self.transport == "local":
-            self.voice_service.stop()
-        elif self.transport == "realtime":
-            self.realtime_state = "stopped"
-            self._reset_realtime_runtime_state(keep_latency=True)
-        if was_active:
-            self._emit("session_stopped")
-
-    @_legacy_control
-    def mute(self) -> None:
-        if self._active and self.voice_service.is_running:
-            self.voice_service.mute()
-            self.output_activity.mark_started()
-            self._emit("assistant_audio_started")
-
-    @_legacy_control
-    def unmute(self) -> None:
-        if self._active and self.voice_service.is_running:
-            self.voice_service.unmute()
-            self.output_activity.mark_finished()
-            self._emit("assistant_audio_finished")
-
-    def get_status(self) -> str | None:
-        if not self._active:
-            return None
-        if self.transport == "realtime":
-            if self.realtime_state == "error" and self.realtime_last_error:
-                return self.realtime_last_error
-            return self.realtime_state
-        return self.voice_service.get_status()
-
-    @_legacy_control
-    def get_transcription(self) -> str | None:
-        if not self._active or self.transport == "realtime":
-            return None
-        text = self.voice_service.get_transcription()
-        if text and self._should_drop_transcript(text):
-            self._emit("transcript_dropped", detail=text)
-            return None
-        if text:
-            self._last_activity_at = time.monotonic()
-            self._emit("transcript_final", detail=text)
-        return text
+        return "listening"
 
     def accepts(self, session_id: int) -> bool:
         return (self._active and session_id == self._session_id

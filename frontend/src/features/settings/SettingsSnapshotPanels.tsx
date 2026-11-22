@@ -1897,7 +1897,6 @@ export function VoiceSnapshotPanel({
     if (!mutation.drafts.has(mutation.page, 'runtime.talk_provider'))
       setTalkProvider(snapshot.runtime.talk_provider);
   }, [mutation.drafts, mutation.page, snapshot.runtime.talk_provider]);
-  const readAloudOn = snapshot.tts.installed && snapshot.tts.enabled;
   const realtime = talkProvider === 'openai_realtime';
   const localDictation = snapshot.runtime.dictation_provider === 'local';
   const size = whisperSize(
@@ -1945,7 +1944,7 @@ export function VoiceSnapshotPanel({
               ? 'dictation on this computer'
               : `dictation transcribed on ${place.name}`
             : '',
-          readAloudOn ? 'read aloud on' : 'read aloud off',
+          snapshot.tts.installed ? '' : 'read aloud needs Kokoro',
         ]}
       >
         {missingSpeech
@@ -2009,19 +2008,28 @@ export function VoiceSnapshotPanel({
           hint="Show your words while you speak."
           value={snapshot.runtime.captions_enabled}
         />
-        {realtime && (
-          <SwitchSetting
-            mutation={mutation}
-            field="runtime.realtime_fallback_to_local"
-            label={
-              here
-                ? 'Fall back to this computer'
-                : `Fall back to Whisper on ${place.name}`
-            }
-            hint="If Realtime is unavailable, Talk listens with Whisper instead."
-            value={snapshot.runtime.realtime_fallback_to_local}
-            row={needsBigger}
-          />
+        {!realtime && (
+          <>
+            <SelectSetting
+              mutation={mutation}
+              field="runtime.turn_eagerness"
+              label="When you pause"
+              hint="How soon Row-Bot answers after you stop speaking."
+              value={snapshot.runtime.turn_eagerness ?? 'normal'}
+              options={[
+                { value: 'relaxed', label: 'Give me time to think' },
+                { value: 'normal', label: 'Balanced' },
+                { value: 'eager', label: 'Answer quickly' },
+              ]}
+            />
+            <SwitchSetting
+              mutation={mutation}
+              field="runtime.push_to_talk"
+              label="Push to talk"
+              hint="Row-Bot listens only while you hold the talk button in the voice bar."
+              value={snapshot.runtime.push_to_talk ?? false}
+            />
+          </>
         )}
         <SettingsItem
           label="Try it"
@@ -2093,19 +2101,15 @@ export function VoiceSnapshotPanel({
           }}
         />
       </SettingsGroup>
-      <SettingsGroup title="Read aloud" anchor="read-aloud">
-        {snapshot.tts.installed ? (
-          <SwitchSetting
-            mutation={mutation}
-            field="tts.enabled"
-            label="Read replies aloud"
-            hint={`Speaks answers with Kokoro, ${place.onAgain}.`}
-            value={snapshot.tts.enabled}
-          />
-        ) : (
+      <SettingsGroup
+        title="Read aloud"
+        anchor="read-aloud"
+        note={`Replies you read aloud and Talk’s answers speak with Kokoro, ${place.onAgain}.`}
+      >
+        {!snapshot.tts.installed && (
           <SettingsItem
-            label="Read replies aloud"
-            help={`Speaks answers with Kokoro, ${place.onAgain}. Installing downloads the model and voices once.`}
+            label="Kokoro voice"
+            help="Installing downloads the model and voices once."
             status={
               <StatusLine
                 tone="warning"
@@ -2143,7 +2147,7 @@ export function VoiceSnapshotPanel({
               mutation={mutation}
               field="tts.voice"
               label="Voice"
-              hint="The voice Row-Bot reads with."
+              hint="The voice Row-Bot speaks with."
               value={snapshot.tts.voice}
               options={snapshot.tts_voice_options}
               row={{ trailing: <TestVoiceButton /> }}
@@ -2157,13 +2161,6 @@ export function VoiceSnapshotPanel({
               min={0.5}
               max={2}
               step={0.1}
-            />
-            <SwitchSetting
-              mutation={mutation}
-              field="tts.auto_speak"
-              label="Auto-speak voice responses"
-              hint="Replies to something you said are read aloud."
-              value={snapshot.tts.auto_speak}
             />
           </>
         )}
