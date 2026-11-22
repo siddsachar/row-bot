@@ -32,6 +32,9 @@ VOICE_SPEEDS = (0.9, 1.25)
 MAX_CARD = 120
 _COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
 _FILE = "video-brand.json"
+# Saved with every kit since footage fills the frame by default (M8, 22 Nov). A kit saved before then wrote "framed"
+# as the old default, not as a choice, so it loads edge to edge; one saved since keeps its own framing.
+_KIT = 2
 
 
 class BrandError(ValueError):
@@ -48,7 +51,8 @@ class Brand:
     intro: str = ""
     outro: str = ""
     music_mood: str = "calm"
-    # Edge to edge by default (R3, 12 Nov): footage small on a plain backdrop read as unfinished.
+    # Edge to edge by default (R3, 12 Nov; M8, 22 Nov): footage small on a plain backdrop read as unfinished.
+    # "framed" sets it inset on the colour, only when the person chooses it.
     framing: str = "full"
     camera: str = "follow"
     # The voice that says the lines ("" the one chosen in Settings) and its speed.
@@ -68,6 +72,8 @@ def load() -> Brand:
         data = json.loads(_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return Brand()
+    if isinstance(data, dict) and data.get("kit") != _KIT:
+        data = {**data, "framing": "full"}
     try:
         return _clean(data, check_logo=False)
     except BrandError:
@@ -145,7 +151,7 @@ def save(data: dict[str, Any]) -> Brand:
     path = _path()
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.part")
-    partial.write_text(json.dumps(asdict(brand)), encoding="utf-8", newline="\n")
+    partial.write_text(json.dumps({**asdict(brand), "kit": _KIT}), encoding="utf-8", newline="\n")
     os.replace(partial, path)
     return brand
 

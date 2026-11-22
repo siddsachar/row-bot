@@ -3,8 +3,10 @@
 The camera follows what Row-Bot did while recording (``recordings.Recording.actions``): it eases in on the control
 being clicked or typed into, pans to the next one when it comes soon after, and eases back out before a new page or
 after a pause; a fast-forwarded stretch is never zoomed. A scene's own zoom (the agent's or the person's) wins, eased
-in. The frame is the look: the picture on the brand's backdrop with rounded corners and a soft shadow ("framed"), or
-edge to edge ("full").
+in. The frame is the look: edge to edge by default ("full"), every picture of another shape cropped to fill around
+where the action is (the camera's view, else the recording's pointer, else the middle), so clips of different sizes
+play as one film; or, when asked, the picture inset on the brand's backdrop with rounded corners and a soft shadow
+("framed": the brand kit's choice, or one scene's ``fit``).
 
 The scenes are drawn frame by frame (Pillow, sub-pixel crops, so a slow zoom never shimmers) one after another into
 one clip; the edit then cuts, captions and mixes it as it does any video. The camera path and one frame's look are
@@ -128,7 +130,7 @@ class Frame:
     """How each picture is set in the finished frame."""
 
     size: tuple[int, int]
-    framing: str = "framed"
+    framing: str = "full"
     colour: tuple[int, int, int] = (31, 41, 55)
     # The share of the frame's height kept clear at the bottom for captions: the picture sits above them.
     captions: float = 0.0
@@ -175,14 +177,16 @@ def compose(picture: Any, frame: Frame, at: tuple[float, float, float] = (0.5, 0
     box = crop_box(*at, picture.width, picture.height)
     if frame.framing == "full":
         width, height = frame.size
-        # Edge to edge: the view filled to the frame's shape, cropped around its middle.
+        # Edge to edge: the view cropped to the frame's shape around the view's middle, kept inside the view.
         seen_width, seen_height = box[2] - box[0], box[3] - box[1]
         if seen_width / seen_height > width / height:
-            trim = (seen_width - seen_height * width / height) / 2
-            box = (box[0] + trim, box[1], box[2] - trim, box[3])
+            kept = seen_height * width / height
+            left = min(max(box[0], at[0] * picture.width - kept / 2), box[2] - kept)
+            box = (left, box[1], left + kept, box[3])
         else:
-            trim = (seen_height - seen_width * height / width) / 2
-            box = (box[0], box[1] + trim, box[2], box[3] - trim)
+            kept = seen_width * height / width
+            top = min(max(box[1], at[1] * picture.height - kept / 2), box[3] - kept)
+            box = (box[0], top, box[2], top + kept)
         return picture.resize(frame.size, Image.Resampling.LANCZOS, box=box)
     backdrop, place, inner, mask = _setting(frame, (picture.width, picture.height))
     finished = backdrop.copy()
@@ -332,28 +336,42 @@ class Studio:
 def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[], bool] = lambda: False,
             progress: Callable[[int, int], None] = lambda _done, _total: None) -> tuple[list[Any], Any]:
     """A video project's scenes cut from videos, drawn through their cameras and look one after another into one
-    clip (``scenes.mp4``): the inputs and scenes the edit then joins, captions and mixes. A 16:9 video gets the
-    look; another shape keeps each picture's shape and is reframed by the edit, as before."""
+    clip (``scenes.mp4``) in the video's shape (its own, else 16:9 when its first video is wide, else that video's):
+    the inputs and scenes the edit then joins, captions and mixes. The brand kit's framed look is for 16:9."""
     from dataclasses import replace
 
-    from row_bot.video_editing import InputVideo, Look, VideoInfo, fit_to_lines
+    from row_bot.video_editing import CARD_SIZES, EditError, InputVideo, Look, VideoInfo, fit_to_lines
 
+    if step.aspect and step.aspect not in CARD_SIZES:
+        raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {step.aspect}.")
     look = step.look or Look()
     fitted = [scene for scene, _hold in fit_to_lines(step.scenes, [item.info.duration for item in inputs])]
     footage = [scene for scene in fitted if scene.input is not None and 0 <= scene.input < len(inputs)]
     if len(footage) != len([scene for scene in fitted if scene.input is not None]) or not footage:
         return inputs, step  # (The edit says what's wrong with a scene that isn't one of the inputs.)
     first = inputs[footage[0].input].info
-    wide = (step.aspect or ("16:9" if first.width / max(1, first.height) > 1.2 else "")) == "16:9"
-    size = (1920, 1080) if wide else (first.width // 2 * 2, first.height // 2 * 2)
-    frame = Frame(size, look.framing if wide else "full", look.colour,
-                  captions=CAPTION_ROOM if step.style == "caption" else 0.0)
+    shape = step.aspect or ("16:9" if first.width / max(1, first.height) > 1.2 else "")
+    size = CARD_SIZES[shape] if shape else (first.width // 2 * 2, first.height // 2 * 2)
+    fill = Frame(size, look.framing if shape == "16:9" else "full", look.colour,
+                 captions=CAPTION_ROOM if step.style == "caption" else 0.0)
+    chosen = {True: replace(fill, framing="framed"), False: replace(fill, framing="full")}
+
+    def frame_of(scene: Any) -> Frame:
+        return chosen.get(scene.fit, fill)
 
     def keys_of(scene: Any) -> tuple[Key, ...]:
-        return zoom_keys(scene.zoom) if scene.zoom else scene.camera if look.camera == "follow" else ()
+        if scene.zoom:
+            return zoom_keys(scene.zoom)
+        if look.camera == "follow" and scene.camera:
+            return scene.camera
+        info = inputs[scene.input].info
+        if scene.focus and abs(info.width / max(1, info.height) - size[0] / size[1]) > 0.01:
+            return ((0.0, scene.focus[0], scene.focus[1], 1.0),)  # Cropped to fill around where the pointer was.
+        return ()
 
     drawn = [scene for scene in footage
-             if needs_pass(keys_of(scene), frame, (inputs[scene.input].info.width, inputs[scene.input].info.height))]
+             if needs_pass(keys_of(scene), frame_of(scene),
+                           (inputs[scene.input].info.width, inputs[scene.input].info.height))]
     if not drawn:
         return inputs, step
     fps = float(round(first.fps or 30.0))
@@ -375,7 +393,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
             end = info.duration if scene.end is None else min(scene.end, info.duration)
             source = Path(inputs[scene.input].path)
             at, seconds = studio.add(source if source.is_absolute() else folder / source, start, end,
-                                     keys_of(scene), frame, stopped=stopped)
+                                     keys_of(scene), frame_of(scene), stopped=stopped)
             scenes.append(replace(scene, input=0, start=round(at, 3), end=round(at + seconds, 3), zoom=None,
                                   camera=()))
     finally:

@@ -6391,8 +6391,8 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
-    # Footage on the backdrop or edge to edge; a camera that follows what was done or stays still.
-    framing: Literal["framed", "full"] = "framed"
+    # Footage edge to edge (the default) or inset on the backdrop; a camera that follows what was done or stays still.
+    framing: Literal["framed", "full"] = "full"
     camera: Literal["follow", "still"] = "follow"
     # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
     voice: str = Field(default="", max_length=64)
@@ -6521,7 +6521,7 @@ class WaitView(WireModel):
     wait_id: str = Field(pattern=r"^[0-9a-f]{12}$")
     conversation_id: OpaqueId
     conversation_title: str = Field(max_length=160)
-    kind: Literal["process", "check", "time", "conversation", "watch"]
+    kind: Literal["process", "check", "time", "conversation", "watch", "video"]
     label: str = Field(min_length=1, max_length=120)
     # "checks every 5 min" or "watching"; a watch's "every 10 min" or "every 5–60 min"; "" for a time wait.
     how: str = Field(max_length=40)
