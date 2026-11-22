@@ -8,9 +8,9 @@ from PIL import Image
 
 
 def video(path: Path, *, sound: bool | Literal["silence"], codec: str = "libx264",
-          size: tuple[int, int] = (320, 180)) -> Path:
-    """Three seconds at 10 frames a second, 320×180 unless another size is given; the right half turns red from the
-    second second. ``sound``: a tone throughout, ``"silence"`` a sound track of nothing, False no sound track at all
+          size: tuple[int, int] = (320, 180), colour: tuple[int, int, int] = (240, 240, 240)) -> Path:
+    """Three seconds at 10 frames a second, 320×180 unless another size is given, light grey unless another colour
+    is; the right half turns red from the second second. ``sound``: a tone throughout, ``"silence"`` a sound track of nothing, False no sound track at all
     (a screen recording)."""
     import av
     import numpy
@@ -21,7 +21,7 @@ def video(path: Path, *, sound: bool | Literal["silence"], codec: str = "libx264
         stream.width, stream.height, stream.pix_fmt = width, height, "yuv420p"
         audio = writer.add_stream("aac", rate=48000, layout="stereo") if sound else None
         for index in range(30):
-            picture = Image.new("RGB", (width, height), (240, 240, 240))
+            picture = Image.new("RGB", (width, height), colour)
             if index >= 10:
                 picture.paste((220, 20, 20), (width // 2, 0, width, height))
             frame = av.VideoFrame.from_image(picture)

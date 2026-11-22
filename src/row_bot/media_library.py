@@ -57,6 +57,11 @@ def _tags() -> dict[str, list[str]]:
     return found
 
 
+def tags_of(ref: str) -> list[str]:
+    """One item's tags."""
+    return _tags().get(ref, [])
+
+
 def clean_tags(tags: list[str]) -> list[str]:
     """Tags as kept: trimmed, lower case, each once, up to MAX_TAGS of up to 40 characters."""
     kept: list[str] = []
