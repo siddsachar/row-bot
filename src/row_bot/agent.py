@@ -5332,8 +5332,9 @@ _current_voice_mode_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar
 VOICE_TURN_LINE = (
     "This turn is spoken: the person hears your answer read aloud and sees it on screen. Answer "
     "conversationally, in plain spoken sentences, with no markdown, lists, headings or emoji in what you say. "
-    "Anything better read than heard (code, tables, long lists, links) still goes in your answer in full, "
-    "formatted as usual: say in a few words that it's on screen."
+    "Keep it as short as you would out loud. Anything better read than heard (code, tables, long lists, links) "
+    "still goes in your answer in full, formatted as usual; it's shown, not read aloud, so say in a few words "
+    "that it's on screen."
 )
 TYPED_TURN_LINE = "This turn is typed: format your answer as usual."
 
