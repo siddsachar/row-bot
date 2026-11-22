@@ -13,7 +13,7 @@ One ``OidcProvider`` for the server's identity provider. What it checks, in orde
   most once a minute), a good signature, then ``iss`` (for Google's issuer also without its scheme, as
   OpenID Connect Core 3.1.3.7 allows for Google alone), ``aud`` (and ``azp`` with several audiences, or
   whenever present), ``exp``, ``iat`` and ``nbf`` with a minute's skew, ``nonce``, for Entra ``tid`` among
-  the allowed tenants, ``email`` only when ``email_verified`` is true, and the groups claim (Entra's
+  the allowed tenants, for Google ``hd`` among the hosted domains and ``email_verified``, ``email`` only when ``email_verified`` is true, and the groups claim (Entra's
   group overage is refused: see ``_groups``).
 
 Every failure is a ``SignInError`` with a short reason for the person's admin, never a token or code.
@@ -305,6 +305,15 @@ class OidcProvider:
             tenant = claims.get("tid")
             if not isinstance(tenant, str) or tenant.lower() not in config.allowed_tenants:
                 raise SignInError("tenant_not_allowed", "the ID token's tenant (tid) isn't an allowed tenant")
+        if config.kind == "google":
+            # Any Google account can get a token for any Google client: only `hd` says the account is one
+            # of the company's Workspace accounts (a personal account with a company address has none).
+            hosted = claims.get("hd")
+            if not isinstance(hosted, str) or hosted.lower() not in config.hosted_domains:
+                raise SignInError("hosted_domain_not_allowed",
+                                  "the Google account isn't in an allowed Workspace domain (hd)")
+            if claims.get("email_verified") is not True:
+                raise SignInError("email_not_verified", "the provider didn't say the email is verified")
 
     def _email(self, claims: dict[str, Any]) -> str | None:
         email = claims.get("email")

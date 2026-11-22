@@ -27,7 +27,7 @@ from row_bot_org.settings import (
 EXIT_FAILED = 1
 AUTO_MIGRATE_ENV = ENV_PREFIX + "AUTO_MIGRATE"
 CONNECT_TIMEOUT = 10
-ROLE_ADVICE = "Serve as a role like deploy/org/README.md describes."
+ROLE_ADVICE = "Serve as the app role, not the owner that migrates: deploy/org/README.md describes the two roles."
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -117,13 +117,12 @@ def _revoke_sessions(url: str, principal_id: str) -> int:
 def _check_config(settings: OrgSettings, url: str) -> int:
     import psycopg
 
-    from row_bot_org.db.checks import privileged_role_problems, runtime_role_warnings
+    from row_bot_org.db.checks import privileged_role_problems
     from row_bot_org.db.migrations import MigrationError, load_migrations, migration_status
 
     try:
         with psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT) as conn:
             problems = privileged_role_problems(conn)
-            warnings = runtime_role_warnings(conn)
             pending = migration_status(conn, load_migrations()).pending
     except MigrationError as error:
         return _fail(f"Row-Bot Org's database doesn't match its migrations: {error}.")
@@ -139,8 +138,6 @@ def _check_config(settings: OrgSettings, url: str) -> int:
         f"auto-migrate {'on' if settings.auto_migrate else 'off'}; the database is reachable"
         + (f", {_plural(len(pending), 'migration')} pending (row-bot-org migrate).\n" if pending else ".\n")
     )
-    for warning in warnings:
-        sys.stderr.write(f"Warning: {warning}. {ROLE_ADVICE}\n")
     return 0
 
 

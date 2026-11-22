@@ -267,16 +267,18 @@ def test_check_config_says_when_migrations_are_pending(
         f"the database is reachable, {len(SHIPPED)} migrations pending (row-bot-org migrate).\n")
 
 
-def test_check_config_warns_when_the_role_owns_the_tables(
+def test_check_config_refuses_the_role_that_owns_the_tables(
     org_database, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", org_database.owner_url)
 
-    assert cli.main(["check-config"]) == 0
+    assert cli.main(["check-config"]) == 1
 
     assert capsys.readouterr().err.splitlines() == [
-        "Warning: the database role owns (or is a member of the owner of) the row_bot_org schema or its tables, "
-        "so it could turn row-level security off. Serve as a role like deploy/org/README.md describes."
+        "Error: the database role owns (or is a member of the owner of) the row_bot_org schema or its tables, "
+        "so row-level security wouldn't hold it back. Serve as the app role, not the owner that migrates: "
+        "deploy/org/README.md describes the two roles.",
+        "Row-Bot Org wouldn't start with this database role.",
     ]
 
 
