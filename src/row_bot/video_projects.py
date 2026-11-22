@@ -15,7 +15,7 @@ with bars. A scene's ``fit`` (or the brand kit's framed look) sets its picture i
 Every change is a new version, by the person or by Row-Bot with a note of what changed. Going
 back is a new version too, so nothing is lost. Making a version's video voices each line whose
 voice is missing or says other words, then renders the whole version as one video edit that
-also reads the checks (sound, black and still stretches) for the review card. The video is
+also gives it the finished check (``video_check``) for the review card. The video is
 saved to the conversation's files like any edit.
 """
 
@@ -659,12 +659,24 @@ def scene_waits(source: str, start: float, end: float | None) -> tuple[tuple[flo
     return tuple(waits)
 
 
+def scene_footage(source: str, ref: str) -> Any:
+    """What the finished check knows of a scene's footage beyond its cut (``video_check.Footage``): what its
+    recording logged being done, and the character or style its file is tagged with in Library › Media."""
+    from row_bot import media_library, recordings
+    from row_bot.video_check import Footage
+
+    record = recordings.get(source) if str(source).startswith("rec-") else None
+    return Footage(actions=tuple(tuple(action) for action in record.actions) if record else (),
+                   look=media_library.look_of(ref) if ref else "")
+
+
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:
     """Voice what needs it, then make the version's video (or, with ``shape``, the same in that shape)."""
     from row_bot import sound, video_edits
     from row_bot.media_sources import SourceError, resolve
     from row_bot.tools.sound_tool import _save as save_sound
     from row_bot.tools.sound_tool import _source as sound_source
+    from row_bot.video_check import Footage
     from row_bot.video_editing import SceneCut, Step
 
     project = get(project_id, conversation_id)
@@ -717,10 +729,12 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             steps.append(Step(op="sound", source=version.narration, role="voice", start=0.0))
         if version.music:
             steps.append(Step(op="sound", source=version.music, role="music", volume=version.music_volume))
+        footage = {value: scene_footage(value, item.ref or "") for value, item in zip(sources, media, strict=True)}
         edit = video_edits.start(video_edits.Request(
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
             output_name=_file_name(project.title, ".mp4", shape.replace(":", "x")),
             download=download, sounds=sounds, check=True,
+            footage=[footage.get(scene.source, Footage()) for scene in version.scenes],
             role="draft", output_id=project.project_id, version=number,
         ))
         if shape:
@@ -843,12 +857,13 @@ def _status(version: Version, edit: Any) -> str:
     return {"saved": "made", "failed": "failed", "stopped": "stopped"}.get(edit.status, "rendering")
 
 
-# What Row-Bot looks for in a made video before it says it's done (5.3.2): the checks read sound and stillness,
-# the sheet shows what a viewer sees.
-REVIEW = ("Review sheet: {sheet} (each scene a second in and near its end). Look at it with analyze_image before "
-          "saying the video is done, and fix what's off, then make it again: is what's being done in view and big "
-          "enough to read; does each zoom land on it; do titles or captions cover it; is anything cut off, black or "
-          "broken; does each scene show what its line says; is it mostly the app, not title cards.")
+# A made video's checks are the finished check (C8): its sound, picture and words were read and its review sheet
+# looked at once by the vision model, so Row-Bot fixes what they list instead of looking again itself.
+REVIEW = ("Review sheet: {sheet} (frames of each scene, for the person to open). The checks above already "
+          "include one look at it: don't look at it again with analyze_image. Fix what they list and make the video "
+          "again; it's ready to share only when they pass. A line starting \"Check\" is worth a look but doesn't "
+          "stop it. If something can't be fixed, tell the person. If a problem is still listed after two makes, stop "
+          "and tell the person what's left.")
 
 
 def summary(project: Project, number: int | None = None) -> str:
@@ -891,7 +906,7 @@ def summary(project: Project, number: int | None = None) -> str:
     if made:
         lines.append(f"Its edit: {made['edit_id']}.")
     if data["checks"]:
-        verdict = "passed" if data["checks_passed"] else "NOT passed: fix these before saying it's done"
+        verdict = "passed: ready to share" if data["checks_passed"] else "NOT passed: fix these, then make it again"
         lines.append(f"Checks {verdict}:\n" + "\n".join(f"- {line}" for line in data["checks"]))
     if data["review_sheet"]:
         lines.append(REVIEW.format(sheet=data["review_sheet"]))

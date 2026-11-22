@@ -93,7 +93,8 @@ def _sounds(steps) -> dict:
 
 
 def _check(inputs: list[str]) -> str:
-    """Read a finished video: sound level, black and still stretches (the review card's checks)."""
+    """The finished check of any video: its loudness, black and still stretches, and one look at a review sheet of
+    frames across it by the person's vision model."""
     from row_bot import ffmpeg_runtime, video_edits
     from row_bot.media_sources import SourceError
     from row_bot.video_editing import EditError
@@ -117,10 +118,15 @@ def _check(inputs: list[str]) -> str:
         else:
             path = Path(source.path)
         try:
-            checks = video_edits.check_file(ffmpeg, path, Path(folder))
+            checks, sheet = video_edits.check_file(ffmpeg, path, Path(folder), conversation_id=conversation,
+                                                   name=output_name(f"{Path(source.label).stem} review",
+                                                                    default="video review", suffix=".jpg"),
+                                                   label=source.label)
         except EditError as error:
             return str(error)
-    return f"Checks for {source.label}:\n" + "\n".join(f"- {line}" for line in checks.lines)
+    verdict = "passed: ready to share" if checks.passed else "NOT passed: fix these, then check it again"
+    shown = f"\nReview sheet: {sheet} in this chat's files (the checks include one look at it)." if sheet else ""
+    return f"Checks for {source.label} {verdict}:\n" + "\n".join(f"- {line}" for line in checks.lines) + shown
 
 
 def ffmpeg_consent(purpose: str, tool: str) -> tuple[str, str, bool]:
@@ -399,8 +405,9 @@ class VideoEditingTool(BaseTool):
                     "Edit videos with ffmpeg into one H.264 MP4 saved to this chat (shown with a player): trim, "
                     "join, speed (with a 2× label), text badges or titles, zoom (punch-in), crop, captions (SRT), "
                     "sound (voice lines at times, music ducked under them, one loudness). action=frames saves "
-                    "stills; check reads a finished video's sound, black and still stretches: never say a video "
-                    "is done before it passes. status/stop follow an edit in the background; save copies it into "
+                    "stills; check gives a finished video the finished check (loudness, black and still stretches, "
+                    "one look at its frames): check a video before you present it as a final. status/stop follow an "
+                    "edit in the background; save copies it into "
                     "the workspace. The first use may ask to download ffmpeg."
                 ),
                 args_schema=_EditInput,

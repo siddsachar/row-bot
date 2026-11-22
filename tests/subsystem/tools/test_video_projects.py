@@ -181,6 +181,35 @@ def test_making_a_version_renders_its_scenes_in_one_edit_with_its_voices_music_a
     assert (view["status"], view["edit"]["edit_id"]) == ("rendering", version.edit_id)
 
 
+def test_the_finished_check_knows_what_a_recording_did_and_which_character_a_shot_shows(studio):
+    """C8: words over a clicked button and AI shots of one character drifting apart are read from what each scene's
+    footage is: its recording's action log, and its file's character or style tag in Library › Media."""
+    import time
+
+    from row_bot import media_library, recordings, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.video_check import Footage
+
+    saved = register_attachment("conversation-a", "generated-recording.mp4", MP4)
+    record = recordings.Recording(recording_id="rec-0c8c8c8c", conversation_id="conversation-a", kind="browser",
+                                  started_at=time.time() - 60, max_seconds=300, status="saved",
+                                  media_ref=saved["attachment_ref"], mime_type="video/mp4",
+                                  actions=[[1.0, 2.0, "click", 0.4, 0.9, 0.1, 0.05, "button \"Send\""]])
+    recordings._ensure_loaded()
+    recordings._RECORDS[record.recording_id] = record
+    shot = register_attachment("conversation-a", "maya-at-the-door.mp4", MP4)
+    media_library.set_tags(shot["attachment_ref"], ["character: maya", "draft"])
+    project = video_projects.create("conversation-a", "Maya", [
+        {"source": "rec-0c8c8c8c", "end": 3, "line": "Send it."}, {"card": "Later", "end": 2},
+        {"source": "maya-at-the-door.mp4", "line": "Maya comes home."}])
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    assert studio["started"][0].footage == [
+        Footage(actions=((1.0, 2.0, "click", 0.4, 0.9, 0.1, 0.05, "button \"Send\""),)), Footage(),
+        Footage(look="character: maya")]
+
+
 def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_runs_long(studio):
     """A title like "Row-Bot 5.3.1 beta | …" once named every scene's voice "Row-Bot 5.3.wav", so each scene
     played the last one's line."""
@@ -534,8 +563,9 @@ def test_making_a_narrated_video_without_rowbots_voice_asks_for_it_first(studio,
     assert video_projects.get(project.project_id, "conversation-a").latest.status != "rendering", "nothing made"
 
 
-def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_its_done(studio):
-    """5.3.2: Row-Bot checks what it made, as a viewer sees it, before it says the video is finished."""
+def test_a_made_video_comes_with_a_review_sheet_the_checks_already_looked_at(studio):
+    """5.3.2: Row-Bot checks what it made, as a viewer sees it, before it says the video is finished; since C8
+    the check looks at the sheet once itself, and the agent no longer runs its own vision passes."""
     from row_bot import video_edits, video_projects
 
     assert video_edits.review_times([0.0, 5.0, 6.0]) == [(1, 1.0), (1, 4.4), (2, 5.5)], \
@@ -548,7 +578,10 @@ def test_a_made_video_comes_with_a_review_sheet_row_bot_looks_at_before_saying_i
     video_edits._set(made, status="saved", sheet="Launch demo v1 review.jpg")
 
     words = video_projects.summary(video_projects.get(project.project_id))
-    assert "Review sheet: Launch demo v1 review.jpg" in words and "analyze_image before saying the video is done" in words
+    assert "Review sheet: Launch demo v1 review.jpg" in words
+    # C8: the checks already include one look at the sheet; Row-Bot fixes what they list, it doesn't look again.
+    assert "don't look at it again with analyze_image" in words and "Look at it with analyze_image" not in words
+    assert "If a problem is still listed after two makes, stop and tell the person what's left." in words
     assert video_projects.view(video_projects.get(project.project_id))["review_sheet"] == "Launch demo v1 review.jpg"
 
 
