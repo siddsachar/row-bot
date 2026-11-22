@@ -294,6 +294,10 @@ def test_lockdown_keeps_local_chat_help_and_self_update_and_refuses_the_rest() -
     assert policy.settings.updates.channel is None and policy.settings.updates.deferral_days == 0
     # Refused: every cloud route, every tool that reaches outside Row-Bot, and the features.
     assert not any(policy.allows_provider(provider) for provider in PROVIDER_BILLING)
+    assert not any(policy.allows_provider(provider, base_url=LOCAL[0]) for provider in PROVIDER_BILLING
+                   if provider != "ollama"), "a loopback proxy to a cloud provider is still a cloud provider"
+    assert not policy.allows_provider("custom_openai_lm-studio", base_url="http://127.0.0.1:1234/v1")
+    assert not policy.allows_model("model:ollama:gpt-oss:120b-cloud", base_url=LOCAL[0])
     assert not policy.allows_provider("ollama", base_url="http://gpu-box.example.com:11434")
     assert not policy.allows_provider("custom_openai_lan", base_url="http://192.168.1.20:8080/v1")
     assert not policy.allows_model("model:anthropic:claude-sonnet-4-5")
@@ -307,6 +311,30 @@ def test_lockdown_keeps_local_chat_help_and_self_update_and_refuses_the_rest() -
                    ("learning", "proactive", "remote_access", "data_export", "install_count"))
     assert {policy.limit_approval_level(level) for level in APPROVAL_MODES} == {"block"}
     assert policy.settings.line.regulated
+
+
+KEPT_IN_LOCKDOWN = ("calculator", "chart", "conversation_search", "documents", "filesystem", "goal", "media",
+                    "memory", "pages", "presentation", "row_bot_status", "row_bot_updater", "tracker")
+REFUSED_IN_LOCKDOWN = ("agents", "designer", "linked_conversations", "task", "waits", "wiki", "shell", "browser",
+                       "computer_use", "url_reader", "web_search", "mcp", "developer", "file_delivery", "vision")
+
+
+def test_lockdown_keeps_only_tools_that_stay_inside_the_conversation() -> None:
+    policy = Lockdown(reason="invalid", detail="test", source=PolicySource("file", "org-policy.json"))
+
+    assert [tool for tool in KEPT_IN_LOCKDOWN if not policy.allows_tool(tool)] == []
+    assert [tool for tool in REFUSED_IN_LOCKDOWN if policy.allows_tool(tool)] == []
+
+
+@pytest.mark.parametrize("model", ["qwen3:8b", "gpt-oss:120b-cloud", "qwen3-coder:480b-cloud", "kimi-k2:cloud",
+                                   "llama3", "deepseek-v3.1:671b-cloud", "cloudy:7b"])
+def test_lockdown_refuses_exactly_the_ollama_models_that_run_on_ollama_cloud(model: str) -> None:
+    from row_bot.providers.ollama import is_ollama_cloud_offload_model
+
+    policy = Lockdown(reason="invalid", detail="test", source=PolicySource("file", "org-policy.json"))
+
+    assert policy.allows_model(f"model:ollama:{model}", base_url=LOCAL[0]) == (
+        not is_ollama_cloud_offload_model(model))
 
 
 def test_local_only_and_tool_allow_lists_apply_to_an_org_policy(tmp_path: Path) -> None:

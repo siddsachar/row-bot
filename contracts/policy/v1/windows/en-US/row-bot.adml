@@ -33,7 +33,7 @@
       <string id="approvals_max_level_max_level_auto">auto</string>
       <string id="approvals_max_level_max_level_full">full</string>
       <string id="models_allowed_providers">Allowed providers</string>
-      <string id="models_allowed_providers_Explain">models.allowed_providers: Provider ids people may use (for example anthropic, openai, ollama, custom_openai_&lt;endpoint&gt;). Not set in a policy: any provider. Lockdown: any provider.</string>
+      <string id="models_allowed_providers_Explain">models.allowed_providers: Provider ids people may use (for example anthropic, openai, ollama, custom_openai_&lt;endpoint&gt;). Not set in a policy: any provider. Lockdown: custom_openai_llamacpp, ollama.</string>
       <string id="models_allowed_models">Allowed models</string>
       <string id="models_allowed_models_Explain">models.allowed_models: Provider-qualified model refs people may use (model:&lt;provider&gt;:&lt;model id&gt;). Not set in a policy: any model of an allowed provider. Lockdown: any model of an allowed provider.</string>
       <string id="models_gateway_url">Organisation gateway URL</string>
@@ -60,9 +60,9 @@ Enabled: true. Disabled: false.</string>
 
 Enabled: true. Disabled: false.</string>
       <string id="tools_allowed">Allowed tools</string>
-      <string id="tools_allowed_Explain">tools.allowed: The only tool names people may use; any other tool, including plugin, MCP and custom tools, is switched off. Not set in a policy: every tool. Lockdown: agents, calculator, chart, conversation_search, designer, documents, filesystem, goal, linked_conversations, media, memory, pages, presentation, row_bot_status, row_bot_updater, task, tracker, waits, wiki.</string>
+      <string id="tools_allowed_Explain">tools.allowed: The only tool names people may use; any other tool, including plugin, MCP and custom tools, is switched off. Not set in a policy: every tool. Lockdown: calculator, chart, conversation_search, documents, filesystem, goal, media, memory, pages, presentation, row_bot_status, row_bot_updater, tracker.</string>
       <string id="tools_disabled">Disabled tools</string>
-      <string id="tools_disabled_Explain">tools.disabled: Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, developer, duckduckgo, file_delivery, gmail, image_gen, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, url_reader, video_editing, video_gen, vision, weather, web_search, wikipedia, wolfram_alpha, x, youtube.</string>
+      <string id="tools_disabled_Explain">tools.disabled: Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: agents, arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, designer, developer, duckduckgo, file_delivery, gmail, image_gen, linked_conversations, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, task, url_reader, video_editing, video_gen, vision, waits, weather, web_search, wiki, wikipedia, wolfram_alpha, x, youtube.</string>
       <string id="tools_files_outside_workspace">Allow files outside the workspace</string>
       <string id="tools_files_outside_workspace_Explain">tools.files_outside_workspace: Whether tools may read or change files outside the workspace (each time still asked by the approval level). Not set in a policy: true. Lockdown: false.
 

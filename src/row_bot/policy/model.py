@@ -80,6 +80,8 @@ class _Rules:
         provider, _, model = rest.partition(":")
         if prefix != "model" or not provider or not model or not self.allows_provider(provider, base_url=base_url):
             return False
+        if provider == "ollama" and _ollama_cloud_tag(model) and not self.settings.models.cloud_models:
+            return False  # a local Ollama serves it, but it runs on Ollama Cloud
         allowed = self.settings.models.allowed_models
         return allowed is None or model_ref in allowed
 
@@ -90,6 +92,8 @@ class _Rules:
         return self.settings is None or self.settings.models.local_models
 
     def allows_tool(self, name: str) -> bool:
+        """Whether the registry tool *name* (``BaseTool.name``, such as ``shell``) may be used. The seams map a
+        model-facing sub-tool (``run_command``) to its owner before asking."""
         if self.settings is None:
             return True
         tools = self.settings.tools
@@ -150,6 +154,16 @@ class Lockdown(_Rules):
 
 
 Policy = NoPolicy | OrgPolicy | Lockdown
+
+
+def _ollama_cloud_tag(model: str) -> bool:
+    """An Ollama tag that runs on Ollama Cloud (``gpt-oss:120b-cloud``, ``qwen3:cloud``), as
+    ``providers.ollama.is_ollama_cloud_offload_model`` reads it."""
+    raw = model.strip().lower()
+    if ":" not in raw:
+        return False
+    tag = raw.rsplit(":", 1)[1]
+    return tag == "cloud" or tag.endswith("-cloud")
 
 
 def _loopback(base_url: str | None) -> bool:

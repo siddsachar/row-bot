@@ -167,6 +167,21 @@ def test_a_broken_policy_still_lets_the_fix_arrive_and_local_chat_run(tmp_path: 
     assert not policy.allows_tool("shell")
 
 
+# Reviewed for H2 (POL-1): each stays inside Row-Bot and the conversation. row_bot_send_feedback saves a local
+# draft (the person sends it), row_bot_docs reads the bundled guides offline, row_bot_check_for_updates and
+# row_bot_install_update are the signed self-update lockdown keeps.
+REVIEWED_LOCKDOWN_SUBTOOLS = frozenset({
+    "calculate", "create_chart", "list_conversations", "search_conversations", "documents", "export_to_pdf",
+    "workspace_copy_file", "workspace_file_delete", "workspace_find", "workspace_move_file", "workspace_read_file",
+    "workspace_write_file", "goal_status", "goal_update", "media_bring", "media_find", "media_tag", "delete_memory",
+    "explore_connections", "link_memories", "list_memories", "save_memory", "search_memory", "update_memory",
+    "page_create", "page_read", "page_update", "present", "row_bot_apply_proposal", "row_bot_create_skill",
+    "row_bot_docs", "row_bot_fix", "row_bot_patch_skill", "row_bot_reject_proposal", "row_bot_review_skill_library",
+    "row_bot_send_feedback", "row_bot_status", "row_bot_update_setting", "row_bot_verify_proposal",
+    "row_bot_check_for_updates", "row_bot_install_update", "tracker_delete", "tracker_log", "tracker_query",
+})
+
+
 # Imports every tool module, so nightly. Lockdown's tool list is an allow-list: a tool nobody classified yet is
 # refused, so this keeps the lists in step rather than guarding the behaviour (the tests above do that).
 @pytest.mark.slow
@@ -185,6 +200,10 @@ def test_lockdown_names_every_core_tool_as_kept_or_refused(tmp_path: Path, monke
     kept, refused = LOCKDOWN.tools.allowed, LOCKDOWN.tools.disabled
     assert not kept & refused
     assert core == kept | refused, "classify a new tool for lockdown in row_bot.policy.schema"
+    # The model sees the sub-tools. A kept tool that grows one has it reviewed here before lockdown keeps it.
+    subtools = {tool.name for owner in registry.get_all_tools() if owner.name in kept
+                for tool in owner.as_langchain_tools()}
+    assert subtools == REVIEWED_LOCKDOWN_SUBTOOLS
 
 
 def test_a_named_policy_file_that_is_missing_locks_down(tmp_path: Path) -> None:

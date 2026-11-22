@@ -45,22 +45,29 @@ EXTENSION_MODES = ("none", "allow-list", "any")
 FEATURES = ("learning", "proactive", "remote_access", "data_export", "install_count")
 
 # Lockdown keeps a recovery path: chat with a model on this computer, the app's own help and settings, and
-# Row-Bot's signed self-update. These core tools stay inside Row-Bot (its chats, memory, pages, workspace and
-# its own updater), so they are the only ones lockdown allows; every other tool, including any added later,
-# a plugin's, an MCP server's or a custom one, is refused.
+# Row-Bot's signed self-update. Its tools are an allow-list of registry tool names (``BaseTool.name``, not the
+# model-facing sub-tool names): core tools whose every sub-tool stays inside Row-Bot (its chats, memory, pages,
+# documents, the workspace and its own updater) and acts only within the conversation. Every other tool,
+# including any added later, a plugin's, an MCP server's or a custom one, is refused.
 LOCKDOWN_TOOLS = frozenset({
-    "agents", "calculator", "chart", "conversation_search", "designer", "documents", "filesystem", "goal",
-    "linked_conversations", "media", "memory", "pages", "presentation", "row_bot_status", "row_bot_updater",
-    "task", "tracker", "waits", "wiki",
+    "calculator", "chart", "conversation_search", "documents", "filesystem", "goal", "media", "memory", "pages",
+    "presentation", "row_bot_status", "row_bot_updater", "tracker",
 })
-# The core tools that reach outside Row-Bot: a shell, a browser, the screen and camera, the network, other
-# accounts, code and processes, channels and cloud generation. Named so the defaults table lists them.
+# The core tools lockdown refuses, named so the defaults table lists them: they reach outside Row-Bot (a shell,
+# a browser, the screen and camera, the network, other accounts, code and processes, channels, public links,
+# cloud generation, a vault folder outside the workspace) or act beyond the conversation (background agents
+# that choose their own model, scheduled workflows that deliver to channels, messages into other chats, and
+# waits that run commands or fetch pages).
 OUTSIDE_TOOLS = frozenset({
-    "arxiv", "browser", "calendar", "computer_use", "conversation_setup", "custom_tool_builder", "developer",
-    "duckduckgo", "file_delivery", "gmail", "image_gen", "mcp", "outlook_calendar", "outlook_mail", "shell",
-    "sound", "system_info", "url_reader", "video_editing", "video_gen", "vision", "weather", "web_search",
-    "wikipedia", "wolfram_alpha", "x", "youtube",
+    "agents", "arxiv", "browser", "calendar", "computer_use", "conversation_setup", "custom_tool_builder",
+    "designer", "developer", "duckduckgo", "file_delivery", "gmail", "image_gen", "linked_conversations", "mcp",
+    "outlook_calendar", "outlook_mail", "shell", "sound", "system_info", "task", "url_reader", "video_editing",
+    "video_gen", "vision", "waits", "weather", "web_search", "wiki", "wikipedia", "wolfram_alpha", "x", "youtube",
 })
+# The providers lockdown keeps, and only at a loopback address: Ollama and Row-Bot's own llama.cpp runtime
+# (``local_runtime.PROVIDER_ID``). Other local servers (LM Studio, vLLM) are custom endpoints with any id, so a
+# loopback address alone (a local proxy to a cloud included) is not enough.
+LOCAL_PROVIDERS = frozenset({"ollama", "custom_openai_llamacpp"})
 
 
 class InvalidPolicy(ValueError):
@@ -127,7 +134,7 @@ class Models:
     """Which models people may use, and how they reach them."""
 
     allowed_providers: frozenset[str] | None = _setting(
-        None, "list", None, "Allowed providers",
+        None, "list", LOCAL_PROVIDERS, "Allowed providers",
         "Provider ids people may use (for example anthropic, openai, ollama, custom_openai_<endpoint>).",
         unset="any provider", pattern=PROVIDER_ID)
     allowed_models: frozenset[str] | None = _setting(
