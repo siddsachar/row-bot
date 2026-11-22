@@ -161,7 +161,8 @@ def _google_provider(idp: FakeIdp) -> OidcProvider:
             return httpx.Response(200, json={"keys": [key.as_dict(private=False) for key in idp.keys]})
         return httpx.Response(404)
 
-    config = IdpConfig(kind="google", issuer=GOOGLE, client_id=idp.client_id, client_secret=CLIENT_SECRET)
+    config = IdpConfig(kind="google", issuer=GOOGLE, client_id=idp.client_id, hosted_domains=("example.com",),
+                       client_secret=CLIENT_SECRET)
     return OidcProvider(config, client=httpx.Client(transport=httpx.MockTransport(answer)), clock=Clock())
 
 
@@ -179,6 +180,25 @@ def test_googles_issuer_is_accepted_with_and_without_its_scheme_and_nothing_else
             assert _validate(provider, token).issuer == GOOGLE
         else:
             assert _refused(provider, token).reason == "id_token_rejected"
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        # A personal Google account, even one using a company address: no hd.
+        ({"hd": None, "email": "ex-employee@example.com"}, "hosted_domain_not_allowed"),
+        ({"hd": "gmail.com", "email": "mallory@gmail.com"}, "hosted_domain_not_allowed"),
+        ({"hd": "example.com.evil.test"}, "hosted_domain_not_allowed"),
+        ({"hd": ["example.com"]}, "hosted_domain_not_allowed"),
+        ({"email_verified": False}, "email_not_verified"),
+        ({"email_verified": None}, "email_not_verified"),
+    ],
+)
+def test_google_admits_only_verified_accounts_of_the_hosted_domains(change: dict, reason: str) -> None:
+    with running_idp("google") as idp:
+        provider = _provider(idp)
+        assert _validate(provider, idp.id_token(_claims(idp, hd="Example.COM"))).subject == "person-1"
+        assert _refused(provider, idp.id_token(_claims(idp, **change))).reason == reason
 
 
 def test_only_google_gets_an_issuer_without_its_scheme() -> None:

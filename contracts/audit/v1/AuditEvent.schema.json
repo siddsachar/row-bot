@@ -1,0 +1,1682 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "session.signed_in"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "session"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "session.signed_out"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "session"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "enum": [
+                  "signed_out",
+                  "expired"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "session.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "session"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "device.joined"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "device"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "app_version": {
+                "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                "type": "string"
+              },
+              "platform": {
+                "enum": [
+                  "windows",
+                  "macos",
+                  "linux"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "app_version",
+              "platform"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "device"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "device.removed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person",
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "device"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "enum": [
+                  "left",
+                  "revoked"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "device"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "model.called"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person",
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "model"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "cache_read_tokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "duration_ms": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "input_tokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "model": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,127})$",
+                "type": "string"
+              },
+              "output_tokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "provider": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "input_tokens",
+              "model",
+              "output_tokens",
+              "provider"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "tool.called"
+          }
+        }
+      },
+      "then": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "redaction": {
+                  "enum": [
+                    "metadata"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "details": {
+                  "not": {
+                    "required": [
+                      "summary"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "tool"
+          },
+          "decided_by": {
+            "enum": [
+              "block",
+              "chat_grant",
+              "hands_off",
+              "none",
+              "person",
+              "policy",
+              "reviewer",
+              "rule"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "app": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              },
+              "approval_level": {
+                "enum": [
+                  "block",
+                  "approve",
+                  "auto",
+                  "full"
+                ],
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              "rule_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              },
+              "summary": {
+                "maxLength": 300,
+                "minLength": 1,
+                "pattern": "^[^\\u0000]*$",
+                "type": "string"
+              },
+              "surface": {
+                "enum": [
+                  "chat",
+                  "workflow",
+                  "agent",
+                  "goal",
+                  "channel",
+                  "proactive",
+                  "developer"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "approval_level",
+              "surface"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "changed",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "tool"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "policy.changed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "policy"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "digest": {
+                "pattern": "^(?:[0-9a-f]{64})$",
+                "type": "string"
+              },
+              "group": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              },
+              "previous_digest": {
+                "pattern": "^(?:[0-9a-f]{64})$",
+                "type": "string"
+              },
+              "schema_version": {
+                "maximum": 1000,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "digest",
+              "schema_version"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "app.approved"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "app"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "channel",
+                  "integration",
+                  "mcp_server",
+                  "plugin"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "app.pushed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "app"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "channel",
+                  "integration",
+                  "mcp_server",
+                  "plugin"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "app.removed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "app"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "channel",
+                  "integration",
+                  "mcp_server",
+                  "plugin"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "document.uploaded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "document"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "byte_count": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "space_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "space_id"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "document"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "document.removed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "document"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "space_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "space_id"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "document"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "share.submitted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "share"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "item_kind": {
+                "enum": [
+                  "fact",
+                  "relation",
+                  "skill",
+                  "source"
+                ],
+                "type": "string"
+              },
+              "space_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_kind",
+              "space_id"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "share"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "share.approved"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "share"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "item_kind": {
+                "enum": [
+                  "fact",
+                  "relation",
+                  "skill",
+                  "source"
+                ],
+                "type": "string"
+              },
+              "space_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_kind",
+              "space_id"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "share"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "share.rejected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "share"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "item_kind": {
+                "enum": [
+                  "fact",
+                  "relation",
+                  "skill",
+                  "source"
+                ],
+                "type": "string"
+              },
+              "space_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_kind",
+              "space_id"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "share"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "library.published"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person",
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "library"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "item_kind": {
+                "enum": [
+                  "skill",
+                  "agent",
+                  "workflow"
+                ],
+                "type": "string"
+              },
+              "version": {
+                "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_kind",
+              "version"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "library_item"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "data.exported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "person",
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "data"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "byte_count": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "item_count": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "enum": [
+                  "person",
+                  "space",
+                  "company",
+                  "audit"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "scope"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "org",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "export"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "role.changed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "role"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "change": {
+                "enum": [
+                  "granted",
+                  "removed"
+                ],
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "admin",
+                  "member",
+                  "space_owner"
+                ],
+                "type": "string"
+              },
+              "space_id": {
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "change",
+              "role"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "company",
+              "org",
+              "team"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "org_settings.changed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "org_settings"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked",
+              "denied",
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "setting"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    }
+  ],
+  "description": "One Row-Bot for Teams audit event: team, company or org layer, never personal; details hold only the keys the action defines at or below the event's redaction level.",
+  "properties": {
+    "action": {
+      "enum": [
+        "app.approved",
+        "app.pushed",
+        "app.removed",
+        "data.exported",
+        "device.joined",
+        "device.removed",
+        "document.removed",
+        "document.uploaded",
+        "library.published",
+        "model.called",
+        "org_settings.changed",
+        "policy.changed",
+        "role.changed",
+        "session.revoked",
+        "session.signed_in",
+        "session.signed_out",
+        "share.approved",
+        "share.rejected",
+        "share.submitted",
+        "tool.called"
+      ],
+      "type": "string"
+    },
+    "actor": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "admin",
+            "person",
+            "service"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "category": {
+      "enum": [
+        "app",
+        "data",
+        "device",
+        "document",
+        "library",
+        "model",
+        "org_settings",
+        "policy",
+        "role",
+        "session",
+        "share",
+        "tool"
+      ],
+      "type": "string"
+    },
+    "decided_by": {
+      "anyOf": [
+        {
+          "enum": [
+            "block",
+            "chat_grant",
+            "hands_off",
+            "none",
+            "person",
+            "policy",
+            "reviewer",
+            "rule"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "details": {
+      "type": "object"
+    },
+    "device_id": {
+      "anyOf": [
+        {
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "pattern": "^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$",
+      "type": "string"
+    },
+    "layer": {
+      "enum": [
+        "company",
+        "org",
+        "team"
+      ],
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z)$",
+      "type": "string"
+    },
+    "org_id": {
+      "pattern": "^(?:[a-z0-9][a-z0-9._-]{0,63})$",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "blocked",
+        "changed",
+        "denied",
+        "failed",
+        "succeeded"
+      ],
+      "type": "string"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z)$",
+      "type": "string"
+    },
+    "redaction": {
+      "enum": [
+        "metadata",
+        "summaries"
+      ],
+      "type": "string"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "channel",
+                "device",
+                "document",
+                "export",
+                "integration",
+                "library_item",
+                "mcp_server",
+                "person",
+                "plugin",
+                "setting",
+                "share",
+                "tool"
+              ],
+              "type": "string"
+            },
+            "ref": {
+              "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "turn_id": {
+      "anyOf": [
+        {
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "action",
+    "actor",
+    "category",
+    "decided_by",
+    "details",
+    "device_id",
+    "id",
+    "layer",
+    "occurred_at",
+    "org_id",
+    "outcome",
+    "recorded_at",
+    "redaction",
+    "request_id",
+    "target",
+    "turn_id"
+  ],
+  "title": "AuditEvent",
+  "type": "object"
+}

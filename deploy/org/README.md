@@ -50,11 +50,12 @@ SELECT format('GRANT %I TO row_bot_org_app', row_bot_org.runtime_role()) \gexec
 Without `CREATEROLE` for the owner, an administrator creates the group (`CREATE ROLE
 row_bot_org_runtime_row_bot_org NOLOGIN`) before the first `migrate`, and grants the membership.
 
-`serve` and `check-config` refuse a role that is a superuser, has `BYPASSRLS`, or can `SET ROLE` to one
-that is, and the server checks again on every new database connection and every `/readyz`. Owning the
-schema or its tables is a warning: forced row-level security still applies to the owner, but an owner
-could turn it off. `migrate` refuses a superuser too: the migrating role owns the functions the server
-calls before anyone has signed in, and a superuser's would run past every check.
+The two roles are required. `serve` and `check-config` refuse a role that is a superuser, has
+`BYPASSRLS`, can `SET ROLE` to one that is, or owns (or is a member of the owner of) the schema or its
+tables, and the server checks again on every new database connection and every `/readyz`. The owner reads
+every row (the sign-in functions it owns need that) and could turn row-level security off, so it never
+serves. `migrate` refuses a superuser: the migrating role owns the functions the server calls before
+anyone has signed in, and a superuser's would run past every check.
 
 Migrations only go forward. `migrate` takes a lock (and gives up after 2 minutes), so two at once are
 safe. It refuses a database whose applied migrations changed, that a newer server migrated, whose schema
@@ -96,12 +97,19 @@ public URL's origin.
 - `ROW_BOT_ORG_PUBLIC_URL`: the origin browsers use, `https://org.example.com` (http only on loopback).
 - `ROW_BOT_ORG_IDP`: the provider, a JSON object, for example
   `{"kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0", "client_id": "...",
-  "allowed_tenants": ["<tenant id>"]}`. `kind` is `entra`, `okta` or `google` (Google's issuer is
-  `https://accounts.google.com`). Optional: `groups_claim` (`groups`), `group_map` (provider group to
-  Row-Bot group; others are dropped) and `allowed_email_domains` (sign-in then needs a verified email in
-  one of them). Entra needs the tenant's own issuer and `allowed_tenants`: the `common` and
-  `organizations` authorities are refused. Past 200 groups Entra sends a reference instead of the groups,
-  and sign-in is refused: limit the groups claim to groups assigned to the application.
+  "allowed_tenants": ["<tenant id>"]}`. `kind` is `entra`, `okta` or `google`. Optional: `groups_claim`
+  (`groups`), `group_map` (provider group to Row-Bot group; others are dropped) and
+  `allowed_email_domains` (sign-in then needs a verified email in one of them; not for Entra).
+  - **Entra** needs the tenant's own issuer and `allowed_tenants`: the `common` and `organizations`
+    authorities are refused. The tenant check admits everyone with an account in the tenant, B2B guests
+    included, so in the app registration's enterprise application set **Assignment required = Yes** and
+    assign the groups who may sign in. Entra sends no `email_verified`, so `allowed_email_domains` is
+    refused for it. Past 200 groups Entra sends a reference instead of the groups, and sign-in is
+    refused: limit the groups claim to groups assigned to the application.
+  - **Google** (issuer `https://accounts.google.com`) needs `hosted_domains`, the Workspace domains whose
+    accounts may sign in (`["example.com"]`): any Google account can get a token for any Google client,
+    so sign-in needs the token's `hd` in that list and a verified email. Make the OAuth client's consent
+    screen **Internal**, so only your Workspace's accounts can use it at all.
 - `ROW_BOT_ORG_IDP_CLIENT_SECRET`: the application's client secret (sent as `client_secret_basic`). A secret.
 - `ROW_BOT_ORG_HMAC_PEPPER`: at least 32 random characters, the key of every stored verifier. A secret:
   changing it signs everyone out.

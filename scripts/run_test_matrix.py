@@ -274,6 +274,9 @@ COMMANDS: dict[str, CommandSpec] = {
     "brain-contracts": _cmd(
         "brain-contracts", "uv", "run", "python", "scripts/brain/export_schemas.py", "--check", env=TEST_ENV,
     ),
+    "audit-contracts": _cmd(
+        "audit-contracts", "uv", "run", "python", "scripts/audit/export_schemas.py", "--check", env=TEST_ENV,
+    ),
     "policy-contracts": _cmd(
         "policy-contracts", "uv", "run", "python", "scripts/policy/export_schemas.py", "--check", env=TEST_ENV,
     ),
@@ -358,6 +361,7 @@ QUALITY = (
     "client-platform-boundaries",
     "client-platform-contracts",
     "brain-contracts",
+    "audit-contracts",
     "policy-contracts",
 )
 
@@ -380,7 +384,7 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
     "deterministic": ("deterministic",),
     "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts",
-             "brain-contracts", "policy-contracts", "contracts"),
+             "brain-contracts", "audit-contracts", "policy-contracts", "contracts"),
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
     "org": ("org",),

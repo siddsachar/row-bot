@@ -99,6 +99,8 @@ class FakeIdp:
         entry: dict[str, Any] = {"kind": self.shape, "issuer": self.issuer, "client_id": self.client_id}
         if self.shape == "entra":
             entry["allowed_tenants"] = [self.tenant]
+        elif self.shape == "google":
+            entry["hosted_domains"] = ["example.com"]
         entry.update(overrides)
         return entry
 

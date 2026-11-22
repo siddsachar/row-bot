@@ -88,11 +88,21 @@ CREATE POLICY server_sessions_self ON row_bot_org.server_sessions FOR SELECT
     USING (principal_id OPERATOR(pg_catalog.=) row_bot_org.row_bot_principal()::pg_catalog.uuid);
 CREATE POLICY server_sessions_self_revoke ON row_bot_org.server_sessions FOR UPDATE
     USING (principal_id OPERATOR(pg_catalog.=) row_bot_org.row_bot_principal()::pg_catalog.uuid)
-    WITH CHECK (principal_id OPERATOR(pg_catalog.=) row_bot_org.row_bot_principal()::pg_catalog.uuid);
+    WITH CHECK (principal_id OPERATOR(pg_catalog.=) row_bot_org.row_bot_principal()::pg_catalog.uuid
+                AND revoked_at IS NOT NULL);
 
 CALL row_bot_org.grant_runtime_access('row_bot_org.principals');
 CALL row_bot_org.grant_runtime_access('row_bot_org.principal_groups');
 CALL row_bot_org.grant_runtime_access('row_bot_org.server_sessions');
+-- Logout is the runtime's only change to a session: it may set revoked_at, never clear it (the policy's
+-- check), and no other column, so no session can be un-revoked or made to last longer.
+DO $$
+BEGIN
+    EXECUTE pg_catalog.format('REVOKE UPDATE ON row_bot_org.server_sessions FROM %I', row_bot_org.runtime_role());
+    EXECUTE pg_catalog.format('GRANT UPDATE (revoked_at) ON row_bot_org.server_sessions TO %I',
+                              row_bot_org.runtime_role());
+END
+$$;
 
 -- A sign-in starts: keep its attempt for p_lifetime (at most 15 minutes), and drop expired ones.
 CREATE FUNCTION row_bot_org.begin_sign_in(p_state bytea, p_browser bytea, p_nonce bytea, p_code_verifier text,
