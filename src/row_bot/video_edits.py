@@ -108,8 +108,10 @@ class Request:
     download: bool = False
     # Voice and music files a sound step names (5.3.1 B): name -> (path, or the chat file's bytes and suffix).
     sounds: dict[str, tuple[Any, bytes, str]] = field(default_factory=dict)
-    # Read the finished video's sound, black and still stretches (a video project's review card).
+    # Give the finished video the whole finished check (``video_check``) and its review sheet (a video project's).
     check: bool = False
+    # A video project's scenes: what the check knows of each one's footage (``video_check.Footage``), in order.
+    footage: list[Any] = field(default_factory=list)
     # Make a looping GIF of the one source video instead (a video project's export).
     gif: bool = False
     # What the made video is to the person (``attachments.ROLES``) and the output it is a version of: a video
@@ -192,7 +194,7 @@ def _load(path: Path) -> VideoEdit | None:
         edit.frame_refs = [str(item) for item in data.get("frame_refs") or []][:64]
         edit.frame_times = [float(item) for item in data.get("frame_times") or []][:64]
         edit.frame_names = [str(item)[:120] for item in data.get("frame_names") or []][:64]
-        edit.checks = [str(item)[:300] for item in data.get("checks") or []][:12]
+        edit.checks = [str(item)[:400] for item in data.get("checks") or []][:40]
         edit.checks_passed = None if data.get("checks_passed") is None else bool(data["checks_passed"])
         edit.marks = [float(item) for item in data.get("marks") or []][:61]
         edit.silent = bool(data.get("silent"))
@@ -505,33 +507,75 @@ def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[fl
          mime_type=str(saved["mime_type"]), size_bytes=len(sheet))
 
 
-def check_file(ffmpeg: Any, path: Path, folder: Path, *, narrated: bool = False) -> Any:
-    """Read a finished video for its sound level, black stretches and still stretches (``Checks``)."""
-    from row_bot.video_editing import check_arguments, read_checks
+def measure_file(ffmpeg: Any, path: Path, folder: Path, *, narrated: bool = False) -> tuple[Any, Any]:
+    """One read of a finished video by ffmpeg (``video_check.measure_arguments``): what it is, and what was found."""
+    from row_bot.video_check import measure_arguments, read_measures
+    from row_bot.video_editing import EditError
 
     info = probe_video(ffmpeg, str(path), folder)
     try:
-        done = subprocess.run(  # noqa: S603 - the resolved ffmpeg, arguments built by video_editing
-            ffmpeg.command(*check_arguments(path, has_audio=info.has_audio, narrated=narrated)), cwd=folder, capture_output=True,
-            text=True, timeout=1800, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            encoding="utf-8", errors="replace",
+        done = subprocess.run(  # noqa: S603 - the resolved ffmpeg, arguments built by video_check
+            ffmpeg.command(*measure_arguments(path, has_audio=info.has_audio, narrated=narrated)), cwd=folder,
+            capture_output=True, text=True, timeout=1800, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), encoding="utf-8", errors="replace",
         )
     except subprocess.TimeoutExpired:
-        from row_bot.video_editing import EditError
-
         raise EditError("Checking took too long: check a shorter part (trim it first).") from None
-    return read_checks(done.stderr or "", info, narrated=narrated)
+    return info, read_measures(done.stderr or "", info, narrated=narrated)
 
 
-def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, *, narrated: bool = False,
-                 review: list[str] | None = None) -> None:
-    """The checks of the finished video, with what its plan does that a good video doesn't (``Plan.review``)."""
+def check_file(ffmpeg: Any, path: Path, folder: Path, *, conversation_id: str, name: str,
+               label: str = "") -> tuple[Any, str]:
+    """The finished check of any video (edit_video's check): one read for its sound and stretches, and one look at
+    a review sheet of frames across it, saved to the chat as *name*, a working file made from the video (*label*).
+    The checks, and the sheet's name ("" none)."""
+    from row_bot import video_check
+    from row_bot.application.attachments import AttachmentError, register_attachment
+    from row_bot.contact_sheet import SheetError, make_sheet
+    from row_bot.video_editing import EditError, frame_times, stills_arguments
+
+    info, measures = measure_file(ffmpeg, path, folder)
+    times = frame_times(info.duration, REVIEW_TILES // 2)
+    found: list[Any] = []
+    saved = ""
+    try:
+        subprocess.run(  # noqa: S603 - the resolved ffmpeg, arguments built by video_editing
+            ffmpeg.command(*stills_arguments(path, times, "review-%02d.jpg", max_width=960)), cwd=folder,
+            capture_output=True, timeout=600, check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        pictures = [((folder / f"review-{index:02d}.jpg").read_bytes(), clock(at))
+                    for index, at in enumerate(times, start=1) if (folder / f"review-{index:02d}.jpg").is_file()]
+        sheet, _tiles = make_sheet(pictures)
+        saved = str(register_attachment(conversation_id, name, sheet, role="working",
+                                        output_id=f"check-{uuid.uuid4().hex[:8]}",
+                                        made_from=[Path(label).name] if label else [])["name"])
+        found = video_check.look(sheet)
+    except (EditError, OSError, SheetError, AttachmentError, subprocess.SubprocessError):
+        logger.info("A checked video's review sheet couldn't be made", exc_info=True)
+    return video_check.checks(info, measures, found), saved
+
+
+def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, plan: Any, request: Request,
+                 originals: tuple[list[Any], Any]) -> None:
+    """The finished check of a made video (``video_check``): one read by ffmpeg, what its render knows (each
+    scene's sharpness, words over the action or faces, safe areas, drift between shots), what its plan does that a
+    good video doesn't (``Plan.review``), and, for a project's video, one look at its review sheet by the person's
+    vision model."""
+    from row_bot import video_check
+
     _check(edit)
-    checks = check_file(ffmpeg, folder / "output.mp4", folder, narrated=narrated)
-    lines = list(checks.lines)
-    if review:
-        lines[-1:] = [*review, "Result: needs attention before it's done."]
-    _set(edit, checks=lines, checks_passed=bool(checks.passed) and not review)
+    _set(edit, detail="Checking the video")
+    info, measures = measure_file(ffmpeg, folder / "output.mp4", folder, narrated=plan.narrated)
+    inputs, step = originals
+    render = video_check.Render(plan=plan, inputs=inputs, step=step, footage=list(request.footage), folder=folder)
+    found = video_check.findings(render, measures)
+    if request.check and len(plan.marks) > 1:  # A project's video: frames of each scene, looked at once.
+        sheet = _review_sheet(edit, ffmpeg, folder, plan.marks, _lineage(edit, request, "working"))
+        if sheet:
+            _check(edit)
+            found += video_check.look(sheet, [scene.line or scene.card for scene in step.scenes]
+                                      if step is not None and step.op == "scenes" else [])
+    checks = video_check.checks(info, measures, found, narrated=plan.narrated, review=plan.review)
+    _set(edit, checks=checks.lines, checks_passed=checks.passed, detail="")
 
 
 REVIEW_TILES = 24
@@ -552,16 +596,16 @@ def review_times(marks: list[float]) -> list[tuple[int, float]]:
     return [(number, round(at, 2)) for number, at in looks]
 
 
-def _review_sheet(edit: VideoEdit, ffmpeg: Any, folder: Path, marks: list[float], lineage: dict[str, Any]) -> None:
-    """The made video's review sheet: frames of each scene, labelled "scene · time", saved to the chat so Row-Bot
-    looks at what it made before saying it's done."""
+def _review_sheet(edit: VideoEdit, ffmpeg: Any, folder: Path, marks: list[float], lineage: dict[str, Any]) -> bytes:
+    """The made video's review sheet: frames of each scene, labelled "scene · time", saved to the chat as a working
+    file (the person can open it) for the check's one look; the sheet, or nothing when it couldn't be made."""
     from row_bot.application.attachments import AttachmentError, register_attachment
     from row_bot.contact_sheet import SheetError, make_sheet
     from row_bot.video_editing import EditError, stills_arguments
 
     looks = review_times(marks)
     if not looks:
-        return
+        return b""
     names = [f"review-{index:02d}.jpg" for index in range(1, len(looks) + 1)]
     _check(edit)
     try:
@@ -574,8 +618,9 @@ def _review_sheet(edit: VideoEdit, ffmpeg: Any, folder: Path, marks: list[float]
                                     **lineage)
     except (EditError, OSError, SheetError, AttachmentError):
         logger.info("A video's review sheet couldn't be made", exc_info=True)
-        return
+        return b""
     _set(edit, sheet=str(saved["name"]))
+    return sheet
 
 
 def _run(edit: VideoEdit, request: Request) -> None:
@@ -609,6 +654,8 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 else:
                     sounds[name] = str(path)
             steps = list(request.steps)
+            # The check reads a project's scenes as they were asked for, before the studio pass draws them.
+            originals = (list(inputs), steps[0] if steps else None)
             if steps and steps[0].op == "scenes":  # A video project: each recorded scene's camera and look.
                 from row_bot import video_studio
 
@@ -634,9 +681,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
             _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
             _measure(edit, ffmpeg, folder)
             if request.check or plan.narrated:  # A video given a voice is checked for gaps in it.
-                _check_video(edit, ffmpeg, folder, narrated=plan.narrated, review=plan.review)
-            if request.check and len(plan.marks) > 1:  # A project's video: frames of each scene to look at.
-                _review_sheet(edit, ffmpeg, folder, plan.marks, _lineage(edit, request, "working"))
+                _check_video(edit, ffmpeg, folder, plan, request, originals)
             _save_video(edit, folder / "output.mp4", _lineage(edit, request))
         else:
             info = inputs[0].info

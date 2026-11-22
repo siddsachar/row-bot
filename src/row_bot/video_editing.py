@@ -241,6 +241,9 @@ class Look:
     framing: str = "full"
     camera: str = "follow"
 ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
+# Room kept clear of text at each edge of a tall or square video (left, top, right, bottom; fractions of the
+# frame): a phone app lays its own buttons, name and caption over a short (9:16), and a feed rounds or crops a square.
+SAFE_AREAS = {"9:16": (0.06, 0.10, 0.06, 0.20), "1:1": (0.04, 0.04, 0.04, 0.04)}
 # A video of title cards only has no picture to take its size from.
 CARD_SIZES = {"16:9": (1920, 1080), "1:1": (1080, 1080), "9:16": (1080, 1920)}
 
@@ -477,6 +480,8 @@ class Overlay:
     y: int
     start: float | None = None
     end: float | None = None
+    # The soft shadow around a picture's visible part, in pixels on each side (a lower third's).
+    inset: int = 0
 
 
 # A caption's phrase (PHRASE_CHARACTERS) fits on one line; bold captions (no box) are larger.
@@ -602,7 +607,8 @@ def lower_third(text: str, colour: tuple[int, int, int], frame_width: int, frame
     output = io.BytesIO()
     picture.save(output, format="PNG", optimize=True)
     x, y = place("lower-left", width, height, frame_width, frame_height)
-    return Overlay(output.getvalue(), picture.width, picture.height, max(0, x - blur), max(0, y - blur))
+    return Overlay(output.getvalue(), picture.width, picture.height, max(0, x - blur), max(0, y - blur),
+                   inset=blur)
 
 
 def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
@@ -629,15 +635,34 @@ def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
     return [phrase.rstrip(",;:") or phrase for phrase in shown]
 
 
-def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
-    """Where a picture of this size goes for a position preset, with a margin from the edges; ``lower`` is the
-    lower third, above where captions sit."""
+def shape_of(width: int, height: int) -> str:
+    """The shape a picture of this size is ("16:9", "1:1" or "9:16"), or "" when it's none of them."""
+    ratio = width / max(1, height)
+    return next((name for name, value in ASPECTS.items() if abs(ratio / value - 1) < 0.03), "")
+
+
+def margins(frame_width: int, frame_height: int) -> tuple[int, int, int, int]:
+    """How far in from each edge text is laid (left, top, right, bottom): a little in on any video, and clear of
+    a tall or square video's safe area (``SAFE_AREAS``)."""
     margin = round(frame_height * 0.045)
+    safe = SAFE_AREAS.get(shape_of(frame_width, frame_height))
+    if not safe:
+        return margin, margin, margin, margin
+    pad = round(min(frame_width, frame_height) * 0.015)
+    left, top, right, bottom = (max(margin, math.ceil(share * size) + pad) for share, size in
+                                zip(safe, (frame_width, frame_height, frame_width, frame_height), strict=True))
+    return left, top, right, bottom
+
+
+def place(position: str, width: int, height: int, frame_width: int, frame_height: int) -> tuple[int, int]:
+    """Where a picture of this size goes for a position preset, in from the edges (``margins``); ``lower`` is the
+    lower third, above where captions sit."""
+    left, top, right, bottom = margins(frame_width, frame_height)
     vertical, _, horizontal = (position or "top-right").partition("-")
     if position in {"top", "bottom", "center"}:
         vertical, horizontal = position, "center"
-    x = {"left": margin, "right": frame_width - width - margin}.get(horizontal, (frame_width - width) // 2)
-    y = {"top": margin, "bottom": frame_height - height - margin,
+    x = {"left": left, "right": frame_width - width - right}.get(horizontal, (frame_width - width) // 2)
+    y = {"top": top, "bottom": frame_height - height - bottom,
          "lower": round(frame_height * 0.68) - height // 2}.get(vertical, (frame_height - height) // 2)
     return max(0, x), max(0, y)
 
@@ -712,6 +737,20 @@ def _waiting(scenes: list[SceneCut], marks: list[float]) -> list[str]:
     return found[:4]
 
 
+@dataclass(frozen=True)
+class TextBox:
+    """Words laid over a video, where they show (pixels of the finished frame) and when; ``end`` None: to the end.
+    ``kind``: caption, title (a scene's lower third), badge, card (a title card's or bookend's words) or logo."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+    start: float
+    end: float | None
+    kind: str
+
+
 @dataclass
 class Plan:
     """One ffmpeg run: its arguments (after the program), its filter graph and the pictures it lays over."""
@@ -735,6 +774,10 @@ class Plan:
     overlay_sheet: bytes = b""
     # A project's voice lines: where each starts on the finished video, and its file; laid into NARRATION first.
     voices: list[tuple[float, str]] = field(default_factory=list)
+    # The words it lays over the picture (the finished check reads where they fall), and the stretches it shows
+    # larger than their video was made (from, until, how many times larger): a zoom, a smaller clip joined in.
+    texts: list[TextBox] = field(default_factory=list)
+    enlarged: list[tuple[float, float, float]] = field(default_factory=list)
 
 
 def overlay_sheet(pictures: list[bytes]) -> tuple[bytes, list[tuple[int, int, int, int]]]:
@@ -802,6 +845,8 @@ class _Builder:
         self.marks: list[float] = []
         self.narrated = False
         self.review: list[str] = []
+        self.texts: list[TextBox] = []
+        self.enlarged: list[tuple[float, float, float]] = []
 
     def label(self, kind: str) -> str:
         self.count += 1
@@ -828,7 +873,12 @@ class _Builder:
                 self.audio = audio
             return
         pieces: list[str] = []
+        at = 0.0
         for index, item in enumerate(inputs):
+            larger = max(self.width / max(1, item.info.width), self.height / max(1, item.info.height))
+            if larger > 1.01:
+                self.enlarged.append((at, at + item.info.duration, larger))
+            at += item.info.duration
             video = self.label("v")
             # Each fills the first one's frame, cropped around its middle: one film, no black bars.
             self.add(f"[{index}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
@@ -925,9 +975,15 @@ class _Builder:
         return label
 
     def lay(self, video: str, picture: Overlay, *, start: float | None = None, end: float | None = None,
-            slide: bool = False) -> str:
+            slide: bool = False, kind: str = "", shown: tuple[float, float | None] | None = None) -> str:
         """Lay a picture over a video stream (between start and end when given; ``slide``: easing in from the
-        left edge and back out); the new stream."""
+        left edge and back out); the new stream. Words (``kind``) are noted where and when they show on the
+        finished video: ``shown`` when that isn't start to end of this stream (a piece of it)."""
+        if kind:
+            inset = picture.inset
+            begin, until = shown if shown is not None else (max(0.0, start or 0.0), end)
+            self.texts.append(TextBox(picture.x + inset, picture.y + inset, picture.width - 2 * inset,
+                                      picture.height - 2 * inset, begin, until, kind))
         source = self.overlay_input(picture)
         out = self.label("v")
         enable = ""
@@ -957,7 +1013,8 @@ class _Builder:
             sounds[middle] = tempo
         if step.label:
             label = Step(op="text", text=speed_words(factor), position=step.position or "top-right", style="badge")
-            videos[middle] = self.lay(videos[middle], text_overlay(label, self.width, self.height))
+            videos[middle] = self.lay(videos[middle], text_overlay(label, self.width, self.height), kind="badge",
+                                      shown=(start, start + (end - start) / factor))
         self._join(videos, sounds)
         self.duration = self.duration - (end - start) + (end - start) / factor
 
@@ -966,7 +1023,7 @@ class _Builder:
         if step.start is not None and step.start >= self.duration:
             raise EditError(f"Text: it starts at {_seconds_text(step.start)} s, after the video ends "
                             f"({_seconds_text(self.duration)} s at that point).")
-        self.video = self.lay(self.video, picture, start=step.start, end=step.end)
+        self.video = self.lay(self.video, picture, start=step.start, end=step.end, kind=step.style or "badge")
 
     def captions(self, step: Step) -> None:
         cues = [cue for cue in parse_srt(step.text) if cue.start < self.duration]
@@ -982,7 +1039,7 @@ class _Builder:
                 until = end if part is parts[-1] else at + (end - cue.start) * len(part) / sum(map(len, parts))
                 caption = Step(op="text", text=part, position=step.position or "bottom", style="caption")
                 self.video = self.lay(self.video, text_overlay(caption, self.width, self.height), start=at,
-                                      end=until)
+                                      end=until, kind="caption")
                 at = until
 
     def _region(self, step: Step, *, keep_shape: bool) -> tuple[int, int, int, int]:
@@ -1008,6 +1065,7 @@ class _Builder:
         start, end = self._window(step)
         cuts, middle = self._cuts(start, end, self.duration)
         videos, _ = self._pieces(cuts, audio=False)
+        self.enlarged.append((start, end, self.width / cw))
         out = self.label("v")
         self.add(f"{videos[middle]}crop={cw}:{ch}:{cx}:{cy},scale={self.width}:{self.height}:flags=lanczos,"
                  f"setsar=1{out}")
@@ -1093,11 +1151,12 @@ class _Builder:
                 png, width, height = render_text(scene.card, "title", self.width, self.height, plain=True,
                                                  shadow=True)
                 x, y = place("center", width, height, self.width, self.height)
-                self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end)
+                self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end,
+                                      kind="card")
             elif scene.card:  # Over a picture, a lower third: the middle is where the action is.
                 shown = (begin + min(TITLE_DELAY, (end - begin) / 4), min(end, begin + TITLE_DELAY + TITLE_SECONDS))
                 self.video = self.lay(self.video, lower_third(scene.card, look.colour, self.width, self.height),
-                                      start=shown[0], end=shown[1], slide=True)
+                                      start=shown[0], end=shown[1], slide=True, kind="title")
             if scene.line and step.style == "caption":
                 # One phrase at a time, each for its share of the line's time: never a paragraph.
                 said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
@@ -1110,7 +1169,7 @@ class _Builder:
                                Step(op="text", text=part, style="caption", position="bottom",
                                     plain=look.captions == "bold"))
                     self.video = self.lay(self.video, text_overlay(caption, self.width, self.height), start=at,
-                                          end=until if part != parts[-1] else max(until, said))
+                                          end=until if part != parts[-1] else max(until, said), kind="caption")
                     at = until
             if scene.voice:
                 self.voice_cues.append((begin, scene.voice))
@@ -1119,9 +1178,10 @@ class _Builder:
             if text:
                 title = Step(op="text", text=text, style="title", position="center", plain=True)
                 self.video = self.lay(self.video, text_overlay(title, self.width, self.height), start=start,
-                                      end=start + BOOKEND_SECONDS)
+                                      end=start + BOOKEND_SECONDS, kind="card")
         if look.logo:
-            self.video = self.lay(self.video, logo_overlay(look.logo, look.logo_corner, self.width, self.height))
+            self.video = self.lay(self.video, logo_overlay(look.logo, look.logo_corner, self.width, self.height),
+                                  kind="logo")
 
     def _blank(self, colour: tuple[int, int, int], length: float) -> tuple[str, str | None]:
         """A picture of one colour, *length* seconds long, with silence when the video has sound."""
@@ -1249,7 +1309,10 @@ def build_plan(
     size = CARD_SIZES.get(steps[0].aspect, CARD_SIZES["16:9"]) if cards_only else CARD_SIZES["16:9"]
     builder = _Builder(inputs, size=size)
     builder.start(inputs)
-    for step in steps:
+    for index, step in enumerate(steps):
+        if index and step.op in {"trim", "speed", "zoom", "crop"}:
+            # Words and enlargements noted so far have moved: the finished check reads the ones laid after.
+            builder.texts, builder.enlarged = [], []
         getattr(builder, step.op)(step)
     builder.mix(steps, len(inputs), sources)
     video = builder.label("v")
@@ -1282,7 +1345,8 @@ def build_plan(
                 duration=builder.duration, width=builder.width, height=builder.height,
                 has_audio=bool(builder.audio), summary=describe(steps, len(inputs)), outputs=[output],
                 marks=builder.marks, narrated=builder.narrated, review=builder.review, overlay_sheet=sheet,
-                voices=[(moment, sounds[name]) for moment, name in builder.voice_cues])
+                voices=[(moment, sounds[name]) for moment, name in builder.voice_cues], texts=builder.texts,
+                enlarged=builder.enlarged)
 
 
 def gif_arguments(source: str, output: str, *, width: int = 480, fps: int = 12) -> list[str]:
@@ -1356,85 +1420,3 @@ def clock(seconds: float) -> str:
     minutes, rest = divmod(int(whole), 60)
     hours, minutes = divmod(minutes, 60)
     return f"{hours}:{minutes:02d}:{rest:02d}" if hours else f"{minutes}:{rest:02d}"
-
-
-# ── Checks ──────────────────────────────────────────────────────────────────
-
-QUIET_DB = -35.0
-_MEAN = re.compile(r"mean_volume:\s*(-?[0-9.]+|-inf) dB")
-_PEAK = re.compile(r"max_volume:\s*(-?[0-9.]+|-inf) dB")
-_BLACK = re.compile(r"black_start:\s*([0-9.]+)\s+black_end:\s*([0-9.]+)")
-_FROZEN = re.compile(r"freeze_start:\s*([0-9.]+)[\s\S]*?freeze_duration:\s*([0-9.]+)")
-_SILENCE_START = re.compile(r"silence_start:\s*(-?[0-9.]+)")
-_SILENCE_END = re.compile(r"silence_end:\s*([0-9.]+)")
-# A gap this long in a narrated video, or a picture held this long, is a pause a viewer notices.
-QUIET_GAP_SECONDS = 6.0
-LONG_STILL_SECONDS = 10.0
-# A narrated video's picture may hold while the voice speaks over it (a viewer reads along); its quiet gaps are
-# checked on their own.
-NARRATED_STILL_SECONDS = 20.0
-
-
-def check_arguments(path: Path | str, *, has_audio: bool, narrated: bool = False) -> list[str]:
-    """One read of the video for its sound level, black stretches and still stretches (and, narrated, its
-    quiet stretches)."""
-    args = ["-hide_banner", "-nostdin", *input_arguments(path),
-            "-vf", "blackdetect=d=0.5:pix_th=0.10,freezedetect=n=0.003:d=3"]
-    if has_audio:
-        quiet = f",silencedetect=n=-40dB:d={QUIET_GAP_SECONDS:g}" if narrated else ""
-        args += ["-af", f"volumedetect{quiet}"]
-    return args + ["-f", "null", "-"]
-
-
-@dataclass(frozen=True)
-class Checks:
-    passed: bool
-    lines: list[str]
-
-
-def read_checks(output: str, info: VideoInfo, *, narrated: bool = False) -> Checks:
-    """What the read found, in plain lines; a video passes when it has sound loud enough, no black stretch
-    past its first and last second, no picture held still for 10 s or more (20 s narrated) and, narrated, no 6 s
-    without the voice. Shorter still stretches are listed (a screen recording may rightly hold still)."""
-    lines = [f"Length {clock(info.duration)}, {info.width}×{info.height}."]
-    problems = 0
-    mean, peak = _MEAN.search(output), _PEAK.search(output)
-    if not info.has_audio or mean is None:
-        lines.append("Sound: none. Add a voice or music if this video should have sound.")
-        problems += 1
-    else:
-        level = float("-inf") if mean.group(1) == "-inf" else float(mean.group(1))
-        top = peak.group(1) if peak else "?"
-        if level < QUIET_DB:
-            lines.append(f"Sound: too quiet (average {mean.group(1)} dB, peak {top} dB).")
-            problems += 1
-        else:
-            lines.append(f"Sound: present (average {mean.group(1)} dB, peak {top} dB).")
-    black = [(float(a), float(b)) for a, b in _BLACK.findall(output)]
-    inside = [(a, b) for a, b in black if not (a <= 1.0 and b - a <= 1.5) and not (b >= info.duration - 1.0
-                                                                                   and b - a <= 1.5)]
-    if inside:
-        problems += 1
-        lines.append("Black: " + ", ".join(f"{clock(a)}–{clock(b)}" for a, b in inside[:5]) + ".")
-    else:
-        lines.append("Black: none.")
-    if narrated and info.has_audio:
-        starts = [max(0.0, float(a)) for a in _SILENCE_START.findall(output)]
-        ends = [float(b) for b in _SILENCE_END.findall(output)] + [info.duration] * len(starts)
-        gaps = [(a, b) for a, b in zip(starts, ends, strict=False) if b - a >= QUIET_GAP_SECONDS]
-        if gaps:
-            problems += 1
-            lines.append("Quiet: " + ", ".join(f"{clock(a)}–{clock(b)}" for a, b in gaps[:5])
-                         + " with no voice. Give those parts a line, or cut them shorter.")
-    frozen = [(float(a), float(d)) for a, d in _FROZEN.findall(output)]
-    limit = NARRATED_STILL_SECONDS if narrated and info.has_audio else LONG_STILL_SECONDS
-    long = [(a, d) for a, d in frozen if d >= limit]
-    if long:
-        problems += 1
-        lines.append("Still: " + ", ".join(f"{clock(a)} for {d:.0f} s" for a, d in long[:5])
-                     + ": too long to watch. Cut those parts shorter or speed them up.")
-    else:
-        lines.append("Still: " + (", ".join(f"{clock(a)} for {d:.0f} s" for a, d in frozen[:5])
-                                  + " (fine if nothing should move there)." if frozen else "none."))
-    lines.append("Result: passed." if not problems else "Result: needs attention before it's done.")
-    return Checks(not problems, lines)

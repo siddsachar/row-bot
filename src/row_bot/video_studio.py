@@ -170,23 +170,34 @@ def _setting(frame: Frame, picture: tuple[int, int]) -> tuple[Any, tuple[int, in
     return backdrop, at, inner, mask
 
 
-def compose(picture: Any, frame: Frame, at: tuple[float, float, float] = (0.5, 0.5, 1.0)) -> Any:
-    """One finished frame: the picture through the camera's view, set in the frame's look."""
-    from PIL import Image
-
-    box = crop_box(*at, picture.width, picture.height)
+def placement(picture: tuple[int, int], frame: Frame, at: tuple[float, float, float] = (0.5, 0.5, 1.0)
+              ) -> tuple[tuple[float, float, float, float], tuple[int, int, int, int]]:
+    """Which part of a picture of this size the frame shows through this view (left, top, right, bottom in its
+    pixels), and where in the frame it goes (the same, in the frame's)."""
+    box = crop_box(*at, *picture)
     if frame.framing == "full":
         width, height = frame.size
         # Edge to edge: the view cropped to the frame's shape around the view's middle, kept inside the view.
         seen_width, seen_height = box[2] - box[0], box[3] - box[1]
         if seen_width / seen_height > width / height:
             kept = seen_height * width / height
-            left = min(max(box[0], at[0] * picture.width - kept / 2), box[2] - kept)
+            left = min(max(box[0], at[0] * picture[0] - kept / 2), box[2] - kept)
             box = (left, box[1], left + kept, box[3])
         else:
             kept = seen_width * height / width
-            top = min(max(box[1], at[1] * picture.height - kept / 2), box[3] - kept)
+            top = min(max(box[1], at[1] * picture[1] - kept / 2), box[3] - kept)
             box = (box[0], top, box[2], top + kept)
+        return box, (0, 0, width, height)
+    _backdrop, place, inner, _mask = _setting(frame, picture)
+    return box, (place[0], place[1], place[0] + inner[0], place[1] + inner[1])
+
+
+def compose(picture: Any, frame: Frame, at: tuple[float, float, float] = (0.5, 0.5, 1.0)) -> Any:
+    """One finished frame: the picture through the camera's view, set in the frame's look."""
+    from PIL import Image
+
+    box, _where = placement((picture.width, picture.height), frame, at)
+    if frame.framing == "full":
         return picture.resize(frame.size, Image.Resampling.LANCZOS, box=box)
     backdrop, place, inner, mask = _setting(frame, (picture.width, picture.height))
     finished = backdrop.copy()

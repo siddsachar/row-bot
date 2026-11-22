@@ -63,6 +63,11 @@ def _tags() -> dict[str, list[str]]:
     return found
 
 
+def look_of(ref: str) -> str:
+    """The saved character or style one item shows, as its tag ("character: maya"), or "" (``looks``)."""
+    return next((tag for tag in _tags().get(ref, []) if _LOOK.fullmatch(tag)), "")
+
+
 def clean_tags(tags: list[str]) -> list[str]:
     """Tags as kept: trimmed, lower case, each once, up to MAX_TAGS of up to 40 characters."""
     kept: list[str] = []

@@ -448,36 +448,6 @@ def test_turning_the_videos_own_sound_off_keeps_only_the_voice_or_leaves_no_soun
     assert voiced.has_audio and "[1:a]" in voiced.graph and _every_stream_is_used(voiced)
 
 
-def test_a_narrated_video_with_long_quiet_gaps_or_a_long_held_picture_needs_attention():
-    """The Release kit's demo said 3 s of each 18 s scene and held the picture for 14 s: "Sound: present" passed it."""
-    from row_bot.video_editing import check_arguments, read_checks
-
-    minute = VideoInfo(duration=60.0, width=1280, height=720, fps=30.0, has_audio=True)
-    assert "silencedetect" in " ".join(check_arguments("output.mp4", has_audio=True, narrated=True))
-    assert "silencedetect" not in " ".join(check_arguments("output.mp4", has_audio=True))
-    heard = ("mean_volume: -25.0 dB\nmax_volume: -3.9 dB\n"
-             "silence_start: 2.87\nsilence_end: 18.04 | silence_duration: 15.17\n"
-             "silence_start: 20.87\nsilence_end: 36.04 | silence_duration: 15.17\n"
-             "silence_start: 57.5\n")
-    gappy = read_checks(heard, minute, narrated=True)
-    assert not gappy.passed
-    assert gappy.lines[3] == "Quiet: 0:02.9–0:18, 0:20.9–0:36 with no voice. Give those parts a line, or cut them shorter."
-    assert read_checks(heard, minute).passed, "a recording's own quiet isn't a gap in a narration"
-
-    held = read_checks("mean_volume: -19.0 dB\nmax_volume: -2.0 dB\n"
-                       "lavfi.freezedetect.freeze_start: 4.4\nlavfi.freezedetect.freeze_duration: 14.2\n", minute)
-    assert not held.passed and held.lines[3].startswith("Still: 0:04.4 for 14 s: too long to watch.")
-    # Under the voice a viewer reads along: a narrated picture may hold up to 20 s (demo run 2, 30 Oct, re-cut its
-    # video twelve times for 11 s holds), not longer.
-    spoken = "mean_volume: -19.0 dB\nmax_volume: -2.0 dB\nlavfi.freezedetect.freeze_start: 4.4\n"
-    assert read_checks(spoken + "lavfi.freezedetect.freeze_duration: 14.2\n", minute, narrated=True).passed
-    assert not read_checks(spoken + "lavfi.freezedetect.freeze_duration: 22.0\n", minute, narrated=True).passed
-
-    voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)], parse_steps([{"op": "sound", "source": "a.wav"}]),
-                        "output.mp4", sounds={"a.wav": "sound-1.wav"})
-    assert voiced.narrated and not _plan([{"op": "trim", "start": 1}]).narrated
-
-
 def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
     plan = build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
                       parse_steps([{"op": "sound", "source": "line.wav"}]), "output.mp4",
@@ -496,25 +466,6 @@ def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
                        "volume is from 0")):
         with pytest.raises(EditError, match=words):
             parse_steps([bad])
-
-
-def test_checks_pass_a_video_with_sound_and_list_what_needs_attention():
-    from row_bot.video_editing import check_arguments, read_checks
-
-    args = check_arguments("output.mp4", has_audio=True)
-    assert "volumedetect" in args and any("blackdetect" in a and "freezedetect" in a for a in args)
-    assert "volumedetect" not in check_arguments("output.mp4", has_audio=False)
-
-    good = read_checks("[Parsed_volumedetect_0] mean_volume: -18.2 dB\n[Parsed_volumedetect_0] max_volume: -1.0 dB\n"
-                       "black_start:0 black_end:0.6 black_duration:0.6\n"
-                       "lavfi.freezedetect.freeze_start: 12.2\nlavfi.freezedetect.freeze_duration: 4.1\n", HD)
-    assert good.passed and good.lines[1] == "Sound: present (average -18.2 dB, peak -1.0 dB)."
-    assert good.lines[2] == "Black: none.", "a fade-in at the start isn't a problem"
-    assert good.lines[3].startswith("Still: 0:12.2 for 4 s")
-
-    quiet = read_checks("mean_volume: -48.0 dB\nmax_volume: -30.0 dB\nblack_start:2 black_end:4 black_duration:2\n", HD)
-    assert not quiet.passed and "too quiet" in quiet.lines[1] and quiet.lines[2] == "Black: 0:02–0:04."
-    assert read_checks("", SILENT).lines[1].startswith("Sound: none.")
 
 
 def test_a_long_narrated_captioned_project_is_one_short_command_with_each_picture_cut_from_one_sheet():
