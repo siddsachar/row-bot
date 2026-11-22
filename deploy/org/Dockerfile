@@ -17,11 +17,11 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /build
 
-# The locked core dependencies and the `org` extra; not `all`, and not the desktop app's package.
+# The locked core dependencies and the `org` group; not `all`, and not the desktop app's package.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY scripts/client_build.py ./scripts/client_build.py
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra org --no-install-project
+    uv sync --frozen --no-dev --group org --no-install-project
 
 # Only the Org server's own package goes into the image.
 COPY src/row_bot_org /opt/row-bot-org/src/row_bot_org

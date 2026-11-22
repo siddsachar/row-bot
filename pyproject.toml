@@ -127,9 +127,6 @@ media = [
   "plotly>=6.0,<7.0",
   "kaleido>=1.0,<2.0",
 ]
-# The Row-Bot Org server (src/row_bot_org): its own deployment, never part of `all`, so the
-# desktop build set and installers stay as they are. FastAPI and uvicorn are core already.
-org = []
 all = [
   "av>=14,<18",
   "sounddevice>=0.5,<1.0",
@@ -177,6 +174,10 @@ row-bot = "row_bot.launcher:main"
 row-bot-org = "row_bot_org.cli:main"
 
 [dependency-groups]
+# The Row-Bot Org server (src/row_bot_org), installed only by its own image (deploy/org). A group,
+# not an extra: the installer and update-part exports take every extra and no group, so nothing
+# here can reach a desktop build. FastAPI and uvicorn are core already.
+org = []
 test = [
   "pytest>=9.0.3,<10.0",
   "pytest-cov>=6.0,<8.0",

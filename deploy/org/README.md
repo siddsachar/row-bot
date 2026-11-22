@@ -9,7 +9,7 @@ installers and updates don't include it.
 ## Run it
 
 ```sh
-uv sync --extra org
+uv sync --group org
 uv run row-bot-org check-config   # exit 0 when the settings are valid, 1 when not
 uv run row-bot-org serve          # http://127.0.0.1:8100/healthz and /readyz
 ```
