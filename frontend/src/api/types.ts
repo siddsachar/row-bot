@@ -2065,6 +2065,7 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
     group?: ConversationListGroup,
+    limit?: number,
   ): Promise<Wire.ConversationPage>;
   getConversation(
     id: string,

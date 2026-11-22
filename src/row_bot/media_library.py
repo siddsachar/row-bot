@@ -14,6 +14,7 @@ import json
 import re
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -79,49 +80,87 @@ def clean_tags(tags: list[str]) -> list[str]:
     return kept
 
 
+# Each chat folder's media, kept until the folder changes: a file added, renamed or removed changes the
+# folder's modified time, and files are never changed in place. Keyed by the folder's path.
+_LISTED: dict[str, tuple[int, list[tuple[float, dict[str, Any]]]]] = {}
+# A folder changed this recently may change again within its file system's time resolution: read it afresh.
+_SETTLED_SECONDS = 2.0
+
+
+def _chat_media(folder: Path, changed: int) -> list[tuple[float, dict[str, Any]]]:
+    """A chat's pictures, videos and sounds with each file's time, newest first; checked records, read once."""
+    from row_bot.application.attachments import list_conversation_files
+    from row_bot.thread_cleanup import is_thread_deleting
+
+    chat = folder.name
+    kept = _LISTED.get(str(folder))
+    if kept and kept[0] == changed:
+        if is_thread_deleting(chat):  # Listing the files would refuse a chat being deleted.
+            raise MediaError("deleting")
+        return kept[1]
+    listed = []
+    for entry in list_conversation_files(chat, limit=1000):
+        item_kind = KINDS.get(str(entry["mime_type"]))
+        if item_kind is None:
+            continue
+        ref = str(entry["attachment_ref"])
+        try:
+            at = (folder / f"attachment_{ref.rsplit(':', 1)[1]}.bin").stat().st_mtime
+        except OSError:
+            continue
+        listed.append((at, {"ref": ref, "name": str(entry["name"]), "kind": item_kind,
+                            "mime_type": str(entry["mime_type"]), "size": int(entry["size_bytes"])}))
+    if time.time() - changed / 1e9 > _SETTLED_SECONDS:
+        _LISTED[str(folder)] = (changed, listed)
+    return listed
+
+
 def items(*, query: str = "", kind: str = "", limit: int = 200) -> list[dict[str, Any]]:
     """Media across chats, newest first: each item's reference, name, kind, size, chat and tags."""
     from row_bot import threads
-    from row_bot.application.attachments import list_conversation_files
     from row_bot.application.client_monitor import _conversation_titles
 
     root = Path(threads._MEDIA_DIR)
     if not root.is_dir():
         return []
     hidden = threads.incognito_thread_ids()
-    chats = [path.name for path in root.iterdir() if path.is_dir() and path.name not in hidden]
-    titles = _conversation_titles(set(chats))
+    folders = []
+    for path in root.iterdir():
+        try:
+            if path.name not in hidden and path.is_dir():
+                folders.append((path.stat().st_mtime_ns, path))
+        except OSError:
+            continue
+    # Newest folder first: a folder changes whenever a file is added, so once `limit` items are found, a
+    # folder older than the oldest of them holds nothing newer, and neither does any after it.
+    folders.sort(reverse=True)
+    titles = _conversation_titles({path.name for _, path in folders})
     tagged = _tags()
     words = [word for word in query.casefold().split() if word]
-    found: list[dict[str, Any]] = []
-    for chat in chats:
+    found: list[tuple[float, dict[str, Any]]] = []
+    for changed, folder in folders:
+        if len(found) >= limit and changed / 1e9 < sorted(at for at, _ in found)[-limit]:
+            break
+        chat = folder.name
         if chat not in titles:
             continue  # A chat being removed, or files left from one already gone.
         try:
-            files = list_conversation_files(chat, limit=1000)
+            listed = _chat_media(folder, changed)
         except Exception:
             continue
-        for entry in files:
-            item_kind = KINDS.get(str(entry["mime_type"]))
-            if item_kind is None or (kind and item_kind != kind):
+        for at, entry in listed:
+            if kind and entry["kind"] != kind:
                 continue
-            ref = str(entry["attachment_ref"])
-            tags = tagged.get(ref, [])
-            text = " ".join([str(entry["name"]), titles[chat], *tags]).casefold()
+            tags = tagged.get(entry["ref"], [])
+            text = " ".join([entry["name"], titles[chat], *tags]).casefold()
             if words and not all(word in text for word in words):
                 continue
-            path = root / chat / f"attachment_{ref.rsplit(':', 1)[1]}.bin"
-            try:
-                added = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-            except OSError:
-                continue
-            found.append({"ref": ref, "name": str(entry["name"]), "kind": item_kind,
-                          "mime_type": str(entry["mime_type"]), "size": int(entry["size_bytes"]),
-                          "added_at": added.isoformat(timespec="seconds").replace("+00:00", "Z"),
-                          "conversation_id": chat, "conversation_title": titles[chat] or "Untitled conversation",
-                          "tags": tags})
-    found.sort(key=lambda item: item["added_at"], reverse=True)
-    return found[:limit]
+            added = datetime.fromtimestamp(at, tz=timezone.utc)
+            found.append((at, {**entry, "added_at": added.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                               "conversation_id": chat,
+                               "conversation_title": titles[chat] or "Untitled conversation", "tags": tags}))
+    found.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in found[:limit]]
 
 
 def _known(ref: str) -> None:
