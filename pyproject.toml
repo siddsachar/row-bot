@@ -171,8 +171,13 @@ all = [
 
 [project.scripts]
 row-bot = "row_bot.launcher:main"
+row-bot-org = "row_bot_org.cli:main"
 
 [dependency-groups]
+# The Row-Bot Org server (src/row_bot_org), installed only by its own image (deploy/org). A group,
+# not an extra: the installer and update-part exports take every extra and no group, so nothing
+# here can reach a desktop build. FastAPI and uvicorn are core already.
+org = []
 test = [
   "pytest>=9.0.3,<10.0",
   "pytest-cov>=6.0,<8.0",

@@ -4021,6 +4021,7 @@ dev = [
     { name = "ruff", specifier = ">=0.12,<1.0" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.12,<1.0" }]
+org = []
 test = [
     { name = "pytest", specifier = ">=9.0.3,<10.0" },
     { name = "pytest-cov", specifier = ">=6.0,<8.0" },

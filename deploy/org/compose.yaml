@@ -1,0 +1,46 @@
+# Row-Bot Org server (pre-release): an example. From the repository root:
+#   docker compose -f deploy/org/compose.yaml up --build
+services:
+  row-bot-org:
+    image: ${ROW_BOT_ORG_IMAGE:-row-bot-org:dev}
+    build:
+      context: ../..
+      dockerfile: deploy/org/Dockerfile
+    init: true
+    restart: unless-stopped
+    user: "10001:10001"
+    environment:
+      ROW_BOT_ORG_HOST: 0.0.0.0
+      ROW_BOT_ORG_PORT: "8100"
+      ROW_BOT_ORG_LOG_LEVEL: INFO
+    # Loopback on the host unless you choose otherwise; put a TLS reverse proxy in front.
+    ports:
+      - "${ROW_BOT_ORG_BIND_ADDRESS:-127.0.0.1}:${ROW_BOT_ORG_HOST_PORT:-8100}:8100"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test:
+        - CMD
+        - env
+        - -i
+        - /opt/row-bot-org/.venv/bin/python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8100/healthz',
+          timeout=2).read()
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
