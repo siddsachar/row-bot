@@ -213,6 +213,22 @@ def _is_person(message: Mapping[str, Any]) -> bool:
     return is_person_message({**dict(data), "type": kind}) and not is_row_bot_note(message)
 
 
+def saved_when_built(sent: Sequence[Mapping[str, Any]], approved: Iterable[str] = ()) -> list[Mapping[str, Any]]:
+    """The messages of a captured request (their data) that were saved when its tool list was last built, which
+    decides the media tools the chat kept bound (M7, ``shape.kept_media``). The list is built at the turn's start
+    (the person's last message) and again on the resume after the person approves one of the turn's calls
+    (``approved``: their call ids), with the calls saved by then. A call made since binds from the next build."""
+
+    approved = frozenset(approved)
+    built = max((index for index, message in enumerate(sent) if _is_person(message)), default=0)
+    for index, message in enumerate(sent):
+        kind, data = _data(message)
+        if kind == "ai" and any(isinstance(call, Mapping) and str(call.get("id") or "") in approved
+                                for call in data.get("tool_calls") or ()):
+            built = max(built, index + 1)
+    return [_data(message)[1] for message in sent[:built]]
+
+
 # ── Paths (O33) ─────────────────────────────────────────────────────────────
 
 
@@ -758,9 +774,14 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
         system, tools, agent = list(frame.system), [dict(item) for item in frame.tools], True
         _past_steps(messages, frame, past_steps)
     rendering = envelope if envelope is not None and (not episode.historical or frame is not None) else None
+    keep: frozenset[str] = frozenset()
+    if rendering is not None:
+        approved = {item.tool_call_id for item in decisions if item.kind == "approval" and item.tool_call_id
+                    and item.decided_by == "person" and item.status == "ok"}
+        keep = shape_module.kept_media(rendering, saved_when_built(sent, approved))
     row, derived, reason, changed = _finish_row(system, messages, tools, envelope=rendering, agent=agent,
                                                 pictures=pictures, stats=stats, roots=roots,
-                                                no_target="held_out" if held is not None else "no_target")
+                                                no_target="held_out" if held is not None else "no_target", keep=keep)
     if row is None:
         return None, reason, 0
     return Example(
@@ -786,16 +807,17 @@ def _cut_short(message: Any) -> bool:
 def _finish_row(system: list[str], messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *,
                 envelope: shape_module.Envelope | None, agent: bool, pictures: int,
                 stats: shape_module.Stats | None, roots: Sequence[str],
-                no_target: str) -> tuple[dict[str, Any] | None, bool, str, int]:
+                no_target: str, keep: frozenset[str] = frozenset()) -> tuple[dict[str, Any] | None, bool, str, int]:
     """A row's last steps, the same for captured and practice rows: rendered in the serving shape when there is an
-    ``envelope`` (O71), one system message first, its targets checked. Returns (row, derived, why not, paths)."""
+    ``envelope`` (O71), one system message first, its targets checked. Returns (row, derived, why not, paths).
+    ``keep``: the media tools the chat kept bound (``shape.kept_media``)."""
 
     derived = False
     if envelope is not None:
         # O71: the row as the personal model will be served (its prompt, its tool exposure, its calls).
         try:
             system, messages, tools, rendered = shape_module.render(
-                system, messages, tools, envelope, agent=agent)
+                system, messages, tools, envelope, agent=agent, keep=keep)
         except shape_module.RenderError:
             return None, False, "unrenderable", 0
         rendered.pictures_removed = pictures
@@ -861,8 +883,10 @@ def _practice_example(item: Mapping[str, Any], *, roots: Sequence[str], envelope
     answer["weight"] = 1
     messages.append(answer)
     tools = [dict(tool) for tool in turn.get("tools") or () if isinstance(tool, Mapping)] or None
+    keep = shape_module.kept_media(envelope, saved_when_built(sent)) if envelope is not None else frozenset()
     row, derived, reason, _changed = _finish_row(system, messages, tools, envelope=envelope, agent=True,
-                                                 pictures=pictures, stats=stats, roots=roots, no_target="no_target")
+                                                 pictures=pictures, stats=stats, roots=roots, no_target="no_target",
+                                                 keep=keep)
     if row is None:
         return None, reason
     return Example(
