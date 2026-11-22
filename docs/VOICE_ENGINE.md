@@ -56,15 +56,17 @@ person-facing docs are in `docs-site/docs/voice-and-buddy/`.
   (helpers finished after the turn ended) calls
   `ClientPlatformService.voice_later_answer`; an open, listening session says
   it at its next pause. With no session open (or a paused one) nothing is said.
-- **Approvals (VD4).** An `interrupt` becomes a bar notice and a spoken
-  summary in the tool's own words. A spoken yes or no counts only when it is a
+- **Approvals (VD4).** An `interrupt` becomes a bar notice with the card's own
+  fields. The client words the title exactly as the card does and sends it
+  back; the spoken summary says it, cleaned so no symbol is said (the tool's
+  label after 1 s without one). A spoken yes or no counts only when it is a
   short plain answer, began (in audio time) after the summary finished playing
   and while Row-Bot was silent, and the approval system's classification lets
   voice answer it (`voice/approvals.py`: the "Allow in this chat" kinds, one
   action, never a command, an app's tool, the computer, money, a setting, a
   question or setup card). The host then checks that it is the conversation's
   only waiting approval and sends the card's own `approval.resolve` command.
-  Everything else says "This one needs a tap."
+  Everything else says "This one needs a tap on the screen."
 
 Latency marks per turn (end of speech, turn end, transcript, admission, first
 token, first sentence, first audio sent, first audio played) are kept as
