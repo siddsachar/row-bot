@@ -9,10 +9,23 @@
           "type": "boolean"
         },
         "index": {
-          "maximum": 9,
+          "maximum": 49,
           "minimum": 0,
           "title": "Index",
           "type": "integer"
+        },
+        "media_ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Ref"
         },
         "mime_type": {
           "maxLength": 128,
@@ -112,7 +125,7 @@
           "items": {
             "$ref": "#/$defs/DeliveryFile"
           },
-          "maxItems": 10,
+          "maxItems": 50,
           "title": "Files",
           "type": "array"
         },

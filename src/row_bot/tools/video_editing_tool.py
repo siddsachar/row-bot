@@ -120,7 +120,8 @@ def _check(inputs: list[str]) -> str:
         try:
             checks, sheet = video_edits.check_file(ffmpeg, path, Path(folder), conversation_id=conversation,
                                                    name=output_name(f"{Path(source.label).stem} review",
-                                                                    default="video review", suffix=".jpg"))
+                                                                    default="video review", suffix=".jpg"),
+                                                   label=source.label)
         except EditError as error:
             return str(error)
     verdict = "passed: ready to share" if checks.passed else "NOT passed: fix these, then check it again"

@@ -41,7 +41,6 @@ import {
   type MenuAction,
 } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
-import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
 import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
@@ -154,7 +153,7 @@ import {
 import ConversationHeader from './ConversationHeader';
 import { INCOGNITO_PLACEHOLDER } from './incognito';
 import ErrorFix from './ErrorFix';
-import { TranscriptMessage } from './TranscriptMessage';
+import { MessageMedia, TranscriptMessage } from './TranscriptMessage';
 import {
   TeachContext,
   useChatTeach,
@@ -165,7 +164,7 @@ import {
   answerStreaming,
   browserOffers,
   buildTranscript,
-  foldLiveVideos,
+  foldLive,
   finishedLiveSteps,
   keepUnchanged,
   liveMedia,
@@ -179,6 +178,7 @@ import {
   cardKey,
   liveCards,
   TranscriptCards,
+  WorkingFilesRow,
   type CardActions,
 } from './TranscriptCards';
 import type { RecoveryAction } from './turn-errors';
@@ -2872,30 +2872,40 @@ export default function Conversation({
   const settledMedia = useMemo(
     () =>
       new Set(
-        items.flatMap((item) => item.media.map((media) => media.reference)),
+        items.flatMap((item) =>
+          [...item.media, ...(item.working?.media ?? [])].map(
+            (media) => media.reference,
+          ),
+        ),
       ),
     [items],
   );
-  const pendingMedia = liveMedia(state.activity, settledMedia);
+  const liveMediaList = liveMedia(state.activity, settledMedia);
   const settledCards = useMemo(
     () =>
       new Set(
         items.flatMap((item) =>
-          [...item.cards, ...(item.earlier ?? [])].map(cardKey),
+          [...item.cards, ...(item.working?.cards ?? [])].map(cardKey),
         ),
       ),
     [items],
   );
   const liveCardList = liveCards(state.activity, settledCards);
-  const liveCardKey = liveCardList.map(cardKey).join();
-  // A newer video from the turn in flight folds the ones it already shows.
+  const liveKey = JSON.stringify([liveCardList.map(cardKey), liveMediaList]);
+  // Finals first for the turn in flight: its working files fold, a draft it
+  // brings moves here.
   const shown = useMemo(
-    () => foldLiveVideos(items, liveCardList),
-    // liveCardKey stands for liveCardList: they change together.
+    () => foldLive(items, liveCardList, liveMediaList),
+    // liveKey stands for the live cards and media: they change together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, liveCardKey],
+    [items, liveKey],
   );
-  const pendingCards = shown.pending;
+  const pendingCards = shown.cards;
+  const pendingMedia = shown.media;
+  const pendingWorking =
+    shown.working.media.length + shown.working.cards.length
+      ? shown.working
+      : undefined;
   const cardActions: CardActions = {
     resource: (bindingId) =>
       resources.find((item) => item.binding.binding_id === bindingId),
@@ -3846,7 +3856,7 @@ export default function Conversation({
                               embeds={item.embeds}
                               media={item.media}
                               cards={item.cards}
-                              earlierCards={item.earlier}
+                              working={item.working}
                               agents={item.agents}
                               turnStart={turns.starts[index]}
                               offerBrowser={turns.browser[index]}
@@ -3874,7 +3884,7 @@ export default function Conversation({
                           embeds={item.embeds}
                           media={item.media}
                           cards={item.cards}
-                          earlierCards={item.earlier}
+                          working={item.working}
                           agents={item.agents}
                           turnStart={turns.starts[index]}
                           latest={index === lastAssistant && !turnInFlight}
@@ -3977,6 +3987,7 @@ export default function Conversation({
                   liveTraceGroups.length > 0 ||
                   pendingMedia.length > 0 ||
                   pendingCards.length > 0 ||
+                  pendingWorking !== undefined ||
                   computer.visible ||
                   browserLive ||
                   (generation?.approval_id &&
@@ -4051,29 +4062,20 @@ export default function Conversation({
                             />
                           )}
                       </TranscriptTrace>
+                      {pendingWorking && (
+                        <WorkingFilesRow
+                          working={pendingWorking}
+                          conversation={id}
+                        />
+                      )}
                       {/* Cards from the turn in flight (a video, a page, a linked
                           conversation) open beside this chat, so they need it. */}
                       <TranscriptCards
                         cards={pendingCards}
-                        earlier={shown.earlier}
                         conversation={id}
                         live
                       />
-                      {pendingMedia.length > 0 && (
-                        <div
-                          className="message-media-grid"
-                          data-count={pendingMedia.length}
-                        >
-                          {pendingMedia.map((media) => (
-                            <MediaPreview
-                              key={media.reference}
-                              reference={media.reference}
-                              mime={media.mime}
-                              caption={media.caption}
-                            />
-                          ))}
-                        </div>
-                      )}
+                      <MessageMedia media={pendingMedia} />
                     </div>
                   </div>
                 )}

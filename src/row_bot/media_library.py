@@ -186,7 +186,8 @@ def bring(ref: str, conversation_id: str) -> dict[str, Any]:
         return {**meta, "name": named.get(ref, meta["name"])}
     try:
         meta, data = read_attachment(ref)
-        return register_attachment(conversation_id, meta["name"], data, meta["mime_type"])
+        return register_attachment(conversation_id, meta["name"], data, meta["mime_type"], role="working",
+                                   made_from=[meta["name"]])
     except AttachmentError as exc:
         raise MediaError(f"That item couldn't be copied into this chat ({exc}).") from None
 

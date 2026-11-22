@@ -53,7 +53,7 @@ def name_saved_files(text: str, names: list[str]) -> str:
                               "edit_image, edit_video or the video tool."])
 
 
-def _image(conversation_id: str, encoded: str, name: str = "") -> dict:
+def _image(conversation_id: str, encoded: str, name: str = "", role: str = "final") -> dict:
     if not isinstance(encoded, str):
         raise AttachmentError("media_unavailable")
     if len(encoded) > 4 * ((MAX_ATTACHMENT_BYTES + 2) // 3):
@@ -67,7 +67,7 @@ def _image(conversation_id: str, encoded: str, name: str = "") -> dict:
     if len(data) > MAX_ATTACHMENT_BYTES:
         raise AttachmentError("payload_too_large")
     suffix = ".png" if data.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if data.startswith(b"\xff\xd8\xff") else ".bin"
-    return register_attachment(conversation_id, (Path(name).stem or "generated-image") + suffix, data)
+    return register_attachment(conversation_id, (Path(name).stem or "generated-image") + suffix, data, role=role)
 
 
 def _video(conversation_id: str, metadata: dict, label: str = "") -> dict:
@@ -93,7 +93,7 @@ def _video(conversation_id: str, metadata: dict, label: str = "") -> dict:
                 or after.st_mtime_ns != before.st_mtime_ns
                 or len(data) < 12 or data[4:8] != b"ftyp"):
             raise AttachmentError("media_unavailable")
-    return register_attachment(conversation_id, f"{label or 'generated-video'}.mp4", data)
+    return register_attachment(conversation_id, f"{label or 'generated-video'}.mp4", data, role="final")
 
 
 def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCaches, *,
@@ -103,11 +103,13 @@ def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCac
     The ToolNode wrapper adds native issuing message/tool-call identities to each
     outcome. A failed output cannot discard another successfully captured output.
     Each saved file's chat name goes into *names*; *label* (from the prompt) names
-    a file its tool didn't name.
+    a file its tool didn't name. Each outcome says the file's role; files the call
+    presented (already chat files) follow as finals, with their names.
     """
-    image, name, video = caches.pending_image, caches.pending_image_name, caches.pending_video
-    caches.pending_image, caches.pending_image_name = None, ""
-    caches.pending_video = None
+    image, name, role = caches.pending_image, caches.pending_image_name, caches.pending_image_role
+    video, presented = caches.pending_video, caches.presented
+    caches.pending_image, caches.pending_image_name, caches.pending_image_role = None, "", "final"
+    caches.pending_video, caches.presented = None, []
     outcomes = []
     for kind, value in (("image", image), ("video", video)):
         if value is None:
@@ -116,16 +118,21 @@ def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCac
             if caches.conversation_id != conversation_id:
                 raise AttachmentError("action_denied")
             _conversation(conversation_id)
-            result = (_image(conversation_id, value, name or label) if kind == "image"
+            result = (_image(conversation_id, value, name or label, role) if kind == "image"
                       else _video(conversation_id, value, label))
             if names is not None:
                 names.append(str(result.get("name") or ""))
             outcomes.append({"type": "media.available", "payload": {
-                "media_ref": result["attachment_ref"], "mime_type": result["mime_type"],
+                "media_ref": result["attachment_ref"], "mime_type": result["mime_type"], "role": result["role"],
             }})
         except (OSError, ValueError, TypeError) as error:
             # Only the transport-size failure is actionable in a public client;
             # path/format/authority failures share a redacted unavailable code.
             code = "payload_too_large" if isinstance(error, AttachmentError) and error.code == "payload_too_large" else "media_unavailable"
             outcomes.append({"type": "media.error", "payload": {"code": code}})
+    if caches.conversation_id == conversation_id:
+        outcomes += [{"type": "media.available", "payload": {
+            "media_ref": item["attachment_ref"], "mime_type": item["mime_type"], "role": "final",
+            "name": item["name"], **({"prompt": item["caption"]} if item.get("caption") else {}),
+        }} for item in presented if str(item.get("attachment_ref") or "").startswith(conversation_id + ":")]
     return outcomes

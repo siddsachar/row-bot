@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   MessageSquareShare,
+  BadgeCheck,
   BookOpen,
   BookmarkCheck,
   BookmarkPlus,
@@ -48,7 +49,12 @@ import {
 } from './read-aloud';
 import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
-import { TranscriptCards, type TranscriptCard } from './TranscriptCards';
+import {
+  TranscriptCards,
+  WorkingFilesRow,
+  type TranscriptCard,
+} from './TranscriptCards';
+import type { WorkingFiles } from './transcript-model';
 import type { TracedAgent } from './transcript-model';
 import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
@@ -68,7 +74,97 @@ export type GeneratedMedia = {
   caption?: string;
   /** What it is, when it isn't a generated result ("Page screenshot"). */
   label?: string;
+  /** What it is to the person (finals first); none in chats from before. */
+  role?: 'final' | 'draft' | 'working';
+  /** Presented by the agent (`present`): shown large as the reply's final. */
+  presented?: boolean;
+  /** Shown before and presented since: marked final where it already shows. */
+  final?: boolean;
 };
+
+function downloadName(item: GeneratedMedia) {
+  return item.presented
+    ? item.label
+    : item.label === 'Page screenshot'
+      ? 'screenshot.png'
+      : item.label === 'Contact sheet'
+        ? 'contact-sheet.jpg'
+        : undefined;
+}
+
+function FinalChip() {
+  return (
+    <span className="final-chip">
+      <BadgeCheck aria-hidden />
+      Final
+    </span>
+  );
+}
+
+/**
+ * A reply's media (finals first): what it made to show along the way (AI
+ * pictures and videos) in a grid, a final presented since marked where it
+ * already shows; then what it presents, large, each with its name and
+ * caption, where the reply ends.
+ */
+export function MessageMedia({ media }: { media: GeneratedMedia[] }) {
+  if (!media.length) return null;
+  const finals = media.filter((item) => item.presented);
+  const others = media.filter((item) => !item.presented);
+  return (
+    <>
+      {others.length > 0 && (
+        <div className="message-media-grid" data-count={others.length}>
+          {others.map((item) => {
+            const preview = (
+              <MediaPreview
+                key={item.reference}
+                reference={item.reference}
+                mime={item.mime}
+                caption={item.caption}
+                label={item.label}
+                downloadName={downloadName(item)}
+              />
+            );
+            return item.final ? (
+              <div key={item.reference} className="message-media-final">
+                <FinalChip />
+                {preview}
+              </div>
+            ) : (
+              preview
+            );
+          })}
+        </div>
+      )}
+      {finals.length > 0 && (
+        <div className="message-finals">
+          {finals.map((item) => (
+            <figure
+              key={item.reference}
+              className="message-final"
+              aria-label={`Final: ${item.label ?? 'result'}`}
+            >
+              <figcaption className="message-final-head">
+                <FinalChip />
+                <strong title={item.label}>{item.label}</strong>
+              </figcaption>
+              {item.caption && (
+                <p className="message-final-caption">{item.caption}</p>
+              )}
+              <MediaPreview
+                reference={item.reference}
+                mime={item.mime}
+                label={item.label}
+                downloadName={downloadName(item)}
+              />
+            </figure>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 // The runtime appends a marker such as "⏹️ *[Stopped]*" to interrupted text.
 const STOPPED =
@@ -272,7 +368,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   embeds = NO_BLOCKS,
   media = NO_MEDIA,
   cards = NO_CARDS,
-  earlierCards = NO_CARDS,
+  working,
   agents = NO_AGENTS,
   turnStart = false,
   latest = false,
@@ -299,8 +395,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   media?: GeneratedMedia[];
   /** A design or code folder the turn created, a connection it needs. */
   cards?: TranscriptCard[];
-  /** Earlier versions of the reply's newest video, folded under it. */
-  earlierCards?: TranscriptCard[];
+  /** What the turn made on the way (finals first), folded under its steps. */
+  working?: WorkingFiles;
   /** Agents the turn started, shown as live stubs (B241). */
   agents?: TracedAgent[];
   /** This row begins a speaker's turn: it carries their marker (B271). */
@@ -782,37 +878,17 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             offerBrowser={offerBrowser}
           />
         )}
+        {working && (
+          <WorkingFilesRow working={working} conversation={conversationId} />
+        )}
         <AgentStubs agents={agents} />
         {!!embeds.length && (
           <div className="message-embeds">
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />
           </div>
         )}
-        <TranscriptCards
-          cards={cards}
-          earlier={earlierCards}
-          conversation={conversationId}
-        />
-        {!!media.length && (
-          <div className="message-media-grid" data-count={media.length}>
-            {media.map((item) => (
-              <MediaPreview
-                key={item.reference}
-                reference={item.reference}
-                mime={item.mime}
-                caption={item.caption}
-                label={item.label}
-                downloadName={
-                  item.label === 'Page screenshot'
-                    ? 'screenshot.png'
-                    : item.label === 'Contact sheet'
-                      ? 'contact-sheet.jpg'
-                      : undefined
-                }
-              />
-            ))}
-          </div>
-        )}
+        <TranscriptCards cards={cards} conversation={conversationId} />
+        <MessageMedia media={media} />
         {stop.label && (
           <span className="turn-chip" data-tone="neutral">
             <CircleStop aria-hidden />

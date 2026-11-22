@@ -2,7 +2,7 @@
 
 Up to eight pictures go to the vision model in one call, each labelled; nine are refused
 plainly. A contact sheet tiles many pictures or video frames into one numbered, captioned
-picture, shown in the chat. A video gives frames through ffmpeg (asked for the first time).
+picture, kept in the chat's files as a working file the person doesn't see. A video gives frames through ffmpeg (asked for the first time).
 When the model can't see images, nothing is gathered. The provider and ffmpeg are fakes.
 """
 
@@ -57,13 +57,14 @@ def looking(tmp_path, monkeypatch, reload_for_data_dir):
     service = vision.VisionService()
     service._model, service._enabled = "model:codex:gpt-5.5", True
     model = _Model()
-    shown: list[str] = []
+    shown: list[tuple[str, str, str]] = []
     state = SimpleNamespace(chat=chat, service=service, model=model, shown=shown, asked=[], answer=True)
     monkeypatch.setattr(vision, "vision_model_compatibility", lambda _model: {"usable": True, "explicit": False})
     monkeypatch.setattr("row_bot.models.get_llm_for", lambda _model: model)
     monkeypatch.setattr(vision_tool, "_get_vision_service", lambda: service)
     monkeypatch.setattr("row_bot.tool_outputs.current_thread_id", lambda: chat)
-    monkeypatch.setattr("row_bot.tools.image_gen_tool._set_pending_image", lambda data: shown.append(data))
+    monkeypatch.setattr("row_bot.tools.image_gen_tool._set_pending_image",
+                        lambda data, name="", role="final": shown.append((data, name, role)))
     monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "approve")
     monkeypatch.setattr("langgraph.types.interrupt", lambda payload: state.asked.append(payload) or state.answer)
     state.look = lambda question, **kwargs: vision_tool._analyze_image(question, **kwargs)
@@ -114,16 +115,17 @@ def test_a_local_model_gets_every_image_in_one_message(looking, monkeypatch):
     assert "Image 2: shots/step-02.png" in call["messages"][0]["content"]
 
 
-def test_a_contact_sheet_tiles_many_pictures_into_one_labelled_picture_shown_in_the_chat(looking):
+def test_a_contact_sheet_tiles_many_pictures_into_one_labelled_picture_kept_as_a_working_file(looking):
     result = looking.look("Which step failed?", files=_shots(12), contact_sheet=True)
 
-    assert result.startswith("Looked at a contact sheet of 12 pictures. The contact sheet is shown to the person")
+    assert result.startswith("Looked at a contact sheet of 12 pictures (a working file the person doesn't see).")
     [[message]] = looking.model.messages
     [image] = [part for part in message.content if part["type"] == "image_url"]
     question = message.content[0]["text"]
     assert question.startswith("This is a contact sheet of 12 pictures, numbered 1 to 12 in reading order")
     assert question.endswith("Which step failed?")
-    [shown] = looking.shown
+    [(shown, name, role)] = looking.shown
+    assert (name, role) == ("contact-sheet.jpg", "working")
     sheet = Image.open(io.BytesIO(base64.b64decode(shown)))
     assert sheet.format == "JPEG" and sheet.width <= 2048
 
@@ -171,7 +173,7 @@ def test_a_video_gives_frames_with_their_times_after_asking_to_download_ffmpeg(l
 
     [asked] = looking.asked
     assert asked["question"] == "Looking at frames of a video needs ffmpeg (about 20 MB) from PyPI. Download it now?"
-    assert result.startswith("Approval: asked; approved by you\nLooked at a contact sheet of 5 pictures.")
+    assert result.startswith("Approval: asked; approved by you\nLooked at a contact sheet of 5 pictures (a working")
     [[message]] = looking.model.messages
     assert len([part for part in message.content if part["type"] == "image_url"]) == 1
     [frames_run] = runs

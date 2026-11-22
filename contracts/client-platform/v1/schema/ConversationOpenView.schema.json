@@ -1754,10 +1754,27 @@
           "title": "Mime Type",
           "type": "string"
         },
+        "name": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Name",
+          "type": "string"
+        },
         "prompt": {
           "default": "",
           "maxLength": 1000,
           "title": "Prompt",
+          "type": "string"
+        },
+        "role": {
+          "default": "",
+          "enum": [
+            "",
+            "final",
+            "draft",
+            "working"
+          ],
+          "title": "Role",
           "type": "string"
         },
         "tool_call_id": {
@@ -2582,10 +2599,27 @@
           "title": "Mime Type",
           "type": "string"
         },
+        "name": {
+          "default": "",
+          "maxLength": 240,
+          "title": "Name",
+          "type": "string"
+        },
         "prompt": {
           "default": "",
           "maxLength": 1000,
           "title": "Prompt",
+          "type": "string"
+        },
+        "role": {
+          "default": "",
+          "enum": [
+            "",
+            "final",
+            "draft",
+            "working"
+          ],
+          "title": "Role",
           "type": "string"
         }
       },
