@@ -146,6 +146,7 @@ if not is_docs_real_data_capture():
     except Exception:
         logger.debug("Startup diagnostics failed", exc_info=True)
 
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from row_bot.app_port import get_app_host, get_app_port
@@ -1629,25 +1630,30 @@ async def _stop():
         logger.debug("Computer Use shutdown failed", exc_info=True)
 
 
+def mount_file_routes(target: Starlette) -> None:
+    """Mount the folders the started server serves as files (the route matrix reads them too)."""
+    from starlette.staticfiles import StaticFiles
+
+    from row_bot.designer.publish import ensure_published_dir
+
+    _static_dir = static_dir()
+    if _static_dir.is_dir():
+        target.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+    target.mount("/published", StaticFiles(directory=ensure_published_dir()), name="published")
+
+    # Fonts a design downloaded (designer.fonts emits /_fonts/cache URLs).
+    _font_cache = get_row_bot_data_dir() / "font_cache"
+    if _font_cache.is_dir():
+        target.mount("/_fonts/cache", StaticFiles(directory=_font_cache), name="font-cache")
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ═════════════════════════════════════════════════════════════════════════════
 
 if __name__ in {"__main__", "__mp_main__"}:
-    from starlette.staticfiles import StaticFiles
-
-    _static_dir = static_dir()
-    if _static_dir.is_dir():
-        app.mount("/static", StaticFiles(directory=_static_dir), name="static")
-
-    from row_bot.designer.publish import ensure_published_dir
-
-    app.mount("/published", StaticFiles(directory=ensure_published_dir()), name="published")
-
-    # Fonts a design downloaded (designer.fonts emits /_fonts/cache URLs).
-    _font_cache = get_row_bot_data_dir() / "font_cache"
-    if _font_cache.is_dir():
-        app.mount("/_fonts/cache", StaticFiles(directory=_font_cache), name="font-cache")
+    mount_file_routes(app)
 
     import uvicorn
 
