@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import uuid
 
 from row_bot_org.settings import (
     DATABASE_URL_ENV,
@@ -39,7 +40,18 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "check-config", help="check the settings and the database role and exit: 0 when they are usable, 1 when not"
     )
+    principals = commands.add_parser("principals", help=f"operator commands, with {MIGRATION_DATABASE_URL_ENV}")
+    actions = principals.add_subparsers(dest="action", required=True)
+    revoke = actions.add_parser("revoke-sessions", help="sign a principal out everywhere: revoke its sessions")
+    revoke.add_argument("principal_id", type=_principal_id, help="the principal's id (a UUID)")
     return parser
+
+
+def _principal_id(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a principal id (a UUID)") from None
 
 
 def _fail(message: str) -> int:
@@ -85,6 +97,20 @@ def _migrate(url: str) -> int:
         sys.stdout.write("Applied " + ", ".join(m.file_name for m in applied) + ".\n")
     else:
         sys.stdout.write("The database is up to date: no migration was pending.\n")
+    return 0
+
+
+def _revoke_sessions(url: str, principal_id: str) -> int:
+    import psycopg
+
+    from row_bot_org.identity.store import revoke_sessions
+
+    try:
+        with psycopg.connect(url, autocommit=True, connect_timeout=CONNECT_TIMEOUT) as conn:
+            revoked = revoke_sessions(conn, principal_id)
+    except psycopg.Error as error:
+        return _database_unreachable(error)
+    sys.stdout.write(f"Revoked {_plural(revoked, 'session')} of principal {principal_id}.\n")
     return 0
 
 
@@ -159,7 +185,8 @@ def _serve(settings: OrgSettings, url: str) -> int:
         lock_timeout=settings.lock_timeout,
         idle_in_transaction_timeout=settings.idle_in_transaction_timeout,
     )
-    # No access log: request lines carry query strings, and sign-in callbacks will put codes there.
+    # Not uvicorn's access log: its lines carry query strings, and sign-in callbacks put codes there.
+    # The app logs each request itself, by route template (row_bot_org.identity.gate.AccessLog).
     uvicorn.run(
         create_app(settings, pool),
         host=settings.host,
@@ -187,8 +214,9 @@ def main(argv: list[str] | None = None) -> int:
     except SettingsError as error:
         return _fail(str(error))
     del environ
-    needed = MIGRATION_DATABASE_URL_ENV if args.command == "migrate" else DATABASE_URL_ENV
-    url = settings.migration_database_url if args.command == "migrate" else settings.database_url
+    as_owner = args.command in {"migrate", "principals"}
+    needed = MIGRATION_DATABASE_URL_ENV if as_owner else DATABASE_URL_ENV
+    url = settings.migration_database_url if as_owner else settings.database_url
     if url is None:
         return _fail(f"Row-Bot Org settings are not valid: {needed} is not set")
     if bad := _unparseable({DATABASE_URL_ENV: settings.database_url,
@@ -196,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(f"Row-Bot Org settings are not valid: {bad} is not a usable postgresql:// address")
     if args.command == "migrate":
         return _migrate(url)
+    if args.command == "principals":
+        return _revoke_sessions(url, args.principal_id)
     if args.command == "check-config":
         return _check_config(settings, url)
     return _serve(settings, url)

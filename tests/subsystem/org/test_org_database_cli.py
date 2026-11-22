@@ -27,6 +27,7 @@ from psycopg_pool import PoolTimeout  # noqa: E402
 from row_bot_org import cli  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
 from row_bot_org.db import checks  # noqa: E402
+from row_bot_org.db.migrations import load_migrations  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.logging import configure_logging  # noqa: E402
 from row_bot_org.settings import OrgSettings  # noqa: E402
@@ -34,6 +35,7 @@ from row_bot_org.settings import OrgSettings  # noqa: E402
 pytestmark = pytest.mark.postgres
 
 MARKER = "marker7f3a"
+SHIPPED = load_migrations()
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +85,7 @@ def test_serve_refuses_to_start_while_a_migration_is_pending(
 
     assert served == {}
     assert capsys.readouterr().err == (
-        "Row-Bot Org didn't start: 1 migration pending (0001_foundation.sql). "
+        f"Row-Bot Org didn't start: {len(SHIPPED)} migrations pending ({', '.join(m.file_name for m in SHIPPED)}). "
         "Run row-bot-org migrate, or set ROW_BOT_ORG_AUTO_MIGRATE=1.\n"
     )
 
@@ -98,7 +100,7 @@ def test_serve_with_auto_migrate_migrates_with_the_migration_url_and_serves_with
     assert cli.main(["serve"]) == 0
 
     assert "ROW_BOT_ORG_MIGRATION_DATABASE_URL" not in os.environ
-    assert _applied(empty_org_database.owner_url) == [1]
+    assert _applied(empty_org_database.owner_url) == [m.version for m in SHIPPED]
     with psycopg.connect(empty_org_database.owner_url) as conn:
         # The tables belong to the migrating role, not to the role the server runs as.
         assert conn.execute("SELECT nspowner::regrole::text FROM pg_namespace WHERE nspname = 'row_bot_org'"
@@ -259,7 +261,8 @@ def test_check_config_says_when_migrations_are_pending(
     monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", empty_org_database.runtime_url)
 
     assert cli.main(["check-config"]) == 0
-    assert capsys.readouterr().out.endswith("the database is reachable, 1 migration pending (row-bot-org migrate).\n")
+    assert capsys.readouterr().out.endswith(
+        f"the database is reachable, {len(SHIPPED)} migrations pending (row-bot-org migrate).\n")
 
 
 def test_check_config_warns_when_the_role_owns_the_tables(

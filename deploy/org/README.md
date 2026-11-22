@@ -1,8 +1,8 @@
 # Row-Bot Org server (pre-release)
 
 **Pre-release.** Row-Bot Org will hold a team's and a company's shared brain. This version starts,
-checks its database and answers health checks: it stores nothing yet and has no sign-in. Don't run it
-for real data.
+checks its database, answers health checks and signs people in with the company's identity provider
+(below); it stores nothing else yet. Don't run it for real data.
 
 It is a separate deployment from the Row-Bot app. The desktop app never loads it, and desktop
 installers and updates don't include it.
@@ -83,3 +83,29 @@ over a file. Any other `ROW_BOT_ORG_*` variable stops the server from starting.
 
 `/readyz` answers `ready` once the database is reachable as a fit role and no migration is pending, and
 only says `ok` or `failing` for it, never where it is.
+
+## Sign-in
+
+People sign in with OpenID Connect (authorization code with PKCE) at `/auth/login?idp=<name>`; the
+provider sends them back to `<public URL>/auth/callback`, which you register with it as the redirect
+URI. Every route but `/healthz`, `/readyz` and the two sign-in steps needs a session: without one, 401.
+Requests that change something must come from the public URL's origin.
+
+- `ROW_BOT_ORG_PUBLIC_URL`: the origin browsers use, `https://org.example.com` (http only on loopback).
+- `ROW_BOT_ORG_IDPS`: a JSON list of providers, for example
+  `[{"name": "contoso", "kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0",
+  "client_id": "...", "allowed_tenants": ["<tenant id>"]}]`. `kind` is `entra`, `okta` or `google`.
+  Optional: `groups_claim` (`groups`), `group_map` (provider group to Row-Bot group; others are dropped),
+  `allowed_email_domains` (sign-in then needs a verified email in one of them) and `client_auth`
+  (`client_secret_basic`, or `private_key_jwt`). Entra needs the tenant's own issuer and
+  `allowed_tenants`: the `common` and `organizations` authorities are refused, so use one entry per
+  tenant. Past 200 groups Entra sends a reference instead of the groups, and sign-in is refused: limit
+  the groups claim to groups assigned to the application.
+- `ROW_BOT_ORG_IDP_CLIENT_SECRETS`: a JSON object from each provider's name to its client secret (or a
+  private JWK for `private_key_jwt`). A secret.
+- `ROW_BOT_ORG_HMAC_PEPPER`: at least 32 random characters, the key of every stored verifier. A secret:
+  changing it signs everyone out.
+- `ROW_BOT_ORG_SESSION_LIFETIME` and `ROW_BOT_ORG_SESSION_IDLE_TIMEOUT`: seconds, 43200 and 3600 by default.
+
+The server asks only for `openid email profile` and keeps no provider token. `row-bot-org principals
+revoke-sessions <principal id>`, with the owner's address, signs a person out everywhere.

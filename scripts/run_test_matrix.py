@@ -303,9 +303,12 @@ COMMANDS: dict[str, CommandSpec] = {
     ),
     "contracts": _pytest("contracts", "tests/contracts"),
     # The Org server's tests against a throwaway Postgres cluster (D14, tests/fixtures/postgres.py), and
-    # the contract suites' Postgres runs. Needs `uv sync ... --group org` and ROW_BOT_TEST_PG_BIN (or, on
-    # Windows, ROW_BOT_TEST_PG_WSL_DISTRO); without them these tests skip. CI's Org job runs it.
-    "org": _pytest("org", "tests/subsystem/org", "tests/contracts", marker=f"postgres and {DETERMINISTIC}"),
+    # the contract suites' Postgres runs, plus the tests that need only the org group's libraries
+    # (`org_deps`: joserfc), which the python tier's CI job doesn't install. Needs `uv sync ... --group org`
+    # and ROW_BOT_TEST_PG_BIN (or, on Windows, ROW_BOT_TEST_PG_WSL_DISTRO); without them these tests skip.
+    # CI's Org job runs it.
+    "org": _pytest("org", "tests/subsystem/org", "tests/contracts",
+                   marker=f"(postgres or org_deps) and {DETERMINISTIC}"),
     "subsystem": _pytest("subsystem", "tests/subsystem", *PARALLEL),
     "installer-contracts": _pytest("installer-contracts", "tests/subsystem/installer", "tests/contracts/installers"),
     "docs": _pytest("docs", "tests/docs", "tests/marketing"),
@@ -461,8 +464,9 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
         commands.append(COMMANDS["railway-relay-worker"])
     org = any(path.replace("\\", "/").startswith(ORG_SOURCES) for path in changed_files)
     if paths := changed_test_paths(changed_files):
-        # With the org tier in the run, it alone runs the postgres tests.
-        commands.append(_pytest("changed-tests", *paths, marker=f"not postgres and {DETERMINISTIC}" if org
+        # With the org tier in the run, it alone runs the postgres and org_deps tests.
+        commands.append(_pytest("changed-tests", *paths, marker=f"not postgres and not org_deps and {DETERMINISTIC}"
+                                if org
                                 else DETERMINISTIC))
     if org:
         commands.append(COMMANDS["org"])

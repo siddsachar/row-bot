@@ -11,6 +11,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from row_bot_org.health import Readiness, health_router
+from row_bot_org.identity.gate import OPEN_PATHS, AccessLog, Gate
 from row_bot_org.settings import OrgSettings
 
 if TYPE_CHECKING:
@@ -49,11 +50,18 @@ class _SecurityHeaders:
 
 
 def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> FastAPI:
-    """The server for ``settings``: health and readiness only, so far. Any other path is a JSON 404.
+    """The server for ``settings``: health, readiness and, with identity providers, sign-in.
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
-    at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending.
+    at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
+    and ``settings.idps`` it serves sign-in (``row_bot_org.identity``). Every other path needs a server
+    session (``identity.gate``): 401 without one, then the route or a JSON 404.
     """
+    service = None
+    if pool is not None and settings.idps:
+        from row_bot_org.identity.web import IdentityService
+
+        service = IdentityService(settings, pool)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -65,6 +73,8 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         try:
             yield
         finally:
+            if service is not None:
+                service.close()
             pool.close()
 
     app = FastAPI(
@@ -82,7 +92,20 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
         app.state.pool = pool
         app.state.readiness.add("database", database_readiness(pool, load_migrations()))
-    app.include_router(health_router(app.state.readiness))
+    routers = [health_router(app.state.readiness)]
+    if service is not None:
+        from row_bot_org.identity.web import identity_router
+
+        app.state.identity = service
+        routers.append(identity_router(service))
+    for router in routers:
+        app.include_router(router)
+    open_paths = OPEN_PATHS | ({"/openapi.json"} if settings.openapi else set())
+    # Outermost last: the headers on every response, the access log of every request (refusals
+    # included), then the gate. The log matches the routers' own routes: the app's are wrapped.
+    app.add_middleware(Gate, open_paths=open_paths, origin=settings.public_url,
+                       resolve=service.resolve if service is not None else None)
+    app.add_middleware(AccessLog, routes=[route for router in routers for route in router.routes])
     app.add_middleware(_SecurityHeaders)
     return app
 

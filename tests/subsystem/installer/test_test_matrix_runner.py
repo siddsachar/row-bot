@@ -70,8 +70,8 @@ def test_an_org_server_or_brain_change_runs_the_postgres_tests_once(source: str)
     commands = {spec.name: spec.argv for spec in matrix.changed_commands([source, "tests/subsystem/org/test_org_rls.py"])}
 
     assert commands["org"] == matrix.COMMANDS["org"].argv
-    assert "postgres and not live_provider and not e2e" in commands["org"]
-    assert "not postgres and not live_provider and not e2e" in commands["changed-tests"]
+    assert "(postgres or org_deps) and not live_provider and not e2e" in commands["org"]
+    assert "not postgres and not org_deps and not live_provider and not e2e" in commands["changed-tests"]
     assert "tests/subsystem/org" in matrix.changed_test_paths(["src/row_bot_org/db/migrations.py"])
 
 
