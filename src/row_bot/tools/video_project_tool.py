@@ -4,7 +4,8 @@ Row-Bot writes the scenes (which piece of which video, its speed, zoom, card and
 the video, reads its checks and changes it on request; the person edits the same project in
 the Video panel beside the chat. Every change is a new version with a note of what changed, so
 undo is one step. Making the video voices the lines in the person's chosen voice, renders it
-with the music ducked under the voice, and saves it to the chat's files.
+with the music ducked under the voice, and saves it to the chat's files. The call waits for it
+(``MAKE_SECONDS``); a video that takes longer carries on, and a wait wakes the chat when it's made.
 
 Approvals: downloading ffmpeg the first time, as in edit_video. Reading the chat's files and
 the workspace, and writing new files to the chat, needs none.
@@ -12,12 +13,16 @@ the workspace, and writing new files to the chat, needs none.
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-INLINE_SECONDS = 15
+# How long make, change and export wait for the video, as long as run_command waits for a command
+# (background_processes.INLINE_SECONDS): most short videos are made by then. A longer one carries on, and a wait
+# starts a turn here once it's made, so nothing polls.
+MAKE_SECONDS = 120.0
 
 
 class _Scene(BaseModel):
@@ -34,6 +39,9 @@ class _Scene(BaseModel):
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
+    fit: bool | None = Field(default=None, description="true: its whole picture inset on the brand colour; false: "
+                                                       "it fills the frame, cropped around the action; leave it out "
+                                                       "for the brand's framing (full by default).")
 
 
 class _VideoInput(BaseModel):
@@ -61,7 +69,8 @@ class _VideoInput(BaseModel):
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
     framing: Literal["full", "framed"] | None = Field(
-        default=None, description="brand: footage edge to edge (full) or on the brand colour (framed).")
+        default=None, description="brand: footage filling the frame (full, default) or inset on the brand colour "
+                                  "(framed, only when asked).")
     caption_style: Literal["box", "bold", "title"] | None = Field(
         default=None, description="brand: how captions look when a video has them.")
     music_mood: Literal["calm", "upbeat", "focused", "warm"] | None = Field(
@@ -76,22 +85,60 @@ def _conversation() -> str:
     return str(current_thread_id() or "")
 
 
-def _wait_for(project_id: str, conversation: str, number: int, seconds: float) -> None:
-    """Wait a little for the video while the turn waits; it carries on in the background after."""
+def _wait_for(project_id: str, conversation: str, number: int, seconds: float, shape: str = "") -> bool:
+    """Wait for a version's video (or its export in *shape*) while the turn waits; the turn's Stop stops it. True
+    once it's made, failed or stopped, False while it's still being made."""
     from row_bot import video_edits, video_projects
+    from row_bot.cancellation import current_cancellation_scope
 
+    stopped = threading.Event()
+    scope = current_cancellation_scope()
+    unregister = scope.register(stopped.set, "video.stop") if scope is not None else None
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        project = video_projects.get(project_id, conversation)
-        version = project.version(number) if project else None
-        if version is None or version.status == "failed":
-            return
-        if version.edit_id:
-            edit = video_edits.get(version.edit_id)
-            if edit is not None:
-                video_edits.wait(edit, max(0.0, deadline - time.monotonic()))
-            return
-        time.sleep(0.2)
+    try:
+        while True:
+            project = video_projects.get(project_id, conversation)
+            version = project.version(number) if project else None
+            if version is None:
+                return True
+            edit, done = video_projects.render_of(version, shape)
+            if stopped.is_set() and edit is not None:
+                video_edits.stop(edit.edit_id, by="you")
+            left = deadline - time.monotonic()
+            if done or stopped.is_set():
+                return True
+            if left <= 0:
+                return False
+            # Before its edit starts (voicing, or an export setting out) there's nothing to wait on but the clock.
+            (edit.done if edit is not None else stopped).wait(min(left, 0.5 if edit is not None else 0.2))
+    finally:
+        if unregister is not None:
+            unregister()
+
+
+def _check_back(project, number: int, shape: str = "") -> str:
+    """A video still being made: a wait that starts a turn here once it's made (one per video), and about how long
+    that will be when its edit says how far it is."""
+    from row_bot import video_edits, video_projects, waits
+
+    spec = {"project_id": project.project_id, "number": number, "shape": shape}
+    waiting = waits.waiting(project.conversation_id)
+    if not any(record["kind"] == "video" and record["spec"] == spec for record in waiting):
+        try:
+            waits.create(project.conversation_id, "video", f"“{project.title}” version {number}"
+                         f"{' in ' + shape if shape else ''} is made", spec=spec, hours=6)
+        except waits.WaitError as error:
+            return (f"Still being made in the background, and Row-Bot can't check back for it: {error} Tell the "
+                    "person it's still being made; look with action status in a later turn, or when they ask.")
+    fresh = video_projects.get(project.project_id, project.conversation_id) or project
+    version = fresh.version(number)
+    edit = video_projects.render_of(version, shape)[0] if version is not None else None
+    fraction = video_edits.progress(edit)[0] if edit is not None else None
+    minutes = max(1, round(edit.elapsed() * (1 - fraction) / fraction / 60)) if fraction and fraction >= 0.05 else 0
+    left = f", about {minutes} more minute{'s' if minutes != 1 else ''}" if minutes else ""
+    return (f"Still being made in the background{left}. Row-Bot checks back here when it's made, with its status "
+            "and checks. Don't call status meanwhile: tell the person in a line, finish anything else they asked "
+            "for, and end the turn.")
 
 
 def _both_downloads_consent() -> tuple[str, str] | None:
@@ -157,9 +204,11 @@ def _make(project, number: int | None) -> str:
                 return refusal
             line = "\n".join(part for part in (line, voiced) if part)
     version = video_projects.make(project, number, download=download)
-    _wait_for(project.project_id, project.conversation_id, version.number, INLINE_SECONDS)
+    made = _wait_for(project.project_id, project.conversation_id, version.number, MAKE_SECONDS)
     fresh = video_projects.get(project.project_id, project.conversation_id) or project
     text = video_projects.summary(fresh, version.number)
+    if not made:
+        text += "\n" + _check_back(fresh, version.number)
     return with_approval(line, text) if line else text
 
 
@@ -172,15 +221,11 @@ def _export(project, shape: str, number: int | None) -> str:
     if refusal:
         return refusal
     version = video_projects.export(project, shape, number, download=download)
-    fresh = project
-    for _ in range(int(INLINE_SECONDS * 5)):  # Until its edit has started (it's made in the background).
-        fresh = video_projects.get(project.project_id, project.conversation_id) or project
-        current = fresh.version(version.number) or version
-        if shape in current.exports or shape in current.export_problems:
-            break
-        time.sleep(0.2)
-    text = (f"Exporting version {version.number} as {shape}: it's saved to this chat when it's made, and shows in the "
-            "Video panel. " + video_projects.summary(fresh, version.number))
+    made = _wait_for(project.project_id, project.conversation_id, version.number, MAKE_SECONDS, shape)
+    fresh = video_projects.get(project.project_id, project.conversation_id) or project
+    text = video_projects.summary(fresh, version.number)
+    if not made:
+        text += "\n" + _check_back(fresh, version.number, shape)
     return with_approval(line, text) if line else text
 
 
@@ -232,9 +277,13 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             return _export(found, shape or "", version)
         if action == "status":
             number = version or found.latest.number
-            _wait_for(found.project_id, conversation, number, 60)
-            fresh = video_projects.get(found.project_id, conversation) or found
-            return video_projects.summary(fresh, number)
+            text = video_projects.summary(found, number)
+            shown = found.version(number)
+            # Whatever of it is still being made checks back by itself.
+            making = [shape for shape in ("", *video_projects.EXPORTS) if shown is not None
+                      and (not shape or shape in shown.exports) and not video_projects.render_of(shown, shape)[1]]
+            said = [_check_back(found, number, shape) for shape in making]
+            return text + ("\n" + said[-1] if said else "")
     except ProjectError as error:
         return str(error)
     return "Use action create, change, make, status, undo, export or brand."
@@ -266,12 +315,12 @@ def langchain_tool():
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
             "(start, end), with speed, zoom, a card and its line (voiced when made). create, then change with "
             "every scene (keep scene ids) and a note; each change is a new version and makes the video again, "
-            "saved to this chat. Read the checks and look at its review sheet: never say it's done until both are "
-            "right. undo goes back one version; export makes the same version in another shape or a GIF; brand "
-            "saves how every video should look (framing, caption style, music mood, voice). For one "
-            "quick edit use "
-            "edit_video. A title or end card is a scene without a video: never make background videos or other "
-            "working files in the person's workspace for it."
+            "saved to this chat. create, change, make and export wait for the video; a longer one checks back "
+            "here when it's made: never poll status. Read the checks and look at its review sheet: never say it's "
+            "done until both are right. undo goes back one version; export makes the same version in another shape "
+            "or a GIF; brand saves how every video should look (framing, caption style, music mood, voice). For one "
+            "quick edit use edit_video. A title or end card is a scene without a video: never make background "
+            "videos or other working files in the person's workspace for it."
         ),
         args_schema=_VideoInput,
     )

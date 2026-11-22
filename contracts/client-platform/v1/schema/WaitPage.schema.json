@@ -33,7 +33,8 @@
             "check",
             "time",
             "conversation",
-            "watch"
+            "watch",
+            "video"
           ],
           "title": "Kind",
           "type": "string"

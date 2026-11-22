@@ -120,6 +120,8 @@ def test_present_marks_a_working_file_final_and_its_reply_carries_it(chat):
                               lambda: _present(files=["pricing-page.png"], caption="The new pricing page"))
 
     assert result.startswith("Presented “pricing-page.png” (final) in this reply")
+    # Presenting doesn't end the work: what else they asked for comes first, then a line about it.
+    assert result.endswith("Finish anything else they asked for, then end with a line saying what it is.")
     assert _lineage(reference)["role"] == "final"
     assert media == [{"type": "media.available", "payload": {
         "media_ref": reference, "mime_type": "image/png", "role": "final", "name": "pricing-page.png",

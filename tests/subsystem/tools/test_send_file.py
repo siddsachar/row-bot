@@ -135,6 +135,20 @@ def test_sending_to_your_devices_never_asks_and_shows_in_every_open_window(chat,
     assert notice.view()["conversation_id"] == chat.conversation
 
 
+@pytest.mark.parametrize("count", [11, 50])
+def test_a_send_of_more_than_ten_files_reads_back_through_the_api(chat, count):
+    # The card's view held 10 files while a send takes MAX_FILES (50): an 11-file send's card failed to read.
+    from row_bot.api.v1.schemas import DeliveryView
+
+    for index in range(count):
+        (chat.workspace / "docs" / f"page-{index:02d}.txt").write_bytes(f"Page {index}\n".encode())
+    result = chat.send(files=[f"docs/page-{index:02d}.txt" for index in range(count)])
+
+    assert count <= chat.deliveries.MAX_FILES
+    view = DeliveryView.model_validate(chat.deliveries.view(_delivery(result)))
+    assert [item.index for item in view.files] == list(range(count)) and all(item.sent for item in view.files)
+
+
 def test_a_picture_or_video_sent_from_the_workspace_is_kept_with_the_chat(chat):
     # Library › Media lists a chat's media: a GIF Row-Bot made in the workspace and sent is one of them.
     from row_bot import media_library

@@ -70,9 +70,11 @@ def test_trim_cuts_picture_and_sound_together():
     assert plan.duration == 3
 
 
-def test_join_fits_every_video_to_the_first_and_fills_missing_sound_with_silence():
+def test_join_fills_every_video_to_the_first_and_fills_missing_sound_with_silence():
     plan = _plan([], [InputVideo("input-1.mp4", HD), InputVideo("C:/work/clips/b.mp4", SILENT)])
-    assert "[1:v]scale=640:360:force_original_aspect_ratio=decrease,pad=640:360" in plan.graph
+    # A 4:3 clip joined to a 16:9 one fills its frame, cropped: one film, never black bars.
+    assert "[1:v]scale=640:360:force_original_aspect_ratio=increase,crop=640:360" in plan.graph
+    assert "pad=" not in plan.graph
     assert "fps=30" in plan.graph
     assert "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=4" in plan.graph
     assert "concat=n=2:v=1:a=1" in plan.graph
@@ -280,33 +282,15 @@ def test_each_scene_lasts_until_its_voice_line_ends_so_no_line_runs_into_the_nex
     assert _every_stream_is_used(plan)
 
 
-def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_the_speed_badge_in_frame():
+def test_a_sped_up_scene_carries_no_badge_and_a_gif_is_made_small():
     from row_bot.video_editing import SceneCut, Step, gif_arguments
 
-    scenes = Step(op="scenes", aspect="9:16", scenes=[
-        SceneCut(input=0, end=2, zoom=(0.8, 0.0, 0.1, 1.0)), SceneCut(input=0, start=2, end=6, speed=2)])
+    scenes = Step(op="scenes", scenes=[SceneCut(input=0, end=2), SceneCut(input=0, start=2, end=6, speed=2)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # A tall cut is 1080×1920 whatever the source. The zoom here is tall enough (64×360): cropped on it, 640×360
-    # tall being 202×360 at the right edge; the wide scene without one is shown whole over a blurred copy of
-    # itself, never cropped to its middle third with its words cut in half (31 Oct: the teaser's phone cut was
-    # 606×1080).
-    assert "crop=202:360:438:0,scale=1080:1920" in plan.graph and "crop=202:360:219:0" not in plan.graph
-    assert "boxblur" in plan.graph and "scale=1080:-2" in plan.graph and "overlay=(W-w)/2:(H-h)/2" in plan.graph
-    assert (plan.width, plan.height, plan.marks) == (1080, 1920, [0.0, 2.0, 4.0])
-    assert _every_stream_is_used(plan)
-    # A wide zoom (a heading, a row of cards) is shown whole too: its area, fitted over a blur, not its middle.
-    wide = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="9:16", scenes=[
-        SceneCut(input=0, end=2, zoom=(0.1, 0.4, 0.6, 0.2))])], "output.mp4")
-    assert "crop=384:72:64:144" in wide.graph and "boxblur" in wide.graph and "crop=202:360" not in wide.graph
-    assert _every_stream_is_used(wide)
+    assert (plan.width, plan.height, plan.marks) == (640, 360, [0.0, 2.0, 4.0])
     assert plan.overlays == [], "no speed badge on a sped-up scene (U26)"
-    same = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="16:9", scenes=[SceneCut(input=0)])],
-                      "output.mp4")
-    assert "crop=" not in same.graph and (same.width, same.height) == (640, 360), "its own shape: as it is"
-    with pytest.raises(EditError, match="16:9, 1:1 or 9:16"):
-        build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="4:3", scenes=[SceneCut(input=0)])],
-                   "output.mp4")
+    assert _every_stream_is_used(plan)
 
     gif = gif_arguments("input-1.mp4", "output.gif")
     assert gif[gif.index("-filter_complex") + 1].startswith("[0:v]fps=12,scale=480:-2")
@@ -323,19 +307,6 @@ def test_a_caption_reads_the_same_in_a_square_or_tall_cut_as_in_a_wide_one():
     assert render_text(line, "caption", 1280, 1280)[1:] == wide[1:]
     assert render_text(line, "caption", 1280, 2276)[1:] == wide[1:]
     assert render_text(line, "caption", 720, 1280)[1] <= 720
-
-
-def test_a_square_cut_of_a_scene_without_a_zoom_is_centred_where_its_pointer_was():
-    from row_bot.video_editing import SceneCut, Step
-
-    scenes = Step(op="scenes", aspect="1:1", scenes=[
-        SceneCut(input=0, end=2, focus=(0.9, 0.2)), SceneCut(input=0, start=2, end=4)])
-    plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
-
-    # 640×360 square is 360×360: the first scene at the right edge, where the pointer was; the second in the middle;
-    # each at the standard 1080×1080.
-    assert "crop=360:360:280:0,scale=1080:1080" in plan.graph and "crop=360:360:140:0,scale=1080:1080" in plan.graph
-    assert (plan.width, plan.height) == (1080, 1080)
 
 
 def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_corner():

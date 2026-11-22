@@ -6,10 +6,11 @@ workspace, through the same resolver ``send_file`` uses (``file_deliveries.resol
 a workspace path inside the workspace, ``rec-…``, ``edit-…``, ``vid-…``), sends nothing anywhere and never
 asks. A workspace file (a film the agent rendered with its own script) becomes the chat's own file, as a
 version of its output (``file_deliveries.chat_output``), never a hidden extra copy. Phones and chat apps
-stay with ``send_file``.
+stay with ``send_file``: a chat app's turn never binds ``present`` (``agent.get_agent_graph``).
 
-Everything else a tool makes in a chat is a working file (recordings, frames, contact sheets, voice lines,
-test renders): kept in the chat's files, folded away in the transcript, and never presented.
+What a tool makes on the way to a final is a working file (raw recordings, frames, contact sheets, voice
+lines for a video, test renders): kept in the chat's files and folded away in the transcript. A recording
+or a voice file the person asked for can itself be the final.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from row_bot.tools.base import BaseTool, NullMeansUnset
 
 # At most this many files in one call: a reply shows each large, and its step keeps at most eight.
 MAX_FILES = 8
+_THEN = "Finish anything else they asked for, then end with a line saying what it is."
 
 
 def _present(files: list[str] | None = None, caption: str = "") -> str:
@@ -50,9 +52,8 @@ def _present(files: list[str] | None = None, caption: str = "") -> str:
     if all(item["was_final"] for item in shown):
         # A generated picture or video already shows in the chat: it is marked, never shown twice.
         return (f"Marked {quoted} final: {'it already shows' if one else 'they already show'} in this chat, so "
-                f"{'it isn' if one else 'they aren'}'t shown twice. End your reply here: say in a line what it is.")
-    return (f"Presented {quoted} (final) in this reply, large, where the person sees "
-            f"{'it' if one else 'them'}. End your reply here: say in a line what it is.")
+                f"{'it isn' if one else 'they aren'}'t shown twice. {_THEN}")
+    return f"Presented {quoted} (final) in this reply, large, where the person sees {'it' if one else 'them'}. {_THEN}"
 
 
 class _PresentInput(NullMeansUnset):
@@ -86,11 +87,12 @@ class PresentTool(BaseTool):
                 func=_present,
                 name="present",
                 description=(
-                    "Show the person the finished result, large, in this reply: the film, picture, page or file "
-                    "they asked for, and mark it final. Use it once the final is ready: every final must be "
-                    "presented, and a reply that delivers one ends by presenting it. Never present working "
-                    "files (recordings, frames, contact sheets, review sheets, voice lines, test renders): "
-                    "they stay folded in the chat."
+                    "Show the person the finished result, large, in this reply (in a Row-Bot chat; in a chat "
+                    "app, send_file delivers): the film, picture, page or file they asked for, and mark it "
+                    "final. Use it once the final is ready: every final must be presented, and a reply that "
+                    "delivers one ends by presenting it. Never present working material for a final (raw "
+                    "recordings you'll cut, frames, contact sheets, review sheets, voice lines for a video, "
+                    "test renders): it stays folded in the chat."
                 ),
                 args_schema=_PresentInput,
             )
