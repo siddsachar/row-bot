@@ -230,7 +230,8 @@ def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_ru
     voices = [cut.voice for cut in request.steps[0].scenes]
     assert len(set(voices)) == 2 and all(voice.startswith("Row-Bot 5.3.1 beta") for voice in voices)
     assert set(request.sounds) == set(voices)
-    assert request.output_name.startswith("Row-Bot 5.3.1 beta") and request.output_name.endswith(" v1.mp4")
+    # The version is no part of the name (W4): a title that has one is never "… v2 v1.mp4".
+    assert request.output_name == "Row-Bot 5.3.1 beta - Linked conversations, from meeting note.mp4"
 
 
 def test_narration_said_over_the_whole_video_is_part_of_the_project_and_its_lines_are_not_said_again(studio):
@@ -288,6 +289,30 @@ def test_a_title_card_scene_needs_no_video_and_a_video_of_cards_alone_needs_none
     assert studio["started"][1].sources == [], "a video of cards alone has no input"
 
 
+def test_a_title_with_its_own_version_number_names_every_version_once(studio):
+    """W4: "Living Buddy v2" was saved as "Living Buddy v2 v1.mp4"; a version now lives in the file's record."""
+    from row_bot import media_sources, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    project = video_projects.create("conversation-a", "Living Buddy v2", SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    video_projects.change(project, by="you", base=1, scenes=[SCENES[0]], note="Shorter")
+    video_projects.make(video_projects.get(project.project_id), 2)
+    _wait(project.project_id, 2)
+
+    renders = studio["started"]
+    saved = [register_attachment("conversation-a", request.output_name, MP4 + bytes([request.version]),
+                                 role=request.role, output_id=request.output_id, version=request.version)
+             for request in renders]
+
+    assert [request.output_name for request in renders] == ["Living Buddy v2.mp4"] * 2
+    assert [item["name"] for item in saved] == ["Living Buddy v2.mp4"] * 2
+    [older] = media_sources.find("Living Buddy v2@v1", "conversation-a")
+    [newest] = media_sources.find("Living Buddy v2", "conversation-a")
+    assert (older.ref, newest.ref) == (saved[0]["attachment_ref"], saved[1]["attachment_ref"])
+
+
 def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment
@@ -306,7 +331,7 @@ def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
             break
         __import__("threading").Event().wait(0.01)
     tall = studio["started"][-1]
-    assert tall.steps[0].aspect == "9:16" and tall.output_name == "Launch demo v1 9x16.mp4"
+    assert tall.steps[0].aspect == "9:16" and tall.output_name == "Launch demo 9x16.mp4"
     video_projects.export(project, "gif")
     gif = studio["started"][-1]
     assert gif.gif and [media.ref for media in gif.sources] == [saved["attachment_ref"]]
@@ -645,7 +670,8 @@ def test_make_returns_the_finished_video_when_it_is_made_within_the_wait(studio,
 
     result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES)
 
-    assert "2 scenes, made." in result.splitlines()[0] and "Video: Launch demo v1.mp4" in result
+    assert result.splitlines()[0].endswith(
+        ': Output "Launch demo" v1 (draft) · Launch demo.mp4; version 1 of 1, 2 scenes, made.')
     assert "checks back" not in result and waits.waiting("conversation-a") == []
 
 

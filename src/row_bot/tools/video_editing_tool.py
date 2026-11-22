@@ -4,8 +4,8 @@ An edit (trim, join, speed with an optional "2×" label, text badges and titles,
 crop, burned-in captions, or stills) is one H.264 MP4 encode that runs in the background:
 the tool waits a little, then the chat's card shows its progress with Stop and, once it is
 saved, the video with a player. Results go to the conversation's files (new files, so nothing
-is replaced and nothing asks); ``save`` copies a finished one into the workspace, where
-replacing a file asks first and a code folder's files are never replaced.
+is replaced and nothing asks); ``save`` copies a finished one into the workspace folder, where
+replacing a file asks first.
 
 Approvals (one at most per call): downloading ffmpeg the first time (a network download, by
 the approval level) and replacing a workspace file. Reading the chat's files and the
@@ -41,15 +41,15 @@ def _conversation() -> str:
 
 
 def output_name(value: str, *, default: str, suffix: str = ".mp4") -> str:
-    """A plain file name for a result: letters, digits, spaces, dots, dashes, brackets and apostrophes, ending in
-    *suffix*.
+    """A file name for a result as the person wrote it, ending in *suffix*: only what no system takes in a file name
+    (``<>:"/\\|?*`` and control characters) becomes a dash, so "£480 offer", "Café" and "Find a Mountain's Height"
+    keep theirs (U28, W4).
 
-    Only a real file type comes off the end: "Row-Bot 5.3.1 demo" keeps its whole name, and "Find a Mountain's
-    Height" keeps its apostrophe (U28; it is fine on every system)."""
+    Only a real file type comes off the end: "Row-Bot 5.3.1 demo" keeps its whole name."""
     text = Path(str(value or "").replace("\\", "/")).name.replace("’", "'")
     if mimetypes.guess_type("name" + Path(text).suffix)[0]:
         text = Path(text).stem
-    stem = re.sub(r"[^A-Za-z0-9 ._()'\-]+", "-", text).strip(" .-'")[:80]
+    stem = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]+', "-", text).strip(" .-'")[:80]
     return (stem or default) + suffix
 
 
@@ -265,34 +265,6 @@ def _write_file(target: Path, data: bytes, *, replace: bool) -> None:
         partial.unlink(missing_ok=True)
 
 
-def _save_to_code_folder(place, edit, files: list[tuple[str, str]]) -> str:
-    """Through the Developer import: new files only, each recorded as a change that can be undone."""
-    from row_bot.developer import edits as developer_edits
-    from row_bot.tools.approval_gate import current_approval_mode
-
-    saved: list[str] = []
-    for relative, ref in files:
-        try:
-            change_set, decision = developer_edits.import_conversation_media(
-                workspace_id=place.code_folder_id, thread_id=edit.conversation_id, media_ref=ref, path=relative,
-                approval_mode=current_approval_mode(), confirmed=False)
-        except ValueError as exc:
-            reason = {
-                "media_destination_conflict": (f"{relative} already exists in the code folder. Files there are never "
-                                               "replaced from here: choose another name."),
-                "media_destination_unavailable": f"The folder for {relative} doesn't exist in the code folder.",
-                "media_type_conflict": f"{relative} must end with the file's type (.mp4 or .jpg).",
-                "media_too_large": "The file is too large to import.",
-            }.get(str(exc), f"{relative} couldn't be saved in the code folder.")
-            prefix = f"Saved {', '.join(saved)}; " if saved else ""
-            return prefix + reason
-        if change_set is None and decision.decision != "allow":
-            # A contained new file never asks (Developer's own rule); Block refuses it.
-            return decision.reason
-        saved.append(relative)  # Added now, or the same file was there already.
-    return f"Saved {', '.join(saved)} in the code folder; each can be undone in its changes."
-
-
 def _save(edit_id: str, path: str) -> str:
     from row_bot.application.attachments import AttachmentError, read_attachment
     from row_bot.media_sources import SourceError, workspace, workspace_target
@@ -306,9 +278,9 @@ def _save(edit_id: str, path: str) -> str:
         return f"{edit.edit_id} isn't finished, so there's nothing to save yet."
     if not str(path or "").strip():
         return "Say where to save it in the workspace with path, for example videos/demo.mp4."
-    place = workspace(edit.conversation_id)
+    place = workspace()
     if place is None:
-        return "There's no workspace folder to save into. Choose one in Settings, or use a code folder."
+        return "There's no workspace folder to save into: ask the person to choose one in Settings."
     stem = Path(edit.output_name).stem or "frame"
     if edit.kind == "frames":
         folder = str(path).rstrip("/\\")
@@ -316,8 +288,6 @@ def _save(edit_id: str, path: str) -> str:
     else:
         target_name = str(path) if str(path).casefold().endswith(".mp4") else str(path).rstrip("/\\") + "/" + edit.output_name
         files = [(target_name, edit.media_ref)]
-    if place.code_folder_id:
-        return _save_to_code_folder(place, edit, files)
     try:
         targets = [(workspace_target(place.root, relative), ref) for relative, ref in files]
     except SourceError as exc:

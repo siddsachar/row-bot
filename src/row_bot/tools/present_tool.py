@@ -2,9 +2,10 @@
 
 ``present`` shows each file it names large in this reply and marks it final: the film, picture, page or
 document the person asked for. It only marks and shows: it reaches nothing beyond this chat's files and the
-workspace, through the same resolver ``send_file`` uses (``file_deliveries.resolve``: a chat file by name,
-a workspace path inside the workspace, ``rec-…``, ``edit-…``, ``vid-…``), sends nothing anywhere and never
-asks. A workspace file (a film the agent rendered with its own script) becomes the chat's own file, as a
+workspace, found as every tool finds files (``media_sources.find``: a chat file or an output by its name,
+``name@v2``, a workspace path inside the workspace, ``rec-…``, ``edit-…``, ``vid-…``), sends nothing anywhere
+and never asks. With no files it lists this chat's outputs (``media_sources.outputs_text``), so a name is
+never lost. A workspace file (a film the agent rendered with its own script) becomes the chat's own file, as a
 version of its output (``file_deliveries.chat_output``), never a hidden extra copy. Phones and chat apps
 stay with ``send_file``: a chat app's turn never binds ``present`` (``agent.get_agent_graph``).
 
@@ -29,7 +30,7 @@ _THEN = "Finish anything else they asked for, then end with a line saying what i
 def _present(files: list[str] | None = None, caption: str = "") -> str:
     from row_bot import file_deliveries as deliveries
     from row_bot.application.attachment_context import current_caches
-    from row_bot.media_sources import SourceError
+    from row_bot.media_sources import SourceError, identity, outputs_text
     from row_bot.tool_outputs import current_thread_id
 
     conversation = str(current_thread_id() or "")
@@ -38,7 +39,7 @@ def _present(files: list[str] | None = None, caption: str = "") -> str:
         return "Presenting needs a chat shown in Row-Bot; to send files to a chat app or a phone, use send_file."
     names = list(dict.fromkeys(str(value).strip() for value in files or [] if str(value or "").strip()))
     if not names:
-        return "Name the finals to present in files: a file in this chat, a workspace path, or rec-…, edit-…, vid-…."
+        return outputs_text(conversation)
     if len(names) > MAX_FILES:
         return f"Present at most {MAX_FILES} files at once; nothing was presented."
     try:
@@ -47,17 +48,18 @@ def _present(files: list[str] | None = None, caption: str = "") -> str:
         return f"{exc} Nothing was presented."
     words = " ".join(str(caption or "").split())[:300]
     caches.presented.extend({**item, "caption": words if index == 0 else ""} for index, item in enumerate(shown))
-    quoted = ", ".join(f"“{item['name']}”" for item in shown)
+    # Each output first (W4): history masking keeps a result's first line.
+    named = "\n".join(identity(item) for item in shown)
     one = len(shown) == 1
     if all(item["was_final"] for item in shown):
         # A generated picture or video already shows in the chat: it is marked, never shown twice.
-        return (f"Marked {quoted} final: {'it already shows' if one else 'they already show'} in this chat, so "
+        return (f"{named}\nMarked final: {'it already shows' if one else 'they already show'} in this chat, so "
                 f"{'it isn' if one else 'they aren'}'t shown twice. {_THEN}")
-    return f"Presented {quoted} (final) in this reply, large, where the person sees {'it' if one else 'them'}. {_THEN}"
+    return f"{named}\nPresented in this reply, large, where the person sees {'it' if one else 'them'}. {_THEN}"
 
 
 class _PresentInput(NullMeansUnset):
-    files: list[str] = Field(description=(
+    files: list[str] = Field(default_factory=list, description=(
         f"The finals, in order (up to {MAX_FILES}): a file in this chat by name, a workspace path, "
         "or rec-…, edit-…, vid-…."))
     caption: str = Field(default="", description="A short line shown with them.")
@@ -92,7 +94,7 @@ class PresentTool(BaseTool):
                     "final. Use it once the final is ready: every final must be presented, in the reply that "
                     "delivers it. Never present working material for a final (raw "
                     "recordings you'll cut, frames, contact sheets, review sheets, voice lines for a video, "
-                    "test renders): it stays folded in the chat."
+                    "test renders): it stays folded in the chat. With no files, it lists this chat's outputs."
                 ),
                 args_schema=_PresentInput,
             )

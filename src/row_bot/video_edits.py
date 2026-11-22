@@ -874,7 +874,8 @@ def view(edit: VideoEdit) -> dict[str, Any]:
 
 
 def summary(edit: VideoEdit) -> str:
-    """The tool result's first line: ``Video edit edit-…: …`` (the chat's card follows it by that id)."""
+    """The tool result's first line: ``Video edit edit-…: …`` (the chat's card follows it by that id), and a saved
+    video's output (``media_sources.identity``)."""
     head = f"Video edit {edit.edit_id}: "
     if edit.status == "saved" and edit.kind == "frames":
         moments = ", ".join(clock(moment) for moment in edit.frame_times[:12])
@@ -892,9 +893,12 @@ def summary(edit: VideoEdit) -> str:
         silent = (" It has no sound: whoever watches it hears nothing. A video for people to watch needs a voice "
                   "(make it with the video tool) or music; if it's meant to be silent, say so when you share it."
                   if edit.silent else "")
-        return (head + f"saved {clock(edit.expected_seconds)} of video ({size_words(edit.size_bytes)}) to this "
-                f"chat's files as {edit.output_name}, a working file: present shows it to the person. "
-                f"{edit.summary}.{silent}")
+        from row_bot.media_sources import identity_of
+
+        # Its output first (W4): history masking keeps a result's first line.
+        named = identity_of(edit.media_ref) or edit.output_name
+        return (head + f"{named}\nSaved {clock(edit.expected_seconds)} of video ({size_words(edit.size_bytes)}) "
+                f"to this chat's files: present shows it to the person. {edit.summary}.{silent}")
     if edit.status == "failed":
         return head + f"failed. {edit.detail or 'The edit did not work.'}"
     if edit.status == "stopped":

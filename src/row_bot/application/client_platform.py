@@ -2142,18 +2142,6 @@ class ClientPlatformService:
                 if getter("media_error"):
                     self.projection.publish(conversation_id, "media.error", {"code": "media_unavailable",
                         "tool_call_id": str(getter("tool_call_id") or ""), "message_id": str(getter("message_id") or "")})
-                content = str(getter("content") or "")
-                if content.startswith("__IMAGE__:"):
-                    from row_bot.application.attachments import register_attachment
-                    encoded = content[len("__IMAGE__:"):].split("\n\n", 1)[0]
-                    if len(encoded) <= 36 * 1024 * 1024:
-                        data = base64.b64decode(encoded, validate=True)
-                        metadata = register_attachment(conversation_id, f"generated-{uuid.uuid4().hex}.png", data, "image/png")
-                        self.projection.publish(conversation_id, "media.available", {
-                            "media_ref": metadata["attachment_ref"], "mime_type": metadata["mime_type"],
-                            **({"prompt": prompt} if prompt else {}),
-                            "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
-                            "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":
             self.projection.publish(conversation_id, "generation.activity", {"state": "thinking"})
         elif kind == "tool_writing" and isinstance(payload, dict):

@@ -618,7 +618,7 @@ def export(project: Project, shape: str, number: int | None = None, *, download:
         edit = video_edits.start(video_edits.Request(
             conversation_id=project.conversation_id, kind="video", sources=resolve(made.edit_id,
                                                                                project.conversation_id),
-            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True,
+            output_name=_file_name(project.title, ".gif"), download=download, gif=True,
             role="draft", output_id=project.project_id, version=version.number))
         _update(project, version.number, exports={**version.exports, shape: edit.edit_id})
     else:
@@ -643,7 +643,8 @@ def make(project: Project, number: int | None = None, *, download: bool = False)
 
 
 def _file_name(title: str, suffix: str, tail: str = "") -> str:
-    """The title, shortened so *tail* (a version or a scene) always stays: no two files share a name."""
+    """The title, shortened so *tail* (a shape or a scene) always stays. A version is no part of it: the versions
+    of a project's video share its name, so "Living Buddy v2" is never "Living Buddy v2 v1" (W4)."""
     from row_bot.tools.video_editing_tool import output_name
 
     return output_name(f"{title.strip()[:60]} {tail}".strip(), default="video", suffix=suffix)
@@ -835,7 +836,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
         known = {value: scene_footage(value, item.ref or "") for value, item in zip(sources, media, strict=True)}
         edit = video_edits.start(video_edits.Request(
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
-            output_name=_file_name(project.title, ".mp4", f"v{number} {shape.replace(':', 'x')}".strip()),
+            output_name=_file_name(project.title, ".mp4", shape.replace(":", "x")),
             download=download, sounds=sounds, check=True,
             footage=[known.get(scene.source, Footage()) for scene in version.scenes],
             role="draft", output_id=project.project_id, version=number,
@@ -974,7 +975,15 @@ def summary(project: Project, number: int | None = None) -> str:
     data = view(project, number)
     words = {"draft": "not made yet", "voicing": "voicing the lines", "rendering": "making the video",
              "made": "made", "failed": "not made", "stopped": "stopped"}[data["status"]]
-    lines = [f"Video project {project.project_id}: \"{project.title}\", version {data['number']} of "
+    made = data["edit"] if data["status"] == "made" and data["edit"] else None
+    from row_bot.media_sources import identity, identity_of
+
+    # A made version leads with its output (W4): history masking keeps a result's first line.
+    named = (identity_of(str(made.get("media_ref") or ""))
+             or identity({"name": made["output_name"], "role": "draft", "version": data["number"]})) if made else ""
+    lines = [f"Video project {project.project_id}: {named}; version {data['number']} of {data['latest']}, "
+             f"{len(data['scenes'])} scenes, made." if named else
+             f"Video project {project.project_id}: \"{project.title}\", version {data['number']} of "
              f"{data['latest']}, {len(data['scenes'])} scenes, {words}."]
     if data["problem"]:
         lines.append(f"Why: {data['problem']}")
@@ -1005,8 +1014,8 @@ def summary(project: Project, number: int | None = None) -> str:
     if shown is not None and shown.brand and video_brand.load().framing == "framed":
         lines.append("Framed: the brand kit sets 16:9 footage inset on its colour. To fill the frame, video action "
                      "brand with framing full.")
-    if data["edit"] and data["status"] == "made":
-        lines.append(f"Video: {data['edit']['output_name']} ({data['edit']['edit_id']}) in this chat's files.")
+    if made:
+        lines.append(f"Its edit: {made['edit_id']}.")
     if data["checks"]:
         verdict = "passed: ready to share" if data["checks_passed"] else "NOT passed: fix these, then make it again"
         lines.append(f"Checks {verdict}:\n" + "\n".join(f"- {line}" for line in data["checks"]))

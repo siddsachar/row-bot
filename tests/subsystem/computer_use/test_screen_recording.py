@@ -129,7 +129,9 @@ def test_it_asks_records_into_a_private_folder_and_saves_the_video_to_the_chat(s
 
     stopped = _computer("stop_recording")
 
-    assert stopped.startswith(f"Recording {record.recording_id}: saved ")
+    # Its output first (W4): history masking keeps a result's first line.
+    assert stopped.startswith(f'Recording {record.recording_id}: Output "screen-recording" v1 (working) · '
+                              "generated-screen-recording.mp4\nSaved 0:")
     assert (record.status, record.stopped_by) == ("saved", "agent")
     assert read_attachment(record.media_ref)[1] == _MP4
     assert screen.transport.closed is True

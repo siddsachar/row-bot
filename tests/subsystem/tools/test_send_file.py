@@ -92,7 +92,8 @@ def test_only_files_in_the_chat_or_the_workspace_can_be_sent(chat, tmp_path):
     for name in (str(outside), "../secret.txt", "docs/../../secret.txt", str(private)):
         result = chat.send(files=[name], to="telegram")
         assert not result.startswith("Delivery"), (name, result)
-        assert "outside the workspace" in result or "isn't a file in the workspace" in result, (name, result)
+        assert ("outside the workspace" in result or "isn't a file in the workspace" in result
+                or "private data folder" in result), (name, result)
     assert "Couldn't find missing.pdf" in chat.send(files=["missing.pdf"])
     assert chat.telegram.documents == [] and chat.asked == [] and chat.reviews == []
     assert chat.deliveries.list_deliveries() == []
