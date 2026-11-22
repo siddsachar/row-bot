@@ -2154,6 +2154,11 @@
           "title": "Dictation Provider",
           "type": "string"
         },
+        "push_to_talk": {
+          "default": false,
+          "title": "Push To Talk",
+          "type": "boolean"
+        },
         "realtime_voice": {
           "maxLength": 32,
           "title": "Realtime Voice",
@@ -2177,6 +2182,16 @@
         "talk_provider": {
           "maxLength": 64,
           "title": "Talk Provider",
+          "type": "string"
+        },
+        "turn_eagerness": {
+          "default": "normal",
+          "enum": [
+            "relaxed",
+            "normal",
+            "eager"
+          ],
+          "title": "Turn Eagerness",
           "type": "string"
         }
       },

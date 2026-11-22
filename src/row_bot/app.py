@@ -1656,8 +1656,9 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=_APP_PORT,
         log_level="warning",
         proxy_headers=False,
-        # The React client uses HTTP and server-sent events only.
-        ws="none",
+        # HTTP and server-sent events, and one WebSocket: Row-Bot Voice's audio
+        # (/api/v1/voice/stream, authenticated and same-origin like every route).
+        ws="websockets",
         # Open event streams never end on their own; stop waiting for them so
         # the shutdown sequence (tunnels, channels, sessions) always runs.
         timeout_graceful_shutdown=5,

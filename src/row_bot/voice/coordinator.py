@@ -8,7 +8,7 @@ from typing import Literal
 
 
 VoiceMode = Literal["talk", "dictate"]
-VoiceTransport = Literal["browser", "realtime"]
+VoiceTransport = Literal["browser", "realtime", "duplex"]
 
 
 @dataclass(frozen=True)
@@ -77,14 +77,6 @@ class VoiceSessionCoordinator:
             return "stopped"
         if self.transport == "realtime":
             return self.realtime_state
-        lease = self._dictation_lease
-        if lease is not None and lease.mode == "talk" and lease.handle.voice_session_id == self.session_id:
-            if lease.phase == "submit":
-                return "thinking"
-            if lease.phase == "speech":
-                return "speaking"
-            if lease.phase == "worker":
-                return "transcribing"
         return "listening"
 
     def accepts(self, session_id: int) -> bool:

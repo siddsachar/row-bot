@@ -116,72 +116,7 @@ test.beforeEach(async ({ context, page }) => {
   });
 });
 
-test('Talk submits to the unified conversation and speaks only its saved final response', async ({
-  page,
-}, info) => {
-  const id = await newConversation(page);
-  await composer(page).fill('Retain my typed draft.');
-  await page.getByRole('button', { name: 'Talk', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Conversation voice' });
-  await expect(
-    panel.getByText('No resource write targets are selected.'),
-  ).toBeVisible();
-  await panel.getByRole('button', { name: 'Talk', exact: true }).click();
-  await expect(
-    panel.getByRole('button', { name: 'Send speech', exact: true }),
-  ).toBeVisible();
-  await screenshot(page, info, 'talk-recording-unified-conversation');
-  await accessibility(page, info, 'talk-recording-unified-conversation');
-  await panel.getByRole('button', { name: 'Send speech', exact: true }).click();
-  await expect
-    .poll(
-      async () =>
-        (await fixtureState(page)).calls.filter(
-          (call) => call.conversation_id === id,
-        ).length,
-    )
-    .toBe(1);
-  const call = (await fixtureState(page)).calls.find(
-    (call) => call.conversation_id === id,
-  )!;
-  await releaseProducer(page, call);
-  await expect(page.getByRole('log', { name: 'Conversation' })).toContainText(
-    'Synthetic stream settled.',
-  );
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as unknown as { __voiceFixture: { played: number } })
-            .__voiceFixture.played,
-      ),
-    )
-    .toBe(1);
-  await expect(
-    panel.getByRole('button', { name: 'Send speech', exact: true }),
-  ).toBeVisible();
-  await panel.getByRole('button', { name: 'Stop Talk', exact: true }).click();
-  await expect(
-    panel.getByRole('button', { name: 'Talk', exact: true }),
-  ).toBeEnabled();
-  await expect(composer(page)).toHaveValue('Retain my typed draft.');
-  await expect(composer(page)).toHaveCount(1);
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const value = (
-          window as unknown as {
-            __voiceFixture: { acquired: number; stopped: number };
-          }
-        ).__voiceFixture;
-        return value.acquired - value.stopped;
-      }),
-    )
-    .toBe(0);
-  await screenshot(page, info, 'talk-final-response-in-chat');
-});
-
-test('Realtime Talk exchanges through the host and consults the same saved conversation', async ({
+test('Live voice exchanges through the host and consults the same saved conversation', async ({
   page,
 }, info) => {
   const remote: string[] = [];
@@ -192,10 +127,8 @@ test('Realtime Talk exchanges through the host and consults the same saved conve
   const id = await newConversation(page);
   await composer(page).fill('Retain the realtime draft.');
   await page.getByRole('button', { name: 'Talk', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Conversation voice' });
-  await panel
-    .getByRole('combobox', { name: 'Talk mode' })
-    .selectOption('realtime');
+  await page.getByRole('menuitem', { name: /Live voice/ }).click();
+  const panel = page.getByRole('region', { name: 'Live voice' });
   await panel.getByRole('button', { name: 'Talk', exact: true }).click();
   await expect(panel.getByRole('status')).toHaveText('Listening…');
   await screenshot(page, info, 'realtime-listening-unified-conversation');

@@ -19,7 +19,7 @@ import threading
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
@@ -2301,6 +2301,7 @@ def create_router(
                 request_id=str(body.request_id),
                 validate=validate_start,
                 **({"chat_context": chat_context} if chat_context is not None else {}),
+                **({"csrf": current.csrf} if mode == "talk" else {}),
             ),
             name="client-voice-start",
         )
@@ -2322,7 +2323,9 @@ def create_router(
                 )
             return await respond(
                 request,
-                dto.RealtimeStart if mode == "realtime" else voice_snapshot_dto(mode),
+                {"realtime": dto.RealtimeStart, "talk": dto.TalkStarted}.get(
+                    mode, dto.DictationSnapshot
+                ),
                 value,
             )
         except BaseException:
@@ -2333,7 +2336,7 @@ def create_router(
             def discard_start(completed: asyncio.Task) -> None:
                 try:
                     snapshot = completed.result()
-                    if mode == "realtime":
+                    if mode in {"realtime", "talk"}:
                         snapshot = snapshot.snapshot
                     transport.stop(owner, snapshot.handle, validate=lambda: None)
                 except BaseException:
@@ -2367,7 +2370,6 @@ def create_router(
         }[mode]
 
     @router.get("/conversations/{conversation_id}/voice/dictation/{lease_id}")
-    @router.get("/conversations/{conversation_id}/voice/talk/{lease_id}")
     @router.get("/conversations/{conversation_id}/voice/realtime/{lease_id}")
     async def inspect_dictation(
         conversation_id: str, lease_id: str, request: Request
@@ -2403,10 +2405,117 @@ def create_router(
         )
         return await respond(request, voice_snapshot_dto(mode), asdict(result))
 
+    @router.post("/conversations/{conversation_id}/voice/talk/{lease_id}/ticket")
+    async def voice_ticket(
+        conversation_id: str, lease_id: str, request: Request
+    ) -> JSONResponse:
+        """A fresh single-use ticket for a Row-Bot Voice socket (a reconnect)."""
+        current = await session(request, lane="mutation")
+        identity = await _body(request, dto.DictationIdentity, 1024)
+        handle = dictation_handle(conversation_id, lease_id, identity)
+        owner = await dictation_owner(request, current, conversation_id)
+        _, transport = browser_voice_transport(request)
+        result = await call(
+            transport.ticket,
+            owner,
+            handle,
+            csrf=current.csrf,
+            validate=dictation_validation(request, current, conversation_id),
+        )
+        return await respond(request, dto.VoiceTicket, asdict(result))
+
+    @router.websocket("/voice/stream")
+    async def voice_stream(websocket: WebSocket) -> None:
+        """Row-Bot Voice: the person's audio in, events and speech out.
+
+        The access middleware has authenticated the socket and checked its
+        origin, and closes it when the device's sign-in ends. The first message
+        must present a ticket from an authenticated start: it binds the socket
+        to that client session, conversation and voice lease, once.
+        """
+        import struct
+
+        from row_bot.voice.client_duplex import run_socket_session, session_settings
+
+        transport = getattr(service, "talk", None)
+        try:
+            context = await _context(websocket)
+            if transport is None or websocket.headers.get("origin") is None:
+                raise ProtocolError("origin_required", 403)
+        except Exception:
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        try:
+            async with asyncio.timeout(5):
+                hello = await websocket.receive_text()
+            message = json.loads(hello) if len(hello) <= 1024 else None
+            if not isinstance(message, dict) or message.get("type") != "hello":
+                raise ProtocolError("invalid_command", 422)
+            redeemed = await call(transport.redeem, message.get("ticket"))
+            owner = redeemed.owner
+            current = security.session(context, owner.client_session_id, redeemed.csrf)
+            if (
+                current.binding != owner.access_binding
+                or owner.server_epoch != service.server_epoch
+                or (context.scheme != "https" and not context.direct_loopback)
+            ):
+                raise ProtocolError("action_denied", 403)
+            await readable_conversation(owner.conversation_id)
+        except Exception:
+            await websocket.close(code=1008)
+            return
+        validate = dictation_validation(websocket, current, owner.conversation_id)
+        sending = asyncio.Lock()
+
+        class Link:
+            async def send_event(self, event: dict) -> None:
+                async with sending:
+                    await websocket.send_text(json.dumps(event))
+
+            async def send_audio(self, segment: int, pcm16: bytes) -> None:
+                async with sending:
+                    await websocket.send_bytes(struct.pack("<BI", 1, segment) + pcm16)
+
+        async def receive() -> Any:
+            incoming = await websocket.receive()
+            if incoming["type"] == "websocket.disconnect":
+                return None
+            if incoming.get("bytes") is not None:
+                return incoming["bytes"]
+            text = incoming.get("text") or ""
+            value = json.loads(text) if len(text) <= 4096 else None
+            if not isinstance(value, dict):
+                raise ProtocolError("invalid_command", 422)
+            return value
+
+        async def revalidate() -> None:
+            security.session(await _context(websocket), current.id, current.csrf)
+            await readable_conversation(owner.conversation_id)
+
+        code = 1000
+        try:
+            await run_socket_session(
+                transport,
+                redeemed,
+                link=Link(),
+                receive=receive,
+                validate=validate,
+                revalidate=revalidate,
+                settings=await call(session_settings),
+                tick_seconds=transport.tick_seconds,
+            )
+        except Exception as exc:
+            code = 1011 if not isinstance(exc, (ProtocolError, ValueError)) else 1008
+            logger.warning("Row-Bot Voice session ended: %s", type(exc).__name__)
+        try:
+            await websocket.close(code=code)
+        except Exception:
+            pass
+
     @router.post(
         "/conversations/{conversation_id}/voice/dictation/{lease_id}/transcribe"
     )
-    @router.post("/conversations/{conversation_id}/voice/talk/{lease_id}/transcribe")
     async def transcribe_dictation(
         conversation_id: str, lease_id: str, request: Request
     ) -> JSONResponse:
@@ -2429,7 +2538,7 @@ def create_router(
                 raise ProtocolError("invalid_command", 422)
             declared_size = int(length)
         owner = await dictation_owner(request, current, conversation_id)
-        mode, transport = browser_voice_transport(request)
+        transport = dictation_transport()
         validate = dictation_validation(request, current, conversation_id)
         started = asyncio.get_running_loop().time()
         before = await call(transport.snapshot, owner, handle, validate=validate)
@@ -2492,11 +2601,7 @@ def create_router(
             )
             disconnect_watch.add_done_callback(voice_worker_finished)
             result = await asyncio.shield(worker)
-            return await respond(
-                request,
-                dto.DictationResult if mode == "dictation" else dto.TalkResult,
-                asdict(result),
-            )
+            return await respond(request, dto.DictationResult, asdict(result))
         except TimeoutError:
             transport.cancel_operation(operation)
             raise ProtocolError("audio_receive_timeout", 408) from None
@@ -2509,7 +2614,6 @@ def create_router(
             if not handed_off:
                 transport.abort_receive(operation)
 
-    @router.post("/conversations/{conversation_id}/voice/talk/{lease_id}/heartbeat")
     @router.post("/conversations/{conversation_id}/voice/realtime/{lease_id}/heartbeat")
     async def voice_heartbeat(
         conversation_id: str, lease_id: str, request: Request
@@ -2554,7 +2658,6 @@ def create_router(
         finally:
             watcher.cancel()
 
-    @router.get("/conversations/{conversation_id}/voice/talk/{lease_id}/run")
     @router.get("/conversations/{conversation_id}/voice/realtime/{lease_id}/run")
     async def voice_run(
         conversation_id: str, lease_id: str, request: Request
@@ -2568,44 +2671,6 @@ def create_router(
         result = await call(service.voice_admission.run_view, owner, handle, validate)
         return await respond(
             request, dto.VoiceRunView, {"handle": asdict(handle), **result}
-        )
-
-    @router.post("/conversations/{conversation_id}/voice/talk/{lease_id}/output")
-    async def talk_output(
-        conversation_id: str, lease_id: str, request: Request
-    ) -> Response:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.TalkOutputRequest, 2048)
-        handle = dictation_handle(
-            conversation_id,
-            lease_id,
-            dto.DictationIdentity(
-                voice_session_id=body.voice_session_id, server_epoch=body.server_epoch
-            ),
-        )
-        owner = await dictation_owner(request, current, conversation_id)
-        _, transport = browser_voice_transport(request)
-        validate = dictation_validation(request, current, conversation_id)
-        result = await voice_work(
-            request,
-            lambda: transport.output(
-                owner,
-                handle,
-                run_id=body.run_id,
-                output_id=body.output_id,
-                validate=validate,
-            ),
-            lambda: transport.stop(owner, handle, validate=lambda: None),
-        )
-        await call(validate)
-        return Response(
-            result.audio,
-            media_type=result.content_type,
-            headers={
-                **HEADERS,
-                "X-Voice-Run": result.run_id,
-                "X-Voice-Output": result.output_id,
-            },
         )
 
     @router.post("/settings/voice/speech-test")

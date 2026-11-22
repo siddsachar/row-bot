@@ -456,6 +456,10 @@ def _voice(root: Path) -> dict[str, Any]:
             ),
             "realtime_voice": realtime_voice,
             "captions_enabled": runtime.get("captions_enabled") is not False,
+            "turn_eagerness": runtime.get("turn_eagerness")
+            if runtime.get("turn_eagerness") in {"relaxed", "normal", "eager"}
+            else "normal",
+            "push_to_talk": runtime.get("push_to_talk") is True,
         },
         "local": {
             "whisper_model": whisper,
@@ -1720,6 +1724,8 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "runtime.speech_output_model": "local-kokoro",
         "runtime.realtime_voice": "marin",
         "runtime.captions_enabled": True,
+        "runtime.turn_eagerness": "normal",
+        "runtime.push_to_talk": False,
         "local.whisper_model": "small",
         "tts.voice": "af_heart",
         "tts.speed": 1.0,

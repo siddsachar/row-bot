@@ -2008,6 +2008,29 @@ export function VoiceSnapshotPanel({
           hint="Show your words while you speak."
           value={snapshot.runtime.captions_enabled}
         />
+        {!realtime && (
+          <>
+            <SelectSetting
+              mutation={mutation}
+              field="runtime.turn_eagerness"
+              label="When you pause"
+              hint="How soon Row-Bot answers after you stop speaking."
+              value={snapshot.runtime.turn_eagerness ?? 'normal'}
+              options={[
+                { value: 'relaxed', label: 'Give me time to think' },
+                { value: 'normal', label: 'Balanced' },
+                { value: 'eager', label: 'Answer quickly' },
+              ]}
+            />
+            <SwitchSetting
+              mutation={mutation}
+              field="runtime.push_to_talk"
+              label="Push to talk"
+              hint="Row-Bot listens only while you hold the talk button in the voice bar."
+              value={snapshot.runtime.push_to_talk ?? false}
+            />
+          </>
+        )}
         <SettingsItem
           label="Try it"
           help="Talk starts from a conversation’s microphone."

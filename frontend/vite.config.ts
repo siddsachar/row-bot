@@ -97,6 +97,16 @@ export default defineConfig({
     strictPort: true,
     port: 5173,
     proxy: {
+      // Row-Bot Voice's socket, with its Origin rewritten like every request.
+      '/api/v1/voice/stream': {
+        ...loopbackProxy,
+        ws: true,
+        configure(proxy) {
+          proxy.on('proxyReqWs', (request) => {
+            request.setHeader('Origin', backend.origin);
+          });
+        },
+      },
       '/api/v1': loopbackProxy,
       // Remote access (connection links, Tailscale, sessions) lives beside
       // /api/v1; without this the Access page reads 404s in dev.

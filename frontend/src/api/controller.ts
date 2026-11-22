@@ -363,13 +363,40 @@ export class ClientController {
       body,
       signal,
     );
-    validateWire('TalkSnapshot', result);
+    validateWire('TalkStarted', result);
     if (
-      result.handle.conversation_id !== scope.conversationId ||
-      result.handle.server_epoch !== scope.serverEpoch
+      result.snapshot.handle.conversation_id !== scope.conversationId ||
+      result.snapshot.handle.server_epoch !== scope.serverEpoch
     )
       throw { code: 'protocol_incompatible' };
     return result;
+  }
+  async stopTalk(
+    scope: DictationScope,
+    handle: DictationHandle,
+    signal?: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle, true);
+    if (!this.transport.stopTalk) throw { code: 'capability_unavailable' };
+    const result = await this.transport.stopTalk(handle, signal);
+    validateWire('TalkSnapshot', result);
+    return result;
+  }
+  async talkTicket(
+    scope: DictationScope,
+    handle: DictationHandle,
+    signal?: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.talkTicket) throw { code: 'capability_unavailable' };
+    const result = await this.transport.talkTicket(handle, signal);
+    validateWire('VoiceTicket', result);
+    return result;
+  }
+  openVoiceSocket(scope: DictationScope) {
+    if (!this.sameDictationScope(scope) || !this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    return this.transport.openVoiceSocket();
   }
   async startRealtime(
     scope: DictationScope,
@@ -391,9 +418,9 @@ export class ClientController {
       throw { code: 'protocol_incompatible' };
     return result;
   }
-  async voiceControl<M extends 'talk' | 'realtime'>(
+  async voiceControl(
     scope: DictationScope,
-    mode: M,
+    mode: 'realtime',
     handle: DictationHandle,
     action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
@@ -406,7 +433,7 @@ export class ClientController {
       action,
       signal,
     );
-    validateWire(mode === 'talk' ? 'TalkSnapshot' : 'RealtimeSnapshot', result);
+    validateWire('RealtimeSnapshot', result);
     if (
       Object.keys(handle).some(
         (key) =>
@@ -415,47 +442,6 @@ export class ClientController {
       )
     )
       throw { code: 'protocol_incompatible' };
-    return result;
-  }
-  async transcribeTalk(
-    scope: DictationScope,
-    handle: DictationHandle,
-    utterance: string,
-    audio: Blob,
-    signal: AbortSignal,
-  ) {
-    this.voiceHandle(scope, handle);
-    if (!this.transport.transcribeTalk)
-      throw { code: 'capability_unavailable' };
-    const result = await this.transport.transcribeTalk(
-      handle,
-      utterance,
-      audio,
-      signal,
-    );
-    validateWire('TalkResult', result);
-    if (
-      result.utterance_id !== utterance ||
-      Object.keys(handle).some(
-        (key) =>
-          result.snapshot.handle[key as keyof DictationHandle] !==
-          handle[key as keyof DictationHandle],
-      )
-    )
-      throw { code: 'protocol_incompatible' };
-    return result;
-  }
-  async talkOutput(
-    scope: DictationScope,
-    handle: DictationHandle,
-    run: string,
-    output: string,
-    signal: AbortSignal,
-  ) {
-    this.voiceHandle(scope, handle);
-    if (!this.transport.talkOutput) throw { code: 'capability_unavailable' };
-    const result = await this.transport.talkOutput(handle, run, output, signal);
-    this.voiceHandle(scope, handle);
     return result;
   }
   async speechTest(signal: AbortSignal) {
@@ -511,7 +497,7 @@ export class ClientController {
   }
   async voiceRun(
     scope: DictationScope,
-    mode: 'talk' | 'realtime',
+    mode: 'realtime',
     handle: DictationHandle,
     signal: AbortSignal,
   ) {

@@ -820,6 +820,9 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     speech_output_model: str = Field(max_length=128)
     realtime_voice: str = Field(max_length=32)
     captions_enabled: bool
+    # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.
+    turn_eagerness: Literal["relaxed", "normal", "eager"] = "normal"
+    push_to_talk: bool = False
 
 
 class VoiceLocalSettingsSnapshot(WireModel):
@@ -2791,6 +2794,14 @@ class ProviderKeyCheck(WireModel):
     detail: str = Field(max_length=512)
 
 
+class MonitorVoiceLatency(WireModel):
+    """Row-Bot Voice's recent spoken replies: time from the end of speech to the first audio."""
+
+    turns: int = Field(ge=1, le=50)
+    first_audio_p50_ms: int = Field(ge=0, le=600000)
+    first_audio_p90_ms: int = Field(ge=0, le=600000)
+
+
 class MonitorSnapshot(WireModel):
     schema_version: Literal[1]
     dream_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -2801,6 +2812,8 @@ class MonitorSnapshot(WireModel):
     dream_journal: list[MonitorDreamJournalEntry] = Field(max_length=20)
     dream_journal_availability: MonitorAvailability
     logs: MonitorLogs
+    # Only once Row-Bot Voice has spoken a reply since the server started.
+    voice: MonitorVoiceLatency | None = None
 
 
 ActivitySurface = Literal["chat", "workflow", "agent", "goal", "channel", "proactive", "developer"]
@@ -11351,31 +11364,26 @@ class TalkStart(WireModel):
 
 
 class TalkSnapshot(WireModel):
-    schema_version: Literal[1]
+    """A Row-Bot Voice lease; its live states travel over the voice socket."""
+
+    schema_version: Literal[2]
     handle: DictationHandle
-    state: Literal[
-        "listening",
-        "receiving",
-        "transcribing",
-        "thinking",
-        "speaking",
-        "stopping",
-        "stopped",
-    ]
+    state: Literal["starting", "listening", "stopping", "stopped"]
     quiesced: bool
     expires_in_ms: int = Field(ge=0, le=360000)
-    run_id: OpaqueId | None
-    transport: Literal["browser_local"]
-    max_audio_bytes: Literal[33554432]
-    max_utterance_ms: Literal[300000]
+    transport: Literal["row_bot_voice"]
 
 
-class TalkResult(WireModel):
+class TalkStarted(WireModel):
     snapshot: TalkSnapshot
-    utterance_id: UUID
-    outcome: Literal["submitted", "no_speech"]
-    text: str = Field(max_length=4000)
-    run_id: OpaqueId | None
+    # Single use, for the first message on /api/v1/voice/stream.
+    ticket: str = Field(min_length=20, max_length=128)
+    ticket_expires_in_ms: int = Field(ge=0, le=30000)
+
+
+class VoiceTicket(WireModel):
+    ticket: str = Field(min_length=20, max_length=128)
+    expires_in_ms: int = Field(ge=0, le=30000)
 
 
 class VoiceRunView(WireModel):
@@ -11386,11 +11394,6 @@ class VoiceRunView(WireModel):
     ]
     output_id: OpaqueId | None
     text: str | None = Field(max_length=4000)
-
-
-class TalkOutputRequest(DictationIdentity):
-    run_id: OpaqueId
-    output_id: OpaqueId
 
 
 class ReadAloudRequest(WireModel):

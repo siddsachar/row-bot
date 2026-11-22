@@ -25,6 +25,9 @@ class VoiceRuntimeSettings:
     speech_output_model: str = "local-kokoro"
     realtime_voice: str = DEFAULT_REALTIME_VOICE
     captions_enabled: bool = True
+    # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.
+    turn_eagerness: str = "normal"
+    push_to_talk: bool = False
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -38,6 +41,13 @@ def _coerce_realtime_voice(value: Any) -> str:
     if voice in REALTIME_VOICE_OPTIONS:
         return voice
     return DEFAULT_REALTIME_VOICE
+
+
+TURN_EAGERNESS = ("relaxed", "normal", "eager")
+
+
+def _coerce_eagerness(value: Any) -> str:
+    return value if value in TURN_EAGERNESS else "normal"
 
 
 def load_voice_runtime_settings() -> VoiceRuntimeSettings:
@@ -55,6 +65,8 @@ def load_voice_runtime_settings() -> VoiceRuntimeSettings:
                     speech_output_model=str(data.get("speech_output_model") or "local-kokoro"),
                     realtime_voice=_coerce_realtime_voice(data.get("realtime_voice")),
                     captions_enabled=_coerce_bool(data.get("captions_enabled"), True),
+                    turn_eagerness=_coerce_eagerness(data.get("turn_eagerness")),
+                    push_to_talk=_coerce_bool(data.get("push_to_talk"), False),
                 )
     except Exception:
         pass

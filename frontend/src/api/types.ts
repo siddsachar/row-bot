@@ -11,6 +11,8 @@ export function isCommandReceipt(value: unknown): value is Wire.CommandReceipt {
 }
 
 export type * from '../../../contracts/client-platform/v1/typescript/client';
+/** Row-Bot Voice's socket, opened only by the transport. */
+export type VoiceSocket = WebSocket;
 
 /**
  * What a live picture is for: a pane gives its page area in CSS pixels and
@@ -714,30 +716,29 @@ export interface ClientTransport {
     conversation: string,
     body: Wire.TalkStart,
     signal?: AbortSignal,
+  ): Promise<Wire.TalkStarted>;
+  stopTalk?(
+    handle: Wire.DictationHandle,
+    signal?: AbortSignal,
   ): Promise<Wire.TalkSnapshot>;
+  /** A fresh single-use ticket for the Row-Bot Voice socket. */
+  talkTicket?(
+    handle: Wire.DictationHandle,
+    signal?: AbortSignal,
+  ): Promise<Wire.VoiceTicket>;
+  /** The Row-Bot Voice socket on this server's own origin. */
+  openVoiceSocket?(): WebSocket;
   startRealtime?(
     conversation: string,
     body: Wire.TalkStart,
     signal?: AbortSignal,
   ): Promise<Wire.RealtimeStart>;
-  voiceControl?<M extends 'talk' | 'realtime'>(
-    mode: M,
+  voiceControl?(
+    mode: 'realtime',
     handle: Wire.DictationHandle,
     action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
-  ): Promise<M extends 'talk' ? Wire.TalkSnapshot : Wire.RealtimeSnapshot>;
-  transcribeTalk?(
-    handle: Wire.DictationHandle,
-    utterance: string,
-    audio: Blob,
-    signal?: AbortSignal,
-  ): Promise<Wire.TalkResult>;
-  talkOutput?(
-    handle: Wire.DictationHandle,
-    run: string,
-    output: string,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
+  ): Promise<Wire.RealtimeSnapshot>;
   /** The Voice settings test phrase, spoken by the selected output provider. */
   speechTest?(signal?: AbortSignal): Promise<Blob>;
   /** Part *part* of a saved reply, spoken by the selected output provider. */
@@ -758,7 +759,7 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<string>;
   voiceRun?(
-    mode: 'talk' | 'realtime',
+    mode: 'realtime',
     handle: Wire.DictationHandle,
     signal?: AbortSignal,
   ): Promise<Wire.VoiceRunView>;
