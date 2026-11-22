@@ -99,10 +99,10 @@ class Env:
         )
         self.agent._current_authorized_skill_records_var.set(())
 
-    def call(self, state: dict, turn: str) -> list:
+    def call(self, state: dict, turn: str, *, config: dict | None = None) -> list:
         """One model call through the pre-model hook; its ``messages`` update applied as LangGraph does."""
         self.activate(turn)
-        update = self.agent._pre_model_trim(state)
+        update = self.agent._pre_model_trim(state, config)
         if "messages" in update:
             state["messages"] = add_messages(state["messages"], update["messages"])
         return list(update["llm_input_messages"])
@@ -301,6 +301,41 @@ def test_a_device_in_another_zone_is_named_so_local_time_means_its_zone(env, mon
     env.device_zone = "America/Los_Angeles"
     state = env.new_turn(state, "Now from the computer itself.", "t3")
     assert "The person's device is in this computer's time zone." in _block(env.call(state, "t3"))
+
+
+SPOKEN = {"configurable": {"thread_id": THREAD_ID, "voice_mode": True}}
+
+
+def test_a_spoken_turn_is_answered_for_listening_and_the_system_prompt_stays_the_same(env):
+    """VD7: a Talk or Realtime turn's context says to answer for listening, with what's better read kept on
+    screen; a typed turn after it says to write as usual. The line sits in the turn's own context message,
+    never in the person's words, and the system prompt is byte-identical, so the prompt cache holds."""
+    spoken_line = env.agent.VOICE_TURN_LINE
+    state = env.new_turn(None, "What's on my calendar today?", "t1")
+    typed_first = env.call(env.new_turn(None, "What's on my calendar today?", "t0"), "t0")
+    assert spoken_line not in _block(typed_first)
+
+    spoken = env.call(state, "t1", config=SPOKEN)
+    assert spoken_line in _block(spoken)
+    person = [message for message in state["messages"] if isinstance(message, HumanMessage)
+              and not turn_context.is_turn_context_message(message)]
+    assert [message.content for message in person] == ["What's on my calendar today?"]
+    assert spoken_line in str(_contexts(state)[0].content)  # saved in the turn's context, so replayed as is
+    assert spoken[0].content == typed_first[0].content  # the cached system prefix
+
+    _step(state, "call-1", "Stand-up at 10.")
+    later = env.call(state, "t1", config=SPOKEN)
+    assert len(_contexts(state)) == 1 and _block(later) == _block(spoken)
+
+    state["messages"] = [*state["messages"], AIMessage(content="You have stand-up at ten.")]
+    state = env.new_turn(state, "And tomorrow?", "t2")
+    assert spoken_line not in _block(env.call(state, "t2", config=SPOKEN))  # unchanged, so not repeated
+
+    state["messages"] = [*state["messages"], AIMessage(content="Nothing tomorrow.")]
+    state = env.new_turn(state, "Thanks, typing now.", "t3")
+    typed = env.call(state, "t3", config={"configurable": {"thread_id": THREAD_ID}})
+    assert env.agent.TYPED_TURN_LINE in _block(typed)
+    assert typed[0].content == spoken[0].content
 
 
 def test_a_compaction_summary_brings_back_a_full_snapshot(env, monkeypatch):

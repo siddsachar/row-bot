@@ -535,6 +535,35 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
+/* A message's own status or error line with its one fix (Read aloud's Open Voice settings). */
+.message-fix-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 6px 0 0;
+}
+.message-fix-line .status-indicator {
+  align-items: flex-start;
+  font-size: var(--text-13);
+}
+.message-fix-line .status-indicator-dot {
+  margin-top: 0.5lh;
+  transform: translateY(-50%);
+}
+.message-fix-line .error-fix.button {
+  flex: none;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-12);
+}
+@media (pointer: coarse) {
+  .message-fix-line .error-fix.button {
+    min-height: 44px;
+    height: 44px;
+  }
+}
 
 /* Prose. */
 .message-text {

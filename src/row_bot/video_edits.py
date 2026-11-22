@@ -196,7 +196,9 @@ def _load(path: Path) -> VideoEdit | None:
         edit.frame_names = [str(item)[:120] for item in data.get("frame_names") or []][:64]
         edit.checks = [str(item)[:400] for item in data.get("checks") or []][:40]
         edit.checks_passed = None if data.get("checks_passed") is None else bool(data["checks_passed"])
-        edit.marks = [float(item) for item in data.get("marks") or []][:61]
+        from row_bot.video_projects import MAX_SCENES
+
+        edit.marks = [float(item) for item in data.get("marks") or []][:MAX_SCENES + 1]
         edit.silent = bool(data.get("silent"))
         return edit
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
@@ -353,19 +355,23 @@ def probe_video(ffmpeg: Any, path: str, folder: Path) -> Any:
 
 
 def _inputs(edit: VideoEdit, request: Request, ffmpeg: Any, folder: Path) -> list[Any]:
-    """Each source as a file ffmpeg reads: chat files are copied in (checked), workspace files read in place."""
+    """Each source as a file the edit reads: chat files are copied in (checked); workspace files and files elsewhere
+    on this computer are read where they are, never copied, however large. A picture (a project's still scene) is
+    read for its size only."""
     from row_bot.video_editing import InputVideo
+    from row_bot.video_studio import still_info
 
     inputs = []
     for index, source in enumerate(request.sources, start=1):
         _check(edit)
         if source.ref:
-            name = f"input-{index}.mp4"
+            name = f"input-{index}{'.png' if source.kind == 'image' else '.mp4'}"
             (folder / name).write_bytes(source.read_bytes())
             path = name
         else:
             path = str(source.path)
-        inputs.append(InputVideo(path=path, info=probe_video(ffmpeg, path, folder), label=source.label))
+        info = still_info(folder / path) if source.kind == "image" else probe_video(ffmpeg, path, folder)
+        inputs.append(InputVideo(path=path, info=info, label=source.label))
     return inputs
 
 

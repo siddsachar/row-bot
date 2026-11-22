@@ -30,6 +30,10 @@ MAX_SOUNDS = 40
 MAX_VOLUME = 4.0
 # Loudness the finished mix is brought to: speech-forward, as video platforms play it.
 LOUDNESS = "loudnorm=I=-16:TP=-1.5:LRA=11"
+# Pictures in another colour space or range (a phone's full range, an old SD clip's BT.601) turned to the one made.
+TO_HD_COLOUR = "out_color_matrix=bt709:out_range=tv"
+# Every video made is marked as what it is, HD colour (BT.709) in TV range, so players show its colours as made.
+COLOUR_TAGS = ("-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv")
 POSITIONS = ("top-left", "top", "top-right", "center", "bottom-left", "bottom", "bottom-right")
 STYLES = ("badge", "title", "caption")
 VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".gif"})
@@ -65,6 +69,8 @@ class VideoInfo:
     height: int
     fps: float
     has_audio: bool
+    # A picture (a photo, a screenshot, generated art): no length of its own, shown as long as its scene asks.
+    still: bool = False
 
 
 _DURATION = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)")
@@ -105,9 +111,12 @@ def file_argument(path: Path | str) -> str:
     return f"file:{path}"
 
 
-def input_arguments(path: Path | str) -> list[str]:
-    """Open a person's video: local files only, as a video container (never a playlist)."""
-    return ["-protocol_whitelist", "file", "-format_whitelist", INPUT_FORMATS, "-i", file_argument(path)]
+def input_arguments(path: Path | str, seek: tuple[float, float] | None = None) -> list[str]:
+    """Open a person's video: local files only, as a video container (never a playlist). ``seek``: only (from,
+    seconds) of it, found by seeking (``-ss`` before ``-i``, frame-accurate when re-encoding), so a long video is
+    never read from its start."""
+    window = ["-ss", _seconds_text(seek[0]), "-t", _seconds_text(seek[1])] if seek else []
+    return [*window, "-protocol_whitelist", "file", "-format_whitelist", INPUT_FORMATS, "-i", file_argument(path)]
 
 
 def sound_input_arguments(path: Path | str) -> list[str]:
@@ -700,6 +709,8 @@ class InputVideo:
     path: str
     info: VideoInfo
     label: str = ""
+    # Only (from, seconds) of the file is read (``input_arguments``); ``info.duration`` is then that window's.
+    seek: tuple[float, float] | None = None
 
 
 def _slide_show(scenes: list[SceneCut], marks: list[float]) -> list[str]:
@@ -865,7 +876,7 @@ class _Builder:
             info = inputs[0].info
             video = self.label("v")
             crop = f"crop={w}:{h}:0:0," if (info.width, info.height) != (w, h) else ""
-            self.add(f"[0:v]{crop}setsar=1,format=yuv420p{video}")
+            self.add(f"[0:v]{crop}scale={TO_HD_COLOUR},setsar=1,format=yuv420p{video}")
             self.video = video
             if info.has_audio:
                 audio = self.label("a")
@@ -881,7 +892,7 @@ class _Builder:
             at += item.info.duration
             video = self.label("v")
             # Each fills the first one's frame, cropped around its middle: one film, no black bars.
-            self.add(f"[{index}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
+            self.add(f"[{index}:v]scale={w}:{h}:force_original_aspect_ratio=increase:{TO_HD_COLOUR},crop={w}:{h},"
                      f"setsar=1,fps={fps},format=yuv420p{video}")
             pieces.append(video)
             if self.has_audio:
@@ -1109,10 +1120,19 @@ class _Builder:
                 raise EditError(f"Scene {number}: {_seconds_text(start)}–{_seconds_text(end)} s is outside its "
                                 f"video, which is {_seconds_text(length)} s long.")
             cuts.append((offsets[scene.input] + start, offsets[scene.input] + end))
-            lengths.append(end - start + holds[len(cuts) - 1])
+            lengths.append((end - start) / scene.speed + holds[len(cuts) - 1])
         look = step.look or Look()
         videos, sounds = self._pieces(cuts, audio=True) if cuts else ([], [])
-        for index, hold in enumerate(holds):
+        footage = [scene for scene in step.scenes if scene.input is not None]
+        for index, (scene, hold) in enumerate(zip(footage, holds)):
+            if abs(scene.speed - 1) > 1e-3:  # Its own piece at its speed (a card keeps its length).
+                fast = self.label("v")
+                self.add(f"{videos[index]}setpts=PTS/{scene.speed:.6g}{fast}")
+                videos[index] = fast
+                if sounds:
+                    tempo = self.label("a")
+                    self.add(f"{sounds[index]}{_atempo(scene.speed)}{tempo}")
+                    sounds[index] = tempo
             if hold:  # Its last frame held, in silence, until its line ends.
                 video = self.label("v")
                 self.add(f"{videos[index]}tpad=stop_mode=clone:stop_duration={_seconds_text(hold)}{video}")
@@ -1126,16 +1146,7 @@ class _Builder:
                   for scene, length in zip(step.scenes, lengths)]
         self._join([video for video, _ in joined], [sound for _, sound in joined if sound])
         self.duration = sum(lengths)
-        # A title card keeps its length: speed is for the pieces of a video.
-        speeds = [1.0 if scene.input is None else scene.speed for scene in step.scenes]
-        # Speeds from the last scene back, so each one's times are still those of the cut timeline.
-        for index in range(len(step.scenes) - 1, -1, -1):
-            factor = speeds[index]
-            if abs(factor - 1) > 1e-3:
-                begin = sum(lengths[:index])
-                self.speed(Step(op="speed", start=begin, end=begin + lengths[index], factor=factor, label=False))
-        finals = [length / speed for length, speed in zip(lengths, speeds)]
-        self.marks = [round(sum(finals[:index]), 3) for index in range(len(finals) + 1)]
+        self.marks = [round(sum(lengths[:index]), 3) for index in range(len(lengths) + 1)]
         for index, scene in enumerate(step.scenes):
             if scene.zoom:
                 x, y, width, height = scene.zoom
@@ -1306,6 +1317,15 @@ def build_plan(
     if missing:
         raise EditError(f"{missing[0]} isn't a sound file Row-Bot found.")
     sources = sound_sources([step for step in steps if step.op == "sound"])
+    summary = describe(steps, len(inputs))
+    if len(inputs) == 1 and steps and steps[0].op == "trim" and inputs[0].seek is None:
+        # One video trimmed first: only its trim is read, found by seeking (an hour's video for its 10 s).
+        info = inputs[0].info
+        start = min(max(0.0, steps[0].start or 0.0), info.duration)
+        end = info.duration if steps[0].end is None else min(steps[0].end, info.duration)
+        if end - start >= 0.05:
+            inputs = [replace(inputs[0], info=replace(info, duration=end - start), seek=(start, end - start))]
+            steps = steps[1:]
     size = CARD_SIZES.get(steps[0].aspect, CARD_SIZES["16:9"]) if cards_only else CARD_SIZES["16:9"]
     builder = _Builder(inputs, size=size)
     builder.start(inputs)
@@ -1321,7 +1341,7 @@ def build_plan(
     builder.video = video
     args = ["-hide_banner", "-nostdin", "-y"]
     for item in inputs:
-        args += input_arguments(item.path)
+        args += input_arguments(item.path, item.seek)
     for name in sources:
         args += sound_input_arguments(sounds[name])
     if builder.voice_cues:
@@ -1338,12 +1358,12 @@ def build_plan(
     args += [graph_option, graph_file, "-map", builder.video]
     if builder.audio:
         args += ["-map", builder.audio]
-    args += encoder_arguments(encoder) + ["-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    args += encoder_arguments(encoder) + ["-pix_fmt", "yuv420p", *COLOUR_TAGS, "-movflags", "+faststart"]
     args += ["-c:a", "aac", "-b:a", "160k"] if builder.audio else ["-an"]
     args += ["-progress", "pipe:1", "-nostats", file_argument(output)]
     return Plan(args=args, graph=";\n".join(builder.lines), overlays=[png for png, _label in builder.overlays],
                 duration=builder.duration, width=builder.width, height=builder.height,
-                has_audio=bool(builder.audio), summary=describe(steps, len(inputs)), outputs=[output],
+                has_audio=bool(builder.audio), summary=summary, outputs=[output],
                 marks=builder.marks, narrated=builder.narrated, review=builder.review, overlay_sheet=sheet,
                 voices=[(moment, sounds[name]) for moment, name in builder.voice_cues], texts=builder.texts,
                 enlarged=builder.enlarged)

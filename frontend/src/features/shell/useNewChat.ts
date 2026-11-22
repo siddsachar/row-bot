@@ -10,6 +10,7 @@ import {
   unusedChat,
   type HomeVoice,
 } from './new-chat';
+import { primeVoicePlayback } from '../voice/voice-audio';
 
 // Refusals at the door, before any command runs: this window isn't signed in, its address isn't allowed,
 // or it has no session.
@@ -98,6 +99,8 @@ export default function useNewChat() {
     )
       return;
     operation.current = true;
+    // Talk from Home: its playback starts in this tap (Safari and iPhone need one).
+    if (voice === 'talk') primeVoicePlayback();
     setFirstPrompt(null);
     setCreatingChat(true);
     const selection = controller.getSelectionVersion();

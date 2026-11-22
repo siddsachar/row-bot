@@ -114,7 +114,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
-    "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
+    "TalkStart", "TalkSnapshot", "TalkStarted", "VoiceTicket", "ReadAloudRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
     "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
@@ -198,21 +198,18 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/voice/dictation/{lease_id}", None, "DictationSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/dictation/{lease_id}/transcribe", "bytes", "DictationResult"),
     ("post", "/conversations/{conversation_id}/voice/dictation/{lease_id}/stop", "DictationIdentity", "DictationSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk", "TalkStart", "TalkSnapshot"),
-    ("get", "/conversations/{conversation_id}/voice/talk/{lease_id}", None, "TalkSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/transcribe", "bytes", "TalkResult"),
+    ("post", "/conversations/{conversation_id}/voice/talk", "TalkStart", "TalkStarted"),
     ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/stop", "DictationIdentity", "TalkSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/heartbeat", "DictationIdentity", "TalkSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/output", "TalkOutputRequest", "bytes"),
+    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/ticket", "DictationIdentity", "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/realtime", "TalkStart", "RealtimeStart"),
     ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}", None, "RealtimeSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/stop", "DictationIdentity", "RealtimeSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/heartbeat", "DictationIdentity", "RealtimeSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/event", "RealtimeEventRequest", "RealtimeEventResult"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange", "bytes", "bytes"),
-    ("get", "/conversations/{conversation_id}/voice/talk/{lease_id}/run", None, "VoiceRunView"),
     ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}/run", None, "VoiceRunView"),
     ("post", "/settings/voice/speech-test", None, "bytes"),
+    ("post", "/conversations/{conversation_id}/read-aloud/{message_id}", "ReadAloudRequest", "bytes"),
     ("get", "/settings/providers", None, "ProviderStatusSnapshot"),
     ("get", "/settings/providers/live", None, "ProviderLiveSnapshot"),
     ("post", "/settings/providers/live/{provider_id}/refresh", None, "ProviderCatalogRefresh"),
@@ -631,7 +628,7 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/change-sets/{change_set_id}", None, "WorkspaceChangeSetFiles"),
 )
 # Byte responses that carry synthesized speech for the browser to play.
-SPEECH_OUTPUTS = ("/voice/talk/{lease_id}/output", "/settings/voice/speech-test")
+SPEECH_OUTPUTS = ("/settings/voice/speech-test", "/read-aloud/{message_id}")
 
 
 def schema_bundle() -> dict:
@@ -2122,15 +2119,25 @@ export async function transcribeDictation(base: string, proof: SessionProof, han
   if (!response.ok) throw validateWire<Problem>('Problem', value);
   return validateWire<DictationResult>('DictationResult', value);
 }
-export const startTalk = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<TalkSnapshot> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/voice/talk`, 'TalkSnapshot', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
+export const startTalk = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<TalkStarted> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/voice/talk`, 'TalkStarted', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
+export const stopTalk = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<TalkSnapshot> => {
+  validateWire('DictationHandle', handle);
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/stop`, 'TalkSnapshot', proof, 'POST',
+    {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
+};
+export const talkTicket = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<VoiceTicket> => {
+  validateWire('DictationHandle', handle);
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/ticket`, 'VoiceTicket', proof, 'POST',
+    {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
+};
 export const startRealtime = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<RealtimeStart> =>
   jsonRequest(base, `/conversations/${id(conversation)}/voice/realtime`, 'RealtimeStart', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
-export function voiceControl<M extends 'talk' | 'realtime'>(base: string, proof: SessionProof, mode: M, handle: DictationHandle, action: 'stop' | 'heartbeat', signal?: AbortSignal): Promise<M extends 'talk' ? TalkSnapshot : RealtimeSnapshot> {
+export function voiceControl(base: string, proof: SessionProof, mode: 'realtime', handle: DictationHandle, action: 'stop' | 'heartbeat', signal?: AbortSignal): Promise<RealtimeSnapshot> {
   validateWire('DictationHandle', handle);
-  if (!['talk','realtime'].includes(mode) || !['stop','heartbeat'].includes(action)) throw new Error('invalid_command');
+  if (mode !== 'realtime' || !['stop','heartbeat'].includes(action)) throw new Error('invalid_command');
   return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/${action}`,
-    mode === 'talk' ? 'TalkSnapshot' : 'RealtimeSnapshot', proof, 'POST',
+    'RealtimeSnapshot', proof, 'POST',
     {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
 }
 export const realtimeEvent = (base: string, proof: SessionProof, handle: DictationHandle, event: RealtimeEvent, signal?: AbortSignal): Promise<RealtimeEventResult> => {
@@ -2139,9 +2146,9 @@ export const realtimeEvent = (base: string, proof: SessionProof, handle: Dictati
     'RealtimeEventResult', proof, 'POST', validateWire('RealtimeEventRequest',
     {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch, event}), undefined, signal);
 };
-export async function voiceRun(base: string, proof: SessionProof, mode: 'talk' | 'realtime', handle: DictationHandle, signal?: AbortSignal): Promise<VoiceRunView> {
+export async function voiceRun(base: string, proof: SessionProof, mode: 'realtime', handle: DictationHandle, signal?: AbortSignal): Promise<VoiceRunView> {
   validateWire('DictationHandle', handle);
-  if (!['talk','realtime'].includes(mode)) throw new Error('invalid_command');
+  if (mode !== 'realtime') throw new Error('invalid_command');
   const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/run`, {
     credentials:'same-origin', cache:'no-store', signal,
     headers:{...proofHeaders(proof), 'X-Voice-Session-Id':String(handle.voice_session_id), 'X-Server-Epoch':handle.server_epoch}});
@@ -2174,32 +2181,21 @@ export async function realtimeExchange(base: string, proof: SessionProof, handle
     return text + decoder.decode();
   } finally { await reader.cancel(); reader.releaseLock(); }
 }
-export async function transcribeTalk(base: string, proof: SessionProof, handle: DictationHandle, utterance: string, audio: Blob, signal?: AbortSignal): Promise<TalkResult> {
-  validateWire('DictationHandle', handle);
-  validateWire('DictationStart', {request_id: utterance});
-  if (!audio.size || audio.size > 8388608) throw new Error(audio.size ? 'payload_too_large' : 'empty_audio');
-  const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/transcribe`, {
-    method:'POST', credentials:'same-origin', cache:'no-store', signal, body:audio,
-    headers:{...proofHeaders(proof), 'Content-Type':audio.type, 'X-Voice-Session-Id':String(handle.voice_session_id),
-      'X-Server-Epoch':handle.server_epoch, 'X-Dictation-Utterance':utterance}});
-  const value = await response.json();
-  if (!response.ok) throw validateWire<Problem>('Problem', value);
-  return validateWire('TalkResult', value);
-}
-export async function talkOutput(base: string, proof: SessionProof, handle: DictationHandle, run_id: string, output_id: string, signal?: AbortSignal): Promise<Blob> {
-  validateWire('DictationHandle', handle);
-  const body = validateWire('TalkOutputRequest', {voice_session_id:handle.voice_session_id, server_epoch:handle.server_epoch, run_id, output_id});
-  const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/output`, {
-    method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id) throw new Error('protocol_incompatible');
-  return speechAudio(response);
-}
 export async function speechTest(base: string, proof: SessionProof, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(`${base}/api/v1/settings/voice/speech-test`, {
     method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:proofHeaders(proof)});
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
   return speechAudio(response);
+}
+export type ReadAloudSpeech = { audio: Blob; part: number; parts: number };
+export async function readAloud(base: string, proof: SessionProof, conversation_id: string, message_id: string, part: number, signal?: AbortSignal): Promise<ReadAloudSpeech> {
+  const body = validateWire('ReadAloudRequest', {part});
+  const response = await fetch(`${base}/api/v1/conversations/${id(conversation_id)}/read-aloud/${id(message_id)}`, {
+    method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const parts = Number(response.headers.get('X-Read-Aloud-Parts'));
+  if (Number(response.headers.get('X-Read-Aloud-Part')) !== part || !Number.isInteger(parts) || parts <= part) throw new Error('protocol_incompatible');
+  return {audio: await speechAudio(response), part, parts};
 }
 async function speechAudio(response: Response): Promise<Blob> {
   if (response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');

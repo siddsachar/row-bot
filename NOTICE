@@ -20,3 +20,12 @@ This product includes Chart.js 4.5.1 (https://www.chartjs.org/), Copyright (c) 2
 Contributors, used under the MIT License; see static/pages/chart.js-LICENSE.md. Row-Bot inlines it,
 unchanged (SHA-256 48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a), into pages
 that ask for charts.
+
+Row-Bot Voice (the voice extra) uses Pipecat (pipecat-ai 1.16, https://github.com/pipecat-ai/pipecat,
+Copyright (c) 2024-2026 Daily, BSD-2-Clause) for its local turn detection, with the model weights
+that ship inside its wheel: Silero VAD (https://github.com/snakers4/silero-vad, MIT) and Smart Turn
+v3.2 (https://github.com/pipecat-ai/smart-turn, BSD-2-Clause), run on onnxruntime. Pipecat brings
+pipecat-resampler (BSD-2-Clause), loudness and sentencex (MIT), loguru (MIT), aiofiles
+(Apache-2.0), Markdown (BSD-3-Clause), and num2words (https://github.com/savoirfairelinux/num2words,
+GNU Lesser General Public License 2.1) with docopt (MIT). num2words is pure Python, installed as
+its own package and used unmodified.

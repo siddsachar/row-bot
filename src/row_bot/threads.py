@@ -12,7 +12,7 @@ import hashlib
 import threading
 from contextlib import closing, contextmanager, nullcontext
 from collections import OrderedDict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -72,6 +72,8 @@ _THREAD_META_COLUMNS = {
     "incognito": "INTEGER NOT NULL DEFAULT 0",
     # Where incognito was last turned off (IncognitoBoundary); what came before it is never read for memory.
     "incognito_boundary_json": "TEXT NOT NULL DEFAULT ''",
+    # The media tools this chat has called (agent.sticky_media_tools), so a turn needn't read its history; '' = not yet read.
+    "media_tools_json": "TEXT NOT NULL DEFAULT ''",
     # A fork (Edit and resend, Fork from here): the conversation it was copied from, and the message it was cut at.
     "forked_from_id": "TEXT NOT NULL DEFAULT ''",
     "forked_at_message_id": "TEXT NOT NULL DEFAULT ''",
@@ -171,6 +173,9 @@ def _init_thread_db(*, raise_on_error: bool = False):
         # failed 47 times ("database is locked", R13).
         with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
             _use_wal(conn)
+            # The columns are read and added under the write lock: two connections setting up a new database
+            # at once each found a column missing, and the second ALTER failed ("duplicate column name").
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS thread_meta "
                 "(thread_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)"
@@ -1742,6 +1747,33 @@ def save_history_hygiene(thread_id: str, state: dict) -> bool:
             "UPDATE thread_meta SET history_hygiene_json = ? WHERE thread_id = ?",
             (encoded, thread_id),
         ).rowcount
+    return bool(updated)
+
+
+def load_media_tools(thread_id: str) -> frozenset[str] | None:
+    """The media tools this thread has called, or None when that was never recorded (or no thread row)."""
+    if not thread_id:
+        return None
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        row = conn.execute("SELECT media_tools_json FROM thread_meta WHERE thread_id = ?", (thread_id,)).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        names = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return frozenset(str(name) for name in names) if isinstance(names, list) else None
+
+
+def save_media_tools(thread_id: str, names: Iterable[str]) -> bool:
+    """Record the media tools this thread has called; False when there is no thread row."""
+    if not thread_id or _thread_write_blocked(thread_id):
+        return False
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
+        updated = conn.execute("UPDATE thread_meta SET media_tools_json = ? WHERE thread_id = ?",
+                               (json.dumps(sorted(set(names))), thread_id)).rowcount
     return bool(updated)
 
 

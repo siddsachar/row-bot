@@ -7,7 +7,8 @@ A tool names a file in one of these ways, tried in this order, and nothing else 
 2. ``name@v2``: that version of one of this conversation's outputs;
 3. a full path: never Row-Bot's own data folder; inside the workspace, that file; elsewhere on this computer
    (only where the tool takes one, ``outside``), read in place once the person allows it by the approval level
-   (5.3.1 A1);
+   (5.3.1 A1). A video project asks when a file becomes one of its scenes' footage, and then reads that exact
+   file in place for that project only (``allowed``); any other file elsewhere asks again;
 4. a path with a folder: a file in the workspace;
 5. a bare name: one of this conversation's files, by its own name, by that name without "generated-", or by
    its output's name (the newest version); then a file in the workspace.
@@ -67,6 +68,8 @@ class Media:
     kind: Kind
     path: Path | None = None
     ref: str = ""
+    # A file outside the workspace, read in place (only once the person allowed it).
+    outside: bool = False
 
     def read_bytes(self, limit: int = MAX_IMAGE_BYTES) -> bytes:
         if self.ref:
@@ -137,8 +140,9 @@ def _leaves(root: Path, path: Path) -> bool:
     return relative == os.pardir or relative.startswith(os.pardir + os.sep)
 
 
-def _outside_file(value: str, place: Workspace | None) -> Path | None:
-    """A file outside the workspace named by its full path, once the person allows reading it; else None."""
+def _checked_outside(value: str, place: Workspace | None) -> Path | None:
+    """A video or picture outside the workspace named by its full path, checked but not yet allowed; else None.
+    Row-Bot's own data folder is refused (a chat's files are named by their name, never by where they're kept)."""
     from row_bot.data_paths import is_private_data_path
 
     given = Path(value.strip().strip('"')).expanduser()
@@ -151,6 +155,26 @@ def _outside_file(value: str, place: Workspace | None) -> Path | None:
         raise SourceError(f"{value} isn't a file.")
     if _kind_of(path.name) is None:
         raise SourceError(f"{value} isn't a video or a picture.")
+    return path
+
+
+def outside_path(value: str, conversation_id: str) -> Path | None:
+    """The file *value* names outside the workspace, checked, without asking to read it; None for any other
+    source (the same workspace folder in every chat, ``workspace``)."""
+    del conversation_id
+    return _checked_outside(str(value or "").strip(), workspace())
+
+
+def _outside_file(value: str, place: Workspace | None, *, allowed: frozenset[Path] | None = None) -> Path | None:
+    """A file outside the workspace named by its full path, once the person allows reading it by the approval
+    level; ``allowed``: only these files, which the person allowed already, and nothing is asked. Else None."""
+    path = _checked_outside(value, place)
+    if path is None:
+        return None
+    if allowed is not None:
+        if path not in allowed:
+            raise SourceError(f"{value} is outside the workspace and wasn't allowed for this video.")
+        return path
     from row_bot.tools.filesystem_tool import outside_workspace_refusal
 
     refusal, _line = outside_workspace_refusal("read_file", [path])
@@ -457,7 +481,8 @@ def _workspace_media(place: Workspace, text: str) -> Media:
     return Media(label=_relative(place.root, str(path)), kind=_file_kind(path.name), path=path)
 
 
-def _file(text: str, conversation_id: str, *, kinds: frozenset[str] | None, outside: bool) -> Media:
+def _file(text: str, conversation_id: str, *, kinds: frozenset[str] | None, outside: bool,
+          allowed: frozenset[Path] | None) -> Media:
     """A file by its path or its name (steps 2 to 5 of the order above)."""
     from row_bot.data_paths import is_private_data_path
 
@@ -467,9 +492,9 @@ def _file(text: str, conversation_id: str, *, kinds: frozenset[str] | None, outs
         raise SourceError("That path is inside Row-Bot's private data folder, which tools can't read.")
     place = workspace()
     if absolute and outside:
-        path = _outside_file(text, place)
+        path = _outside_file(text, place, allowed=allowed)
         if path is not None:
-            return Media(label=str(path), kind=_kind_of(path.name) or "video", path=path)
+            return Media(label=str(path), kind=_kind_of(path.name) or "video", path=path, outside=True)
     if absolute or "/" in text or "\\" in text:
         if place is None:
             raise SourceError(f"{text} isn't in the workspace: there's no workspace folder (the person can choose "
@@ -491,19 +516,21 @@ def _file(text: str, conversation_id: str, *, kinds: frozenset[str] | None, outs
 
 
 def find(value: str, conversation_id: str, *, kinds: frozenset[str] | None = MEDIA,
-         outside: bool = True) -> list[Media]:
+         outside: bool = True, allowed: frozenset[Path] | None = None) -> list[Media]:
     """The files a name points to, found in the order this module gives (an edit that saved frames names several).
 
     *kinds*: what the tool reads (None: any file); a file of another kind is refused in plain words. *outside*:
     whether a full path elsewhere on this computer may be read in place once the person allows it (a tool that
-    sends or shows files never reads one). ``SourceError`` says, in plain words, why a name finds nothing.
+    sends or shows files never reads one). *allowed*: the files outside the workspace the person already allowed
+    for this use (a video project's footage), read without asking; any other file outside it is refused instead of
+    asked about. ``SourceError`` says, in plain words, why a name finds nothing.
     """
     text = str(value or "").strip().strip('"')
     if not text:
         raise SourceError("A source is empty.")
     found = _own(text, conversation_id)
     if found is None:
-        found = [_file(text, conversation_id, kinds=kinds, outside=outside)]
+        found = [_file(text, conversation_id, kinds=kinds, outside=outside, allowed=allowed)]
     for media in found:
         if kinds is not None and media.kind not in kinds:
             raise SourceError(f"{media.label} isn't " + " or ".join(
@@ -511,6 +538,6 @@ def find(value: str, conversation_id: str, *, kinds: frozenset[str] | None = MED
     return found
 
 
-def resolve(value: str, conversation_id: str) -> list[Media]:
-    """The videos or pictures a source names: ``find`` for a tool that reads them."""
-    return find(value, conversation_id)
+def resolve(value: str, conversation_id: str, *, allowed: frozenset[Path] | None = None) -> list[Media]:
+    """The videos or pictures a source names: ``find`` for a tool that reads them (``allowed`` as there)."""
+    return find(value, conversation_id, allowed=allowed)

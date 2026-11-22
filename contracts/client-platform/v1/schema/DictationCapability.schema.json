@@ -11,6 +11,12 @@
       "title": "Native Capture Available",
       "type": "boolean"
     },
+    "read_aloud_reason": {
+      "default": "host_unavailable",
+      "maxLength": 128,
+      "title": "Read Aloud Reason",
+      "type": "string"
+    },
     "realtime_available": {
       "default": false,
       "title": "Realtime Available",

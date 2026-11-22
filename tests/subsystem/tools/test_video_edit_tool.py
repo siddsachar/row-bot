@@ -145,7 +145,7 @@ def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_
     assert (lineage["role"], lineage["output_id"], lineage["made_from"]) == ("working", edit.edit_id, ["demo.mp4"])
     [run] = studio.started
     assert run["argv"][0] == "ffmpeg" and "-/filter_complex" in run["argv"]
-    assert "trim=start=1:end=4" in run["graph"]
+    assert run["argv"][run["argv"].index("-ss"):run["argv"].index("-ss") + 4] == ["-ss", "1", "-t", "3"]
     assert run["folder"] == studio.edits.working_folder(edit)
     assert not run["folder"].exists()  # The working folder goes once it is saved.
     [process] = background_processes.list_processes(studio.chat)

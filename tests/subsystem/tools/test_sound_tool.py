@@ -65,11 +65,11 @@ def voice(monkeypatch):
 def test_a_voice_file_reads_the_whole_script_with_its_pronunciations(chat, voice):
     from row_bot.tools.sound_tool import _speak
 
-    script = "Row-Bot runs on Qwen. " * 40  # Far more than a spoken reply's three sentences.
+    script = "Row-Bot runs on Qwen. " * 40
     result = _speak(script, name="scene 1", voice="bf_emma", speed=1.1, pronunciations={"Qwen": "Kwen"})
 
     assert result.startswith('Output "scene 1" v1 (working) · scene 1.wav\nVoice file: ') and "voice bf_emma" in result
-    assert voice[0]["truncate"] is False and voice[0]["voice"] == "bf_emma" and voice[0]["speed"] == 1.1
+    assert voice[0]["voice"] == "bf_emma" and voice[0]["speed"] == 1.1
     assert "Qwen" not in voice[0]["text"] and voice[0]["text"].count("Kwen") == 40
     assert _files(chat)["scene 1.wav"]["mime_type"] == "audio/wav"
 

@@ -1,4 +1,8 @@
-"""The studio pass of a video project (5.3.2): each scene cut from a video gets its camera and its frame.
+"""The studio pass of a video project (5.3.2): each scene of footage gets its camera and its frame.
+
+Footage is anything: a phone or camera clip read where it is however long, an AI shot, a screen
+recording, or a still picture held with a slow push in (Ken Burns). Every scene is conformed into one clip: one
+size (cropped to fill), one frame rate, BT.709 colour in TV range, turned upright, its sound at one rate.
 
 The camera follows what Row-Bot did while recording (``recordings.Recording.actions``): it eases in on the control
 being clicked or typed into, pans to the next one when it comes soon after, and eases back out before a new page or
@@ -8,8 +12,9 @@ where the action is (the camera's view, else the recording's pointer, else the m
 play as one film; or, when asked, the picture inset on the brand's backdrop with rounded corners and a soft shadow
 ("framed": the brand kit's choice, or one scene's ``fit``).
 
-The scenes are drawn frame by frame (Pillow, sub-pixel crops, so a slow zoom never shimmers) one after another into
-one clip; the edit then cuts, captions and mixes it as it does any video. The camera path and one frame's look are
+The scenes are drawn one after another into one clip: a view that moves, and the framed look, frame by frame with
+Pillow (sub-pixel crops, so a slow zoom never shimmers), a view that doesn't by ffmpeg's own scaler. The edit then
+cuts, captions and mixes that clip as it does any video. The camera path and one frame's look are
 pure; only ``Studio`` reads and writes video.
 """
 
@@ -17,6 +22,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
+from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -50,6 +56,13 @@ PHONE_FILL, PHONE_RIM, PHONE_CORNER = 0.84, 0.045, 0.12
 # Room a caption takes at the bottom of a 16:9 frame (a line in its largest style, and its margin).
 CAPTION_ROOM = 0.13
 SHADOW_BLUR, SHADOW_DROP, SHADOW_ALPHA = 0.022, 0.012, 120
+# A picture held as a scene (a photo, a screenshot, generated art): this long when neither its end nor its line says,
+# pushed in this far over it (Ken Burns), gently.
+STILL_SECONDS = 3.5
+PUSH_IN = 1.12
+# Threads to decode a scene's video and to encode the clip: past 8, a 4K clip's decoding and the encoder's frames held
+# for them doubled the memory (1.5 GB, from 0.7) and drew no faster.
+THREADS = 8
 
 
 def _ease(value: float) -> float:
@@ -205,16 +218,119 @@ def compose(picture: Any, frame: Frame, at: tuple[float, float, float] = (0.5, 0
     return finished
 
 
-def needs_pass(keys: tuple[Key, ...], frame: Frame, picture: tuple[int, int]) -> bool:
-    """Whether a scene is drawn here: it has a camera, the framed look, or a picture not the frame's size."""
-    return bool(keys) or frame.framing == "framed" or tuple(picture) != frame.size
+def push_in(seconds: float, box: tuple[float, float, float, float] | None = None) -> tuple[Key, ...]:
+    """A picture's camera (Ken Burns): a slow push in over its whole scene, to its middle, or to its zoom's region."""
+    target = (0.5, 0.5, PUSH_IN)
+    if box:
+        x, y, width, height = box
+        target = (x + width / 2, y + height / 2, max(PUSH_IN, min(1 / max(width, 1e-3), 1 / max(height, 1e-3))))
+    return ((0.0, 0.5, 0.5, 1.0), (round(max(seconds, 0.1), 3), *(round(value, 4) for value in target)))
+
+
+def still_seconds(scene: Any) -> float:
+    """How long a picture's scene lasts: its end when given, else its line and a breath after it, else
+    ``STILL_SECONDS``; never shorter than its line."""
+    from row_bot.video_editing import LINE_PAD
+
+    said = scene.voice_seconds + LINE_PAD if scene.voice and scene.voice_seconds > 0 else 0.0
+    given = scene.end - scene.start if scene.end is not None else said or STILL_SECONDS
+    return round(max(given, said), 3)
+
+
+def still_info(path: Path) -> Any:
+    """A picture as one of an edit's inputs: its upright size, and no length of its own."""
+    from PIL import Image
+
+    from row_bot.video_editing import EditError, VideoInfo
+
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+            if image.getexif().get(0x0112) in (5, 6, 7, 8):  # Its EXIF orientation turns it a quarter.
+                width, height = height, width
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise EditError(f"{path.name} can't be read as a picture.") from None
+    return VideoInfo(duration=0.0, width=width, height=height, fps=30.0, has_audio=False, still=True)
+
+
+def _picture(path: Path, size: tuple[int, int], zoom: float) -> Any:
+    """A picture upright, in RGB, made only as large as filling the frame at its closest view needs: a 50-megapixel
+    photo isn't resized 30 times a second."""
+    from PIL import Image, ImageOps
+
+    from row_bot.video_editing import EditError
+
+    needed = (size[0] * zoom, size[1] * zoom)
+    try:
+        with Image.open(path) as image:
+            longest = round(max(needed) * 2)
+            image.draft("RGB", (longest, longest))  # A JPEG is read at a fraction of its size when that's enough.
+            picture = ImageOps.exif_transpose(image).convert("RGB")
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise EditError(f"{path.name} can't be read as a picture.") from None
+    scale = min(1.0, max(needed[0] / picture.width, needed[1] / picture.height))
+    if scale < 1.0:
+        picture = picture.resize((max(2, round(picture.width * scale)), max(2, round(picture.height * scale))),
+                                 Image.Resampling.LANCZOS)
+    return picture
+
+
+def _upright(rotation: float) -> tuple[list[tuple[str, str]], bool]:
+    """The filters that turn a phone's picture upright from its rotation (degrees counter-clockwise, as the file
+    says), and whether they swap its width and height."""
+    turns = round(rotation / 90) % 4
+    return [[], [("transpose", "cclock")], [("hflip", ""), ("vflip", "")], [("transpose", "clock")]][turns], \
+        turns % 2 == 1
+
+
+def _filters(frame: Any, time_base: Any, chain: list[tuple[str, str]]) -> Callable[[Any], Any]:
+    """ffmpeg's own filters for one scene's pictures: a frame in, a frame out."""
+    import av.filter
+
+    graph = av.filter.Graph()
+    node = graph.add_buffer(width=frame.width, height=frame.height, format=frame.format.name, time_base=time_base)
+    for name, arguments in [*chain, ("buffersink", "")]:
+        following = graph.add(name, arguments) if arguments else graph.add(name)
+        node.link_to(following)
+        node = following
+    graph.configure()
+
+    def run(picture: Any) -> Any:
+        graph.push(picture)
+        return graph.pull()
+
+    return run
+
+
+def _chain(frame: Any, keys: tuple[Key, ...], look: Frame, direct: bool) -> list[tuple[str, str]]:
+    """How a scene's decoded pictures are conformed: turned upright, then either filled into the frame around the
+    view's middle in BT.709 colour (``direct``: a view that doesn't move, drawn by ffmpeg's own scaler), or made RGB
+    and only as large as its closest view needs, for Pillow to draw through the camera and look."""
+    from row_bot.video_editing import TO_HD_COLOUR
+
+    turn, swaps = _upright(frame.rotation)
+    width, height = (frame.height, frame.width) if swaps else (frame.width, frame.height)
+    wide, high = look.size
+    if direct:
+        x, y = keys[0][1:3] if keys else (0.5, 0.5)
+        cover = max(wide / width, high / height)
+        scaled = (max(wide, round(width * cover)), max(high, round(height * cover)))
+        left = round(min(max(0.0, x * scaled[0] - wide / 2), scaled[0] - wide))
+        top = round(min(max(0.0, y * scaled[1] - high / 2), scaled[1] - high))
+        return [*turn, ("scale", f"{scaled[0]}:{scaled[1]}:flags=lanczos:{TO_HD_COLOUR}"),
+                ("crop", f"{wide}:{high}:{left}:{top}"), ("format", "yuv420p")]
+    zoom = max([1.0, *(key[3] for key in keys)])
+    fit = min(1.0, max(wide * zoom / width, high * zoom / height))
+    return [*turn, ("scale", f"{max(2, round(width * fit))}:{max(2, round(height * fit))}:flags=lanczos"),
+            ("format", "rgb24")]
 
 
 class Studio:
-    """The drawn scenes of a video, one after another in one clip (``scenes.mp4``): each frame the picture through
-    its scene's camera and look, drawn again only when the picture or the view has changed; its sound, when any
-    scene has some, kept in step (silence where a scene has none). One clip, however many scenes: the edit reads
-    it as one input."""
+    """A video's footage drawn one scene after another into one clip (``scenes.mp4``) at one size, frame rate and
+    colour (BT.709, TV range): each frame its scene's picture through its camera and look, a view that doesn't move
+    drawn by ffmpeg's own scaler, one that moves (or the framed look) by Pillow, drawn again only when the picture
+    or the view has changed; its sound, when any scene has some, kept in step at one rate (silence where a scene has
+    none). One clip, however many scenes and sources: the edit reads it as one input."""
 
     RATE = 48000
 
@@ -222,59 +338,106 @@ class Studio:
         import av
 
         self.fps = fps
+        self._tick = Fraction(1, round(fps))
         self.written = 0
+        # Pictures decoded from the scenes' videos: a scene is read from a seek to just before it, so a long video
+        # costs only the part used.
+        self.decoded = 0
         self._samples = 0
         self._writer = av.open(str(output), "w")
         self._video = self._writer.add_stream("libx264", rate=round(fps))
         self._video.width, self._video.height = size
         self._video.pix_fmt = "yuv420p"
-        self._video.options = {"crf": "18", "preset": "veryfast"}
+        self._video.options = {"crf": "18", "preset": "veryfast", "threads": str(THREADS)}
         self._video.thread_type = "AUTO"
+        context = self._video.codec_context
+        context.colorspace = context.color_primaries = context.color_trc = 1  # BT.709,
+        context.color_range = 1  # in TV range.
         self._audio = self._writer.add_stream("aac", rate=self.RATE, layout="stereo") if sound else None
         self._fifo = av.AudioFifo() if sound else None
         self._drawn: tuple[Any, Any] = (None, None)
 
     def add(self, source: Path, start: float, end: float, keys: tuple[Key, ...], frame: Frame, *,
             stopped: Callable[[], bool] = lambda: False) -> tuple[float, float]:
-        """Draw ``start``–``end`` of a video at the end of the clip: where it starts in the clip, and how long."""
+        """Draw ``start``–``end`` of a video (seconds from its start, as ffmpeg's ``-ss``) at the end of the clip:
+        where it starts in the clip, and how long. It is read from a seek to the picture before ``start``, and each
+        frame of the clip shows the latest picture at or before its moment, so any frame rate, a phone's varying
+        one too, comes out at the clip's."""
         import av
 
         from row_bot.video_editing import INPUT_FORMATS, EditError
 
         first = self.written
         count = max(1, round((end - start) * self.fps))
-        latest = None
+        # A view that doesn't move, filling the frame: ffmpeg's scaler draws it, no Pillow.
+        direct = frame.framing == "full" and (not keys or (len(keys) == 1 and keys[0][3] == 1.0))
+        latest = shown = picture = run = None
         seen = b""
+
+        def show(decoded: Any) -> None:
+            nonlocal shown, picture, run, seen
+            if shown is not decoded:
+                shown = decoded
+                if run is None:
+                    run = _filters(decoded, time_base, _chain(decoded, keys, frame, direct))
+                if direct:
+                    picture = run(decoded)
+                elif (luma := bytes(decoded.planes[0])) != seen:  # A still page repeats one picture: drawn once.
+                    picture, seen = run(decoded).to_image(), luma
+            if direct:
+                self._put(picture)
+            else:
+                self._draw(picture, keys, frame, first)
+
         resample = av.AudioResampler(format="fltp", layout="stereo", rate=self.RATE) if self._audio else None
         with av.open(str(source), options={"protocol_whitelist": "file", "format_whitelist": INPUT_FORMATS}) as reader:
             video = reader.streams.video[0]
+            video.thread_type, video.thread_count = "AUTO", THREADS
+            time_base = video.time_base
             sound = reader.streams.audio[0] if reader.streams.audio and self._audio else None
+            offset = (reader.start_time or 0) / av.time_base
             if start > 0 and video.time_base:
-                reader.seek(int(start / video.time_base), stream=video, backward=True)
+                reader.seek(int((start + offset) / video.time_base), stream=video, backward=True)
             for packet in reader.demux(*([video] + ([sound] if sound is not None else []))):
                 if stopped():
                     raise EditError("Stopped.")
                 if packet.stream is sound:
                     for decoded in packet.decode():
-                        self._hear(decoded, resample, start, end)
+                        self._hear(decoded, resample, start + offset, end + offset)
                     continue
                 for decoded in packet.decode():
-                    when = decoded.time if decoded.time is not None else 0.0
-                    # Each frame shows the latest picture at or before its moment.
+                    self.decoded += 1
+                    when = (decoded.time if decoded.time is not None else offset) - offset
                     while latest is not None and self.written - first < count and \
                             start + (self.written - first) / self.fps < when - 0.5 / self.fps:
-                        self._draw(latest, keys, frame, first)
-                    luma = bytes(decoded.planes[0])
-                    if when < end and luma != seen:  # A still page repeats one picture: it's drawn once.
-                        latest, seen = decoded.to_image(), luma
+                        show(latest)
+                    if when < end:
+                        latest = decoded
                 if self.written - first >= count:
                     break
-        if latest is None:
-            raise EditError(f"{source.name} has no pictures from {start:g} s.")
-        while self.written - first < count:
-            self._draw(latest, keys, frame, first)
+            if latest is None:
+                raise EditError(f"{source.name} has no pictures from {start:g} s.")
+            while self.written - first < count:
+                show(latest)
         self._pad()
         return first / self.fps, count / self.fps
+
+    def still(self, source: Path, seconds: float, keys: tuple[Key, ...], frame: Frame) -> tuple[float, float]:
+        """Hold a picture ``seconds`` at the end of the clip, through its camera (a slow push in): where it starts in
+        the clip, and how long."""
+        first = self.written
+        count = max(1, round(seconds * self.fps))
+        picture = _picture(source, frame.size, max([1.0, *(key[3] for key in keys)]))
+        while self.written - first < count:
+            self._draw(picture, keys, frame, first)
+        self._pad()
+        return first / self.fps, count / self.fps
+
+    def _put(self, picture: Any) -> None:
+        picture.pts, picture.time_base = self.written, self._tick
+        for packet in self._video.encode(picture):
+            self._writer.mux(packet)
+        self.written += 1
 
     def _draw(self, picture: Any, keys: tuple[Key, ...], frame: Frame, first: int) -> None:
         import av
@@ -283,11 +446,8 @@ class Studio:
         key = (id(picture), frame, tuple(round(value, 5) for value in at))
         if self._drawn[0] != key:
             self._drawn = (key, compose(picture, frame, at))
-        encoded = av.VideoFrame.from_image(self._drawn[1]).reformat(format="yuv420p")
-        encoded.pts = self.written
-        for packet in self._video.encode(encoded):
-            self._writer.mux(packet)
-        self.written += 1
+        self._put(av.VideoFrame.from_image(self._drawn[1]).reformat(format="yuv420p", dst_colorspace="ITU709",
+                                                                    dst_color_range="MPEG"))
 
     def _hear(self, decoded: Any, resample: Any, start: float, end: float) -> None:
         """A piece of a scene's sound, the part inside the scene, onto the clip's sound."""
@@ -344,11 +504,28 @@ class Studio:
         self._writer.close()
 
 
+def frame_rate(scenes: list[Any], inputs: list[Any]) -> float:
+    """A video's frame rate: the one most of its footage plays at (by the seconds used), 24 to 60; 30 for pictures
+    alone. The rest is conformed to it."""
+    used: dict[float, float] = {}
+    for scene in scenes:
+        info = inputs[scene.input].info
+        if info.still:
+            continue
+        rate = float(min(60, max(24, round(info.fps))))
+        end = info.duration if scene.end is None else min(scene.end, info.duration)
+        used[rate] = used.get(rate, 0.0) + max(0.0, end - scene.start)
+    return max(used, key=lambda rate: (used[rate], rate)) if used else 30.0
+
+
 def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[], bool] = lambda: False,
             progress: Callable[[int, int], None] = lambda _done, _total: None) -> tuple[list[Any], Any]:
-    """A video project's scenes cut from videos, drawn through their cameras and look one after another into one
-    clip (``scenes.mp4``) in the video's shape (its own, else 16:9 when its first video is wide, else that video's):
-    the inputs and scenes the edit then joins, captions and mixes. The brand kit's framed look is for 16:9."""
+    """A video project's footage drawn one scene after another into one clip (``scenes.mp4``) in the video's shape
+    (its own, else 16:9 when its first footage is wide, else that footage's): each scene cut from a video, read from
+    a seek to its start, and each picture held with a slow push in, all through their cameras and look, conformed to
+    one size, colour and frame rate (``frame_rate``), upright, with their sound at one rate. The edit then cuts,
+    captions and mixes that one clip, however many scenes and sources there are. The brand kit's framed look is for
+    16:9."""
     from dataclasses import replace
 
     from row_bot.video_editing import CARD_SIZES, EditError, InputVideo, Look, VideoInfo, fit_to_lines
@@ -356,10 +533,15 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     if step.aspect and step.aspect not in CARD_SIZES:
         raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {step.aspect}.")
     look = step.look or Look()
-    fitted = [scene for scene, _hold in fit_to_lines(step.scenes, [item.info.duration for item in inputs])]
-    footage = [scene for scene in fitted if scene.input is not None and 0 <= scene.input < len(inputs)]
-    if len(footage) != len([scene for scene in fitted if scene.input is not None]) or not footage:
+    given = [scene for scene in step.scenes if scene.input is not None]
+    if not given or any(not 0 <= scene.input < len(inputs) for scene in given):
         return inputs, step  # (The edit says what's wrong with a scene that isn't one of the inputs.)
+    held = [replace(scene, start=0.0, end=still_seconds(scene), speed=1.0)
+            if scene.input is not None and inputs[scene.input].info.still else scene for scene in step.scenes]
+    lengths = [max([scene.end for scene in held if scene.input == index] + [0.0]) if item.info.still
+               else item.info.duration for index, item in enumerate(inputs)]
+    fitted = [scene for scene, _hold in fit_to_lines(held, lengths)]
+    footage = [scene for scene in fitted if scene.input is not None]
     first = inputs[footage[0].input].info
     shape = step.aspect or ("16:9" if first.width / max(1, first.height) > 1.2 else "")
     size = CARD_SIZES[shape] if shape else (first.width // 2 * 2, first.height // 2 * 2)
@@ -371,49 +553,46 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
         return chosen.get(scene.fit, fill)
 
     def keys_of(scene: Any) -> tuple[Key, ...]:
+        info = inputs[scene.input].info
+        if info.still:
+            return push_in(scene.end - scene.start, scene.zoom)
         if scene.zoom:
             return zoom_keys(scene.zoom)
         if look.camera == "follow" and scene.camera:
             return scene.camera
-        info = inputs[scene.input].info
         if scene.focus and abs(info.width / max(1, info.height) - size[0] / size[1]) > 0.01:
             return ((0.0, scene.focus[0], scene.focus[1], 1.0),)  # Cropped to fill around where the pointer was.
         return ()
 
-    drawn = [scene for scene in footage
-             if needs_pass(keys_of(scene), frame_of(scene),
-                           (inputs[scene.input].info.width, inputs[scene.input].info.height))]
-    if not drawn:
-        return inputs, step
-    fps = float(round(first.fps or 30.0))
+    fps = frame_rate(footage, inputs)
     studio = Studio(folder / "scenes.mp4", size, fps=fps,
-                    sound=any(inputs[scene.input].info.has_audio for scene in drawn))
-    kept = sorted({scene.input for scene in footage if scene not in drawn})
+                    sound=any(inputs[scene.input].info.has_audio for scene in footage))
     scenes = []
     try:
         for scene in fitted:
             if scene.input is None:
                 scenes.append(scene)
                 continue
-            if scene not in drawn:
-                scenes.append(replace(scene, input=1 + kept.index(scene.input)))
-                continue
-            progress(len([done for done in scenes if done.input == 0]), len(drawn))
-            info = inputs[scene.input].info
-            start = min(max(0.0, scene.start), info.duration)
-            end = info.duration if scene.end is None else min(scene.end, info.duration)
-            source = Path(inputs[scene.input].path)
-            at, seconds = studio.add(source if source.is_absolute() else folder / source, start, end,
-                                     keys_of(scene), frame_of(scene), stopped=stopped)
+            progress(len([done for done in scenes if done.input == 0]), len(footage))
+            item = inputs[scene.input]
+            source = Path(item.path) if Path(item.path).is_absolute() else folder / item.path
+            if item.info.still:
+                start = 0.0
+                at, seconds = studio.still(source, scene.end, keys_of(scene), frame_of(scene))
+            else:
+                start = min(max(0.0, scene.start), item.info.duration)
+                end = item.info.duration if scene.end is None else min(scene.end, item.info.duration)
+                at, seconds = studio.add(source, start, end, keys_of(scene), frame_of(scene), stopped=stopped)
+            # Its times are now the clip's: what its recording logged moves with it.
+            shift = at - start
             scenes.append(replace(scene, input=0, start=round(at, 3), end=round(at + seconds, 3), zoom=None,
-                                  camera=()))
+                                  camera=(), waits=tuple((begin + shift, until + shift) for begin, until in scene.waits)))
     finally:
         studio.close()
     clip = InputVideo(path="scenes.mp4", label="scenes",
                       info=VideoInfo(duration=studio.written / fps, width=size[0], height=size[1], fps=fps,
                                      has_audio=studio.has_sound))
-    return [clip] + [inputs[index] for index in kept], replace(step, scenes=scenes)
-
+    return [clip], replace(step, scenes=scenes)
 
 def narration(lines: list[tuple[float, Path]], seconds: float, output: Path) -> None:
     """A video's voice lines laid at their times into one track, quiet between them: the edit then reads one
