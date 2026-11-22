@@ -47,7 +47,7 @@ def _safe_filename(filename: str) -> str:
 
 # What the person is told when a voice note arrives and no speech model is installed.
 VOICE_NOTES_NEED_A_MODEL = (
-    "Voice notes need a speech model. Install one in Settings › Voice; typed messages work as usual."
+    "Voice notes need a speech model. Install one in Row-Bot's Settings › Voice; typed messages work as usual."
 )
 
 
@@ -455,7 +455,8 @@ def build_attachment_turn(
                 except SpeechModelMissing:
                     notice = VOICE_NOTES_NEED_A_MODEL
                     name = _safe_filename(attachment.filename or "audio")
-                    blocks.append(f"[Attached audio: {name} - not transcribed: no speech model is installed]")
+                    blocks.append(f"[Attached audio: {name} - not transcribed: no speech model is installed; "
+                                  "the person installs one in Settings › Voice]")
                     continue
                 if transcript:
                     transcripts.append(transcript)

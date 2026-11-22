@@ -172,6 +172,29 @@ def test_no_speech_model_says_so_and_downloads_nothing(speech, monkeypatch) -> N
     assert speech.voice.installs == [] and speech.voice.whisper_calls == []
 
 
+def test_the_missing_model_notice_goes_out_only_through_the_channel_and_is_never_saved(
+    speech, monkeypatch, tmp_path, reload_for_data_dir,
+) -> None:
+    """A first voice note from a new chat: the notice is sent, but no turn runs and nothing is saved."""
+    from row_bot.channels import whatsapp
+
+    _paths, threads = reload_for_data_dir(tmp_path / "data", "row_bot.data_paths", "row_bot.threads")
+    assert threads._list_threads() == []  # no conversation yet
+    speech.voice.whisper = False
+    sent: list[str] = []
+    monkeypatch.setattr(whatsapp, "_send_message_sync", lambda _chat, text, **_kw: sent.append(text))
+    monkeypatch.setattr(whatsapp, "_run_text_turn", lambda *_a, **_kw: pytest.fail("no turn may run"))
+
+    whatsapp._run_media_batch("15550001@s.whatsapp.net", [
+        (InboundAttachment("audio.ogg", _voice_note(0.5), "audio/ogg", voice_note=True), "", None),
+    ])
+
+    assert sent == [media.VOICE_NOTES_NEED_A_MODEL]
+    for thread_id, *_rest in threads._list_threads():
+        assert threads.get_latest_checkpoint_messages(thread_id) == []
+    assert speech.voice.installs == []
+
+
 def test_a_captioned_voice_note_without_a_model_still_answers_the_words(speech) -> None:
     speech.voice.whisper = False
 
@@ -180,7 +203,8 @@ def test_a_captioned_voice_note_without_a_model_still_answers_the_words(speech) 
     )
 
     assert turn.usable is True and turn.voice_note is False
-    assert "[Attached audio: voice.ogg - not transcribed: no speech model is installed]" in turn.text
+    assert ("[Attached audio: voice.ogg - not transcribed: no speech model is installed; "
+            "the person installs one in Settings › Voice]") in turn.text
 
 
 def test_a_plugin_channels_voice_note_without_a_model_gets_the_same_honest_line(speech) -> None:

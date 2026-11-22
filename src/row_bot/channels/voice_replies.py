@@ -26,7 +26,7 @@ VOICE_REPLIES_KEY = "voice_replies"
 VOICE_REPLIES_LABEL = "Reply to voice notes with a voice note"
 _HELP_READY = (
     "When someone sends a voice note, the answer comes back as a voice note too, after its text. "
-    "Uses Row-Bot's voice (Kokoro)."
+    "Uses Row-Bot's own voice (Kokoro), made on this computer."
 )
 _HELP_NO_KOKORO = (
     "Needs Row-Bot's voice (Kokoro), which isn't installed: answers stay text until you install it "
