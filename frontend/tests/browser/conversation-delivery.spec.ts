@@ -152,8 +152,15 @@ test('sending to your devices shows the download here and on your phone, with a 
     await views(phone, info, 'device-download-phone', () =>
       onPhone.scrollIntoViewIfNeeded(),
     );
+    // The card's inline PDF preview is a frame, and headless Chromium has no
+    // PDF viewer: the frame's blob downloads on its own, named by the blob's
+    // id. That download isn't the link's, so it's skipped here.
+    const fromPreviewFrame =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/;
     const [download] = await Promise.all([
-      phone.waitForEvent('download'),
+      phone.waitForEvent('download', {
+        predicate: (item) => !fromPreviewFrame.test(item.suggestedFilename()),
+      }),
       onPhone.getByRole('link', { name: 'Download q3-report.pdf' }).click(),
     ]);
     expect(download.suggestedFilename()).toBe('q3-report.pdf');
