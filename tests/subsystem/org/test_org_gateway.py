@@ -16,6 +16,7 @@ import logging
 import secrets
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -65,8 +66,7 @@ def idp() -> Iterator[FakeIdp]:
 @contextmanager
 def org_server(database, idp: FakeIdp, gateway_key: str = GATEWAY_KEY) -> Iterator[TestClient]:
     settings = load_settings({
-        "ROW_BOT_ORG_IDPS": json.dumps([idp.config()]),
-        "ROW_BOT_ORG_IDP_CLIENT_SECRETS": json.dumps({idp.shape: CLIENT_SECRET}),
+        "ROW_BOT_ORG_IDP": json.dumps(idp.config()), "ROW_BOT_ORG_IDP_CLIENT_SECRET": CLIENT_SECRET,
         "ROW_BOT_ORG_PUBLIC_URL": PUBLIC_URL, "ROW_BOT_ORG_HMAC_PEPPER": PEPPER,
         "ROW_BOT_ORG_GATEWAY_KEY": gateway_key,
     })
@@ -78,7 +78,7 @@ def org_server(database, idp: FakeIdp, gateway_key: str = GATEWAY_KEY) -> Iterat
 def person(server: TestClient, idp: FakeIdp, subject: str, groups: list[str] | None = None) -> TestClient:
     """A signed-in Row-Bot of its own (its own cookies), sending the server's origin as a same-origin client."""
     client = TestClient(server.app, base_url=PUBLIC_URL, headers=ORIGIN)
-    login = client.get("/auth/login?idp=okta", follow_redirects=False)
+    login = client.get("/auth/login", follow_redirects=False)
     done = client.get(idp.authorize(login.headers["location"], subject=subject, groups=groups or []),
                       follow_redirects=False)
     assert done.status_code == 303, done.text
@@ -109,8 +109,9 @@ def usage(admin: TestClient, by: str = "model") -> list[dict]:
     return response.json()["usage"]
 
 
-def owner_sql(database, sql: str, *args) -> list[tuple]:
-    with psycopg.connect(database.owner_url, autocommit=True) as conn:
+def superuser_sql(database, sql: str, *args) -> list[tuple]:
+    """As the cluster's superuser, past row-level security: what the test checks or arranges behind the server."""
+    with psycopg.connect(database.superuser_url, autocommit=True) as conn:
         cursor = conn.execute(sql, args)
         return cursor.fetchall() if cursor.description else []
 
@@ -289,7 +290,7 @@ def test_a_hard_budget_refuses_and_a_soft_one_warns(org_database, idp) -> None:
         admin.put("/api/admin/budgets", json={"scope": "group", "subject": "Sales", "hard_limit": "0.02"})
         refused = bob.post(CHAT, json=call)
         assert refused.json()["error"]["message"] == "The Sales group's monthly model budget is used up."
-        owner_sql(org_database, "UPDATE row_bot_org.usage_events SET created_at = date_trunc('month', now()) - "
+        superuser_sql(org_database, "UPDATE row_bot_org.usage_events SET created_at = date_trunc('month', now()) - "
                                 "interval '1 day'")
         assert ada.post(CHAT, json=call).status_code == 200
 
@@ -308,7 +309,7 @@ def test_an_endpoint_that_doesnt_answer_in_time_gives_a_clean_error(org_database
         assert response.status_code == 504
         assert response.json()["error"] == {"message": "The company's model endpoint didn't answer in time.",
                                             "type": "endpoint_timeout", "code": "endpoint_timeout"}
-        assert [(row[0], row[1]) for row in owner_sql(
+        assert [(row[0], row[1]) for row in superuser_sql(
             org_database, "SELECT outcome, input_tokens FROM row_bot_org.usage_events")] == [("error", 0)]
     assert "model call to endpoint gpu-box failed (ReadTimeout)" in log_text()
 
@@ -351,7 +352,9 @@ def test_keys_never_appear_in_a_response_a_log_or_an_error(org_database, idp, lo
         logs = log_text()
         assert logs and KEY not in logs and wrong_key not in logs
         # At rest the keys are sealed, not stored.
-        for (sealed,) in owner_sql(org_database, "SELECT key_sealed FROM row_bot_org.model_endpoints"):
+        stored = superuser_sql(org_database, "SELECT key_sealed FROM row_bot_org.model_endpoints")
+        assert len(stored) == 2
+        for (sealed,) in stored:
             assert KEY.encode() not in bytes(sealed) and wrong_key.encode() not in bytes(sealed)
 
 
@@ -377,7 +380,7 @@ def test_only_admins_manage_the_catalog_and_read_usage(org_database, idp) -> Non
                              ("GET", "/api/admin/usage")):
             answer = ada.request(method, path, json={"name": "x", "api": "openai", "base_url": endpoint.base_url})
             assert answer.status_code == 403, (method, path)
-        assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.model_endpoints") == [(0,)]
+        assert superuser_sql(org_database, "SELECT count(*) FROM row_bot_org.model_endpoints") == [(0,)]
 
 
 def test_the_company_default_moves_and_an_endpoint_with_models_stays(org_database, idp) -> None:
@@ -415,7 +418,7 @@ def test_one_person_never_reads_anothers_usage_or_the_budgets(org_database, idp)
             assert client.post(CHAT, json={"model": "company-chat", "messages": HELLO}).status_code == 200
         assert {row["person"]: row["calls"] for row in usage(admin, by="person")} == {ada_id: 1, bob_id: 2}
         assert usage(admin, by="group") == [{"group": "Sales", "calls": 3, "input_tokens": 3 * INPUT_TOKENS,
-                                             "output_tokens": 3 * OUTPUT_TOKENS, "cost": 3 * CALL_COST}]
+                                             "output_tokens": 3 * OUTPUT_TOKENS, "cost": 0.0243}]
 
     pool = create_pool(org_database.runtime_url, max_size=1)
     pool.open(wait=True, timeout=30)
@@ -431,7 +434,7 @@ def test_one_person_never_reads_anothers_usage_or_the_budgets(org_database, idp)
             assert conn.execute("DELETE FROM row_bot_org.usage_events").rowcount == 0
             # Her group's budget, with what the whole group spent, and nothing else.
             assert conn.execute("SELECT scope, subject, spent FROM row_bot_org.current_budget_state()"
-                                ).fetchall() == [("group", "Sales", pytest.approx(3 * CALL_COST))]
+                                ).fetchall() == [("group", "Sales", Decimal("0.0243"))]
         with principal_transaction(pool, ada_id, ["Sales"]) as conn, \
                 pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("INSERT INTO row_bot_org.usage_events (principal_id, groups, model, input_tokens,"

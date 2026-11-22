@@ -58,6 +58,19 @@ def test_the_shipped_migrations_apply_once(empty_org_database) -> None:
     assert _ledger(url) == [(m.version, m.name, m.checksum) for m in SHIPPED]
 
 
+def test_a_superuser_is_refused_as_the_migrating_role(empty_org_database, monkeypatch: pytest.MonkeyPatch,
+                                                      capsys: pytest.CaptureFixture[str]) -> None:
+    # It would own the SECURITY DEFINER sign-in functions, which would then run as a superuser.
+    with pytest.raises(MigrationError, match="the migrating role is a superuser"):
+        migrate(empty_org_database.superuser_url)
+    assert _tables(empty_org_database.owner_url) == set()
+
+    monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.superuser_url)
+    assert cli.main(["migrate"]) == 1
+    assert "Row-Bot Org didn't migrate: the migrating role is a superuser" in capsys.readouterr().err
+    assert _tables(empty_org_database.owner_url) == set()
+
+
 def test_a_runner_waits_while_another_holds_the_lock(empty_org_database) -> None:
     url = empty_org_database.owner_url
     results: list[object] = []

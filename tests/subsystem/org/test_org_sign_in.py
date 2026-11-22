@@ -1,8 +1,9 @@
 """Company sign-in end to end: the fake provider (tests/fixtures/oidc_idp.py), the server's routes and a real
 (throwaway) Postgres as the runtime role.
 
-Covers the sign-in of each provider shape, the sign-in state (single use, bound to the browser,
-expiry), the redirect URI, refusals that reach the callback, the cookies, server sessions (expiry, idle
+Covers the sign-in of each provider shape, the landing page, the sign-in state (single use, bound to
+the browser, expiry), the redirect URI, refusals that reach the callback, the cookies, the per-address
+limit on the sign-in steps, forwarded headers (only from a trusted proxy), server sessions (expiry, idle
 timeout, logout, rotation, revocation, suspension), row-level security on principals, groups and
 sessions, and the access log. Security-sensitive: these run in the pull request lane's Org job.
 """
@@ -24,7 +25,6 @@ psycopg = import_psycopg()
 pytest.importorskip("joserfc", reason="joserfc is not installed: uv sync --locked --all-extras --group test --group org")
 
 from fastapi.testclient import TestClient  # noqa: E402
-from joserfc.jwk import RSAKey  # noqa: E402
 
 from row_bot_org import cli  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
@@ -42,11 +42,9 @@ ORIGIN = {"Origin": PUBLIC_URL}
 
 
 @contextmanager
-def org_server(database, *idps: FakeIdp, configs: list[dict] | None = None, credentials: dict | None = None,
-               **env: str) -> Iterator[TestClient]:
+def org_server(database, idp: FakeIdp, *, config: dict | None = None, **env: str) -> Iterator[TestClient]:
     settings = load_settings({
-        "ROW_BOT_ORG_IDPS": json.dumps(configs or [idp.config() for idp in idps]),
-        "ROW_BOT_ORG_IDP_CLIENT_SECRETS": json.dumps(credentials or {idp.shape: CLIENT_SECRET for idp in idps}),
+        "ROW_BOT_ORG_IDP": json.dumps(config or idp.config()), "ROW_BOT_ORG_IDP_CLIENT_SECRET": CLIENT_SECRET,
         "ROW_BOT_ORG_PUBLIC_URL": PUBLIC_URL, "ROW_BOT_ORG_HMAC_PEPPER": PEPPER, **env,
     })
     pool = create_pool(database.runtime_url, max_size=4)
@@ -54,19 +52,19 @@ def org_server(database, *idps: FakeIdp, configs: list[dict] | None = None, cred
         yield client
 
 
-def browser(client: TestClient) -> TestClient:
-    """Another browser on the same server (its own cookies)."""
-    return TestClient(client.app, base_url=PUBLIC_URL)
+def browser(client: TestClient, address: str = "testclient", **headers: str) -> TestClient:
+    """Another browser on the same server (its own cookies), connecting from ``address``."""
+    return TestClient(client.app, base_url=PUBLIC_URL, client=(address, 50000), headers=headers)
 
 
-def start(client: TestClient, idp_name: str):
-    response = client.get(f"/auth/login?idp={idp_name}", follow_redirects=False)
+def start(client: TestClient):
+    response = client.get("/auth/login", follow_redirects=False)
     assert response.status_code == 302, response.text
     return response
 
 
 def sign_in(client: TestClient, idp: FakeIdp, **claims):
-    callback = idp.authorize(start(client, idp.shape).headers["location"], **claims)
+    callback = idp.authorize(start(client).headers["location"], **claims)
     return client.get(callback, follow_redirects=False)
 
 
@@ -92,7 +90,7 @@ def idp(request: pytest.FixtureRequest) -> Iterator[FakeIdp]:
 def test_a_person_signs_in_and_the_server_knows_them_and_their_groups(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
         done = sign_in(client, idp, subject="stable-sub")
-        assert done.status_code == 303 and done.headers["location"] == PUBLIC_URL + "/"
+        assert done.status_code == 303 and done.headers["location"] == PUBLIC_URL + "/admin/"
 
         me = client.get("/api/me")
         assert me.status_code == 200
@@ -111,27 +109,25 @@ def test_a_person_signs_in_and_the_server_knows_them_and_their_groups(org_databa
 
 def test_groups_are_mapped_and_replaced_at_each_sign_in(org_database, idp: FakeIdp) -> None:
     config = idp.config(group_map={"Engineering": "engineering", "Sales": "sales"})
-    with org_server(org_database, idp, configs=[config]) as client:
+    with org_server(org_database, idp, config=config) as client:
         sign_in(client, idp)
         assert client.get("/api/me").json()["groups"] == ["engineering"]
         sign_in(client, idp, groups=["Sales"])
         assert client.get("/api/me").json()["groups"] == ["sales"]
 
 
-def test_private_key_jwt_authenticates_the_server_to_the_token_endpoint(org_database) -> None:
-    client_key = RSAKey.generate_key(2048, parameters={"kid": "server-key"})
-    with running_idp("okta", client_public_jwk=client_key.as_dict(private=False)) as idp, \
-            org_server(org_database, idp, configs=[idp.config(client_auth="private_key_jwt")],
-                       credentials={"okta": client_key.as_dict(private=True)}) as client:
-        assert sign_in(client, idp).status_code == 303
-        assert "client_assertion" in idp.token_requests[-1]
-        assert "client_secret" not in idp.token_requests[-1]
+def test_a_sign_in_lands_on_the_admin_address_which_says_signed_in(org_database, idp: FakeIdp) -> None:
+    with org_server(org_database, idp) as client:
+        assert client.get("/admin/").status_code == 401
+        landing = client.get(sign_in(client, idp).headers["location"])
+
+    assert (landing.status_code, landing.json()) == (200, {"status": "signed_in"})
 
 
 def test_the_authorization_request_has_pkce_state_nonce_and_the_exact_redirect_uri(org_database,
                                                                                    idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
-        query = {k: v[0] for k, v in parse_qs(urlsplit(start(client, "okta").headers["location"]).query).items()}
+        query = {k: v[0] for k, v in parse_qs(urlsplit(start(client).headers["location"]).query).items()}
 
     assert query["redirect_uri"] == REDIRECT_URI
     assert query["scope"] == "openid email profile"
@@ -139,14 +135,9 @@ def test_the_authorization_request_has_pkce_state_nonce_and_the_exact_redirect_u
     assert len(query["state"]) == 43 and len(query["nonce"]) == 43 and query["state"] != query["nonce"]
 
 
-def test_an_unknown_provider_is_a_404(org_database, idp: FakeIdp) -> None:
-    with org_server(org_database, idp) as client:
-        assert client.get("/auth/login?idp=nobody").status_code == 404
-
-
 def test_the_cookies_are_host_only_secure_httponly_and_lax(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
-        login = start(client, "okta")
+        login = start(client)
         done = client.get(idp.authorize(login.headers["location"]), follow_redirects=False)
 
     for response, name in ((login, SIGN_IN_COOKIE), (done, SESSION_COOKIE)):
@@ -164,7 +155,7 @@ def test_the_cookies_are_host_only_secure_httponly_and_lax(org_database, idp: Fa
 
 def test_a_callback_is_used_once(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
-        callback = idp.authorize(start(client, "okta").headers["location"])
+        callback = idp.authorize(start(client).headers["location"])
         assert client.get(callback, follow_redirects=False).status_code == 303
 
         replay = client.get(callback, follow_redirects=False)
@@ -182,7 +173,7 @@ def test_a_callback_without_a_known_state_is_refused(org_database, idp: FakeIdp,
 
 def test_a_callback_in_another_browser_is_refused_and_spends_the_state(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
-        callback = idp.authorize(start(client, "okta").headers["location"])
+        callback = idp.authorize(start(client).headers["location"])
 
         # Login CSRF: someone else's callback link opened in this browser.
         forced = browser(client).get(callback, follow_redirects=False)
@@ -193,7 +184,7 @@ def test_a_callback_in_another_browser_is_refused_and_spends_the_state(org_datab
 
 def test_an_expired_sign_in_is_refused(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
-        callback = idp.authorize(start(client, "okta").headers["location"])
+        callback = idp.authorize(start(client).headers["location"])
         owner_sql(org_database, "UPDATE row_bot_org.auth_attempts SET expires_at = now() - interval '1 second'")
 
         assert client.get(callback, follow_redirects=False).json()["reason"] == "unknown_or_used_state"
@@ -210,7 +201,7 @@ def test_a_redirect_uri_the_provider_didnt_register_fails_the_exchange(org_datab
 
 def test_the_provider_ending_the_sign_in_is_reported(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
-        state = parse_qs(urlsplit(start(client, "okta").headers["location"]).query)["state"][0]
+        state = parse_qs(urlsplit(start(client).headers["location"]).query)["state"][0]
         response = client.get(f"/auth/callback?state={state}&error=access_denied")
     assert response.json()["reason"] == "idp_error"
 
@@ -230,6 +221,56 @@ def test_a_refused_identity_makes_no_principal(org_database, shape: str, claims:
 
     assert (response.status_code, response.json()) == (400, {"error": "sign_in_failed", "reason": reason})
     assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.principals") == [(0,)]
+
+
+# -- the per-address limit and forwarded headers ----------------------------------------------------
+
+def test_a_flood_of_sign_in_steps_from_one_address_is_refused_before_the_database(org_database,
+                                                                                  idp: FakeIdp) -> None:
+    with org_server(org_database, idp, ROW_BOT_ORG_SIGN_IN_RATE_LIMIT="3") as client:
+        flooder = browser(client, "198.51.100.7")
+        assert [flooder.get("/auth/login", follow_redirects=False).status_code for _ in range(4)] == [302] * 3 + [429]
+        refused = flooder.get("/auth/callback?state=" + "A" * 43 + "&code=abc")
+        assert (refused.status_code, refused.json()) == (429, {"error": "too_many_requests"})
+        assert refused.headers["retry-after"] == "60"
+        # An IPv6 address counts by its /64.
+        neighbours = [browser(client, f"2001:db8:1:2::{n}") for n in range(1, 5)]
+        assert [b.get("/auth/login", follow_redirects=False).status_code for b in neighbours] == [302] * 3 + [429]
+
+        # Someone else signs in as usual.
+        assert sign_in(browser(client, "198.51.100.8"), idp).status_code == 303
+    # Only the allowed logins left an attempt (three each from the address and the /64; one was used).
+    assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.auth_attempts") == [(6,)]
+
+
+def _session_addresses(database) -> list[str]:
+    return [address for (address,) in owner_sql(
+        database, "SELECT address FROM row_bot_org.server_sessions ORDER BY created_at")]
+
+
+def test_forwarded_headers_are_ignored_without_a_trusted_proxy(org_database, idp: FakeIdp) -> None:
+    with org_server(org_database, idp, ROW_BOT_ORG_SIGN_IN_RATE_LIMIT="2") as client:
+        spoofing = {"X-Forwarded-For": "203.0.113.9", "X-Forwarded-Proto": "https"}
+        assert sign_in(browser(client, "10.1.2.3", **spoofing), idp).status_code == 303
+        # A new X-Forwarded-For each time doesn't get past the limit either.
+        assert browser(client, "10.1.2.3", **{"X-Forwarded-For": "203.0.113.10"}).get(
+            "/auth/login", follow_redirects=False).status_code == 429
+
+    assert _session_addresses(org_database) == ["10.1.2.3"]
+
+
+def test_forwarded_headers_count_only_from_a_trusted_proxy(org_database, idp: FakeIdp) -> None:
+    with org_server(org_database, idp, ROW_BOT_ORG_TRUSTED_PROXIES="10.0.0.0/8",
+                    ROW_BOT_ORG_SIGN_IN_RATE_LIMIT="2") as client:
+        # Through the proxy: the client it names. A client's own X-Forwarded-For entry (the left one) isn't believed.
+        via_proxy = {"X-Forwarded-For": "192.0.2.50, 203.0.113.9", "X-Forwarded-Proto": "https"}
+        assert sign_in(browser(client, "10.1.2.3", **via_proxy), idp).status_code == 303
+        # Straight from an address that isn't a proxy: its own address, whatever it claims.
+        assert sign_in(browser(client, "192.0.2.1", **{"X-Forwarded-For": "203.0.113.77"}), idp).status_code == 303
+        # Each client behind the proxy has its own count.
+        assert sign_in(browser(client, "10.1.2.3", **{"X-Forwarded-For": "203.0.113.10"}), idp).status_code == 303
+
+    assert _session_addresses(org_database) == ["203.0.113.9", "192.0.2.1", "203.0.113.10"]
 
 
 # -- sessions ---------------------------------------------------------------------------------------
@@ -382,7 +423,7 @@ def log_lines() -> Iterator[Callable[[], str]]:
 def test_the_access_log_never_has_the_code_state_cookie_or_a_query(org_database, idp: FakeIdp,
                                                                    log_lines: Callable[[], str]) -> None:
     with org_server(org_database, idp) as client:
-        login = start(client, "okta")
+        login = start(client)
         callback = idp.authorize(login.headers["location"])
         done = client.get(callback, follow_redirects=False)
         principal_id = client.get("/api/me").json()["id"]

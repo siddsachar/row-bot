@@ -1,6 +1,6 @@
 """The OpenID Connect relying party: discovery, the authorization request, the code exchange and the ID token.
 
-One ``OidcProvider`` per configured identity provider. What it checks, in order:
+One ``OidcProvider`` for the server's identity provider. What it checks, in order:
 
 - **Discovery** (``<issuer>/.well-known/openid-configuration``), fetched with a size limit and a timeout,
   never following a redirect, HTTPS only (HTTP only to a loopback address). Its ``issuer`` must equal the
@@ -10,7 +10,8 @@ One ``OidcProvider`` per configured identity provider. What it checks, in order:
   server never holds an IdP refresh token (REVIEW-1 M9).
 - **The ID token**: an algorithm on the allow-list (RS256, PS256, ES256, EdDSA; never ``none`` or HS*),
   a ``kid`` found in the JWKS (refetched when it is an hour old, or when an unknown ``kid`` appears, at
-  most once a minute), a good signature, then ``iss``, ``aud`` (and ``azp`` with several audiences, or
+  most once a minute), a good signature, then ``iss`` (for Google's issuer also without its scheme, as
+  OpenID Connect Core 3.1.3.7 allows for Google alone), ``aud`` (and ``azp`` with several audiences, or
   whenever present), ``exp``, ``iat`` and ``nbf`` with a minute's skew, ``nonce``, for Entra ``tid`` among
   the allowed tenants, ``email`` only when ``email_verified`` is true, and the groups claim (Entra's
   group overage is refused: see ``_groups``).
@@ -37,7 +38,6 @@ from joserfc import jwk, jws, jwt
 from joserfc.errors import JoseError
 
 from row_bot_org.identity.config import IdpConfig, IdpConfigError, check_endpoint_url
-from row_bot_org.identity.tokens import new_secret
 
 # RFC 9864 renames EdDSA to Ed25519; providers still sign with "EdDSA", which stays on the list.
 warnings.filterwarnings("ignore", message="EdDSA is deprecated", module=r"joserfc\.")
@@ -51,11 +51,11 @@ MAX_ID_TOKEN_BYTES = 16 * 1024
 DISCOVERY_TTL = 3600.0
 JWKS_MAX_AGE = 3600.0
 JWKS_REFETCH_INTERVAL = 60.0
-CLIENT_ASSERTION_LIFETIME = 300
 MAX_GROUPS = 1000
 MAX_GROUP_NAME = 256
+# Google's ID tokens carry this issuer, or the same without "https://".
+GOOGLE_ISSUER = "https://accounts.google.com"
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-_CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
 
 class SignInError(Exception):
@@ -127,11 +127,14 @@ def _clean_text(value: object, limit: int) -> str:
 
 
 class OidcProvider:
-    """One identity provider. Thread-safe: the discovery and JWKS caches are behind a lock."""
+    """The identity provider. Thread-safe: the discovery and JWKS caches are behind a lock."""
 
     def __init__(self, config: IdpConfig, *, client: httpx.Client | None = None,
                  clock: Callable[[], float] = time.time) -> None:
         self.config = config
+        self._issuers = {config.issuer}
+        if config.kind == "google" and config.issuer == GOOGLE_ISSUER:
+            self._issuers.add(GOOGLE_ISSUER.removeprefix("https://"))
         self._client = client or new_http_client()
         self._clock = clock
         self._lock = threading.Lock()
@@ -220,38 +223,16 @@ class OidcProvider:
         })
         return endpoint + ("&" if "?" in endpoint else "?") + query
 
-    def _client_authentication(self, token_endpoint: str) -> tuple[dict[str, str], dict[str, str]]:
-        config = self.config
-        if config.client_auth == "client_secret_basic":
-            # RFC 6749 2.3.1: each part form-encoded before the Basic encoding.
-            pair = f"{quote(config.client_id, safe='')}:{quote(str(config.credential), safe='')}"
-            return {"Authorization": "Basic " + base64.b64encode(pair.encode("utf-8")).decode("ascii")}, {}
-        credential = dict(config.credential) if isinstance(config.credential, dict) else {}
-        try:
-            key = jwk.import_key(credential)
-        except (JoseError, ValueError, TypeError):
-            raise SignInError("idp_misconfigured", "the private_key_jwt key can't be read") from None
-        alg = {"RSA": "RS256", "EC": "ES256"}.get(credential.get("kty", ""))
-        if alg is None or (alg == "ES256" and credential.get("crv") != "P-256"):
-            raise SignInError("idp_misconfigured", "the private_key_jwt key must be RSA or EC P-256")
-        header: dict[str, Any] = {"alg": alg, "typ": "JWT"}
-        # Entra identifies a certificate's key by its thumbprint; others by kid.
-        header.update({name: credential[name] for name in ("kid", "x5t", "x5t#S256") if name in credential})
-        now = int(self._clock())
-        assertion = jwt.encode(header, {
-            "iss": config.client_id, "sub": config.client_id, "aud": token_endpoint, "jti": new_secret(),
-            "iat": now, "nbf": now, "exp": now + CLIENT_ASSERTION_LIFETIME,
-        }, key, algorithms=[alg])
-        return {}, {"client_id": config.client_id, "client_assertion_type": _CLIENT_ASSERTION_TYPE,
-                    "client_assertion": assertion}
-
     def exchange_code(self, *, code: str, redirect_uri: str, code_verifier: str) -> str:
         """The ID token the token endpoint gives for ``code``. Its other tokens are dropped unread."""
         endpoint = self.discovery().token_endpoint
-        headers, extra = self._client_authentication(endpoint)
-        status, answer = _read_json(self._client, "POST", endpoint, headers={"Accept": "application/json", **headers},
+        # client_secret_basic. RFC 6749 2.3.1: each part form-encoded before the Basic encoding.
+        pair = f"{quote(self.config.client_id, safe='')}:{quote(self.config.client_secret, safe='')}"
+        basic = "Basic " + base64.b64encode(pair.encode("utf-8")).decode("ascii")
+        status, answer = _read_json(self._client, "POST", endpoint,
+                                    headers={"Accept": "application/json", "Authorization": basic},
                                     data={"grant_type": "authorization_code", "code": code,
-                                          "redirect_uri": redirect_uri, "code_verifier": code_verifier, **extra})
+                                          "redirect_uri": redirect_uri, "code_verifier": code_verifier})
         if status != 200 or not isinstance(answer, dict):
             error = answer.get("error") if isinstance(answer, dict) else None
             named = f" ({error})" if isinstance(error, str) and _ERROR_CODE.fullmatch(error) else ""
@@ -297,7 +278,7 @@ class OidcProvider:
 
     def _check_claims(self, claims: dict[str, Any], nonce_matches: Callable[[str], bool]) -> None:
         config = self.config
-        if claims.get("iss") != config.issuer:
+        if claims.get("iss") not in self._issuers:
             raise SignInError("id_token_rejected", "the ID token's iss isn't the configured issuer")
         audience = claims.get("aud")
         audiences = [audience] if isinstance(audience, str) else audience

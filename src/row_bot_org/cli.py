@@ -187,12 +187,15 @@ def _serve(settings: OrgSettings, url: str) -> int:
     )
     # Not uvicorn's access log: its lines carry query strings, and sign-in callbacks put codes there.
     # The app logs each request itself, by route template (row_bot_org.identity.gate.AccessLog).
+    # Not uvicorn's proxy headers either (it trusts 127.0.0.1 by default): the app reads them only from
+    # ROW_BOT_ORG_TRUSTED_PROXIES.
     uvicorn.run(
         create_app(settings, pool),
         host=settings.host,
         port=settings.port,
         log_config=None,
         access_log=False,
+        proxy_headers=False,
         server_header=False,
     )
     return 0

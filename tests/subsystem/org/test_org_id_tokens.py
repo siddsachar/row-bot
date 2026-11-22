@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("joserfc", reason="joserfc is not installed: uv sync --locked --all-extras --group test --group org")
 
-from row_bot_org.identity.config import parse_idps  # noqa: E402
+from row_bot_org.identity.config import IdpConfig, parse_idp  # noqa: E402
 from row_bot_org.identity.oidc import (  # noqa: E402
     JWKS_REFETCH_INTERVAL,
     OidcProvider,
@@ -43,8 +43,7 @@ def idp(request: pytest.FixtureRequest) -> Iterator[FakeIdp]:
 
 
 def _provider(idp: FakeIdp, clock: Clock | None = None, **overrides: object) -> OidcProvider:
-    (config,) = parse_idps(json.dumps([idp.config(**overrides)]), {idp.shape: CLIENT_SECRET})
-    return OidcProvider(config, clock=clock or Clock())
+    return OidcProvider(parse_idp(json.dumps(idp.config(**overrides)), CLIENT_SECRET), clock=clock or Clock())
 
 
 def _claims(idp: FakeIdp, **overrides: object) -> dict:
@@ -146,6 +145,48 @@ def test_several_audiences_with_this_client_as_azp_are_accepted() -> None:
         assert _validate(_provider(idp), token).subject == "person-1"
 
 
+GOOGLE = "https://accounts.google.com"
+
+
+def _google_provider(idp: FakeIdp) -> OidcProvider:
+    """A provider configured with Google's real issuer, its documents served from memory (no network)."""
+    import httpx
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == GOOGLE + "/.well-known/openid-configuration":
+            return httpx.Response(200, json={"issuer": GOOGLE, "authorization_endpoint": GOOGLE + "/o/oauth2/v2/auth",
+                                             "token_endpoint": "https://oauth2.googleapis.com/token",
+                                             "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs"})
+        if str(request.url) == "https://www.googleapis.com/oauth2/v3/certs":
+            return httpx.Response(200, json={"keys": [key.as_dict(private=False) for key in idp.keys]})
+        return httpx.Response(404)
+
+    config = IdpConfig(kind="google", issuer=GOOGLE, client_id=idp.client_id, client_secret=CLIENT_SECRET)
+    return OidcProvider(config, client=httpx.Client(transport=httpx.MockTransport(answer)), clock=Clock())
+
+
+@pytest.mark.parametrize(
+    ("iss", "accepted"),
+    [(GOOGLE, True), ("accounts.google.com", True), ("http://accounts.google.com", False),
+     ("accounts.google.com/", False), ("https://accounts.google.com.example.test", False), ("google.com", False)],
+)
+def test_googles_issuer_is_accepted_with_and_without_its_scheme_and_nothing_else(iss: str, accepted: bool) -> None:
+    with running_idp("google") as idp:
+        provider = _google_provider(idp)
+        token = idp.id_token(_claims(idp, iss=iss))
+        if accepted:
+            # Both forms are the same issuer, so the same person is the same principal.
+            assert _validate(provider, token).issuer == GOOGLE
+        else:
+            assert _refused(provider, token).reason == "id_token_rejected"
+
+
+def test_only_google_gets_an_issuer_without_its_scheme() -> None:
+    with running_idp("okta") as idp:
+        token = idp.id_token(_claims(idp, iss=idp.issuer.removeprefix("http://")))
+        assert _refused(_provider(idp), token).reason == "id_token_rejected"
+
+
 def test_entra_needs_an_allowed_tenant() -> None:
     with running_idp("entra") as idp:
         provider = _provider(idp)
@@ -243,7 +284,7 @@ def test_an_unreachable_or_oversized_provider_is_unavailable() -> None:
         return httpx.Response(200, content=b"{" + b" " * (300 * 1024) + b"}")
 
     with running_idp("okta") as idp:
-        (config,) = parse_idps(json.dumps([idp.config()]), {"okta": CLIENT_SECRET})
+        config = parse_idp(json.dumps(idp.config()), CLIENT_SECRET)
     for transport in (unreachable, oversized):
         provider = OidcProvider(config, client=httpx.Client(transport=httpx.MockTransport(transport)))
         with pytest.raises(SignInError) as raised:

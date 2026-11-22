@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from row_bot_org.health import Readiness, health_router
 from row_bot_org.identity.gate import OPEN_PATHS, AccessLog, Gate
@@ -63,12 +64,15 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
-    and ``settings.idps`` it serves sign-in (``row_bot_org.identity``), and with ``settings.gateway_key`` too
+    and ``settings.idp`` it serves sign-in (``row_bot_org.identity``), and with ``settings.gateway_key`` too
     the model catalog and gateway (``row_bot_org.gateway``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
+
+    ``X-Forwarded-For`` and ``X-Forwarded-Proto`` count only from ``settings.trusted_proxies`` (uvicorn's
+    own proxy-header handling is off in ``serve``); from any other peer they are ignored.
     """
     service = None
-    if pool is not None and settings.idps:
+    if pool is not None and settings.idp:
         from row_bot_org.identity.web import IdentityService
 
         service = IdentityService(settings, pool)
@@ -127,6 +131,9 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
                        resolve=service.resolve if service is not None else None)
     app.add_middleware(AccessLog, routes=[route for router in routers for route in router.routes])
     app.add_middleware(_SecurityHeaders)
+    if settings.trusted_proxies:
+        # Outermost: the log, the sign-in limit and the session's address see the forwarded client.
+        app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=list(settings.trusted_proxies))
     return app
 
 

@@ -1,4 +1,5 @@
-"""The gate in front of every route, and the access log, without a database or sign-in configured.
+"""The gate in front of every route, the sign-in steps' per-address limit, and the access log, without a
+database or sign-in configured.
 
 Security-sensitive: deny by default and the same-origin rule run in the pull request lane.
 """
@@ -14,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from row_bot_org.app import create_app
+from row_bot_org.identity.limits import MAX_ADDRESSES, WINDOW_SECONDS, AddressRateLimit
 from row_bot_org.logging import configure_logging
 from row_bot_org.settings import load_settings
 
@@ -85,6 +87,27 @@ def test_a_same_origin_request_gets_past_the_origin_rule_to_the_session_rule(cli
 def test_without_a_public_url_nothing_may_change_state() -> None:
     with TestClient(create_app(load_settings({})), base_url=PUBLIC_URL) as client:
         assert client.post("/auth/logout", headers={"Origin": PUBLIC_URL}).status_code == 403
+
+
+def test_the_sign_in_limit_counts_per_address_and_starts_again_each_minute() -> None:
+    now = [0.0]
+    limit = AddressRateLimit(2, clock=lambda: now[0])
+
+    assert [limit.allow("198.51.100.7") for _ in range(3)] == [True, True, False]
+    assert limit.allow("198.51.100.8") is True
+    # An IPv6 address counts by its /64; an IPv4-mapped one as its IPv4 address.
+    assert [limit.allow(f"2001:db8::{n}") for n in (1, 2, 3)] == [True, True, False]
+    assert limit.allow("::ffff:198.51.100.7") is False
+    now[0] += WINDOW_SECONDS
+    assert limit.allow("198.51.100.7") is True
+
+
+def test_the_sign_in_limit_tracks_a_bounded_number_of_addresses() -> None:
+    limit = AddressRateLimit(1)
+    for n in range(MAX_ADDRESSES):
+        assert limit.allow(f"10.{n >> 16 & 255}.{n >> 8 & 255}.{n & 255}")
+    # Past the cap, new addresses share one count.
+    assert [limit.allow("192.0.2.1"), limit.allow("192.0.2.2")] == [True, False]
 
 
 def test_the_access_log_has_the_route_template_and_never_the_query(client: TestClient,
