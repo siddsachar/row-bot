@@ -499,9 +499,13 @@ def summary(record: Recording) -> str:
     if record.status == "saved":
         beats = "; ".join(f"{clock_words(at)} {kind}{f' ({note})' if note else ''}"
                           for at, kind, note, *_line in record.beats)
-        return (f"Recording {record.recording_id}: saved {clock_words(record.duration_seconds)} of {what} "
-                f"({size_words(record.size_bytes)}) to this chat's files, a working file: present shows it to the "
-                "person."
+        from row_bot.media_sources import identity_of
+
+        # Its output first (W4): history masking keeps a result's first line.
+        named = identity_of(record.media_ref)
+        return (f"Recording {record.recording_id}: " + (f"{named}\nSaved" if named else "saved")
+                + f" {clock_words(record.duration_seconds)} of {what} ({size_words(record.size_bytes)}) to this "
+                "chat's files: present shows it to the person."
                 + (f" Beats: {beats}. The video tool makes scenes from them (recording={record.recording_id})."
                    if beats else ""))
     reason = {

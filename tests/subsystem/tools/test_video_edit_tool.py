@@ -119,8 +119,9 @@ def studio(tmp_path, monkeypatch, reload_for_data_dir):
 
 
 def _edit_id(result: str) -> str:
-    line = result.splitlines()[-1] if result.startswith("Approval:") else result
-    return line.split(":", 1)[0].removeprefix("Video edit ")
+    import re
+
+    return re.search(r"Video edit (edit-[0-9a-f]{8}): ", result).group(1)
 
 
 def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_the_chat(studio):
@@ -129,8 +130,9 @@ def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_
 
     result = studio.edit(inputs=["demo.mp4"], steps=[{"op": "trim", "start": 1, "end": 4}], name="cut")
 
-    assert result.startswith("Video edit edit-") and ": saved 0:03 of video" in result
-    assert "to this chat's files as cut.mp4, a working file: present shows it to the person. Trimmed." in result
+    assert result.startswith("Video edit edit-") and result.splitlines()[0].endswith(
+        ': Output "cut" v1 (working) · cut.mp4')
+    assert "Saved 0:03 of video (1 KB) to this chat's files: present shows it to the person. Trimmed." in result
     assert studio.asked == []  # A new file in the chat's files replaces nothing: no approval.
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
@@ -263,7 +265,7 @@ def test_an_earlier_edit_can_be_edited_again_without_replacing_it(studio):
     first = _edit_id(studio.edit(inputs=["demo.mp4"], name="demo"))
     second = studio.edit(inputs=[first], steps=[{"op": "text", "text": "v2"}], name="demo")
 
-    assert "to this chat's files as demo-3.mp4" in second  # Each file in a chat has its own name.
+    assert second.splitlines()[0].endswith(" · demo-3.mp4")  # Each output in a chat has its own name.
     names = [item["name"] for item in list_conversation_files(studio.chat)]
     assert sorted(names) == ["demo-2.mp4", "demo-3.mp4", "demo.mp4"]  # None replaced; each has its own name.
 

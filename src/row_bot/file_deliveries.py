@@ -1,9 +1,9 @@
 """Sending files from a chat to the person's own devices or to a chat app (F7).
 
-A delivery sends one or more files the conversation can name (``resolve``): a file in this
-conversation's files (by its name), a recording (``rec-…``), video edit (``edit-…``) or video project
-(``vid-…``) of it, or a file in the workspace (the code folder bound to the conversation, else the
-workspace folder), through the same guards as video editing (``media_sources``): never another path.
+A delivery sends one or more files the conversation can name, found as every tool finds them
+(``media_sources.find``): a file in this conversation's files (by its name or its output's name, ``name@v2``
+for a version), a recording (``rec-…``), video edit (``edit-…``) or video project (``vid-…``) of it, or a file
+in the workspace folder, through the same guards: never another path.
 
 - **To your devices.** Each file is the chat's own file (``chat_output``: a workspace file becomes one,
   once), which the conversation's card plays on every device signed in to Row-Bot for as long as the
@@ -139,22 +139,6 @@ def _guess_type(name: str) -> str:
     return mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 
-def _chat_file(conversation_id: str, value: str) -> Source | None:
-    from row_bot.application.attachments import AttachmentError, list_conversation_files
-
-    wanted = _plain_name(value).casefold()
-    try:
-        files = list_conversation_files(conversation_id)
-    except AttachmentError:
-        return None
-    # Its own name first (each file in a chat has one), then a result's without "generated-".
-    exact = [item for item in files if str(item["name"]).casefold() == value.casefold()]
-    for item in exact or [item for item in files if _plain_name(str(item["name"])).casefold() == wanted]:
-        return Source(name=_plain_name(str(item["name"])), size_bytes=int(item["size_bytes"]),
-                      mime_type=str(item["mime_type"]), ref=str(item["attachment_ref"]))
-    return None
-
-
 def _from_reference(ref: str) -> Source:
     from row_bot.application.attachments import AttachmentError, inspect_attachment
     from row_bot.media_sources import SourceError
@@ -167,80 +151,30 @@ def _from_reference(ref: str) -> Source:
                   mime_type=str(metadata["mime_type"]), ref=ref)
 
 
-def _workspace_file(conversation_id: str, value: str, *, required: bool) -> Source | None:
-    from row_bot.media_sources import SourceError, _relative, workspace, workspace_file
+def _from_path(path: Path, relative: str) -> Source:
+    """A workspace file, *relative* to the workspace."""
+    from row_bot.media_sources import SourceError
 
-    place = workspace(conversation_id)
-    if place is None:
-        if required:
-            raise SourceError(f"{value} isn't in this chat's files, and there's no workspace folder to look in.")
-        return None
-    try:
-        path = workspace_file(place.root, value)
-    except SourceError:
-        if required:
-            raise
-        return None
     try:
         info = path.lstat()
     except OSError:
-        raise SourceError(f"{value} can't be read.") from None
+        raise SourceError(f"{relative} can't be read.") from None
     if not stat.S_ISREG(info.st_mode):
-        raise SourceError(f"{value} isn't a file.")
-    relative = _relative(place.root, str(path)).replace("\\", "/")
+        raise SourceError(f"{relative} isn't a file.")
     return Source(name=_plain_name(path.name), size_bytes=int(info.st_size), mime_type=_guess_type(path.name),
-                  relative=relative, path=path)
-
-
-def _project_video(conversation_id: str, value: str) -> Source:
-    """A video project's newest made version (``vid-…``), as the chat file its render saved."""
-    from row_bot import video_edits, video_projects
-    from row_bot.media_sources import SourceError
-
-    project = video_projects.get(value, conversation_id)
-    if project is None:
-        raise SourceError(f"{value} isn't a video project in this chat.")
-    for version in reversed(project.versions):
-        made = video_edits.get(version.edit_id) if version.edit_id else None
-        if made is not None and made.status == "saved" and made.media_ref:
-            return _from_reference(made.media_ref)
-    raise SourceError(f"{value} has no made video yet: make it first (video action make).")
+                  relative=relative.replace("\\", "/"), path=path)
 
 
 def resolve(values: list[str], conversation_id: str) -> list[Source]:
-    """The files these names point to, in order; ``SourceError`` (plain words) for one that can't be sent.
+    """The files these names point to, in order, found as every tool finds them (``media_sources.find``: any
+    kind of file, never one outside the workspace); ``SourceError`` (plain words) for one that can't be sent."""
 
-    A bare name is looked for in this conversation's files first, then in the workspace; a path (with a
-    folder) only in the workspace; ``rec-…`` and ``edit-…`` are this conversation's recordings and edits,
-    ``vid-…`` a video project's newest made video.
-    """
-
-    from row_bot.media_sources import SourceError
+    from row_bot.media_sources import SourceError, find
 
     found: list[Source] = []
-    for raw in values:
-        value = str(raw or "").strip().strip('"')
-        if not value:
-            raise SourceError("A file name is empty.")
-        from row_bot import recordings, video_edits
-
-        if recordings.RECORDING_ID.fullmatch(value) or video_edits.EDIT_ID.fullmatch(value):
-            from row_bot.media_sources import resolve as resolve_media
-
-            found.extend(_from_reference(media.ref) for media in resolve_media(value, conversation_id) if media.ref)
-            continue
-        if re.fullmatch(r"vid-[0-9a-f]{8}", value):
-            found.append(_project_video(conversation_id, value))
-            continue
-        path_like = "/" in value or "\\" in value or Path(value).is_absolute() or (len(value) > 1 and value[1] == ":")
-        source = None if path_like else _chat_file(conversation_id, value)
-        if source is None:
-            source = _workspace_file(conversation_id, value, required=path_like)
-        if source is None:
-            raise SourceError(f"Couldn't find {value} in this chat's files or the workspace. Name a file in this "
-                              "chat, a workspace path, a recording (rec-…), a video edit (edit-…) or a video "
-                              "project (vid-…).")
-        found.append(source)
+    for value in values:
+        for media in find(str(value or ""), conversation_id, kinds=None, outside=False):
+            found.append(_from_reference(media.ref) if media.ref else _from_path(media.path, media.label))
     for source in found:
         if source.size_bytes <= 0:
             raise SourceError(f"{source.name} is empty, so there's nothing to send.")
@@ -248,8 +182,9 @@ def resolve(values: list[str], conversation_id: str) -> list[Source]:
 
 
 def chat_output(conversation_id: str, source: Source) -> dict[str, Any]:
-    """The chat file a sent or presented file is, as a final: ``attachment_ref``, ``name``, ``mime_type``, and
-    ``was_final`` when it already was one (a generated video already shows in the chat by itself).
+    """The chat file a sent or presented file is, as a final: ``attachment_ref``, ``name``, ``mime_type``, its
+    ``role`` and ``version``, and ``was_final`` when it already was one (a generated video already shows in the
+    chat by itself).
 
     A file a tool made in this chat becomes the final version of its output. A file the person brought
     stays as it is. A workspace file (a film the agent rendered with its own script) is registered once
@@ -268,6 +203,7 @@ def chat_output(conversation_id: str, source: Source) -> dict[str, Any]:
             if lineage:
                 attachments.set_role(source.ref, "final")
             return {**{key: metadata[key] for key in ("attachment_ref", "name", "mime_type")},
+                    "role": "final" if lineage else "", "version": lineage.get("version", 1),
                     "was_final": lineage.get("role") == "final"}
         if source.path is None or source.size_bytes > attachments.MAX_ATTACHMENT_BYTES:
             raise SourceError(f"{source.name} is larger than a chat can hold "
@@ -282,12 +218,13 @@ def chat_output(conversation_id: str, source: Source) -> dict[str, Any]:
         same = next((item for item in versions if item["sha256"] == digest), None)
         if same is not None:
             attachments.set_role(same["attachment_ref"], "final")
-            return {**{key: same[key] for key in ("attachment_ref", "name", "mime_type")},
-                    "was_final": same["role"] == "final"}
+            return {**{key: same[key] for key in ("attachment_ref", "name", "mime_type", "version")},
+                    "role": "final", "was_final": same["role"] == "final"}
         saved = attachments.register_attachment(
             conversation_id, source.path.name, data, role="final", output_id=output_id,
             version=max((int(item["version"]) for item in versions), default=0) + 1, made_from=[source.relative])
-        return {**{key: saved[key] for key in ("attachment_ref", "name", "mime_type")}, "was_final": False}
+        return {**{key: saved[key] for key in ("attachment_ref", "name", "mime_type", "role", "version")},
+                "was_final": False}
     except attachments.AttachmentError as exc:
         if exc.code == "payload_too_large":
             raise SourceError(f"{source.name} is larger than a chat can hold "
@@ -298,7 +235,7 @@ def chat_output(conversation_id: str, source: Source) -> dict[str, Any]:
 def _sources_again(conversation_id: str, kept: list[dict[str, Any]]) -> list[Source]:
     """The files a delivery kept, found again through the same guards (a workspace file may have changed)."""
 
-    from row_bot.media_sources import SourceError
+    from row_bot.media_sources import SourceError, workspace, workspace_file
 
     found: list[Source] = []
     for item in kept:
@@ -306,9 +243,10 @@ def _sources_again(conversation_id: str, kept: list[dict[str, Any]]) -> list[Sou
         if ref:
             found.append(_from_reference(ref))
         elif relative:
-            source = _workspace_file(conversation_id, relative, required=True)
-            assert source is not None
-            found.append(source)
+            place = workspace()
+            if place is None:
+                raise SourceError(f"{relative} isn't in the workspace any more.")
+            found.append(_from_path(workspace_file(place.root, relative), relative))
         else:
             raise SourceError("That file can't be found any more.")
     return found

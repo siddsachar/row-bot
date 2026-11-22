@@ -28,7 +28,8 @@ def conversation(service):
     return folder
 
 
-def test_generated_outputs_use_owned_opaque_refs_and_leave_original_video(conversation):
+def test_generated_outputs_use_owned_opaque_refs_and_keep_one_copy_of_a_clip(conversation):
+    """W4: a generated clip was kept twice, its provider original beside its chat file."""
     image = b"\x89PNG\r\n\x1a\nfixture"
     video = b"\x00\x00\x00\x18ftypisom" + b"fixture"
     source = conversation / "private-provider-file.mp4"
@@ -41,7 +42,7 @@ def test_generated_outputs_use_owned_opaque_refs_and_leave_original_video(conver
         MediaAvailable.model_validate(result["payload"])
         assert attachments.read_attachment(result["payload"]["media_ref"])[1] == content
     assert results[1]["payload"]["mime_type"] == "video/mp4"
-    assert source.read_bytes() == video
+    assert not source.exists()
     assert "private" not in json.dumps(results)
     assert str(conversation) not in json.dumps(results)
     assert cache.pending_image is None and cache.pending_video is None
@@ -302,7 +303,7 @@ def test_a_made_video_is_named_by_its_chat_file_never_its_private_path(conversat
     text = _run_tool("generate_video", {"prompt": "Waves on a beach at dusk, slow pan"}, generate_video)
 
     assert saved and saved[0] not in text and "Saved to:" not in text
-    assert "“waves-on-a-beach-at-dusk.mp4”" in text
+    assert text.splitlines()[0] == 'Output "waves-on-a-beach-at-dusk" v1 (final) · waves-on-a-beach-at-dusk.mp4'
     [found] = media_sources.resolve("waves-on-a-beach-at-dusk.mp4", "fixture")
     assert found.read_bytes() == _video_bytes(1)
 

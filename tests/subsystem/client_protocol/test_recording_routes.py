@@ -102,7 +102,8 @@ def test_a_recording_that_stops_itself_says_why(service, data):  # noqa: F811
     captures[0].request_stop("limit")  # The backend reached the time limit.
 
     assert (record.status, record.stopped_by) == ("saved", "limit")
-    assert recordings.summary(record).startswith(f"Recording {record.recording_id}: saved 0:")
+    first, saved = recordings.summary(record).splitlines()[:2]
+    assert first.startswith(f'Recording {record.recording_id}: Output "') and saved.startswith("Saved 0:")
 
 
 def test_recordings_stop_with_their_conversation_and_when_row_bot_quits(service, data):  # noqa: F811

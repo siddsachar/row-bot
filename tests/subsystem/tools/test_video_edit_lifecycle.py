@@ -73,7 +73,7 @@ def test_an_edit_runs_through_the_process_manager_and_stop_ends_it(studio):
     studio["register"](studio["chat"], "demo.mp4", b"\x00\x00\x00\x18ftypisom" + b"\x00" * 64)
 
     done = video_tool._edit_video(inputs=["demo.mp4"], steps=[{"op": "trim", "start": 1, "end": 4}])
-    assert ": saved 0:03 of video" in done, done
+    assert "\nSaved 0:03 of video" in done, done
 
     studio["settings"].write_text(json.dumps({"seconds": 30}), encoding="utf-8")
     studio["monkeypatch"].setattr(video_tool, "INLINE_SECONDS", 0.5)
