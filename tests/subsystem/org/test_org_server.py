@@ -69,17 +69,17 @@ def test_a_readiness_check_name_is_registered_once() -> None:
 
 
 @pytest.mark.parametrize("path", ["/", "/brain", "/admin", "/docs", "/redoc", "/openapi.json", "/healthz/extra"])
-def test_every_other_path_is_a_json_404_with_security_headers(path: str) -> None:
+def test_every_other_path_needs_a_session_and_answers_json_with_security_headers(path: str) -> None:
     response = _client().get(path)
 
-    assert response.status_code == 404
+    assert response.status_code == 401
     assert response.headers["content-type"] == "application/json"
-    assert response.json() == {"detail": "Not Found"}
+    assert response.json() == {"error": "sign_in_required"}
     _assert_security_headers(response)
 
 
-def test_a_wrong_method_is_a_json_405_with_security_headers() -> None:
-    response = _client().post("/healthz")
+def test_a_wrong_method_on_an_open_path_is_a_json_405_with_security_headers() -> None:
+    response = _client().options("/healthz")
 
     assert response.status_code == 405
     assert response.headers["content-type"] == "application/json"
@@ -93,5 +93,6 @@ def test_the_openapi_setting_publishes_the_schema_but_never_a_docs_page() -> Non
     assert schema.status_code == 200
     assert set(schema.json()["paths"]) == {"/healthz", "/readyz"}
     _assert_security_headers(schema)
-    assert client.get("/docs").status_code == 404
-    assert client.get("/redoc").status_code == 404
+    # No docs page: like any route that isn't there, behind the gate.
+    assert client.get("/docs").status_code == 401
+    assert client.get("/redoc").status_code == 401

@@ -1,8 +1,8 @@
 # Row-Bot Org server (pre-release)
 
 **Pre-release.** Row-Bot Org will hold a team's and a company's shared brain. This version starts,
-checks its database and answers health checks: it stores nothing yet and has no sign-in. Don't run it
-for real data.
+checks its database, answers health checks and signs people in with the company's identity provider
+(below); it stores nothing else yet. Don't run it for real data.
 
 It is a separate deployment from the Row-Bot app. The desktop app never loads it, and desktop
 installers and updates don't include it.
@@ -50,10 +50,12 @@ SELECT format('GRANT %I TO row_bot_org_app', row_bot_org.runtime_role()) \gexec
 Without `CREATEROLE` for the owner, an administrator creates the group (`CREATE ROLE
 row_bot_org_runtime_row_bot_org NOLOGIN`) before the first `migrate`, and grants the membership.
 
-`serve` and `check-config` refuse a role that is a superuser, has `BYPASSRLS`, or can `SET ROLE` to one
-that is, and the server checks again on every new database connection and every `/readyz`. Owning the
-schema or its tables is a warning: forced row-level security still applies to the owner, but an owner
-could turn it off.
+The two roles are required. `serve` and `check-config` refuse a role that is a superuser, has
+`BYPASSRLS`, can `SET ROLE` to one that is, or owns (or is a member of the owner of) the schema or its
+tables, and the server checks again on every new database connection and every `/readyz`. The owner reads
+every row (the sign-in functions it owns need that) and could turn row-level security off, so it never
+serves. `migrate` refuses a superuser: the migrating role owns the functions the server calls before
+anyone has signed in, and a superuser's would run past every check.
 
 Migrations only go forward. `migrate` takes a lock (and gives up after 2 minutes), so two at once are
 safe. It refuses a database whose applied migrations changed, that a newer server migrated, whose schema
@@ -83,3 +85,41 @@ over a file. Any other `ROW_BOT_ORG_*` variable stops the server from starting.
 
 `/readyz` answers `ready` once the database is reachable as a fit role and no migration is pending, and
 only says `ok` or `failing` for it, never where it is.
+
+## Sign-in
+
+People sign in with OpenID Connect (authorization code with PKCE) at `/auth/login`, with the server's one
+identity provider; the provider sends them back to `<public URL>/auth/callback`, which you register with
+it as the redirect URI, and they land on `/admin/`. Every route but `/healthz`, `/readyz` and the two
+sign-in steps needs a session: without one, 401. Requests that change something must come from the
+public URL's origin.
+
+- `ROW_BOT_ORG_PUBLIC_URL`: the origin browsers use, `https://org.example.com` (http only on loopback).
+- `ROW_BOT_ORG_IDP`: the provider, a JSON object, for example
+  `{"kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0", "client_id": "...",
+  "allowed_tenants": ["<tenant id>"]}`. `kind` is `entra`, `okta` or `google`. Optional: `groups_claim`
+  (`groups`), `group_map` (provider group to Row-Bot group; others are dropped) and
+  `allowed_email_domains` (sign-in then needs a verified email in one of them; not for Entra).
+  - **Entra** needs the tenant's own issuer and `allowed_tenants`: the `common` and `organizations`
+    authorities are refused. The tenant check admits everyone with an account in the tenant, B2B guests
+    included, so in the app registration's enterprise application set **Assignment required = Yes** and
+    assign the groups who may sign in. Entra sends no `email_verified`, so `allowed_email_domains` is
+    refused for it. Past 200 groups Entra sends a reference instead of the groups, and sign-in is
+    refused: limit the groups claim to groups assigned to the application.
+  - **Google** (issuer `https://accounts.google.com`) needs `hosted_domains`, the Workspace domains whose
+    accounts may sign in (`["example.com"]`): any Google account can get a token for any Google client,
+    so sign-in needs the token's `hd` in that list and a verified email. Make the OAuth client's consent
+    screen **Internal**, so only your Workspace's accounts can use it at all.
+- `ROW_BOT_ORG_IDP_CLIENT_SECRET`: the application's client secret (sent as `client_secret_basic`). A secret.
+- `ROW_BOT_ORG_HMAC_PEPPER`: at least 32 random characters, the key of every stored verifier. A secret:
+  changing it signs everyone out.
+- `ROW_BOT_ORG_SESSION_LIFETIME` and `ROW_BOT_ORG_SESSION_IDLE_TIMEOUT`: seconds, 43200 and 3600 by default.
+- `ROW_BOT_ORG_SIGN_IN_RATE_LIMIT`: requests to the two sign-in steps a minute from one client address
+  (an IPv6 address counts by its /64), 60 by default; past it, 429.
+- `ROW_BOT_ORG_TRUSTED_PROXIES`: the reverse proxies in front of the server, as comma-separated addresses
+  or networks (`172.18.0.0/16`). Only from these are `X-Forwarded-For` and `X-Forwarded-Proto` believed;
+  from anyone else they are ignored. Without it, behind a proxy every client is the proxy's address, so
+  they all share one sign-in limit.
+
+The server asks only for `openid email profile` and keeps no provider token. `row-bot-org principals
+revoke-sessions <principal id>`, with the owner's address, signs a person out everywhere.

@@ -26,6 +26,9 @@ from row_bot_org.db.migrations import (  # noqa: E402
 pytestmark = pytest.mark.postgres
 
 SHIPPED = load_migrations()
+SHIPPED_NAMES = [migration.file_name for migration in SHIPPED]
+# A version no shipped migration has.
+UNKNOWN_VERSION = SHIPPED[-1].version + 1
 
 
 def _folder(tmp_path: Path, **files: str) -> Path:
@@ -50,9 +53,22 @@ def _tables(url: str) -> set[str]:
 def test_the_shipped_migrations_apply_once(empty_org_database) -> None:
     url = empty_org_database.owner_url
 
-    assert [m.file_name for m in migrate(url)] == ["0001_foundation.sql"]
+    assert [m.file_name for m in migrate(url)] == SHIPPED_NAMES
     assert migrate(url) == ()
-    assert _ledger(url) == [(1, "foundation", SHIPPED[0].checksum)]
+    assert _ledger(url) == [(m.version, m.name, m.checksum) for m in SHIPPED]
+
+
+def test_a_superuser_is_refused_as_the_migrating_role(empty_org_database, monkeypatch: pytest.MonkeyPatch,
+                                                      capsys: pytest.CaptureFixture[str]) -> None:
+    # It would own the SECURITY DEFINER sign-in functions, which would then run as a superuser.
+    with pytest.raises(MigrationError, match="the migrating role is a superuser"):
+        migrate(empty_org_database.superuser_url)
+    assert _tables(empty_org_database.owner_url) == set()
+
+    monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.superuser_url)
+    assert cli.main(["migrate"]) == 1
+    assert "Row-Bot Org didn't migrate: the migrating role is a superuser" in capsys.readouterr().err
+    assert _tables(empty_org_database.owner_url) == set()
 
 
 def test_a_runner_waits_while_another_holds_the_lock(empty_org_database) -> None:
@@ -74,7 +90,7 @@ def test_a_runner_waits_while_another_holds_the_lock(empty_org_database) -> None
         holder.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
         runner.join(timeout=60)
 
-    assert [[m.file_name for m in applied] for applied in results] == [["0001_foundation.sql"]]
+    assert [[m.file_name for m in applied] for applied in results] == [SHIPPED_NAMES]
 
 
 def test_two_runners_at_once_apply_each_migration_once(empty_org_database, tmp_path: Path) -> None:
@@ -119,9 +135,10 @@ def test_a_changed_migration_is_refused(org_database, tmp_path: Path) -> None:
 
 def test_a_migration_newer_than_the_server_is_refused(org_database) -> None:
     with psycopg.connect(org_database.owner_url) as conn:
-        conn.execute("INSERT INTO row_bot_org.schema_migrations (version, name, checksum) VALUES (2, 'later', 'x')")
+        conn.execute("INSERT INTO row_bot_org.schema_migrations (version, name, checksum) VALUES (%s, 'later', 'x')",
+                     (UNKNOWN_VERSION,))
 
-    with pytest.raises(MigrationError, match="has migration 0002_later, which this server doesn't have"):
+    with pytest.raises(MigrationError, match=f"has migration {UNKNOWN_VERSION:04d}_later, which this server doesn't have"):
         migrate(org_database.owner_url)
 
 
@@ -168,7 +185,7 @@ def test_the_migrate_command_applies_then_reports_nothing_pending(
 ) -> None:
     monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.owner_url)
     assert cli.main(["migrate"]) == 0
-    assert capsys.readouterr().out == "Applied 0001_foundation.sql.\n"
+    assert capsys.readouterr().out == f"Applied {', '.join(SHIPPED_NAMES)}.\n"
     assert "ROW_BOT_ORG_MIGRATION_DATABASE_URL" not in os.environ
 
     monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", empty_org_database.owner_url)

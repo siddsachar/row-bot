@@ -43,6 +43,10 @@ class JsonLineFormatter(logging.Formatter):
             "logger": record.name,
             "msg": WITHHELD if withheld else record.getMessage(),
         }
+        # Structured fields a record carries (the access log's), never in place of the four above.
+        fields = getattr(record, "fields", None)
+        if isinstance(fields, dict) and not withheld:
+            entry.update({key: value for key, value in fields.items() if key not in entry and key != "exc"})
         if record.exc_info and record.exc_info[0] is not None:
             error_type = record.exc_info[0]
             if withheld or _involves_database_library(record.exc_info[1]):
@@ -62,6 +66,8 @@ def configure_logging(level: str, stream: TextIO | None = None) -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level)
+    # httpx logs each call's full URL at INFO; the server's own access log is the one request log.
+    logging.getLogger("httpx").setLevel(max(logging.WARNING, root.level))
 
 
 __all__ = ["WITHHELD", "JsonLineFormatter", "configure_logging"]

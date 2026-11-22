@@ -5,9 +5,15 @@ and Kubernetes secrets), by the rules the app uses for its server secrets: a reg
 link, at most 64 KiB of UTF-8, with one trailing newline dropped. A variable wins over a file.
 
 Errors name the setting and what is wrong with it, never its value: some settings are secrets.
-``ROW_BOT_ORG_DATABASE_URL`` and ``ROW_BOT_ORG_MIGRATION_DATABASE_URL`` are: ``remove_secret_variables``
-takes them out of the process environment once read, so no program the server starts inherits them,
-and they never appear in the settings' ``repr``.
+``ROW_BOT_ORG_DATABASE_URL``, ``ROW_BOT_ORG_MIGRATION_DATABASE_URL``, ``ROW_BOT_ORG_HMAC_PEPPER`` and
+``ROW_BOT_ORG_IDP_CLIENT_SECRET`` are: ``remove_secret_variables`` takes them out of the process
+environment once read, so no program the server starts inherits them, and they never appear in the
+settings' ``repr``.
+
+Sign-in (``row_bot_org.identity``) needs ``ROW_BOT_ORG_IDP`` (``identity/config.py`` describes it),
+its client secret, ``ROW_BOT_ORG_PUBLIC_URL`` (the address browsers use, for the redirect URI and the
+same-origin check) and ``ROW_BOT_ORG_HMAC_PEPPER`` (the key of every stored verifier). Without
+``ROW_BOT_ORG_IDP`` nobody can sign in, and every route but health and readiness is refused.
 """
 
 from __future__ import annotations
@@ -21,6 +27,9 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+
+from row_bot_org.identity.config import IdpConfig, IdpConfigError, is_loopback_host, parse_idp
 
 ENV_PREFIX = "ROW_BOT_ORG_"
 SECRETS_DIR_ENV = "ROW_BOT_SECRETS_DIR"
@@ -28,8 +37,13 @@ MAX_SECRET_FILE_BYTES = 64 * 1024
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 DATABASE_URL_ENV = ENV_PREFIX + "DATABASE_URL"
 MIGRATION_DATABASE_URL_ENV = ENV_PREFIX + "MIGRATION_DATABASE_URL"
+HMAC_PEPPER_ENV = ENV_PREFIX + "HMAC_PEPPER"
+IDP_ENV = ENV_PREFIX + "IDP"
+IDP_CLIENT_SECRET_ENV = ENV_PREFIX + "IDP_CLIENT_SECRET"
+PUBLIC_URL_ENV = ENV_PREFIX + "PUBLIC_URL"
 # Taken out of the environment as soon as they are read (remove_secret_variables).
-SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV)
+SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV, HMAC_PEPPER_ENV, IDP_CLIENT_SECRET_ENV)
+MIN_PEPPER_LENGTH = 32
 _PR_SET_DUMPABLE = 4
 
 
@@ -58,6 +72,18 @@ class OrgSettings:
     statement_timeout: int = 30
     lock_timeout: int = 10
     idle_in_transaction_timeout: int = 60
+    # Sign-in. The origin browsers reach the server at (https://host[:port]; http only on loopback).
+    public_url: str | None = None
+    # The key of every stored verifier: HMAC-SHA256(pepper, secret). A secret.
+    hmac_pepper: str | None = dataclass_field(default=None, repr=False)
+    idp: IdpConfig | None = None
+    # A server session ends this many seconds after sign-in, or after this many without a request.
+    session_lifetime: int = 12 * 3600
+    session_idle_timeout: int = 3600
+    # Requests to /auth/login and /auth/callback a minute from one client address (an IPv6 address's /64).
+    sign_in_rate_limit: int = 60
+    # Reverse proxies (addresses or networks) whose X-Forwarded-For and X-Forwarded-Proto are believed.
+    trusted_proxies: tuple[str, ...] = ()
 
 
 class _Invalid(Exception):
@@ -114,6 +140,62 @@ def _seconds(raw: str) -> int:
     return int(value)
 
 
+def _session_seconds(raw: str) -> int:
+    value = raw.strip()
+    if not (len(value) <= 7 and value.isascii() and value.isdigit() and 60 <= int(value) <= 30 * 86400):
+        raise _Invalid("must be a number of seconds from 60 to 2592000 (30 days)")
+    return int(value)
+
+
+def _public_url(raw: str) -> str:
+    value = raw.strip()
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise _Invalid("must be an https:// origin") from None
+    if (parts.path not in {"", "/"} or parts.query or parts.fragment or parts.username or parts.password
+            or not parts.hostname or any(ord(c) < 33 or ord(c) == 127 for c in value)):
+        raise _Invalid("must be an https:// origin, with no path, query or credentials")
+    if not (parts.scheme == "https" or (parts.scheme == "http" and (is_loopback_host(parts.hostname)
+                                                                     or parts.hostname == "localhost"))):
+        raise _Invalid("must be an https:// origin (http only on a loopback address)")
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    default = {"https": 443, "http": 80}[parts.scheme]
+    return f"{parts.scheme}://{host.lower()}" + (f":{port}" if port not in (None, default) else "")
+
+
+def _pepper(raw: str) -> str:
+    if len(raw) < MIN_PEPPER_LENGTH or len(raw) > 1024 or any(ord(c) < 32 or ord(c) == 127 for c in raw):
+        raise _Invalid(f"must be {MIN_PEPPER_LENGTH} to 1024 printable characters (a random secret)")
+    return raw
+
+
+def _json_text(raw: str) -> str:
+    return raw.strip()
+
+
+def _client_secret(raw: str) -> str:
+    if any(ord(c) < 32 or ord(c) == 127 for c in raw):
+        raise _Invalid("must not contain control characters")
+    return raw
+
+
+def _rate_limit(raw: str) -> int:
+    value = raw.strip()
+    if not (len(value) <= 5 and value.isascii() and value.isdigit() and 1 <= int(value) <= 10000):
+        raise _Invalid("must be a number of requests a minute from 1 to 10000")
+    return int(value)
+
+
+def _trusted_proxies(raw: str) -> tuple[str, ...]:
+    try:
+        networks = [ipaddress.ip_network(item.strip()) for item in raw.split(",") if item.strip()]
+    except ValueError:
+        raise _Invalid("must be a comma-separated list of IP addresses or networks (10.0.0.0/8)") from None
+    return tuple(dict.fromkeys(str(network) for network in networks))
+
+
 _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "HOST": ("host", _host),
     "PORT": ("port", _port),
@@ -125,6 +207,15 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "STATEMENT_TIMEOUT": ("statement_timeout", _seconds),
     "LOCK_TIMEOUT": ("lock_timeout", _seconds),
     "IDLE_IN_TRANSACTION_TIMEOUT": ("idle_in_transaction_timeout", _seconds),
+    "PUBLIC_URL": ("public_url", _public_url),
+    "HMAC_PEPPER": ("hmac_pepper", _pepper),
+    "SESSION_LIFETIME": ("session_lifetime", _session_seconds),
+    "SESSION_IDLE_TIMEOUT": ("session_idle_timeout", _session_seconds),
+    "SIGN_IN_RATE_LIMIT": ("sign_in_rate_limit", _rate_limit),
+    "TRUSTED_PROXIES": ("trusted_proxies", _trusted_proxies),
+    # Combined after the loop: the provider needs its client secret.
+    "IDP": ("idp", _json_text),
+    "IDP_CLIENT_SECRET": ("idp_client_secret", _client_secret),
 }
 
 
@@ -187,6 +278,20 @@ def load_settings(environ: Mapping[str, str] | None = None) -> OrgSettings:
             problems.append(f"{name} {problem}")
     if values.get("auto_migrate") and not values.get("migration_database_url"):
         problems.append(f"{ENV_PREFIX}AUTO_MIGRATE needs {MIGRATION_DATABASE_URL_ENV}")
+    client_secret = values.pop("idp_client_secret", None)
+    if "idp" in values:
+        try:
+            values["idp"] = parse_idp(values["idp"], client_secret or "")
+        except IdpConfigError as problem:
+            problems.append(f"{IDP_ENV} {problem}")
+        for name, given in ((IDP_CLIENT_SECRET_ENV, client_secret), (PUBLIC_URL_ENV, values.get("public_url")),
+                            (HMAC_PEPPER_ENV, values.get("hmac_pepper"))):
+            if given is None and not any(problem.startswith(f"{name} ") for problem in problems):
+                problems.append(f"{IDP_ENV} needs {name}")
+    elif client_secret is not None:
+        problems.append(f"{IDP_CLIENT_SECRET_ENV} needs {IDP_ENV}")
+    if values.get("session_idle_timeout", 0) > values.get("session_lifetime", OrgSettings.session_lifetime):
+        problems.append(f"{ENV_PREFIX}SESSION_IDLE_TIMEOUT must not be longer than {ENV_PREFIX}SESSION_LIFETIME")
     if problems:
         raise SettingsError(problems)
     return OrgSettings(**values)
@@ -221,6 +326,7 @@ def keep_environment_private() -> None:
 
 
 __all__ = [
-    "DATABASE_URL_ENV", "MIGRATION_DATABASE_URL_ENV", "ENV_PREFIX", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings", "SettingsError",
-    "keep_environment_private", "load_settings", "remove_secret_variables",
+    "DATABASE_URL_ENV", "ENV_PREFIX", "HMAC_PEPPER_ENV", "IDP_CLIENT_SECRET_ENV", "IDP_ENV",
+    "MIGRATION_DATABASE_URL_ENV", "PUBLIC_URL_ENV", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings",
+    "SettingsError", "keep_environment_private", "load_settings", "remove_secret_variables",
 ]

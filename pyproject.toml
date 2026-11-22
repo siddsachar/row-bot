@@ -180,6 +180,8 @@ row-bot-org = "row_bot_org.cli:main"
 org = [
   "psycopg[binary]>=3.2,<4.0",
   "psycopg-pool>=3.2,<4.0",
+  # OIDC sign-in (row_bot_org.identity): ID tokens, JWKS.
+  "joserfc>=1.0,<2.0",
 ]
 test = [
   "pytest>=9.0.3,<10.0",

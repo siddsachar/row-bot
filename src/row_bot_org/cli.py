@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import uuid
 
 from row_bot_org.settings import (
     DATABASE_URL_ENV,
@@ -26,7 +27,7 @@ from row_bot_org.settings import (
 EXIT_FAILED = 1
 AUTO_MIGRATE_ENV = ENV_PREFIX + "AUTO_MIGRATE"
 CONNECT_TIMEOUT = 10
-ROLE_ADVICE = "Serve as a role like deploy/org/README.md describes."
+ROLE_ADVICE = "Serve as the app role, not the owner that migrates: deploy/org/README.md describes the two roles."
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -39,7 +40,18 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "check-config", help="check the settings and the database role and exit: 0 when they are usable, 1 when not"
     )
+    principals = commands.add_parser("principals", help=f"operator commands, with {MIGRATION_DATABASE_URL_ENV}")
+    actions = principals.add_subparsers(dest="action", required=True)
+    revoke = actions.add_parser("revoke-sessions", help="sign a principal out everywhere: revoke its sessions")
+    revoke.add_argument("principal_id", type=_principal_id, help="the principal's id (a UUID)")
     return parser
+
+
+def _principal_id(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a principal id (a UUID)") from None
 
 
 def _fail(message: str) -> int:
@@ -88,16 +100,29 @@ def _migrate(url: str) -> int:
     return 0
 
 
+def _revoke_sessions(url: str, principal_id: str) -> int:
+    import psycopg
+
+    from row_bot_org.identity.store import revoke_sessions
+
+    try:
+        with psycopg.connect(url, autocommit=True, connect_timeout=CONNECT_TIMEOUT) as conn:
+            revoked = revoke_sessions(conn, principal_id)
+    except psycopg.Error as error:
+        return _database_unreachable(error)
+    sys.stdout.write(f"Revoked {_plural(revoked, 'session')} of principal {principal_id}.\n")
+    return 0
+
+
 def _check_config(settings: OrgSettings, url: str) -> int:
     import psycopg
 
-    from row_bot_org.db.checks import privileged_role_problems, runtime_role_warnings
+    from row_bot_org.db.checks import privileged_role_problems
     from row_bot_org.db.migrations import MigrationError, load_migrations, migration_status
 
     try:
         with psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT) as conn:
             problems = privileged_role_problems(conn)
-            warnings = runtime_role_warnings(conn)
             pending = migration_status(conn, load_migrations()).pending
     except MigrationError as error:
         return _fail(f"Row-Bot Org's database doesn't match its migrations: {error}.")
@@ -113,8 +138,6 @@ def _check_config(settings: OrgSettings, url: str) -> int:
         f"auto-migrate {'on' if settings.auto_migrate else 'off'}; the database is reachable"
         + (f", {_plural(len(pending), 'migration')} pending (row-bot-org migrate).\n" if pending else ".\n")
     )
-    for warning in warnings:
-        sys.stderr.write(f"Warning: {warning}. {ROLE_ADVICE}\n")
     return 0
 
 
@@ -159,13 +182,17 @@ def _serve(settings: OrgSettings, url: str) -> int:
         lock_timeout=settings.lock_timeout,
         idle_in_transaction_timeout=settings.idle_in_transaction_timeout,
     )
-    # No access log: request lines carry query strings, and sign-in callbacks will put codes there.
+    # Not uvicorn's access log: its lines carry query strings, and sign-in callbacks put codes there.
+    # The app logs each request itself, by route template (row_bot_org.identity.gate.AccessLog).
+    # Not uvicorn's proxy headers either (it trusts 127.0.0.1 by default): the app reads them only from
+    # ROW_BOT_ORG_TRUSTED_PROXIES.
     uvicorn.run(
         create_app(settings, pool),
         host=settings.host,
         port=settings.port,
         log_config=None,
         access_log=False,
+        proxy_headers=False,
         server_header=False,
     )
     return 0
@@ -187,8 +214,9 @@ def main(argv: list[str] | None = None) -> int:
     except SettingsError as error:
         return _fail(str(error))
     del environ
-    needed = MIGRATION_DATABASE_URL_ENV if args.command == "migrate" else DATABASE_URL_ENV
-    url = settings.migration_database_url if args.command == "migrate" else settings.database_url
+    as_owner = args.command in {"migrate", "principals"}
+    needed = MIGRATION_DATABASE_URL_ENV if as_owner else DATABASE_URL_ENV
+    url = settings.migration_database_url if as_owner else settings.database_url
     if url is None:
         return _fail(f"Row-Bot Org settings are not valid: {needed} is not set")
     if bad := _unparseable({DATABASE_URL_ENV: settings.database_url,
@@ -196,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(f"Row-Bot Org settings are not valid: {bad} is not a usable postgresql:// address")
     if args.command == "migrate":
         return _migrate(url)
+    if args.command == "principals":
+        return _revoke_sessions(url, args.principal_id)
     if args.command == "check-config":
         return _check_config(settings, url)
     return _serve(settings, url)
