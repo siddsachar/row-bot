@@ -155,6 +155,38 @@ def test_a_broken_first_source_locks_down_rather_than_falling_back(tmp_path: Pat
     assert [item.source.location for item in policy.ignored] == [str(named)]
 
 
+def test_a_broken_policy_still_lets_the_fix_arrive_and_local_chat_run(tmp_path: Path) -> None:
+    write_bytes(windows_policy_file(tmp_path), b'{"schema_version": 1, "approvals": {"max_level": "auto"},')
+
+    policy = _lockdown(load_policy(fake_system(tmp_path, "windows")), "invalid")
+
+    assert policy.allows_tool("row_bot_updater") and not policy.settings.updates.external
+    assert policy.allows_tool("row_bot_status")
+    assert policy.allows_model("model:ollama:qwen3:8b", base_url="http://127.0.0.1:11434")
+    assert not policy.allows_provider("anthropic") and not policy.allows_model("model:openai:gpt-5")
+    assert not policy.allows_tool("shell")
+
+
+# Imports every tool module, so nightly. Lockdown's tool list is an allow-list: a tool nobody classified yet is
+# refused, so this keeps the lists in step rather than guarding the behaviour (the tests above do that).
+@pytest.mark.slow
+def test_lockdown_names_every_core_tool_as_kept_or_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    import row_bot.tools as tool_package
+    from row_bot.tools import registry
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    modules = (*tool_package._CORE_TOOL_MODULES, *tool_package._OPTIONAL_TOOL_MODULES)
+    for name in tool_package._OPTIONAL_TOOL_MODULES:
+        importlib.import_module(name)
+    core = {owner.name for owner in registry.get_all_tools() if type(owner).__module__ in modules}
+
+    kept, refused = LOCKDOWN.tools.allowed, LOCKDOWN.tools.disabled
+    assert not kept & refused
+    assert core == kept | refused, "classify a new tool for lockdown in row_bot.policy.schema"
+
+
 def test_a_named_policy_file_that_is_missing_locks_down(tmp_path: Path) -> None:
     missing = tmp_path / "server" / "policy.json"
 
@@ -303,7 +335,7 @@ def test_a_policy_that_cant_be_used_locks_down(tmp_path: Path, data: bytes, reas
     policy = _lockdown(load_policy(fake_system(tmp_path)), reason)
 
     assert policy.source.kind == "file" and policy.detail
-    assert policy.limit_approval_level("auto") == "block" and not policy.allows_tool("calculator")
+    assert policy.limit_approval_level("auto") == "block" and not policy.allows_tool("shell")
 
 
 def test_a_utf8_bom_is_accepted(tmp_path: Path) -> None:

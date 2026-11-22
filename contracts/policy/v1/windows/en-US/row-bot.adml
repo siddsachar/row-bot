@@ -33,9 +33,9 @@
       <string id="approvals_max_level_max_level_auto">auto</string>
       <string id="approvals_max_level_max_level_full">full</string>
       <string id="models_allowed_providers">Allowed providers</string>
-      <string id="models_allowed_providers_Explain">models.allowed_providers: Provider ids people may use (for example anthropic, openai, ollama, custom_openai_&lt;endpoint&gt;). Not set in a policy: any provider. Lockdown: [].</string>
+      <string id="models_allowed_providers_Explain">models.allowed_providers: Provider ids people may use (for example anthropic, openai, ollama, custom_openai_&lt;endpoint&gt;). Not set in a policy: any provider. Lockdown: any provider.</string>
       <string id="models_allowed_models">Allowed models</string>
-      <string id="models_allowed_models_Explain">models.allowed_models: Provider-qualified model refs people may use (model:&lt;provider&gt;:&lt;model id&gt;). Not set in a policy: any model of an allowed provider. Lockdown: [].</string>
+      <string id="models_allowed_models_Explain">models.allowed_models: Provider-qualified model refs people may use (model:&lt;provider&gt;:&lt;model id&gt;). Not set in a policy: any model of an allowed provider. Lockdown: any model of an allowed provider.</string>
       <string id="models_gateway_url">Organisation gateway URL</string>
       <string id="models_gateway_url_Explain">models.gateway_url: An organisation model gateway Row-Bot offers as a provider. Not set in a policy: none. Lockdown: none.
 
@@ -51,12 +51,18 @@ Enabled: true. Disabled: false.</string>
       <string id="models_subscription_sign_ins_Explain">models.subscription_sign_ins: Whether people may sign in with a consumer subscription (Claude plan, ChatGPT/Codex, xAI Grok, OpenCode Go). Not set in a policy: false. Lockdown: false.
 
 Enabled: true. Disabled: false.</string>
-      <string id="models_local_models">Allow local models</string>
-      <string id="models_local_models_Explain">models.local_models: Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). Not set in a policy: true. Lockdown: false.
+      <string id="models_cloud_models">Allow cloud models</string>
+      <string id="models_cloud_models_Explain">models.cloud_models: Whether people may use models that run anywhere but this computer: cloud providers, the organisation gateway and endpoints on other machines. Not set in a policy: true. Lockdown: false.
 
 Enabled: true. Disabled: false.</string>
+      <string id="models_local_models">Allow local models</string>
+      <string id="models_local_models_Explain">models.local_models: Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). An endpoint counts as on this computer only when its address is loopback. Not set in a policy: true. Lockdown: true.
+
+Enabled: true. Disabled: false.</string>
+      <string id="tools_allowed">Allowed tools</string>
+      <string id="tools_allowed_Explain">tools.allowed: The only tool names people may use; any other tool, including plugin, MCP and custom tools, is switched off. Not set in a policy: every tool. Lockdown: agents, calculator, chart, conversation_search, designer, documents, filesystem, goal, linked_conversations, media, memory, pages, presentation, row_bot_status, row_bot_updater, task, tracker, waits, wiki.</string>
       <string id="tools_disabled">Disabled tools</string>
-      <string id="tools_disabled_Explain">tools.disabled: Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: *.</string>
+      <string id="tools_disabled_Explain">tools.disabled: Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, developer, duckduckgo, file_delivery, gmail, image_gen, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, url_reader, video_editing, video_gen, vision, weather, web_search, wikipedia, wolfram_alpha, x, youtube.</string>
       <string id="tools_files_outside_workspace">Allow files outside the workspace</string>
       <string id="tools_files_outside_workspace_Explain">tools.files_outside_workspace: Whether tools may read or change files outside the workspace (each time still asked by the approval level). Not set in a policy: true. Lockdown: false.
 
@@ -105,7 +111,7 @@ Enabled: true. Disabled: false.</string>
 
 Enabled: true. Disabled: false.</string>
       <string id="updates_channel">Update channel</string>
-      <string id="updates_channel_Explain">updates.channel: stable or beta. Not set in a policy: the person chooses. Lockdown: stable.</string>
+      <string id="updates_channel_Explain">updates.channel: stable or beta. Not set in a policy: the person chooses. Lockdown: the person chooses.</string>
       <string id="updates_channel_channel_stable">stable</string>
       <string id="updates_channel_channel_beta">beta</string>
       <string id="updates_deferral_days">Defer updates (days)</string>
@@ -113,7 +119,7 @@ Enabled: true. Disabled: false.</string>
       <string id="updates_pinned_version">Pinned version</string>
       <string id="updates_pinned_version_Explain">updates.pinned_version: Stay on this version (for example 5.4.0). Not set in a policy: none. Lockdown: none.</string>
       <string id="updates_external">Updates come from IT</string>
-      <string id="updates_external_Explain">updates.external: Row-Bot never updates itself; IT deploys new versions. Not set in a policy: false. Lockdown: true.
+      <string id="updates_external_Explain">updates.external: Row-Bot never updates itself; IT deploys new versions. Not set in a policy: false. Lockdown: false.
 
 Enabled: true. Disabled: false.</string>
       <string id="line_regulated">Regulated mode</string>
@@ -169,6 +175,9 @@ Enabled: true. Disabled: false.</string>
           <label>Organisation gateway URL</label>
         </textBox>
         <dropdownList refId="gateway_shape" noSort="true">Organisation gateway API</dropdownList>
+      </presentation>
+      <presentation id="tools_allowed">
+        <listBox refId="allowed">Allowed tools</listBox>
       </presentation>
       <presentation id="tools_disabled">
         <listBox refId="disabled">Disabled tools</listBox>

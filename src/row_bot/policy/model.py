@@ -1,14 +1,18 @@
 """The effective policy: ``NoPolicy``, ``OrgPolicy`` or ``Lockdown``, and the checks the seams will call.
 
 ``NoPolicy`` allows everything and changes nothing: it is today's Row-Bot. ``OrgPolicy`` applies an
-organisation's settings. ``Lockdown`` applies the strictest documented values (``schema.LOCKDOWN``) because a
-policy is present but can't be used; ``reason`` says why in a stable word for the client.
+organisation's settings. ``Lockdown`` applies ``schema.LOCKDOWN`` because a policy is present but can't be
+used: chat with models on this computer, the in-app tools, the app's help and settings and its signed
+self-update stay, so a fix can still arrive; everything that reaches outside Row-Bot is refused. ``reason``
+says why in a stable word for the client.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import urlsplit
 
 from row_bot.approval_policy import ApprovalMode, stricter_approval_mode
 from row_bot.policy.schema import LOCKDOWN, SUBSCRIPTION_PROVIDERS, Settings
@@ -55,21 +59,26 @@ class _Rules:
             return level
         return stricter_approval_mode(level, self.settings.approvals.max_level)
 
-    def allows_provider(self, provider_id: str) -> bool:
+    def allows_provider(self, provider_id: str, *, base_url: str | None = None) -> bool:
+        """Whether *provider_id* may be used. It counts as on this computer only when *base_url*, the address
+        Row-Bot would call, is loopback; without one (every cloud catalog provider) it is a cloud model."""
         if self.settings is None:
             return True
         models = self.settings.models
         if provider_id in SUBSCRIPTION_PROVIDERS and not models.subscription_sign_ins:
             return False
+        if not (models.local_models if _loopback(base_url) else models.cloud_models):
+            return False
         return models.allowed_providers is None or provider_id in models.allowed_providers
 
-    def allows_model(self, model_ref: str) -> bool:
-        """Whether a provider-qualified ref (``model:<provider>:<model id>``) may be used."""
+    def allows_model(self, model_ref: str, *, base_url: str | None = None) -> bool:
+        """Whether a provider-qualified ref (``model:<provider>:<model id>``) may be used; *base_url* as for
+        ``allows_provider``."""
         if self.settings is None:
             return True
         prefix, _, rest = model_ref.partition(":")
         provider, _, model = rest.partition(":")
-        if prefix != "model" or not provider or not model or not self.allows_provider(provider):
+        if prefix != "model" or not provider or not model or not self.allows_provider(provider, base_url=base_url):
             return False
         allowed = self.settings.models.allowed_models
         return allowed is None or model_ref in allowed
@@ -83,8 +92,10 @@ class _Rules:
     def allows_tool(self, name: str) -> bool:
         if self.settings is None:
             return True
-        disabled = self.settings.tools.disabled
-        return "*" not in disabled and name not in disabled
+        tools = self.settings.tools
+        if tools.allowed is not None and name not in tools.allowed and "*" not in tools.allowed:
+            return False
+        return "*" not in tools.disabled and name not in tools.disabled
 
     def allows_files_outside_workspace(self) -> bool:
         return self.settings is None or self.settings.tools.files_outside_workspace
@@ -139,3 +150,18 @@ class Lockdown(_Rules):
 
 
 Policy = NoPolicy | OrgPolicy | Lockdown
+
+
+def _loopback(base_url: str | None) -> bool:
+    if not base_url:
+        return False
+    try:
+        host = urlsplit(base_url).hostname or ""
+    except ValueError:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False

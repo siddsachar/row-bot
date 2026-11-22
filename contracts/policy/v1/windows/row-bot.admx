@@ -255,6 +255,30 @@
         </item>
       </disabledList>
     </policy>
+    <policy name="models_cloud_models" class="Machine" displayName="$(string.models_cloud_models)" explainText="$(string.models_cloud_models_Explain)" key="SOFTWARE\Policies\Row-Bot\models" valueName="cloud_models">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
     <policy name="models_local_models" class="Machine" displayName="$(string.models_local_models)" explainText="$(string.models_local_models_Explain)" key="SOFTWARE\Policies\Row-Bot\models" valueName="local_models">
       <parentCategory ref="RowBot_models" />
       <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
@@ -278,6 +302,20 @@
           </value>
         </item>
       </disabledList>
+    </policy>
+    <policy name="tools_allowed" class="Machine" displayName="$(string.tools_allowed)" explainText="$(string.tools_allowed_Explain)" key="SOFTWARE\Policies\Row-Bot\tools" presentation="$(presentation.tools_allowed)">
+      <parentCategory ref="RowBot_tools" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <list id="allowed" key="SOFTWARE\Policies\Row-Bot\tools\allowed" valuePrefix="" />
+      </elements>
     </policy>
     <policy name="tools_disabled" class="Machine" displayName="$(string.tools_disabled)" explainText="$(string.tools_disabled_Explain)" key="SOFTWARE\Policies\Row-Bot\tools" presentation="$(presentation.tools_disabled)">
       <parentCategory ref="RowBot_tools" />

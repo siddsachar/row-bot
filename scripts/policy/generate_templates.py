@@ -53,9 +53,15 @@ EXAMPLE: dict[str, Any] = {
         "gateway_shape": "openai_chat",
         "personal_api_keys": False,
         "subscription_sign_ins": False,
+        "cloud_models": True,
         "local_models": False,
     },
-    "tools": {"disabled": ["computer_use", "shell"], "files_outside_workspace": False},
+    "tools": {
+        "allowed": ["calculator", "chart", "conversation_search", "filesystem", "memory", "pages", "presentation",
+                    "row_bot_status", "row_bot_updater", "web_search"],
+        "disabled": ["computer_use", "shell"],
+        "files_outside_workspace": False,
+    },
     "channels": {"allowed": ["slack"]},
     "extensions": {
         "plugins": "allow-list",

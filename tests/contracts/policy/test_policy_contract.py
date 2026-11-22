@@ -268,6 +268,7 @@ def test_a_policy_that_sets_nothing_turns_off_only_the_known_risks(tmp_path: Pat
     assert policy.limit_approval_level("approve") == "approve"
     assert SUBSCRIPTION and not any(policy.allows_provider(provider) for provider in SUBSCRIPTION)
     assert all(policy.allows_provider(provider) for provider in PAY_PER_USE)
+    assert policy.allows_provider("ollama", base_url=LOCAL[0]) and policy.allows_local_models()
     assert not policy.allows_channel("whatsapp")
     assert all(policy.allows_channel(channel) for channel in CHANNELS if channel != "whatsapp")
     assert not policy.allows_feature("install_count")
@@ -277,21 +278,47 @@ def test_a_policy_that_sets_nothing_turns_off_only_the_known_risks(tmp_path: Pat
     assert policy.settings.updates.channel is None and not policy.settings.updates.external
 
 
-def test_lockdown_refuses_everything() -> None:
+LOCAL = ("http://127.0.0.1:11434", "http://localhost:8080/v1", "http://[::1]:1234/v1")
+
+
+def test_lockdown_keeps_local_chat_help_and_self_update_and_refuses_the_rest() -> None:
     policy = Lockdown(reason="invalid", detail="test", source=PolicySource("file", "org-policy.json"))
 
     assert policy.settings == LOCKDOWN
-    assert {policy.limit_approval_level(level) for level in APPROVAL_MODES} == {"block"}
+    # Kept: chat with a model on this computer, the in-app tools, help and settings, signed self-update.
+    assert all(policy.allows_provider("ollama", base_url=url) for url in LOCAL)
+    assert policy.allows_model("model:custom_openai_llamacpp:qwen3.5-9b", base_url="http://127.0.0.1:8081/v1")
+    assert policy.allows_local_models()
+    assert all(policy.allows_tool(tool) for tool in ("row_bot_status", "row_bot_updater", "memory", "pages"))
+    assert not policy.settings.updates.external and policy.settings.updates.pinned_version is None
+    assert policy.settings.updates.channel is None and policy.settings.updates.deferral_days == 0
+    # Refused: every cloud route, every tool that reaches outside Row-Bot, and the features.
     assert not any(policy.allows_provider(provider) for provider in PROVIDER_BILLING)
+    assert not policy.allows_provider("ollama", base_url="http://gpu-box.example.com:11434")
+    assert not policy.allows_provider("custom_openai_lan", base_url="http://192.168.1.20:8080/v1")
     assert not policy.allows_model("model:anthropic:claude-sonnet-4-5")
-    assert not policy.allows_personal_api_keys() and not policy.allows_local_models()
-    assert not policy.allows_tool("calculator") and not policy.allows_files_outside_workspace()
+    assert policy.settings.models.gateway_url is None and not policy.allows_personal_api_keys()
+    assert not any(policy.allows_tool(tool) for tool in
+                   ("shell", "browser", "computer_use", "url_reader", "web_search", "mcp", "developer"))
+    assert not policy.allows_tool("a_custom_or_plugin_tool") and not policy.allows_files_outside_workspace()
     assert not any(policy.allows_channel(channel) for channel in CHANNELS)
     assert not any(policy.allows_extension(kind, "x") for kind in ("plugins", "mcp_servers", "skills"))
     assert not any(policy.allows_feature(feature) for feature in
                    ("learning", "proactive", "remote_access", "data_export", "install_count"))
-    assert policy.settings.updates.external and policy.settings.line.regulated
+    assert {policy.limit_approval_level(level) for level in APPROVAL_MODES} == {"block"}
+    assert policy.settings.line.regulated
 
+
+def test_local_only_and_tool_allow_lists_apply_to_an_org_policy(tmp_path: Path) -> None:
+    write_policy(tmp_path / "etc" / "row-bot" / "org-policy.json", {
+        "schema_version": 1, "models": {"cloud_models": False}, "tools": {"allowed": ["memory", "shell"],
+                                                                           "disabled": ["shell"]}})
+
+    policy = load_policy(fake_system(tmp_path))
+
+    assert policy.allows_provider("ollama", base_url=LOCAL[0]) and not policy.allows_provider("openai")
+    assert policy.allows_tool("memory")
+    assert not policy.allows_tool("shell") and not policy.allows_tool("calculator")
 
 def test_an_allow_list_names_exactly_what_may_be_used(tmp_path: Path) -> None:
     write_policy(windows_policy_file(tmp_path), {

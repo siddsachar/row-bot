@@ -44,6 +44,24 @@ SUBSCRIPTION_PROVIDERS = frozenset({"claude_subscription", "codex", "xai_oauth",
 EXTENSION_MODES = ("none", "allow-list", "any")
 FEATURES = ("learning", "proactive", "remote_access", "data_export", "install_count")
 
+# Lockdown keeps a recovery path: chat with a model on this computer, the app's own help and settings, and
+# Row-Bot's signed self-update. These core tools stay inside Row-Bot (its chats, memory, pages, workspace and
+# its own updater), so they are the only ones lockdown allows; every other tool, including any added later,
+# a plugin's, an MCP server's or a custom one, is refused.
+LOCKDOWN_TOOLS = frozenset({
+    "agents", "calculator", "chart", "conversation_search", "designer", "documents", "filesystem", "goal",
+    "linked_conversations", "media", "memory", "pages", "presentation", "row_bot_status", "row_bot_updater",
+    "task", "tracker", "waits", "wiki",
+})
+# The core tools that reach outside Row-Bot: a shell, a browser, the screen and camera, the network, other
+# accounts, code and processes, channels and cloud generation. Named so the defaults table lists them.
+OUTSIDE_TOOLS = frozenset({
+    "arxiv", "browser", "calendar", "computer_use", "conversation_setup", "custom_tool_builder", "developer",
+    "duckduckgo", "file_delivery", "gmail", "image_gen", "mcp", "outlook_calendar", "outlook_mail", "shell",
+    "sound", "system_info", "url_reader", "video_editing", "video_gen", "vision", "weather", "web_search",
+    "wikipedia", "wolfram_alpha", "x", "youtube",
+})
+
 
 class InvalidPolicy(ValueError):
     """The policy can't be used. ``code`` is a stable word for the client; ``detail`` tells IT what to fix."""
@@ -109,11 +127,11 @@ class Models:
     """Which models people may use, and how they reach them."""
 
     allowed_providers: frozenset[str] | None = _setting(
-        None, "list", frozenset(), "Allowed providers",
+        None, "list", None, "Allowed providers",
         "Provider ids people may use (for example anthropic, openai, ollama, custom_openai_<endpoint>).",
         unset="any provider", pattern=PROVIDER_ID)
     allowed_models: frozenset[str] | None = _setting(
-        None, "list", frozenset(), "Allowed models",
+        None, "list", None, "Allowed models",
         "Provider-qualified model refs people may use (model:<provider>:<model id>).",
         unset="any model of an allowed provider", pattern=MODEL_REF)
     gateway_url: str | None = _setting(None, "url", None, "Organisation gateway URL",
@@ -128,15 +146,23 @@ class Models:
     subscription_sign_ins: bool = _setting(False, "bool", False, "Allow consumer subscription sign-ins",
                                            "Whether people may sign in with a consumer subscription (Claude plan, "
                                            "ChatGPT/Codex, xAI Grok, OpenCode Go).")
-    local_models: bool = _setting(True, "bool", False, "Allow local models",
-                                  "Whether people may run models on this computer (Ollama, llama.cpp, LM Studio).")
+    cloud_models: bool = _setting(True, "bool", False, "Allow cloud models",
+                                  "Whether people may use models that run anywhere but this computer: cloud "
+                                  "providers, the organisation gateway and endpoints on other machines.")
+    local_models: bool = _setting(True, "bool", True, "Allow local models",
+                                  "Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). "
+                                  "An endpoint counts as on this computer only when its address is loopback.")
 
 
 @dataclass(frozen=True)
 class Tools:
     """Which of Row-Bot's tools are switched off."""
 
-    disabled: frozenset[str] = _setting(frozenset(), "list", frozenset({"*"}), "Disabled tools",
+    allowed: frozenset[str] | None = _setting(None, "list", LOCKDOWN_TOOLS, "Allowed tools",
+                                              "The only tool names people may use; any other tool, including "
+                                              "plugin, MCP and custom tools, is switched off.",
+                                              unset="every tool", pattern=TOOL_NAME)
+    disabled: frozenset[str] = _setting(frozenset(), "list", OUTSIDE_TOOLS, "Disabled tools",
                                         "Tool names switched off and locked (for example shell, computer_use, "
                                         "browser, developer); * switches off every tool.", pattern=TOOL_NAME)
     files_outside_workspace: bool = _setting(True, "bool", False, "Allow files outside the workspace",
@@ -195,14 +221,15 @@ class Features:
 class Updates:
     """How Row-Bot updates itself."""
 
-    channel: str | None = _setting(None, "enum", "stable", "Update channel", "stable or beta.",
+    channel: str | None = _setting(None, "enum", None, "Update channel", "stable or beta.",
                                    unset="the person chooses", choices=("stable", "beta"))
     deferral_days: int = _setting(0, "int", 0, "Defer updates (days)",
                                   "Days to wait after a release before offering it.", minimum=0, maximum=365)
     pinned_version: str | None = _setting(None, "text", None, "Pinned version",
                                           "Stay on this version (for example 5.4.0).", unset="none",
                                           pattern=VERSION, max_length=80)
-    external: bool = _setting(False, "bool", True, "Updates come from IT",
+    # Lockdown keeps Row-Bot's signed self-update: it is how the fix for a bad push or a loader bug arrives.
+    external: bool = _setting(False, "bool", False, "Updates come from IT",
                               "Row-Bot never updates itself; IT deploys new versions.")
 
 

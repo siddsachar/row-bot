@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Row-Bot organisation policy",
-  "description": "An organisation's policy for Row-Bot, schema version 1. Unknown keys are refused: a policy Row-Bot can't fully read locks Row-Bot down. Every setting a policy leaves out takes the value below; lockdown is what an unreadable, invalid or badly signed policy means.\n\n| Setting | Not set in a policy | Lockdown |\n| --- | --- | --- |\n| `organisation.id` | none | none |\n| `organisation.display_name` | none | none |\n| `organisation.server_url` | none | none |\n| `organisation.policy_version` | none | none |\n| `organisation.contact` | none | none |\n| `approvals.max_level` | auto | block |\n| `models.allowed_providers` | any provider | [] |\n| `models.allowed_models` | any model of an allowed provider | [] |\n| `models.gateway_url` | none | none |\n| `models.gateway_shape` | openai_chat | openai_chat |\n| `models.personal_api_keys` | true | false |\n| `models.subscription_sign_ins` | false | false |\n| `models.local_models` | true | false |\n| `tools.disabled` | [] | * |\n| `tools.files_outside_workspace` | true | false |\n| `channels.allowed` | discord, slack, sms, telegram | [] |\n| `extensions.plugins` | any | none |\n| `extensions.allowed_plugins` | [] | [] |\n| `extensions.mcp_servers` | any | none |\n| `extensions.allowed_mcp_servers` | [] | [] |\n| `extensions.skills` | any | none |\n| `extensions.allowed_skills` | [] | [] |\n| `features.learning` | false | false |\n| `features.proactive` | true | false |\n| `features.remote_access` | false | false |\n| `features.data_export` | true | false |\n| `features.install_count` | false | false |\n| `updates.channel` | the person chooses | stable |\n| `updates.deferral_days` | 0 | 0 |\n| `updates.pinned_version` | none | none |\n| `updates.external` | false | true |\n| `line.regulated` | false | true |\n| `audit.sink` | local | local |\n| `audit.redaction` | strict | strict |",
+  "description": "An organisation's policy for Row-Bot, schema version 1. Unknown keys are refused: a policy Row-Bot can't fully read locks Row-Bot down. Every setting a policy leaves out takes the value below; lockdown is what an unreadable, invalid or badly signed policy means.\n\n| Setting | Not set in a policy | Lockdown |\n| --- | --- | --- |\n| `organisation.id` | none | none |\n| `organisation.display_name` | none | none |\n| `organisation.server_url` | none | none |\n| `organisation.policy_version` | none | none |\n| `organisation.contact` | none | none |\n| `approvals.max_level` | auto | block |\n| `models.allowed_providers` | any provider | any provider |\n| `models.allowed_models` | any model of an allowed provider | any model of an allowed provider |\n| `models.gateway_url` | none | none |\n| `models.gateway_shape` | openai_chat | openai_chat |\n| `models.personal_api_keys` | true | false |\n| `models.subscription_sign_ins` | false | false |\n| `models.cloud_models` | true | false |\n| `models.local_models` | true | true |\n| `tools.allowed` | every tool | agents, calculator, chart, conversation_search, designer, documents, filesystem, goal, linked_conversations, media, memory, pages, presentation, row_bot_status, row_bot_updater, task, tracker, waits, wiki |\n| `tools.disabled` | [] | arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, developer, duckduckgo, file_delivery, gmail, image_gen, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, url_reader, video_editing, video_gen, vision, weather, web_search, wikipedia, wolfram_alpha, x, youtube |\n| `tools.files_outside_workspace` | true | false |\n| `channels.allowed` | discord, slack, sms, telegram | [] |\n| `extensions.plugins` | any | none |\n| `extensions.allowed_plugins` | [] | [] |\n| `extensions.mcp_servers` | any | none |\n| `extensions.allowed_mcp_servers` | [] | [] |\n| `extensions.skills` | any | none |\n| `extensions.allowed_skills` | [] | [] |\n| `features.learning` | false | false |\n| `features.proactive` | true | false |\n| `features.remote_access` | false | false |\n| `features.data_export` | true | false |\n| `features.install_count` | false | false |\n| `updates.channel` | the person chooses | the person chooses |\n| `updates.deferral_days` | 0 | 0 |\n| `updates.pinned_version` | none | none |\n| `updates.external` | false | false |\n| `line.regulated` | false | true |\n| `audit.sink` | local | local |\n| `audit.redaction` | strict | strict |",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -95,7 +95,7 @@
       "properties": {
         "allowed_providers": {
           "title": "Allowed providers",
-          "description": "Provider ids people may use (for example anthropic, openai, ollama, custom_openai_<endpoint>). Not set in a policy: any provider. Lockdown: [].",
+          "description": "Provider ids people may use (for example anthropic, openai, ollama, custom_openai_<endpoint>). Not set in a policy: any provider. Lockdown: any provider.",
           "type": "array",
           "maxItems": 512,
           "items": {
@@ -105,7 +105,7 @@
         },
         "allowed_models": {
           "title": "Allowed models",
-          "description": "Provider-qualified model refs people may use (model:<provider>:<model id>). Not set in a policy: any model of an allowed provider. Lockdown: [].",
+          "description": "Provider-qualified model refs people may use (model:<provider>:<model id>). Not set in a policy: any model of an allowed provider. Lockdown: any model of an allowed provider.",
           "type": "array",
           "maxItems": 512,
           "items": {
@@ -144,9 +144,15 @@
           "default": false,
           "type": "boolean"
         },
+        "cloud_models": {
+          "title": "Allow cloud models",
+          "description": "Whether people may use models that run anywhere but this computer: cloud providers, the organisation gateway and endpoints on other machines. Not set in a policy: true. Lockdown: false.",
+          "default": true,
+          "type": "boolean"
+        },
         "local_models": {
           "title": "Allow local models",
-          "description": "Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). Not set in a policy: true. Lockdown: false.",
+          "description": "Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). An endpoint counts as on this computer only when its address is loopback. Not set in a policy: true. Lockdown: true.",
           "default": true,
           "type": "boolean"
         }
@@ -165,9 +171,19 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "allowed": {
+          "title": "Allowed tools",
+          "description": "The only tool names people may use; any other tool, including plugin, MCP and custom tools, is switched off. Not set in a policy: every tool. Lockdown: agents, calculator, chart, conversation_search, designer, documents, filesystem, goal, linked_conversations, media, memory, pages, presentation, row_bot_status, row_bot_updater, task, tracker, waits, wiki.",
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:\\*|[a-z0-9][a-z0-9_]{0,63})$"
+          }
+        },
         "disabled": {
           "title": "Disabled tools",
-          "description": "Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: *.",
+          "description": "Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, developer, duckduckgo, file_delivery, gmail, image_gen, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, url_reader, video_editing, video_gen, vision, weather, web_search, wikipedia, wolfram_alpha, x, youtube.",
           "default": [],
           "type": "array",
           "maxItems": 512,
@@ -360,7 +376,7 @@
       "properties": {
         "channel": {
           "title": "Update channel",
-          "description": "stable or beta. Not set in a policy: the person chooses. Lockdown: stable.",
+          "description": "stable or beta. Not set in a policy: the person chooses. Lockdown: the person chooses.",
           "type": "string",
           "enum": [
             "stable",
@@ -385,7 +401,7 @@
         },
         "external": {
           "title": "Updates come from IT",
-          "description": "Row-Bot never updates itself; IT deploys new versions. Not set in a policy: false. Lockdown: true.",
+          "description": "Row-Bot never updates itself; IT deploys new versions. Not set in a policy: false. Lockdown: false.",
           "default": false,
           "type": "boolean"
         }

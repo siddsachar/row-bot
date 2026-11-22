@@ -85,6 +85,8 @@
 					<string>anthropic</string>
 					<string>custom_openai_example-gateway</string>
 				</array>
+				<key>cloud_models</key>
+				<true/>
 				<key>gateway_shape</key>
 				<string>openai_chat</string>
 				<key>gateway_url</key>
@@ -113,6 +115,19 @@
 			<integer>1</integer>
 			<key>tools</key>
 			<dict>
+				<key>allowed</key>
+				<array>
+					<string>calculator</string>
+					<string>chart</string>
+					<string>conversation_search</string>
+					<string>filesystem</string>
+					<string>memory</string>
+					<string>pages</string>
+					<string>presentation</string>
+					<string>row_bot_status</string>
+					<string>row_bot_updater</string>
+					<string>web_search</string>
+				</array>
 				<key>disabled</key>
 				<array>
 					<string>computer_use</string>
