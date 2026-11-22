@@ -1,16 +1,17 @@
 """Sending files from a chat to the person's own devices or to a chat app (F7).
 
 A delivery sends one or more files the conversation can name (``resolve``): a file in this
-conversation's files (by its name), a recording (``rec-…``) or video edit (``edit-…``) of it, or a
-file in the workspace (the code folder bound to the conversation, else the workspace folder), through
-the same guards as video editing (``media_sources``): never another path.
+conversation's files (by its name), a recording (``rec-…``), video edit (``edit-…``) or video project
+(``vid-…``) of it, or a file in the workspace (the code folder bound to the conversation, else the
+workspace folder), through the same guards as video editing (``media_sources``): never another path.
 
-- **To your devices.** A copy is kept for ``DEVICE_KEEP_DAYS`` days. The conversation shows it, on
-  every device signed in to Row-Bot, as a download that needs the person's session and ends when the
-  copy expires. Every open Row-Bot window also shows "Row-Bot sent you …" through the in-app notice
-  journal (``app_notices``). There is no push channel: a device with Row-Bot closed sees the file in
-  the conversation the next time it opens it. It never asks: the files go only to the person's own
-  sessions, which can already open the conversation's files.
+- **To your devices.** Each file is the chat's own file (``chat_output``: a workspace file becomes one,
+  once), which the conversation's card plays on every device signed in to Row-Bot for as long as the
+  chat keeps it; only its download link from the delivery ends, after ``DEVICE_KEEP_DAYS`` days. A file
+  too large for a chat is copied for that link alone. Every open Row-Bot window also shows "Row-Bot
+  sent you …" through the in-app notice journal (``app_notices``). There is no push channel: a device
+  with Row-Bot closed sees the file in the conversation the next time it opens it. It never asks: the
+  files go only to the person's own sessions, which can already open the conversation's files.
 - **To a chat app** (Telegram, Discord, Slack, WhatsApp, or another channel that sends files) through
   the channel's own ``send_document``: this conversation's own chat on that app when the conversation
   came from there, otherwise the person's own chat there (the user set up for the channel). No other
@@ -191,11 +192,27 @@ def _workspace_file(conversation_id: str, value: str, *, required: bool) -> Sour
                   relative=relative, path=path)
 
 
+def _project_video(conversation_id: str, value: str) -> Source:
+    """A video project's newest made version (``vid-…``), as the chat file its render saved."""
+    from row_bot import video_edits, video_projects
+    from row_bot.media_sources import SourceError
+
+    project = video_projects.get(value, conversation_id)
+    if project is None:
+        raise SourceError(f"{value} isn't a video project in this chat.")
+    for version in reversed(project.versions):
+        made = video_edits.get(version.edit_id) if version.edit_id else None
+        if made is not None and made.status == "saved" and made.media_ref:
+            return _from_reference(made.media_ref)
+    raise SourceError(f"{value} has no made video yet: make it first (video action make).")
+
+
 def resolve(values: list[str], conversation_id: str) -> list[Source]:
     """The files these names point to, in order; ``SourceError`` (plain words) for one that can't be sent.
 
     A bare name is looked for in this conversation's files first, then in the workspace; a path (with a
-    folder) only in the workspace; ``rec-…`` and ``edit-…`` are this conversation's recordings and edits.
+    folder) only in the workspace; ``rec-…`` and ``edit-…`` are this conversation's recordings and edits,
+    ``vid-…`` a video project's newest made video.
     """
 
     from row_bot.media_sources import SourceError
@@ -212,18 +229,70 @@ def resolve(values: list[str], conversation_id: str) -> list[Source]:
 
             found.extend(_from_reference(media.ref) for media in resolve_media(value, conversation_id) if media.ref)
             continue
+        if re.fullmatch(r"vid-[0-9a-f]{8}", value):
+            found.append(_project_video(conversation_id, value))
+            continue
         path_like = "/" in value or "\\" in value or Path(value).is_absolute() or (len(value) > 1 and value[1] == ":")
         source = None if path_like else _chat_file(conversation_id, value)
         if source is None:
             source = _workspace_file(conversation_id, value, required=path_like)
         if source is None:
             raise SourceError(f"Couldn't find {value} in this chat's files or the workspace. Name a file in this "
-                              "chat, a workspace path, a recording (rec-…) or a video edit (edit-…).")
+                              "chat, a workspace path, a recording (rec-…), a video edit (edit-…) or a video "
+                              "project (vid-…).")
         found.append(source)
     for source in found:
         if source.size_bytes <= 0:
             raise SourceError(f"{source.name} is empty, so there's nothing to send.")
     return found
+
+
+def chat_output(conversation_id: str, source: Source) -> dict[str, Any]:
+    """The chat file a sent or presented file is, as a final: ``attachment_ref``, ``name``, ``mime_type``, and
+    ``was_final`` when it already was one (a generated video already shows in the chat by itself).
+
+    A file a tool made in this chat becomes the final version of its output. A file the person brought
+    stays as it is. A workspace file (a film the agent rendered with its own script) is registered once
+    as a version of its own output, named by its path, and found again while its bytes are the same.
+    ``SourceError`` when it can't be one (too large for a chat, or unreadable).
+    """
+    import hashlib
+
+    from row_bot.application import attachments
+    from row_bot.media_sources import SourceError
+
+    try:
+        if source.ref:
+            metadata = attachments.inspect_attachment(source.ref)
+            lineage = attachments.attachment_lineage(source.ref)
+            if lineage:
+                attachments.set_role(source.ref, "final")
+            return {**{key: metadata[key] for key in ("attachment_ref", "name", "mime_type")},
+                    "was_final": lineage.get("role") == "final"}
+        if source.path is None or source.size_bytes > attachments.MAX_ATTACHMENT_BYTES:
+            raise SourceError(f"{source.name} is larger than a chat can hold "
+                              f"({limit_words(attachments.MAX_ATTACHMENT_BYTES)}).")
+        try:
+            data = source.path.read_bytes()
+        except OSError:
+            raise SourceError(f"{source.name} can't be read.") from None
+        output_id = "ws-" + hashlib.sha256(source.relative.casefold().encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(data).hexdigest()
+        versions = attachments.output_versions(conversation_id, output_id)
+        same = next((item for item in versions if item["sha256"] == digest), None)
+        if same is not None:
+            attachments.set_role(same["attachment_ref"], "final")
+            return {**{key: same[key] for key in ("attachment_ref", "name", "mime_type")},
+                    "was_final": same["role"] == "final"}
+        saved = attachments.register_attachment(
+            conversation_id, source.path.name, data, role="final", output_id=output_id,
+            version=max((int(item["version"]) for item in versions), default=0) + 1, made_from=[source.relative])
+        return {**{key: saved[key] for key in ("attachment_ref", "name", "mime_type")}, "was_final": False}
+    except attachments.AttachmentError as exc:
+        if exc.code == "payload_too_large":
+            raise SourceError(f"{source.name} is larger than a chat can hold "
+                              f"({limit_words(attachments.MAX_ATTACHMENT_BYTES)}).") from None
+        raise SourceError(f"{source.name} couldn't be kept in this chat.") from None
 
 
 def _sources_again(conversation_id: str, kept: list[dict[str, Any]]) -> list[Source]:
@@ -299,6 +368,8 @@ class DeliveredFile:
     size_bytes: int
     mime_type: str
     sent: bool = False
+    # Sent to the devices as the chat's own file: the card plays it; only the delivery's link expires.
+    media_ref: str = ""
 
 
 @dataclass
@@ -512,13 +583,17 @@ def device_problem(sources: list[Source]) -> TargetProblem | None:
 
 
 def send_to_devices(conversation_id: str, sources: list[Source], *, approval: Approval = "not_needed") -> Delivery:
-    """Keep a copy of each file for the person's devices, and tell every open Row-Bot window."""
+    """Send each file to the person's devices as the chat's own file (a copy only for one too large for a chat),
+    and tell every open Row-Bot window."""
 
     sweep_expired()
     delivery = _new(conversation_id, "devices", sources, approval=approval,
                     expires_at=_now() + DEVICE_KEEP_SECONDS)
+    from row_bot.application.attachments import MAX_ATTACHMENT_BYTES
+
     problem = device_problem(sources)
-    if problem is None and _stored_bytes() + sum(source.size_bytes for source in sources) > DEVICE_STORE_LIMIT:
+    copies = sum(source.size_bytes for source in sources if source.size_bytes > MAX_ATTACHMENT_BYTES)
+    if problem is None and copies and _stored_bytes() + copies > DEVICE_STORE_LIMIT:
         problem = TargetProblem("store_full", f"Row-Bot is already holding {limit_words(DEVICE_STORE_LIMIT)} of "
                                 f"files for your devices. They clear out {DEVICE_KEEP_DAYS} days after they're sent.")
     if problem is not None:
@@ -530,7 +605,10 @@ def send_to_devices(conversation_id: str, sources: list[Source], *, approval: Ap
     folder = _files_folder(delivery)
     for index, source in enumerate(sources):
         try:
-            delivery.files[index].size_bytes = _copy(source, folder / str(index), DEVICE_FILE_LIMIT)
+            if source.size_bytes <= MAX_ATTACHMENT_BYTES:
+                delivery.files[index].media_ref = chat_output(conversation_id, source)["attachment_ref"]
+            else:
+                delivery.files[index].size_bytes = _copy(source, folder / str(index), DEVICE_FILE_LIMIT)
             delivery.files[index].sent = True
         except (SourceError, OSError) as exc:
             delivery.detail = str(exc) if isinstance(exc, SourceError) else f"{source.name} couldn't be copied."
@@ -564,6 +642,16 @@ def open_file(delivery_id: str, index: int) -> tuple[str, int, BinaryIO]:
     if delivery.expired():
         _remove(folder)
         raise DeliveryError("sent_file_expired")
+    if item.media_ref:
+        import io
+
+        from row_bot.application.attachments import AttachmentError, read_attachment
+
+        try:
+            data = read_attachment(item.media_ref)[1]
+        except AttachmentError:
+            raise DeliveryError("sent_file_unavailable") from None
+        return item.name, len(data), io.BytesIO(data)
     path = folder / str(index)
     try:
         info = path.lstat()
@@ -799,7 +887,9 @@ def view(delivery: Delivery) -> dict[str, Any]:
         "detail": delivery.detail[:600],
         "limit_bytes": delivery.limit_bytes or None,
         "files": [{"index": index, "name": item.name, "size_bytes": item.size_bytes, "mime_type": item.mime_type,
-                   "sent": item.sent, "downloadable": available and item.sent}
+                   "sent": item.sent, "downloadable": available and item.sent,
+                   "media_ref": item.media_ref if item.sent and delivery.target == "devices" and item.media_ref
+                   else None}
                   for index, item in enumerate(delivery.files)],
         "created_at": _iso(delivery.created_at),
         "expires_at": _iso(delivery.expires_at) if delivery.target == "devices" else None,
@@ -826,8 +916,10 @@ def summary(delivery: Delivery) -> str:
              else delivery.place or delivery.channel_label or "the chat app")
     if delivery.status == "sent":
         if delivery.target == "devices":
-            return (head + f"sent {_names(delivery)} to the person's devices. It shows in this chat with a "
-                    f"Download button on each device signed in to Row-Bot, for {DEVICE_KEEP_DAYS} days.")
+            copied = any(item.sent and not item.media_ref for item in delivery.files)
+            return (head + f"sent {_names(delivery)} to the person's devices: it shows in this chat on each "
+                    "device signed in to Row-Bot" + (f", and a file too large for a chat downloads for "
+                                                     f"{DEVICE_KEEP_DAYS} days." if copied else "."))
         return head + f"sent {_names(delivery)} to {where}."
     if delivery.status == "partly_sent":
         advice = (" Suggest sending the rest to their devices instead (the chat's card has a button for that)."

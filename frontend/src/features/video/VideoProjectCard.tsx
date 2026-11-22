@@ -3,13 +3,16 @@ import { Clapperboard } from 'lucide-react';
 import type { VideoProjectView } from '../../api/types';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { Button, StatusDot } from '../../ui/primitives';
+import { MediaPreview } from '../shell/MediaPreview';
 import { requestVideoPanel } from './open-video';
 import { madeWords, statusWords } from './video-words';
 
 /**
  * A video project a step made or changed (5.3.1 B3), in the chat: its title,
  * the version and whether it's made, with Open, which shows it in the Video
- * panel beside the chat (full screen on a phone). Read again by id.
+ * panel beside the chat (full screen on a phone), and once made its video,
+ * playing here. One card per project: it follows the project's newest version
+ * (read again by id), so a draft updates in place.
  */
 export function VideoProjectCard({
   projectId,
@@ -108,6 +111,16 @@ export function VideoProjectCard({
           Open
         </Button>
       </div>
+      {view?.status === 'made' && view.edit?.media_ref && (
+        <div className="recording-card-preview">
+          <MediaPreview
+            reference={view.edit.media_ref}
+            mime={view.edit.mime_type ?? 'video/mp4'}
+            label={`${view.title} · version ${view.number}`}
+            downloadName={view.edit.output_name}
+          />
+        </div>
+      )}
     </div>
   );
 }

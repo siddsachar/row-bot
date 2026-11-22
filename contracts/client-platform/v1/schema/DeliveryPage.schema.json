@@ -14,6 +14,19 @@
           "title": "Index",
           "type": "integer"
         },
+        "media_ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Ref"
+        },
         "mime_type": {
           "maxLength": 128,
           "title": "Mime Type",

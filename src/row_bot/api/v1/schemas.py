@@ -6973,6 +6973,8 @@ class DeliveryFile(WireModel):
     sent: bool
     # Sent to the person's devices and not expired: the download works with their session.
     downloadable: bool
+    # Sent to the person's devices as the chat's own file: the card plays it inline, after the link expires too.
+    media_ref: str | None = Field(default=None, max_length=512)
 
 
 class DeliveryView(WireModel):
@@ -9527,6 +9529,11 @@ class MediaAvailable(WireModel):
     ]
     # The prompt a media tool made it from, on one line (5.3.3): it names the output in the chat's Outputs.
     prompt: str = Field(default="", max_length=1000)
+    # What it is to the person (finals first): a final (presented, or AI-made), a draft to look at, or a
+    # working file made on the way, which the chat folds away; "" for one from before roles.
+    role: Literal["", "final", "draft", "working"] = ""
+    # A presented final's name in the chat's files.
+    name: str = Field(default="", max_length=240)
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
 
@@ -10024,6 +10031,10 @@ class TraceMediaReference(WireModel):
     mime_type: str = Field(max_length=128)
     # The prompt a media tool made it from, on one line (5.3.3); empty for older chats and other tools.
     prompt: str = Field(default="", max_length=1000)
+    # What it is to the person (finals first): final, draft or working; "" in chats from before roles.
+    role: Literal["", "final", "draft", "working"] = ""
+    # A presented final's name in the chat's files.
+    name: str = Field(default="", max_length=240)
 
 
 class TraceAppRef(WireModel):

@@ -6,6 +6,7 @@ import type {
 } from '../../api/types';
 import {
   buildTranscript,
+  foldLive,
   keepUnchanged,
   liveMedia,
   liveTurn,
@@ -126,7 +127,10 @@ function reading(items: TranscriptItem[]) {
     ),
     ...item.media.map((media) => `media: ${media.reference}`),
     ...item.cards.map((card) => `card: ${cardKey(card)}`),
-    ...(item.earlier ?? []).map((card) => `earlier: ${cardKey(card)}`),
+    ...(item.working?.media ?? []).map(
+      (media) => `working: ${media.reference}`,
+    ),
+    ...(item.working?.cards ?? []).map((card) => `working: ${cardKey(card)}`),
   ]);
 }
 
@@ -294,7 +298,7 @@ describe('a turn of several steps', () => {
     expect(reading(saved)).toEqual(live);
   });
 
-  it('folds earlier videos under the newest, in the step that made it (#743)', () => {
+  it('folds each edit into its own step as a working file (finals first)', () => {
     const run = new LiveRun();
     const edit = (id: string) => ({ kind: 'video_edit', edit_id: id });
     run.say('s1', 'Recording the page.');
@@ -303,20 +307,14 @@ describe('a turn of several steps', () => {
     run.say('s2', 'Trimming it.');
     run.call('s2', 'c2', 'edit_video');
     run.done('s2', 'c2', 'edit_video', { specialization: edit('e2') });
-    run.say('s3', 'And a slower cut.');
-    run.call('s3', 'c3', 'edit_video');
-    run.done('s3', 'c3', 'edit_video', { specialization: edit('e3') });
     expect(reading(run.items())).toEqual([
       'text: Make the sign-up videos.',
       'text: Recording the page.',
       'step: edit_video',
+      'working: video_edit:e1',
       'text: Trimming it.',
       'step: edit_video',
-      'text: And a slower cut.',
-      'step: edit_video',
-      'card: video_edit:e3',
-      'earlier: video_edit:e1',
-      'earlier: video_edit:e2',
+      'working: video_edit:e2',
     ]);
   });
 
@@ -503,3 +501,282 @@ function savedTrace(
     ],
   };
 }
+
+describe('finals first', () => {
+  const media = (
+    reference: string,
+    extra: Record<string, string> = {},
+  ): TranscriptTraceGroup['items'][number]['specialization'] => ({
+    kind: 'media',
+    media_kind: 'attachment',
+    media: [
+      {
+        media_ref: reference,
+        mime_type: reference.startsWith('video') ? 'video/mp4' : 'image/png',
+        ...extra,
+      },
+    ],
+  });
+  const reply = (
+    id: string,
+    traces: TranscriptTraceGroup[],
+    text = '',
+  ): TranscriptRow => ({
+    id: `assistant:checkpoint:${id}`,
+    message_id: id,
+    role: 'assistant',
+    blocks: text ? [{ id: `${id}-text`, type: 'markdown', text }] : [],
+    traces,
+  });
+  const person = (id: string, text: string): TranscriptRow => ({
+    id: `user:${id}`,
+    role: 'user',
+    blocks: [{ type: 'text', text }],
+  });
+  const card = (kind: string, field: string, id: string) =>
+    ({
+      kind,
+      [field]: id,
+    }) as unknown as TranscriptTraceGroup['items'][number]['specialization'];
+
+  it('shows finals and AI media inline and folds working files in every turn', () => {
+    const items = buildTranscript([
+      person('1', 'Make a birthday montage.'),
+      reply(
+        'a1',
+        [
+          savedTrace(
+            'c1',
+            'generate_video',
+            media('video-ai', { role: 'final' }),
+          ),
+          savedTrace(
+            'c2',
+            'Browser Record',
+            card('recording', 'recording_id', 'rec-00000001'),
+          ),
+          savedTrace(
+            'c3',
+            'edit_video',
+            card('video_edit', 'edit_id', 'edit-0000000a'),
+          ),
+          savedTrace(
+            'c4',
+            'analyze_image',
+            media('image-sheet', { role: 'working' }),
+          ),
+        ],
+        'Working on it.',
+      ),
+      person('2', 'Keep going.'),
+      reply(
+        'a2',
+        [
+          savedTrace(
+            'c5',
+            'Browser Screenshot',
+            media('image-shot', { role: 'working' }),
+          ),
+          // A contact sheet from before roles is a working file too.
+          savedTrace('c6', 'analyze_image', media('image-old-sheet')),
+          savedTrace(
+            'c7',
+            'present',
+            media('video-final', {
+              role: 'final',
+              name: 'Birthday montage.mp4',
+              prompt: 'For Sam',
+            }),
+          ),
+        ],
+        'Here it is.',
+      ),
+    ]);
+    expect(reading(items)).toEqual([
+      'text: Make a birthday montage.',
+      'text: Working on it.',
+      'step: generate_video',
+      'step: Browser Record',
+      'step: edit_video',
+      'step: analyze_image',
+      'media: video-ai',
+      'working: image-sheet',
+      'working: recording:rec-00000001',
+      'working: video_edit:edit-0000000a',
+      'text: Keep going.',
+      'text: Here it is.',
+      'step: Browser Screenshot',
+      'step: analyze_image',
+      'step: present',
+      'media: video-final',
+      'working: image-shot',
+      'working: image-old-sheet',
+    ]);
+    const [final] = items[3].media;
+    expect(final).toMatchObject({
+      presented: true,
+      label: 'Birthday montage.mp4',
+      caption: 'For Sam',
+    });
+  });
+
+  it('never shows a final twice: presenting a shown video marks it final', () => {
+    const items = buildTranscript([
+      person('1', 'A clip of waves.'),
+      reply(
+        'a1',
+        [
+          savedTrace(
+            'c1',
+            'generate_video',
+            media('video-ai', { role: 'final' }),
+          ),
+        ],
+        'Made.',
+      ),
+      person('2', 'That one is perfect.'),
+      reply(
+        'a2',
+        [
+          savedTrace(
+            'c2',
+            'present',
+            media('video-ai', { role: 'final', name: 'waves.mp4' }),
+          ),
+        ],
+        'Final.',
+      ),
+    ]);
+    expect(items[1].media).toEqual([
+      expect.objectContaining({ reference: 'video-ai', final: true }),
+    ]);
+    expect(items[3].media).toEqual([]);
+  });
+
+  it('shows a draft once per output, where it last changed, and folds it once the final is presented', () => {
+    const project = card('video_project', 'project_id', 'vid-00000001');
+    const items = buildTranscript([
+      person('1', 'Make a tutorial.'),
+      reply(
+        'a1',
+        [savedTrace('c1', 'video', project)],
+        'Version 1 to look at.',
+      ),
+      person('2', 'Shorter intro.'),
+      reply('a2', [savedTrace('c2', 'video', project)], 'Version 2.'),
+      person('3', 'Good, that is it.'),
+      reply(
+        'a3',
+        [
+          savedTrace('c3', 'video', project),
+          savedTrace(
+            'c4',
+            'present',
+            media('video-v3', { role: 'final', name: 'Tutorial.mp4' }),
+          ),
+        ],
+        'Here is the final.',
+      ),
+    ]);
+    expect(items.map((item) => item.cards.map(cardKey))).toEqual([
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+    ]);
+    expect(items[5].working?.cards.map(cardKey)).toEqual([
+      'video_project:vid-00000001',
+    ]);
+    const asked = buildTranscript([
+      person('1', 'Make a tutorial.'),
+      reply('a1', [savedTrace('c1', 'video', project)], 'Version 1.'),
+      person('2', 'Shorter intro.'),
+      reply(
+        'a2',
+        [savedTrace('c2', 'video', project)],
+        'Version 2 to look at.',
+      ),
+    ]);
+    expect(asked.map((item) => item.cards.map(cardKey))).toEqual([
+      [],
+      [],
+      [],
+      ['video_project:vid-00000001'],
+    ]);
+  });
+
+  it('folds the turn in flight the same way, live', () => {
+    const items = buildTranscript([
+      person('1', 'Make a tutorial.'),
+      reply(
+        'a1',
+        [
+          savedTrace(
+            'c1',
+            'video',
+            card('video_project', 'project_id', 'vid-00000001'),
+          ),
+        ],
+        'Version 1.',
+      ),
+    ]);
+    const activity = [
+      record('media.available', {
+        media_ref: 'image-shot',
+        mime_type: 'image/png',
+        role: 'working',
+      }),
+      record('media.available', {
+        media_ref: 'video-ai',
+        mime_type: 'video/mp4',
+        role: 'final',
+      }),
+    ];
+    const live = foldLive(
+      items,
+      [
+        { kind: 'recording', recordingId: 'rec-00000002' },
+        { kind: 'video_project', projectId: 'vid-00000001' },
+      ],
+      liveMedia(activity, new Set()),
+    );
+    expect(live.media.map((value) => value.reference)).toEqual(['video-ai']);
+    expect(live.working.media.map((value) => value.reference)).toEqual([
+      'image-shot',
+    ]);
+    expect(live.working.cards).toEqual([
+      { kind: 'recording', recordingId: 'rec-00000002' },
+    ]);
+    // The draft moves to the turn in flight: one card per output.
+    expect(live.cards).toEqual([
+      { kind: 'video_project', projectId: 'vid-00000001' },
+    ]);
+    expect(live.items[1].cards).toEqual([]);
+    // A final the turn presents folds its draft.
+    const presented = foldLive(
+      items,
+      [{ kind: 'video_project', projectId: 'vid-00000001' }],
+      liveMedia(
+        [
+          record('media.available', {
+            media_ref: 'video-v2',
+            mime_type: 'video/mp4',
+            role: 'final',
+            name: 'Tutorial.mp4',
+          }),
+        ],
+        new Set(),
+      ),
+    );
+    expect(presented.cards).toEqual([]);
+    expect(presented.working.cards).toEqual([
+      { kind: 'video_project', projectId: 'vid-00000001' },
+    ]);
+    expect(presented.media[0]).toMatchObject({
+      presented: true,
+      label: 'Tutorial.mp4',
+    });
+  });
+});

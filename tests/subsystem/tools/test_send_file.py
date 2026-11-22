@@ -154,12 +154,45 @@ def test_a_downloaded_copy_stays_the_file_as_sent(chat):
         assert handle.read() == b"Notes for the meeting.\n"
 
 
-def test_the_download_ends_when_its_copy_expires(chat, monkeypatch):
+def _too_big_for_a_chat(chat, monkeypatch) -> str:
+    """A workspace file larger than a chat can hold (the chat's limit made small): it goes as a copy."""
+    from row_bot.application import attachments
+
+    monkeypatch.setattr(attachments, "MAX_ATTACHMENT_BYTES", 4096)
+    (chat.workspace / "film.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom" + b"x" * 8192)
+    return "film.mp4"
+
+
+def test_a_file_sent_to_your_devices_is_the_chats_own_file_and_only_its_link_expires(chat, monkeypatch):
+    from row_bot.application.attachments import attachment_lineage, list_conversation_files, read_attachment
     from row_bot.file_deliveries import DEVICE_KEEP_SECONDS, DeliveryError
 
-    delivery = _delivery(chat.send(files=["report.pdf"]))
+    (chat.workspace / "cut.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom" + b"v" * 512)
+    delivery = _delivery(chat.send(files=["report.pdf", "cut.mp4"]))
+    assert not chat.deliveries._files_folder(delivery).exists()  # No copy: the chat's own files.
+    view = chat.deliveries.view(delivery)
+    report = next(item for item in list_conversation_files(chat.conversation) if item["name"] == "report.pdf")
+    first, film = view["files"]
+    assert first["media_ref"] == report["attachment_ref"]  # The file already in the chat, not a second one.
+    assert read_attachment(film["media_ref"])[1].startswith(b"\x00\x00\x00\x18ftyp")
+    assert attachment_lineage(film["media_ref"])["role"] == "final"  # A workspace film became a chat final.
+    monkeypatch.setattr(chat.deliveries, "_now", lambda: delivery.created_at + DEVICE_KEEP_SECONDS + 1)
+
+    with pytest.raises(DeliveryError) as refused:
+        chat.deliveries.open_file(delivery.delivery_id, 1)
+    assert refused.value.code == "sent_file_expired"  # The phone's link ends ...
+    view = chat.deliveries.view(delivery)
+    assert view["status"] == "expired" and not view["files"][1]["downloadable"]
+    assert view["files"][1]["media_ref"] == film["media_ref"]  # ... the chat's card still plays it.
+    assert read_attachment(film["media_ref"])[1].startswith(b"\x00\x00\x00\x18ftyp")
+
+
+def test_the_copy_of_a_file_too_big_for_a_chat_ends_when_it_expires(chat, monkeypatch):
+    from row_bot.file_deliveries import DEVICE_KEEP_SECONDS, DeliveryError
+
+    delivery = _delivery(chat.send(files=[_too_big_for_a_chat(chat, monkeypatch)]))
     folder = chat.deliveries._files_folder(delivery)
-    assert folder.is_dir()
+    assert folder.is_dir() and chat.deliveries.view(delivery)["files"][0]["media_ref"] is None
     later = delivery.created_at + DEVICE_KEEP_SECONDS + 1
     monkeypatch.setattr(chat.deliveries, "_now", lambda: later)
 
@@ -174,7 +207,7 @@ def test_the_download_ends_when_its_copy_expires(chat, monkeypatch):
 def test_start_up_removes_expired_copies(chat, monkeypatch):
     from row_bot.file_deliveries import DEVICE_KEEP_SECONDS
 
-    old = _delivery(chat.send(files=["report.pdf"]))
+    old = _delivery(chat.send(files=[_too_big_for_a_chat(chat, monkeypatch)]))
     monkeypatch.setattr(chat.deliveries, "_now", lambda: old.created_at + DEVICE_KEEP_SECONDS + 1)
     assert chat.deliveries.sweep() == 1
     assert not chat.deliveries._files_folder(old).exists()
@@ -191,10 +224,10 @@ def test_a_file_too_big_for_your_devices_is_not_kept(chat, monkeypatch):
     assert chat.notices.since(0) == []
 
 
-def test_deleting_the_conversation_removes_its_sent_files(chat):
+def test_deleting_the_conversation_removes_its_sent_files(chat, monkeypatch):
     from row_bot.thread_cleanup import _purge_thread_files
 
-    delivery = _delivery(chat.send(files=["report.pdf"]))
+    delivery = _delivery(chat.send(files=[_too_big_for_a_chat(chat, monkeypatch)]))
     folder = chat.deliveries._files_folder(delivery)
     assert folder.exists()
     _purge_thread_files(chat.conversation)

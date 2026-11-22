@@ -15,7 +15,7 @@ browser_extract: 273
 browser_navigate: 447
 browser_press: 419
 browser_record: 1091
-browser_screenshot: 317
+browser_screenshot: 334
 browser_scroll: 461
 browser_select: 367
 browser_tabs: 443
@@ -78,6 +78,7 @@ media_tag: 456
 page_create: 788
 page_read: 495
 page_update: 612
+present: 797
 read_terminal: 411
 read_tool_output: 456
 read_url: 528
@@ -99,7 +100,7 @@ sandbox: 1204
 save_memory: 646
 search_conversations: 768
 search_memory: 506
-send_file: 885
+send_file: 864
 speak: 875
 start_process: 901
 stop_process: 306
@@ -128,8 +129,8 @@ workspace_copy_file: 395
 workspace_file_delete: 254
 workspace_find: 423
 workspace_move_file: 397
-workspace_read_file: 620
+workspace_read_file: 626
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (134 tools): 87918
+TOTAL (135 tools): 88717

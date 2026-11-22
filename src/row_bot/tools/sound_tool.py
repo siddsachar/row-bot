@@ -32,7 +32,7 @@ def _save(name: str, data: bytes, conversation: str = "") -> str:
     if not conversation:
         raise ValueError("This works in a conversation.")
     try:
-        return str(register_attachment(conversation, name, data)["name"])
+        return str(register_attachment(conversation, name, data, role="working")["name"])
     except AttachmentError as error:
         if str(error) == "payload_too_large":
             raise ValueError("The result is too large to keep in the chat (over 200 MB): make it shorter.") from None
