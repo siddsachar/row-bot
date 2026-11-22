@@ -6,7 +6,7 @@ link, at most 64 KiB of UTF-8, with one trailing newline dropped. A variable win
 
 Errors name the setting and what is wrong with it, never its value: some settings are secrets.
 ``ROW_BOT_ORG_DATABASE_URL``, ``ROW_BOT_ORG_MIGRATION_DATABASE_URL``, ``ROW_BOT_ORG_HMAC_PEPPER`` and
-``ROW_BOT_ORG_IDP_CLIENT_SECRETS`` are: ``remove_secret_variables`` takes them out of the process
+``ROW_BOT_ORG_IDP_CLIENT_SECRETS`` and ``ROW_BOT_ORG_GATEWAY_KEY`` are: ``remove_secret_variables`` takes them out of the process
 environment once read, so no program the server starts inherits them, and they never appear in the
 settings' ``repr``.
 
@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from row_bot_org.gateway.settings import GATEWAY_KEY_SUFFIX, parse_gateway_key
 from row_bot_org.identity.config import IdpConfig, IdpConfigError, is_loopback_host, parse_credentials, parse_idps
 
 ENV_PREFIX = "ROW_BOT_ORG_"
@@ -41,8 +42,10 @@ HMAC_PEPPER_ENV = ENV_PREFIX + "HMAC_PEPPER"
 IDPS_ENV = ENV_PREFIX + "IDPS"
 IDP_CLIENT_SECRETS_ENV = ENV_PREFIX + "IDP_CLIENT_SECRETS"
 PUBLIC_URL_ENV = ENV_PREFIX + "PUBLIC_URL"
+GATEWAY_KEY_ENV = ENV_PREFIX + GATEWAY_KEY_SUFFIX
 # Taken out of the environment as soon as they are read (remove_secret_variables).
-SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV, HMAC_PEPPER_ENV, IDP_CLIENT_SECRETS_ENV)
+SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV, HMAC_PEPPER_ENV, IDP_CLIENT_SECRETS_ENV,
+                    GATEWAY_KEY_ENV)
 MIN_PEPPER_LENGTH = 32
 _PR_SET_DUMPABLE = 4
 
@@ -80,6 +83,8 @@ class OrgSettings:
     # A server session ends this many seconds after sign-in, or after this many without a request.
     session_lifetime: int = 12 * 3600
     session_idle_timeout: int = 3600
+    # The model gateway's server key (row_bot_org.gateway.settings). A secret.
+    gateway_key: bytes | None = dataclass_field(default=None, repr=False)
 
 
 class _Invalid(Exception):
@@ -171,6 +176,13 @@ def _json_text(raw: str) -> str:
     return raw.strip()
 
 
+def _gateway_key(raw: str) -> bytes:
+    try:
+        return parse_gateway_key(raw)
+    except ValueError as problem:
+        raise _Invalid(str(problem)) from None
+
+
 def _credentials(raw: str) -> dict[str, Any]:
     try:
         return parse_credentials(raw)
@@ -193,6 +205,7 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "HMAC_PEPPER": ("hmac_pepper", _pepper),
     "SESSION_LIFETIME": ("session_lifetime", _session_seconds),
     "SESSION_IDLE_TIMEOUT": ("session_idle_timeout", _session_seconds),
+    GATEWAY_KEY_SUFFIX: ("gateway_key", _gateway_key),
     # Combined after the loop: the providers need their credentials.
     "IDPS": ("idps", _json_text),
     "IDP_CLIENT_SECRETS": ("idp_credentials", _credentials),
@@ -305,7 +318,7 @@ def keep_environment_private() -> None:
 
 
 __all__ = [
-    "DATABASE_URL_ENV", "ENV_PREFIX", "HMAC_PEPPER_ENV", "IDPS_ENV", "IDP_CLIENT_SECRETS_ENV",
+    "DATABASE_URL_ENV", "ENV_PREFIX", "GATEWAY_KEY_ENV", "HMAC_PEPPER_ENV", "IDPS_ENV", "IDP_CLIENT_SECRETS_ENV",
     "MIGRATION_DATABASE_URL_ENV", "PUBLIC_URL_ENV", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings",
     "SettingsError", "keep_environment_private", "load_settings", "remove_secret_variables",
 ]

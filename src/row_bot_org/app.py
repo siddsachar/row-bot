@@ -6,7 +6,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -49,12 +51,20 @@ class _SecurityHeaders:
         await self.app(scope, receive, send_with_headers)
 
 
+async def _invalid_request(_request: Request, error: Exception) -> JSONResponse:
+    """FastAPI's 422 without the ``input`` and ``ctx`` it echoes: a refused body may carry a key."""
+    errors = error.errors() if isinstance(error, RequestValidationError) else []
+    return JSONResponse({"detail": [{"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")}
+                                    for e in errors]}, status_code=422)
+
+
 def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> FastAPI:
     """The server for ``settings``: health, readiness and, with identity providers, sign-in.
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
-    and ``settings.idps`` it serves sign-in (``row_bot_org.identity``). Every other path needs a server
+    and ``settings.idps`` it serves sign-in (``row_bot_org.identity``), and with ``settings.gateway_key`` too
+    the model catalog and gateway (``row_bot_org.gateway``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
     """
     service = None
@@ -62,6 +72,11 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         from row_bot_org.identity.web import IdentityService
 
         service = IdentityService(settings, pool)
+    gateway = None
+    if service is not None and settings.gateway_key is not None:
+        from row_bot_org.gateway.web import GatewayService
+
+        gateway = GatewayService(settings, pool)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -86,6 +101,7 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     )
     app.state.settings = settings
     app.state.readiness = Readiness()
+    app.add_exception_handler(RequestValidationError, _invalid_request)
     if pool is not None:
         from row_bot_org.db.checks import database_readiness
         from row_bot_org.db.migrations import load_migrations
@@ -98,6 +114,10 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
         app.state.identity = service
         routers.append(identity_router(service))
+    if gateway is not None:
+        from row_bot_org.gateway.web import gateway_router
+
+        routers.append(gateway_router(gateway))
     for router in routers:
         app.include_router(router)
     open_paths = OPEN_PATHS | ({"/openapi.json"} if settings.openapi else set())
