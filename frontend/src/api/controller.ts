@@ -331,6 +331,7 @@ export class ClientController {
         realtime_available: false,
         talk_reason: 'host_unavailable',
         realtime_reason: 'host_unavailable',
+        read_aloud_reason: 'host_unavailable',
       }
     );
   }
@@ -460,6 +461,15 @@ export class ClientController {
   async speechTest(signal: AbortSignal) {
     if (!this.transport.speechTest) throw { code: 'capability_unavailable' };
     return this.transport.speechTest(signal);
+  }
+  async readAloud(
+    conversationId: string,
+    messageId: string,
+    part: number,
+    signal: AbortSignal,
+  ) {
+    if (!this.transport.readAloud) throw { code: 'capability_unavailable' };
+    return this.transport.readAloud(conversationId, messageId, part, signal);
   }
   async realtimeEvent(
     scope: DictationScope,

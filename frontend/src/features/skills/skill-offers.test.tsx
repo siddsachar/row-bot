@@ -9,8 +9,12 @@ import {
   type SkillOffers,
 } from './skill-offers';
 
+const controller = vi.hoisted(() => ({
+  // Read aloud asks once whether its voice is installed.
+  dictationCapability: async () => ({ read_aloud_reason: 'available' }),
+}));
 vi.mock('../../runtime', () => ({
-  useRuntime: () => ({ controller: {} }),
+  useRuntime: () => ({ controller }),
 }));
 
 const reply = {
