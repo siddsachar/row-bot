@@ -209,6 +209,36 @@
   background: var(--surface);
   box-shadow: var(--shadow-overlay);
 }
+/* Live voice: what goes to the provider, said before its first use. */
+.voice-live-disclosure {
+  position: absolute;
+  z-index: 21;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+}
+.voice-live-disclosure p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-live-disclosure-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.voice-live-disclosure .button {
+  justify-self: start;
+}
 .voice-bar-actions {
   display: flex;
   align-items: center;

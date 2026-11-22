@@ -840,12 +840,28 @@ class VoiceTtsSettingsSnapshot(WireModel):
     speed: float = Field(ge=0.5, le=2.0)
 
 
+LiveVoiceId = Literal["openai", "gemini", "grok"]
+LiveVoiceTransport = Literal["openai_realtime", "gemini_live", "grok_voice"]
+
+
+class LiveVoiceProvider(WireModel):
+    """A Live voice option: who hears the audio, its approximate price, and whether its key is saved."""
+
+    id: LiveVoiceId
+    label: str = Field(max_length=64)
+    company: str = Field(max_length=64)
+    price: str = Field(max_length=64)
+    price_checked: str = Field(max_length=32)
+    available: bool
+    reason: Literal["available", "realtime_key_missing", "host_unavailable"]
+
+
 class VoiceSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     runtime: VoiceRuntimeSettingsSnapshot
     local: VoiceLocalSettingsSnapshot
     tts: VoiceTtsSettingsSnapshot
-    openai_realtime_credential: SettingsCredentialState
+    live_providers: list[LiveVoiceProvider] = Field(max_length=8)
     talk_providers: list[SettingsChoice] = Field(max_length=8)
     dictation_providers: list[SettingsChoice] = Field(max_length=8)
     speech_output_providers: list[SettingsChoice] = Field(max_length=8)
@@ -11321,6 +11337,7 @@ class DictationCapability(WireModel):
     realtime_reason: str = Field(default="host_unavailable", max_length=128)
     # Read aloud on a reply: "available", or the code saying what it needs (kokoro_model_missing).
     read_aloud_reason: str = Field(default="host_unavailable", max_length=128)
+    live_providers: list[LiveVoiceProvider] = Field(default_factory=list, max_length=8)
 
 
 class DictationStart(WireModel):
@@ -11361,6 +11378,8 @@ class TalkStart(WireModel):
     conversation_revision: Revision
     model_selection: ModelSelection
     write_targets: list[WriteTarget] = Field(max_length=2)
+    # Live voice only: the front to talk to (Row-Bot Voice ignores it).
+    live_provider: LiveVoiceId = "openai"
 
 
 class TalkSnapshot(WireModel):
@@ -11386,16 +11405,6 @@ class VoiceTicket(WireModel):
     expires_in_ms: int = Field(ge=0, le=30000)
 
 
-class VoiceRunView(WireModel):
-    handle: DictationHandle
-    run_id: OpaqueId | None
-    state: Literal[
-        "idle", "running", "stopping", "completed", "stopped", "failed", "interrupted"
-    ]
-    output_id: OpaqueId | None
-    text: str | None = Field(max_length=4000)
-
-
 class ReadAloudRequest(WireModel):
     """Which part of a saved reply to speak; the reply's words are read on the server, never sent."""
 
@@ -11409,57 +11418,16 @@ class RealtimeSnapshot(WireModel):
     quiesced: bool
     expires_in_ms: int = Field(ge=0, le=120000)
     run_id: OpaqueId | None
-    transport: Literal["openai_realtime"]
+    transport: LiveVoiceTransport
 
 
 class RealtimeStart(WireModel):
     snapshot: RealtimeSnapshot
-    client_secret: str | None = Field(max_length=4096)
-    secret_expires_in_ms: int = Field(ge=0, le=60000)
+    # OpenAI Realtime: the host exchanges the call's SDP with an ephemeral secret it keeps.
     exchange_available: bool = False
-
-
-class RealtimeEvent(WireModel):
-    event_id: UUID
-    type: Literal[
-        "connected",
-        "disconnected",
-        "fatal_error",
-        "speech_started",
-        "speech_stopped",
-        "transcript_final",
-        "assistant_transcript_final",
-        "function_call_ready",
-        "consult_fallback_needed",
-        "output_started",
-        "output_item_started",
-        "response_done",
-        "response_cancelled",
-        "output_audio_done",
-        "barge_in_cancelled",
-    ]
-    generation_id: str = Field(default="", max_length=128)
-    response_id: str = Field(default="", max_length=128)
-    output_item_id: str = Field(default="", max_length=128)
-    item_id: str = Field(default="", max_length=128)
-    call_id: str = Field(default="", max_length=128)
-    name: str = Field(default="", max_length=128)
-    arguments: str = Field(default="", max_length=8192)
-    text: str = Field(default="", max_length=4000)
-
-
-class RealtimeEventRequest(DictationIdentity):
-    event: RealtimeEvent
-
-
-class RealtimeEventResult(WireModel):
-    snapshot: RealtimeSnapshot
-    event_id: UUID
-    accepted: bool
-    caption: str = Field(max_length=4000)
-    call_id: str = Field(max_length=128)
-    function_output: str = Field(max_length=8192)
-    silent: bool
+    # Single use, for the first message on /api/v1/voice/live (events, and a relayed front's audio).
+    ticket: str = Field(min_length=20, max_length=128)
+    ticket_expires_in_ms: int = Field(ge=0, le=60000)
 
 
 class StreamReset(WireModel):

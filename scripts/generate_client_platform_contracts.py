@@ -114,7 +114,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
-    "TalkStart", "TalkSnapshot", "TalkStarted", "VoiceTicket", "ReadAloudRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
+    "TalkStart", "TalkSnapshot", "TalkStarted", "VoiceTicket", "ReadAloudRequest", "RealtimeSnapshot", "RealtimeStart", "DefaultModelSnapshot",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
     "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
@@ -204,10 +204,8 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/voice/realtime", "TalkStart", "RealtimeStart"),
     ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}", None, "RealtimeSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/stop", "DictationIdentity", "RealtimeSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/heartbeat", "DictationIdentity", "RealtimeSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/event", "RealtimeEventRequest", "RealtimeEventResult"),
+    ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/ticket", "DictationIdentity", "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange", "bytes", "bytes"),
-    ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}/run", None, "VoiceRunView"),
     ("post", "/settings/voice/speech-test", None, "bytes"),
     ("post", "/conversations/{conversation_id}/read-aloud/{message_id}", "ReadAloudRequest", "bytes"),
     ("get", "/settings/providers", None, "ProviderStatusSnapshot"),
@@ -751,8 +749,6 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
-  const voiceEvent = /\/voice\/realtime\/[^/]+\/event$/.test(path);
-  const eventType = body && typeof body === 'object' && 'event' in body && body.event && typeof body.event === 'object' && 'type' in body.event ? body.event.type : undefined;
   const type = body && typeof body === 'object' && 'type' in body ? body.type : undefined;
   const intent = body && typeof body === 'object' && 'payload' in body ? body.payload : body;
   const operation = intent && typeof intent === 'object' && 'operation' in intent ? intent.operation : undefined;
@@ -762,11 +758,11 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
     || method === 'DELETE' && /^\/uploads\/[^/]+$/.test(path);
   // Draft autosaves, uploads and ordinary commands consume one server bucket.
   // Stop/approval/cancel and ACK retain their independent admission paths.
-  if (control || mcpCleanup || type === 'provider.subscription.cancel' || type === 'buddy.cancel' || /\/settings\/providers\/subscriptions\/(?:starts|probes)\/[^/]+\/cancel$/.test(path) || method === 'DELETE' && path === '/settings/providers/subscriptions/flows' || /^\/subscriptions\/[^/]+\/ack$/.test(path) || /\/voice\/(?:talk|realtime)\/[^/]+\/(?:stop|heartbeat)$/.test(path)) return;
+  if (control || mcpCleanup || type === 'provider.subscription.cancel' || type === 'buddy.cancel' || /\/settings\/providers\/subscriptions\/(?:starts|probes)\/[^/]+\/cancel$/.test(path) || method === 'DELETE' && path === '/settings/providers/subscriptions/flows' || /^\/subscriptions\/[^/]+\/ack$/.test(path) || /\/voice\/(?:talk|realtime)\/[^/]+\/stop$/.test(path)) return;
   // The desktop terminal sends each typed key and reads its echo (B248); the Browser pane sends the person's keys.
   const terminal = method !== 'DELETE' && /^\/native\/terminals\/[^/?]+(?:\/(?:input|resize))?(?:\?|$)/.test(path)
     || method === 'POST' && /^\/conversations\/[^/]+\/browser\/input$/.test(path);
-  const lane = terminal ? 'terminal' : observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
+  const lane = terminal ? 'terminal' : observation ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
   let lanes = budgets.get(proof);
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
   const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
@@ -2126,35 +2122,19 @@ export const stopTalk = (base: string, proof: SessionProof, handle: DictationHan
   return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/stop`, 'TalkSnapshot', proof, 'POST',
     {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
 };
-export const talkTicket = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<VoiceTicket> => {
+export const talkTicket = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal, mode: 'talk' | 'realtime' = 'talk'): Promise<VoiceTicket> => {
   validateWire('DictationHandle', handle);
-  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/ticket`, 'VoiceTicket', proof, 'POST',
+  if (mode !== 'talk' && mode !== 'realtime') throw new Error('invalid_command');
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/ticket`, 'VoiceTicket', proof, 'POST',
     {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
 };
 export const startRealtime = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<RealtimeStart> =>
   jsonRequest(base, `/conversations/${id(conversation)}/voice/realtime`, 'RealtimeStart', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
-export function voiceControl(base: string, proof: SessionProof, mode: 'realtime', handle: DictationHandle, action: 'stop' | 'heartbeat', signal?: AbortSignal): Promise<RealtimeSnapshot> {
+export function stopRealtime(base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<RealtimeSnapshot> {
   validateWire('DictationHandle', handle);
-  if (mode !== 'realtime' || !['stop','heartbeat'].includes(action)) throw new Error('invalid_command');
-  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/${action}`,
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/realtime/${id(handle.lease_id)}/stop`,
     'RealtimeSnapshot', proof, 'POST',
     {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
-}
-export const realtimeEvent = (base: string, proof: SessionProof, handle: DictationHandle, event: RealtimeEvent, signal?: AbortSignal): Promise<RealtimeEventResult> => {
-  validateWire('DictationHandle', handle);
-  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/realtime/${id(handle.lease_id)}/event`,
-    'RealtimeEventResult', proof, 'POST', validateWire('RealtimeEventRequest',
-    {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch, event}), undefined, signal);
-};
-export async function voiceRun(base: string, proof: SessionProof, mode: 'realtime', handle: DictationHandle, signal?: AbortSignal): Promise<VoiceRunView> {
-  validateWire('DictationHandle', handle);
-  if (mode !== 'realtime') throw new Error('invalid_command');
-  const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/run`, {
-    credentials:'same-origin', cache:'no-store', signal,
-    headers:{...proofHeaders(proof), 'X-Voice-Session-Id':String(handle.voice_session_id), 'X-Server-Epoch':handle.server_epoch}});
-  const value = await response.json();
-  if (!response.ok) throw validateWire<Problem>('Problem', value);
-  return validateWire('VoiceRunView', value);
 }
 export async function realtimeExchange(base: string, proof: SessionProof, handle: DictationHandle, sdp: string, signal?: AbortSignal): Promise<string> {
   validateWire('DictationHandle', handle);

@@ -25,20 +25,16 @@ def realtime_bridge_tool_declarations() -> list[dict[str, Any]]:
             "type": "function",
             "name": "row_bot_agent_consult",
             "description": (
-                f"Delegate substantive user requests to the normal {APP_DISPLAY_NAME} agent. "
-                "Use this for facts, memory, files, browser/computer control, "
-                f"tools, approvals, and any work that should be done by {APP_DISPLAY_NAME}."
+                f"Ask the {APP_DISPLAY_NAME} agent to handle the person's request: facts, current "
+                "information, memory, files, the computer or browser, or any action. It returns "
+                "the answer to say."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "request": {
                         "type": "string",
-                        "description": "The user's substantive request or question.",
-                    },
-                    "context": {
-                        "type": "string",
-                        "description": "Optional short voice-turn context.",
+                        "description": "The person's request in their words, with any detail from the conversation it needs.",
                     },
                 },
                 "required": ["request"],
@@ -85,19 +81,6 @@ def realtime_bridge_tool_declarations() -> list[dict[str, Any]]:
             },
         },
     ]
-
-
-_NON_ACTIONABLE_UTTERANCES = {
-    "thanks",
-    "thank you",
-    "okay",
-    "ok",
-    "got it",
-    "never mind",
-    "nevermind",
-    "bye",
-    "goodbye",
-}
 
 
 class VoiceAgentBridge:
@@ -198,64 +181,10 @@ class VoiceAgentBridge:
                     speakable="",
                 ),
             }
-        active_gen = self._active_generation()
-        if self._matches_active_forced_consult(active_gen, request):
-            setattr(active_gen, "realtime_tool_call_id", call_id)
-            setattr(active_gen, "realtime_tool_name", clean_name)
-            setattr(active_gen, "realtime_forced_consult", False)
-            logger.info(
-                "voice.realtime.pipeline %s",
-                {
-                    "stage": "bridge_consult_deduped",
-                    "call_id": call_id,
-                    "request_chars": len(request),
-                },
-            )
-            return {"handled": True, "deferred": True, "output": ""}
         if queue_consult:
             queue_consult({"call_id": call_id, "name": clean_name, "request": request})
         await self.submit_user_transcript(request)
         return {"handled": True, "deferred": True, "output": ""}
-
-    async def force_consult_if_substantive(
-        self,
-        transcript: str,
-        *,
-        queue_consult: Callable[[dict[str, Any]], None] | None = None,
-    ) -> dict[str, Any]:
-        clean = str(transcript or "").strip()
-        if not self.should_force_consult(clean):
-            return {"handled": False, "status": "skipped"}
-        if self._matches_active_forced_consult(self._active_generation(), clean):
-            logger.info(
-                "voice.realtime.pipeline %s",
-                {"stage": "bridge_forced_consult_deduped", "request_chars": len(clean)},
-            )
-            return {"handled": True, "status": "deduped"}
-        if queue_consult:
-            queue_consult({"call_id": "", "name": "forced_consult", "request": clean})
-        await self.submit_user_transcript(clean)
-        return {"handled": True, "status": "submitted"}
-
-    @staticmethod
-    def should_force_consult(transcript: str) -> bool:
-        clean = " ".join(str(transcript or "").strip().lower().split())
-        if not clean or clean in _NON_ACTIONABLE_UTTERANCES:
-            return False
-        if len(clean) < 8 and not clean.endswith("?"):
-            return False
-        if clean.endswith((" and", " or", " but", " so", " then", " to")):
-            return False
-        return True
-
-    @staticmethod
-    def _matches_active_forced_consult(gen: Any | None, request: str) -> bool:
-        if gen is None:
-            return False
-        if not bool(getattr(gen, "realtime_forced_consult", False)):
-            return False
-        active_request = str(getattr(gen, "realtime_consult_request", "") or "")
-        return _normalized_request(active_request) == _normalized_request(request)
 
     def active_run_status(self) -> dict[str, Any]:
         gen = self._active_generation()
@@ -409,6 +338,3 @@ class VoiceAgentBridge:
                 return ""
         return str(value or "")
 
-
-def _normalized_request(text: str) -> str:
-    return " ".join(str(text or "").strip().lower().split())

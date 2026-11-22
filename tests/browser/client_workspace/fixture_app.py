@@ -6038,7 +6038,43 @@ def main() -> None:
         assert client_secret == 'synthetic-browser-ephemeral'
         _voice_fixture['exchanges'] += 1
         return b'v=0\r\nsynthetic-browser-answer'
-    client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
+    class FixtureRelay:
+        """A relayed front (Gemini Live) that hears the browser's audio and says nothing."""
+
+        def __init__(self):
+            self.done = None
+
+        async def send_audio(self, pcm16):
+            _voice_fixture['relayed_audio'] = _voice_fixture.get('relayed_audio', 0) + len(pcm16)
+
+        async def send_output(self, output):
+            return False
+
+        async def stop_speaking(self):
+            return False
+
+        async def close(self):
+            if self.done is not None:
+                self.done.set()
+
+        async def actions(self):
+            import asyncio
+            self.done = asyncio.Event()
+            await self.done.wait()
+            return
+            yield
+
+    async def fixture_relay(instructions, *, connect=None):
+        return FixtureRelay()
+
+    live_ready = lambda: VoiceProviderStatus('fixture_live', 'Fixture live voice', True)  # noqa: E731
+    client_voice.realtime_provider = lambda option='openai': SimpleNamespace(
+        transport='gemini_live', status=live_ready, open_relay=fixture_relay) if option == 'gemini' else SimpleNamespace(
+        create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange, transport='openai_realtime',
+        status=live_ready)
+    # Live voice: OpenAI's and Google's keys are saved here, xAI's is not (the picker shows both states).
+    from row_bot.voice import provider_base
+    provider_base.provider_api_key = lambda credential: 'synthetic-saved-key' if credential in {'openai', 'google'} else ''
     _install_voice_engine_fixture()
 
     # The middleware stack is built on the first request. Wrap the completed

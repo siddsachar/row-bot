@@ -1232,7 +1232,7 @@ def _query_voice() -> str:
         except Exception:
             lines.append("- Voice runtime: error reading settings")
         try:
-            from row_bot.voice.openai_realtime import OpenAIRealtimeProvider
+            from row_bot.voice.live_voice import PROVIDERS_LINK as LIVE_VOICE_PROVIDERS_LINK, live_voice_readiness
             from row_bot.voice.agent_bridge import (
                 REALTIME_ALLOWED_BRIDGE_TOOLS,
                 REALTIME_DIRECT_TOOL_POLICY,
@@ -1240,15 +1240,25 @@ def _query_voice() -> str:
                 VOICE_BRAIN_STRATEGY,
             )
 
-            realtime = OpenAIRealtimeProvider().status()
-            lines.append(f"- OpenAI Realtime: {'ready' if realtime.ready else 'not configured'}")
+            rows = live_voice_readiness()
+            ready = [row["label"] for row in rows if row["available"]]
+            missing = [row["label"] for row in rows if not row["available"]]
+
+            def names(labels: list[str]) -> str:
+                return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+
+            parts = [f"{names(ready)} ready"] if ready else []
+            if missing:
+                parts.append(f"{names(missing)} {'needs' if len(missing) == 1 else 'need'} a key "
+                             f"(the person adds it in [Providers]({LIVE_VOICE_PROVIDERS_LINK}))")
+            lines.append(f"- Live voice: {'; '.join(parts)}")
             lines.append(f"- Realtime brain strategy: {VOICE_BRAIN_STRATEGY}")
             lines.append(f"- Realtime direct normal-tool access: {REALTIME_DIRECT_TOOL_POLICY}")
             lines.append(f"- Realtime bridge tools: {', '.join(REALTIME_ALLOWED_BRIDGE_TOOLS)}")
             lines.append(f"- Realtime quiet idle tool: {REALTIME_WAIT_TOOL}")
             lines.append("- Realtime credential safety: browser receives ephemeral client secrets only; long-lived provider keys stay server-side")
         except Exception:
-            lines.append("- OpenAI Realtime: unavailable")
+            lines.append("- Live voice: unavailable")
         try:
             from row_bot.runtime import executions
 

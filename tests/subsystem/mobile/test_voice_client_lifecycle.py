@@ -14,12 +14,13 @@ from row_bot.voice.coordinator import VoiceSessionCoordinator
 def test_coordinator_identity_and_inactive_output_guard():
     coordinator = VoiceSessionCoordinator()
     provider = SimpleNamespace(
-        create_client_secret=lambda **_: {"value": "synthetic-ephemeral", "expires_at": 1060})
+        create_client_secret=lambda **_: {"value": "synthetic-ephemeral", "expires_at": 1060},
+        transport="openai_realtime", status=lambda: SimpleNamespace(ready=True))
     dictation = ClientDictationTransport(
         coordinator=coordinator, clock=lambda: 0.0,
         browser_service=lambda: pytest.fail("realtime must not load local speech models"))
     adapter = ClientRealtimeTransport(
-        dictation=dictation, provider_factory=lambda: provider,
+        dictation=dictation, provider_factory=lambda option: provider,
         submit=lambda *args: pytest.fail("no turn is submitted here"),
         active_generation=lambda owner: None,
         control_generation=lambda *args: pytest.fail("no turn is controlled here"),

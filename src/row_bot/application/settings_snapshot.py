@@ -420,6 +420,18 @@ def _whisper_installed(root: Path, size: str) -> bool:
         return False
 
 
+def _live_providers() -> list[dict[str, Any]]:
+    """Each Live voice front, its price and whether its provider key is saved (never the key)."""
+    try:
+        from row_bot.voice.live_voice import live_voice_readiness
+
+        return live_voice_readiness()
+    except Exception:
+        from row_bot.voice.live_voice import live_voice_rows
+
+        return live_voice_rows({})
+
+
 def _voice(root: Path) -> dict[str, Any]:
     runtime = _mapping(_read_json(root / "voice_runtime_settings.json", default={}))
     local = _mapping(_read_json(root / "voice_settings.json", default={}))
@@ -475,7 +487,7 @@ def _voice(root: Path) -> dict[str, Any]:
             "voice": tts_voice,
             "speed": speed,
         },
-        "openai_realtime_credential": _credential_status("OPENAI_API_KEY"),
+        "live_providers": _live_providers(),
         "talk_providers": _choice_rows(
             {"local": "Local", "openai_realtime": "OpenAI Realtime"}
         ),

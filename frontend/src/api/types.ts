@@ -733,12 +733,17 @@ export interface ClientTransport {
     body: Wire.TalkStart,
     signal?: AbortSignal,
   ): Promise<Wire.RealtimeStart>;
-  voiceControl?(
-    mode: 'realtime',
+  stopRealtime?(
     handle: Wire.DictationHandle,
-    action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
   ): Promise<Wire.RealtimeSnapshot>;
+  /** A fresh single-use ticket for the Live voice socket. */
+  realtimeTicket?(
+    handle: Wire.DictationHandle,
+    signal?: AbortSignal,
+  ): Promise<Wire.VoiceTicket>;
+  /** The Live voice socket on this server's own origin. */
+  openLiveSocket?(): WebSocket;
   /** The Voice settings test phrase, spoken by the selected output provider. */
   speechTest?(signal?: AbortSignal): Promise<Blob>;
   /** Part *part* of a saved reply, spoken by the selected output provider. */
@@ -748,21 +753,11 @@ export interface ClientTransport {
     part: number,
     signal?: AbortSignal,
   ): Promise<Wire.ReadAloudSpeech>;
-  realtimeEvent?(
-    handle: Wire.DictationHandle,
-    event: Wire.RealtimeEvent,
-    signal?: AbortSignal,
-  ): Promise<Wire.RealtimeEventResult>;
   realtimeExchange?(
     handle: Wire.DictationHandle,
     sdp: string,
     signal?: AbortSignal,
   ): Promise<string>;
-  voiceRun?(
-    mode: 'realtime',
-    handle: Wire.DictationHandle,
-    signal?: AbortSignal,
-  ): Promise<Wire.VoiceRunView>;
   startDictation?(
     conversation: string,
     requestId: string,
