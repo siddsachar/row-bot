@@ -104,12 +104,19 @@
   opacity: 1;
   animation: voice-ripple 1.6s ease-out infinite;
 }
+/* Waiting for you: the orb keeps its own colour; an amber ring pulses gently around it. */
 .voice-orb[data-state='waiting'] {
-  --orb: var(--status-warning-border);
+  --waiting: color-mix(in srgb, var(--status-warning-border) 35%, #f5b301);
 }
 .voice-orb[data-state='waiting'] .voice-orb-ring {
   opacity: 1;
-  border-color: var(--status-warning-border);
+  border-color: var(--waiting);
+  animation: voice-waiting 2.4s ease-in-out infinite;
+}
+@keyframes voice-waiting {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--waiting) 28%, transparent);
+  }
 }
 .voice-orb[data-state='muted'] .voice-orb-core,
 .voice-orb[data-state='ended'] .voice-orb-core {

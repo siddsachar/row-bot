@@ -29,6 +29,7 @@ from row_bot.voice.engine.spoken import (
     PROGRESS_GAP_SECONDS,
     STILL_WORKING,
     STILL_WORKING_SECONDS,
+    approval_summary,
     progress_line,
     spoken_answer,
     status_line,
@@ -65,6 +66,8 @@ OrbState = Literal["connecting", "listening", "thinking", "speaking", "waiting",
 SpeechKind = Literal["answer", "control", "progress", "approval", "later"]
 # Fixed lines are synthesised once per session.
 _FIXED_KINDS = frozenset({"progress", "control"})
+# How long an approval's summary waits for the client's card title before saying its own.
+TITLE_WAIT_SECONDS = 1.0
 
 
 class VoiceLink(Protocol):
@@ -161,8 +164,10 @@ class _Burst:
 @dataclass
 class _Approval:
     approval_id: str
-    summary: str
     voice: bool
+    # The card's title in the tool's own words, said if the client never sends the title its card shows.
+    fallback: str
+    titled: bool = False
     # Its summary went to the client (or could not be spoken), and when it finished, in audio time: a
     # spoken answer counts only when it starts after that, never while Row-Bot is talking.
     sent: bool = False
@@ -585,15 +590,21 @@ class DuplexSession:
             await self._publish_state()
 
     async def _ask_approval(self, notice: Mapping[str, Any]) -> None:
-        approval = _Approval(str(notice["approval_id"]), str(notice.get("summary") or ""), bool(notice.get("voice")))
+        approval = _Approval(str(notice["approval_id"]), bool(notice.get("voice")), str(notice.get("fallback") or ""))
         self._approval = approval
         self._deferred = [item for item in self._deferred if item[1] != "approval"]
-        if approval.summary:
-            self._deferred.append((approval.summary, "approval"))
-        else:
-            approval.sent, approval.armed_ms = True, self.tracker.now_ms
+        # The client words the card's title exactly as its card does and sends it back; the summary waits for it
+        # (a moment), then says the fallback.
         await self.link.send_event({"type": "approval", "approval_id": approval.approval_id,
-                                    "action": str(notice.get("action") or ""), "voice": approval.voice})
+                                    "voice": approval.voice, "card": dict(notice.get("card") or {})})
+        self._timer(TITLE_WAIT_SECONDS, self._title_approval, approval, "")
+
+    async def _title_approval(self, approval: _Approval, title: str) -> None:
+        if self._approval is not approval or approval.titled:
+            return
+        approval.titled = True
+        self._deferred.append((approval_summary(title or approval.fallback, approval.voice), "approval"))
+        await self._publish_state()
 
     async def _clear_approval(self, only: _Approval | None = None) -> None:
         if self._approval is None or (only is not None and self._approval is not only):
@@ -804,6 +815,12 @@ class DuplexSession:
             self.tracker.reset()
         elif kind == "playback":
             await self._playback(message)
+        elif kind == "approval_title":
+            approval = self._approval
+            title = message.get("title")
+            if (approval is not None and message.get("approval_id") == approval.approval_id
+                    and isinstance(title, str) and len(title) <= 400):
+                await self._title_approval(approval, title)
         await self._publish_state()
         return True
 

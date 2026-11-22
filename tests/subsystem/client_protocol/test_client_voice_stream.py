@@ -327,9 +327,12 @@ def test_a_spoken_yes_after_the_summary_approves_an_undoable_action_through_the_
             for frame in [VOICED] * 30 + [SILENT] * 20:
                 socket.send_bytes(frame)
             asked = _until(socket, "approval", limit=2000)
-            assert asked["voice"] is True and asked["action"] == "Move / rename file?"
+            assert asked["voice"] is True and asked["card"]["action_label"] == "workspace_move_file"
+            # The client sends back the title its card shows; that is what is said.
+            socket.send_text(json.dumps({"type": "approval_title", "approval_id": asked["approval_id"],
+                                         "title": "Move a file?"}))
             summary = _caption(socket, kind="approval")
-            assert summary["text"] == "I need your OK. Move / rename file? Say yes, or tap Approve."
+            assert summary["text"] == "I need your OK. Move a file? Say yes or no, or tap the card."
             socket.send_text(json.dumps({"type": "playback", "state": "idle"}))
             for frame in [VOICED] * 30 + [SILENT] * 20:
                 socket.send_bytes(frame)

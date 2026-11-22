@@ -199,21 +199,23 @@ it('a waiting approval says how it may be answered and points at its card', () =
   const onShowApproval = vi.fn();
   bar(session, { onShowApproval });
   update({
-    approval: { id: 'approval-1', action: 'Move / rename file?', voice: true },
+    approval: { id: 'approval-1', title: 'Move a file?', voice: true },
   });
-  expect(screen.getByText('Move / rename file?')).toBeInTheDocument();
-  expect(screen.getByText('Say yes, or tap Approve')).toBeInTheDocument();
+  expect(screen.getByText('Move a file?')).toBeInTheDocument();
+  expect(
+    screen.getByText('Say yes or no, or tap the card'),
+  ).toBeInTheDocument();
   // The bar never answers it: only the card's own buttons do.
   expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Show the approval' }));
   expect(onShowApproval).toHaveBeenCalled();
   update({
-    approval: { id: 'approval-2', action: 'Send email?', voice: false },
+    approval: { id: 'approval-2', title: 'Send an email?', voice: false },
   });
   expect(screen.getByText('Needs a tap on Approve')).toBeInTheDocument();
-  expect(screen.queryByText('Say yes, or tap Approve')).toBeNull();
+  expect(screen.queryByText('Say yes or no, or tap the card')).toBeNull();
   update({ approval: null });
-  expect(screen.queryByText('Send email?')).toBeNull();
+  expect(screen.queryByText('Send an email?')).toBeNull();
 });
 
 it('the phone focus shows the newest result, opened with one tap, and leaves focus to show an approval', () => {
@@ -232,7 +234,7 @@ it('the phone focus shows the newest result, opened with one tap, and leaves foc
   );
   expect(open).toHaveBeenCalled();
   update({
-    approval: { id: 'approval-1', action: 'Move / rename file?', voice: true },
+    approval: { id: 'approval-1', title: 'Move a file?', voice: true },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Show the approval' }));
   expect(

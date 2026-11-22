@@ -254,13 +254,17 @@ def test_a_later_answer_is_not_said_once_voice_has_ended_or_paused():
 
 # ── Approvals by voice ──────────────────────────────────────────────────────
 
-REVERSIBLE = {"approval_id": "approval-1", "action": "Move / rename file?", "voice": True,
-              "summary": "I need your OK. Move / rename file? Say yes, or tap Approve."}
-DESTRUCTIVE = {"approval_id": "approval-2", "action": "Send email?", "voice": False,
-               "summary": "I need your OK. Send email? Tap Approve on the screen."}
+REVERSIBLE = {"approval_id": "approval-1", "voice": True, "fallback": "Move / rename file?",
+              "card": {"action_label": "workspace_move_file", "question": ""}}
+REVERSIBLE_SUMMARY = "I need your OK. Move a file? Say yes or no, or tap the card."
+DESTRUCTIVE = {"approval_id": "approval-2", "voice": False, "fallback": "Send email?",
+               "card": {"action_label": "send_gmail_message", "question": ""}}
+DESTRUCTIVE_SUMMARY = "I need your OK. Send an email? Tap Approve on the screen."
+TITLES = {"approval-1": "Move a file?", "approval-2": "Send an email?"}
 
 
-async def _asks(rig: Rig, notice: dict) -> None:
+async def _asks(rig: Rig, notice: dict, *, title: bool = True) -> None:
+    """A card waits; the client sends back the title its card shows, as the real client does."""
     await rig.session.start()
     await rig.say()
     _tool(rig, "workspace_move_file", "call-1")
@@ -268,15 +272,19 @@ async def _asks(rig: Rig, notice: dict) -> None:
     rig.session.agent_event("interrupt", notice, "pass-1")
     rig.session.agent_event("finished", "waiting_approval", "pass-1")
     await rig.session.idle()
+    if title:
+        await rig.session.control({"type": "approval_title", "approval_id": notice["approval_id"],
+                                   "title": TITLES[notice["approval_id"]]})
+        await rig.session.idle()
 
 
 def test_a_reversible_action_is_approved_by_a_plain_yes_after_its_summary():
     async def scenario():
         rig = Rig("Tidy my files", "Yes, go ahead.")
         await _asks(rig, REVERSIBLE)
-        assert rig.tts.spoken[-1] == REVERSIBLE["summary"]
-        assert rig.link.of("approval")[-1] == {"type": "approval", "approval_id": "approval-1",
-                                               "action": "Move / rename file?", "voice": True}
+        assert rig.tts.spoken[-1] == REVERSIBLE_SUMMARY
+        assert rig.link.of("approval")[-1] == {"type": "approval", "approval_id": "approval-1", "voice": True,
+                                               "card": REVERSIBLE["card"]}
         await _heard(rig)
         await rig.say()
         assert rig.host.approvals == [("approval-1", True)]
@@ -302,7 +310,7 @@ def test_a_destructive_action_needs_a_tap_whatever_is_said():
     async def scenario(words: str):
         rig = Rig("Email Sam", words)
         await _asks(rig, DESTRUCTIVE)
-        assert rig.tts.spoken[-1] == DESTRUCTIVE["summary"]
+        assert rig.tts.spoken[-1] == DESTRUCTIVE_SUMMARY
         await _heard(rig)
         await rig.say()
         assert rig.host.approvals == []
@@ -396,6 +404,42 @@ def test_the_approval_clears_once_the_run_goes_on_from_a_tap():
         assert rig.host.approvals == [] and rig.host.turns[-1] == "Yes"
         await rig.session.close()
     run(scenario())
+
+
+def test_the_summary_says_the_cards_own_title_and_never_a_symbol():
+    async def scenario():
+        rig = Rig("Tidy my files")
+        await _asks(rig, REVERSIBLE, title=False)
+        # Nothing is said until the client sends the title its card shows ...
+        assert REVERSIBLE_SUMMARY not in rig.tts.spoken
+        await rig.session.control({"type": "approval_title", "approval_id": "approval-1",
+                                   "title": "Move / rename `notes/draft.md`?"})
+        await rig.session.idle()
+        said = rig.tts.spoken[-1]
+        assert said == "I need your OK. Move or rename notes draft.md? Say yes or no, or tap the card."
+        assert "/" not in said and "`" not in said
+        await rig.session.close()
+
+    async def without_a_title():
+        rig = Rig("Tidy my files")
+        await _asks(rig, REVERSIBLE, title=False)
+        # ... and with none, after a moment, its own words, still without a symbol.
+        await _wait(rig, 1100)
+        await rig.session.idle()
+        assert rig.tts.spoken[-1] == "I need your OK. Move or rename file? Say yes or no, or tap the card."
+        await rig.session.close()
+
+    async def another_cards_title():
+        rig = Rig("Tidy my files")
+        await _asks(rig, REVERSIBLE, title=False)
+        await rig.session.control({"type": "approval_title", "approval_id": "other", "title": "Pay £60?"})
+        await _wait(rig, 1100)
+        await rig.session.idle()
+        assert "Pay" not in " ".join(rig.tts.spoken)
+        await rig.session.close()
+    run(scenario())
+    run(without_a_title())
+    run(another_cards_title())
 
 
 # ── The words ───────────────────────────────────────────────────────────────

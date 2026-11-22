@@ -190,11 +190,11 @@ export default function VoiceBar(props: {
             />
             <p className="voice-bar-approval-text">
               <span className="voice-bar-approval-action">
-                {state.approval.action || 'An action needs your OK'}
+                {state.approval.title || 'An action needs your OK'}
               </span>
               <span className="voice-bar-approval-hint">
                 {state.approval.voice
-                  ? 'Say yes, or tap Approve'
+                  ? 'Say yes or no, or tap the card'
                   : 'Needs a tap on Approve'}
               </span>
             </p>

@@ -104,12 +104,28 @@ def test_only_one_action_that_can_be_undone_may_be_answered_by_voice(item, voice
     assert voice_may_answer([MOVE, MOVE]) is False
 
 
-def test_the_spoken_summary_uses_the_cards_own_words():
+def test_the_voice_notice_carries_what_the_card_shows_and_a_spoken_fallback():
+    # The card's own fields, from the same projection the card reads: the client words the title from them.
     assert approval_notice([MOVE], "a-1") == {
-        "approval_id": "a-1", "action": "Move / rename file?", "voice": True,
-        "summary": "I need your OK. Move / rename file? Say yes, or tap Approve."}
+        "approval_id": "a-1", "voice": True, "fallback": "Move / rename file?",
+        "card": {"action_label": "workspace_move_file", "question": ""}}
     sent = approval_notice([{"tool": "send_file", "label": "Send a file", "question": "Send report.pdf to Telegram?"}],
                            "a-2")
-    assert sent["summary"] == "I need your OK. Send report.pdf to Telegram? Tap Approve on the screen."
-    assert approval_notice([MOVE, DELETE], "a-3")["summary"] == "I need your OK for 2 actions. Tap Approve on the screen."
+    assert sent["voice"] is False and sent["card"]["question"] == "Send report.pdf to Telegram?"
+    assert sent["fallback"] == "Send report.pdf to Telegram?"
+    assert approval_notice([MOVE, DELETE], "a-3")["voice"] is False
     assert approval_notice([MOVE], "") is None
+
+
+@pytest.mark.parametrize("title, voice, said", [
+    ("Move a file?", True, "I need your OK. Move a file? Say yes or no, or tap the card."),
+    ("Send an email?", False, "I need your OK. Send an email? Tap Approve on the screen."),
+    ("Move / rename file?", True, "I need your OK. Move or rename file? Say yes or no, or tap the card."),
+    ("Replace notes/a.md in the workspace?", False,
+     "I need your OK. Replace notes a.md in the workspace? Tap Approve on the screen."),
+])
+def test_a_spoken_summary_says_the_title_and_never_a_symbol(title, voice, said):
+    from row_bot.voice.engine.spoken import approval_summary
+
+    assert approval_summary(title, voice) == said
+    assert "/" not in said

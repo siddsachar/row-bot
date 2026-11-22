@@ -47,8 +47,8 @@ def voice_may_answer(interrupt: Any) -> bool:
     return approval_kinds(interrupt) is not None
 
 
-def _action(item: Mapping[str, Any]) -> str:
-    """What the card asks, in the tool's own words (never the model's)."""
+def _fallback_title(item: Mapping[str, Any]) -> str:
+    """The card's title in the tool's own words, said only if the client never sends the title it shows."""
     question = " ".join(str(item.get("question") or "").split())
     if question and len(question) <= _SUMMARY_CHARS:
         return question
@@ -57,18 +57,17 @@ def _action(item: Mapping[str, Any]) -> str:
 
 
 def approval_notice(interrupt: Any, approval_id: str) -> dict[str, Any] | None:
-    """The voice bar's approval and its spoken summary; None for a question card or no approval."""
+    """The voice bar's approval: what its card shows (the client words its title as the card does), whether a
+    spoken answer may answer it, and a fallback title. None for a question card or no approval."""
+    from row_bot.application.approval_projection import project_approval_context
     from row_bot.questions import question_item
 
     items = [item for item in _items(interrupt) if isinstance(item, Mapping)]
     if not approval_id or not items or question_item(interrupt) is not None:
         return None
-    voice = voice_may_answer(interrupt)
-    ask = "Say yes, or tap Approve." if voice else "Tap Approve on the screen."
-    if len(items) > 1:
-        action = f"{len(items)} actions"
-        summary = f"I need your OK for {action}. {ask}"
-    else:
-        action = _action(items[0])
-        summary = f"I need your OK. {action} {ask}" if action else f"I need your OK. {ask}"
-    return {"approval_id": approval_id, "action": action, "voice": voice, "summary": summary}
+    card = project_approval_context(interrupt)
+    app = card.get("app") if isinstance(card.get("app"), Mapping) else None
+    return {"approval_id": approval_id, "voice": voice_may_answer(interrupt), "fallback": _fallback_title(items[0]),
+            "card": {"action_label": str(card.get("action_label") or ""), "question": str(card.get("question") or ""),
+                     **({"app": {"name": str(app.get("name") or ""), "tool": str(app.get("tool") or "")}}
+                        if app else {})}}

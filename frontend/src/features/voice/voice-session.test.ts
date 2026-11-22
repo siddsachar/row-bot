@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { VoiceSocket } from '../../api/types';
 import { buddyListening } from '../buddy/living/voice';
-import { VoiceSession } from './voice-session';
+import { cardTitle, VoiceSession } from './voice-session';
+import { approvalQuestion } from '../shell/tool-activity';
 import { FakeAudio, FakeSocket, audioFrame } from './voice-test-fakes';
 
 function setup() {
@@ -190,22 +191,48 @@ it('keeps what kind of line was said, and the waiting approval until it clears',
   socket.emit({
     type: 'approval',
     approval_id: 'approval-1',
-    action: 'Move / rename file?',
     voice: true,
+    card: { action_label: 'workspace_move_file', question: '' },
   });
+  // The card's own title, which Row-Bot is sent back to say in the same words.
   expect(session.getSnapshot().approval).toEqual({
     id: 'approval-1',
-    action: 'Move / rename file?',
+    title: 'Move a file?',
     voice: true,
+  });
+  expect(socket.json().at(-1)).toEqual({
+    type: 'approval_title',
+    approval_id: 'approval-1',
+    title: 'Move a file?',
   });
   socket.emit({ type: 'approval', approval_id: '' });
   expect(session.getSnapshot().approval).toBeNull();
   socket.emit({
     type: 'approval',
     approval_id: 'approval-2',
-    action: 'Send email?',
     voice: false,
+    card: { action_label: 'send_gmail_message', question: '' },
   });
+  expect(session.getSnapshot().approval?.title).toBe('Send an email?');
   await session.end();
   expect(session.getSnapshot().approval).toBeNull();
+});
+
+it('words a card title exactly as the approval card does', () => {
+  for (const [card, title] of [
+    [{ action_label: 'workspace_move_file' }, 'Move a file?'],
+    [{ action_label: 'send_gmail_message' }, 'Send an email?'],
+    [{ action_label: 'workspace_file_delete' }, 'Delete a file?'],
+    [
+      { action_label: 'send_file', question: 'Send report.pdf to Telegram?' },
+      'Send report.pdf to Telegram?',
+    ],
+  ] as const) {
+    expect(cardTitle(card)).toBe(title);
+    expect(cardTitle(card)).toBe(
+      ('question' in card && card.question) ||
+        approvalQuestion(card.action_label),
+    );
+    expect(cardTitle(card)).not.toContain('/');
+  }
 });

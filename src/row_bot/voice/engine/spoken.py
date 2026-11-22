@@ -14,7 +14,26 @@ PROGRESS_GAP_SECONDS = 4.0
 STILL_WORKING_SECONDS = 2.0
 
 STILL_WORKING = "Still working on it…"
-NEEDS_A_TAP = "This one needs a tap."
+NEEDS_A_TAP = "This one needs a tap on the screen."
+# The card's own title (as the card shows it) goes between "I need your OK." and how to answer.
+_ASK_VOICE = "Say yes or no, or tap the card."
+_ASK_TAP = "Tap Approve on the screen."
+_TITLE_CHARS = 160
+
+
+def speakable(text: str) -> str:
+    """Words to say for a short title: no markdown, no symbols ("Move / rename" says "Move or rename")."""
+    from row_bot.voice.speech_policy import clean_for_speech
+
+    clean = re.sub(r"(?<=[A-Za-z])\s+/\s+(?=[A-Za-z])", " or ", " ".join(str(text or "").split()))
+    clean = re.sub(r"[/\\|_#<>{}\[\]~^=+*@`]+", " ", clean_for_speech(clean))
+    return " ".join(clean.split())[:_TITLE_CHARS]
+
+
+def approval_summary(title: str, voice: bool) -> str:
+    """What Row-Bot says when a card needs the person: its title, and how it may be answered."""
+    title = speakable(title)
+    return " ".join(part for part in ("I need your OK.", title, _ASK_VOICE if voice else _ASK_TAP) if part)
 
 # What a tool is doing, as "I'm …" would end: "checking your calendar". Own tool names, first match wins.
 _DOING: tuple[tuple[re.Pattern[str], str | None], ...] = tuple((re.compile(pattern), words) for pattern, words in (

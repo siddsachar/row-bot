@@ -7,6 +7,7 @@
 import { setBuddyListening, setBuddyVoiceLevel } from '../buddy/living/voice';
 import type { VoiceSocket } from '../../api/types';
 import { BrowserVoiceAudio, type VoiceAudio } from './voice-audio';
+import { approvalQuestion } from '../shell/tool-activity';
 
 const OPEN = 1;
 
@@ -30,8 +31,18 @@ export type VoiceCaption = {
   kind?: VoiceSpeechKind;
 };
 
-/** The run's waiting approval, as voice speaks it; `voice` when a spoken yes may answer it. */
-export type VoiceApproval = { id: string; action: string; voice: boolean };
+/** The run's waiting approval: its card's title, and `voice` when a spoken yes or no may answer it. */
+export type VoiceApproval = { id: string; title: string; voice: boolean };
+
+/** The title the approval card shows ("Move a file?"), from the same fields and the same wording. */
+export function cardTitle(card: unknown): string {
+  const view = (card ?? {}) as {
+    action_label?: string;
+    question?: string;
+    app?: { name: string; tool?: string };
+  };
+  return view.question || approvalQuestion(view.action_label ?? '', view.app);
+}
 
 export type VoiceLatency = {
   last: Record<string, number>;
@@ -238,17 +249,18 @@ export class VoiceSession {
       case 'latency':
         this.set({ latency: event as unknown as VoiceLatency });
         break;
-      case 'approval':
-        this.set({
-          approval: event.approval_id
-            ? {
-                id: String(event.approval_id),
-                action: String(event.action ?? ''),
-                voice: event.voice === true,
-              }
-            : null,
-        });
+      case 'approval': {
+        if (!event.approval_id) {
+          this.set({ approval: null });
+          break;
+        }
+        const id = String(event.approval_id);
+        const title = cardTitle(event.card);
+        this.set({ approval: { id, title, voice: event.voice === true } });
+        // Row-Bot says the title the card shows, in the same words.
+        this.send({ type: 'approval_title', approval_id: id, title });
         break;
+      }
       case 'error':
         this.set({ error: voiceError(String(event.code ?? '')) });
         break;

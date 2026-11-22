@@ -319,10 +319,13 @@ for (const viewport of [
       send({
         type: 'approval',
         approval_id: 'approval-move',
-        action: 'Move / rename file?',
+        card: { action_label: 'workspace_move_file', question: '' },
         voice: true,
       });
-      await expect(bar).toContainText('Say yes, or tap Approve');
+      await expect(bar).toContainText('Say yes or no, or tap the card');
+      // The bar names it exactly as its card does.
+      await expect(card).toContainText('Move a file?');
+      await expect(bar).toContainText('Move a file?');
       await screenshot(
         page,
         info,
@@ -356,7 +359,7 @@ for (const viewport of [
       send({
         type: 'approval',
         approval_id: 'approval-delete',
-        action: 'Delete file?',
+        card: { action_label: 'workspace_file_delete', question: '' },
         voice: false,
       });
       await expect(bar).toContainText('Needs a tap on Approve');
