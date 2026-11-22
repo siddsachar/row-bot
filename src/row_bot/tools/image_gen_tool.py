@@ -415,7 +415,8 @@ def resolve_references(references: list[str] | None, character: str = "", style:
 
 
 def reference_picture(name: str) -> bytes:
-    """A reference or last-frame picture: 'last', an image pasted or attached this turn, or a picture
+    """A picture the agent names (one to edit or animate, a reference, a last frame): 'last', an image pasted or
+    attached this turn, or a picture
     ``media_sources.resolve`` finds (this chat's files, the workspace, or a file elsewhere once the person
     allows reading it); never an unchecked path, so a name can't send any file on disk to a provider."""
     from row_bot import media_sources
@@ -425,16 +426,18 @@ def reference_picture(name: str) -> bytes:
     pasted = [key for key in _execution_image_cache() if key != "__last_generated__"]
     if text.lower() == "last" or text in pasted or any(text.lower() in key.lower() for key in pasted):
         return _resolve_image_source(text)  # The turn's own pictures: nothing is read from disk.
+    missing = f"Couldn't find {text}: name a picture in this chat's files, 'last', or a file in the workspace."
     conversation = current_thread_id()
+    if not conversation:
+        raise ValueError(missing)
     try:
-        if not conversation:
-            raise media_sources.SourceError(f"Couldn't find {text}: a reference names a picture in this chat.")
         found = media_sources.resolve(text, conversation)[0]
         if found.kind != "image":
             raise media_sources.SourceError(f"{text} isn't a picture.")
         return found.read_bytes()
     except media_sources.SourceError as exc:
-        raise ValueError(str(exc)) from None
+        # A refusal (Row-Bot's data folder, a file outside the workspace not allowed) says why; a miss says where to look.
+        raise ValueError(missing if str(exc).startswith("Couldn't find") else str(exc)) from None
 
 
 def _first_item_b64(data: dict) -> str:
@@ -1031,8 +1034,11 @@ def _edit_image(
     size: str = "auto",
     quality: str = "auto",
     references: list[bytes] | None = None,
+    *,
+    image_bytes: bytes | None = None,
 ) -> str:
-    """Edit an existing image using a text prompt, holding to any reference pictures."""
+    """Edit an existing image using a text prompt, holding to any reference pictures. The agent's tool gives the
+    picture as *image_bytes*, found by ``reference_picture``; in-app callers name an *image_source*."""
     if not _get_configured_selection():
         return NO_IMAGE_MODEL
     model = _get_configured_model()
@@ -1044,7 +1050,7 @@ def _edit_image(
             "Please switch to a Nano Banana or OpenAI model for editing."
         )
     try:
-        image_bytes = _resolve_image_source(image_source)
+        image_bytes = image_bytes if image_bytes is not None else _resolve_image_source(image_source)
     except ValueError as e:
         return str(e)
     return _make_image(prompt, size, quality, image_bytes, references)
@@ -1146,10 +1152,8 @@ def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto"
     from row_bot.providers.media import bills_per_call
 
     selection, line = _selection(), ""
-    try:
-        pictures = resolve_references(references, character, style)
-        if bills_per_call("image", selection) and not _cannot_edit(selection):
-            _resolve_image_source(image_source)  # Nothing to approve when there is no picture to edit.
+    try:  # Nothing to approve when there is no picture to edit.
+        source, pictures = reference_picture(image_source), resolve_references(references, character, style)
     except ValueError as e:
         return str(e)
     if bills_per_call("image", selection) and not _cannot_edit(selection):
@@ -1157,7 +1161,8 @@ def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto"
                                               size=size, quality=quality)
         if refusal:
             return refusal
-    return _led(line, _edit_image(prompt, image_source=image_source, size=size, quality=quality, references=pictures))
+    return _led(line, _edit_image(prompt, image_source=image_source, size=size, quality=quality, references=pictures,
+                                  image_bytes=source))
 
 
 # ── Pydantic input schemas ───────────────────────────────────────────────

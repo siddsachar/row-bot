@@ -1304,13 +1304,15 @@ def _animate_image(
     resolution: str = "",
     *,
     shot: _Shot | None = None,
+    image_bytes: bytes | None = None,
 ) -> str:
-    """Turn a still image into a short video clip."""
+    """Turn a still image into a short video clip. The agent's tool gives the still as *image_bytes*, found by
+    ``reference_picture``; in-app callers name an *image_source*."""
     _validate_generation()
     if not _get_configured_selection():
         return NO_VIDEO_MODEL
     try:
-        image_bytes = _resolve_image_source(image_source)
+        image_bytes = image_bytes if image_bytes is not None else _resolve_image_source(image_source)
     except ValueError as e:
         return str(e)
     return _dispatch(prompt, duration_seconds, aspect_ratio, resolution, image_bytes, shot)
@@ -1356,17 +1358,17 @@ def _animate_image_tool(prompt: str, image_source: str = "last", duration_second
                         aspect_ratio: str = "16:9", resolution: str = "", references: list[str] | None = None,
                         character: str = "", style: str = "", last_frame: str = "") -> str:
     from row_bot.providers.media import bills_per_call
-    from row_bot.tools.image_gen_tool import _led, paid_generation_check
+    from row_bot.tools.image_gen_tool import _led, paid_generation_check, reference_picture
 
     if not _get_configured_selection():
         return NO_VIDEO_MODEL
-    try:
-        _resolve_image_source(image_source)  # Nothing to approve when there is no picture to animate.
+    try:  # Nothing to approve when there is no picture to animate.
+        still = reference_picture(image_source)
         shot = _shot_inputs(references, character, style, last_frame)
     except ValueError as e:
         return str(e)
     selection, line = _selection(), ""
-    resolution, _ = _plan(duration_seconds, resolution, b"", shot)
+    resolution, _ = _plan(duration_seconds, resolution, still, shot)
     if bills_per_call("video", selection) and _job_route(selection.partition("/")[0]) not in _TEXT_TO_VIDEO_ONLY:
         refusal, line = paid_generation_check(
             "animate_image", "video", selection,
@@ -1374,7 +1376,8 @@ def _animate_image_tool(prompt: str, image_source: str = "last", duration_second
             seconds=duration_seconds, resolution=resolution)
         if refusal:
             return refusal
-    return _led(line, _animate_image(prompt, image_source, duration_seconds, aspect_ratio, resolution, shot=shot))
+    return _led(line, _animate_image(prompt, image_source, duration_seconds, aspect_ratio, resolution, shot=shot,
+                                     image_bytes=still))
 
 
 # ── Pydantic input schemas ───────────────────────────────────────────────

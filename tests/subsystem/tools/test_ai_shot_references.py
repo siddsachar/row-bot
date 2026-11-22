@@ -469,8 +469,40 @@ def test_references_a_last_frame_and_a_clip_are_read_only_where_tools_may_read(p
                  lambda: _resolve_clip(str(private / "secret.mp4"))):
         with pytest.raises(ValueError, match="private data folder"):
             read()
-    with pytest.raises(ValueError, match="Couldn't find nowhere.png"):
+    with pytest.raises(ValueError) as missing:
         resolve_references(["nowhere.png"])
+    assert str(missing.value) == ("Couldn't find nowhere.png: name a picture in this chat's files, 'last', or a "
+                                  "file in the workspace.")
+
+
+@pytest.mark.parametrize("tool", ["edit_image", "animate_image"])
+def test_the_picture_to_edit_or_animate_is_read_only_where_tools_may_read(platform, monkeypatch, tmp_path, tool):
+    """image_source goes through media_sources.resolve too: a chat file or a workspace file, never the data folder."""
+    from row_bot import tool_outputs
+    from row_bot.application.attachments import register_attachment
+    from row_bot.data_paths import private_data_dirs
+    from row_bot.tools import image_gen_tool, video_gen_tool
+
+    sent = []
+    monkeypatch.setattr(tool_outputs, "current_thread_id", lambda: "conversation-a")
+    monkeypatch.setattr(image_gen_tool, "_get_configured_selection", lambda: "together/flux")
+    monkeypatch.setattr(video_gen_tool, "_get_configured_selection", lambda: "together/seedance")
+    monkeypatch.setattr(image_gen_tool, "_make_image", lambda prompt, size, quality, image, refs: sent.append(image) or "ok")
+    monkeypatch.setattr(video_gen_tool, "_dispatch", lambda prompt, seconds, aspect, res, image, shot: sent.append(image) or "ok")
+    call = image_gen_tool._edit_image_tool if tool == "edit_image" else video_gen_tool._animate_image_tool
+    register_attachment("conversation-a", "maya.png", MAYA, "image/png")
+    (tmp_path / "workspace").mkdir(exist_ok=True)
+    (tmp_path / "workspace" / "still.png").write_bytes(CUP)
+    private = private_data_dirs()[0]
+    private.mkdir(parents=True, exist_ok=True)
+    (private / "secret.png").write_bytes(FIRST)
+
+    assert call("make it night", image_source="maya.png") == "ok"
+    assert call("make it night", image_source="still.png") == "ok"
+    refused = call("make it night", image_source=str(private / "secret.png"))
+
+    assert sent == [MAYA, CUP]
+    assert "private data folder" in refused
 
 
 def test_extending_last_continues_the_chats_newest_video(platform, monkeypatch):

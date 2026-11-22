@@ -169,7 +169,8 @@ def test_a_paid_edit_with_no_picture_to_edit_says_so_without_asking(media):
 
     result = media.call("edit_image", prompt="make it night", image_source="missing-photo.png")
 
-    assert result.startswith("Could not find image 'missing-photo.png'")
+    assert result == ("Couldn't find missing-photo.png: name a picture in this chat's files, 'last', or a file in "
+                      "the workspace.")
     assert media.asked == [] and media.calls == []
 
 
