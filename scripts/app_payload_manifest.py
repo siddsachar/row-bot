@@ -19,6 +19,8 @@ ROOT_PYTHON_EXCLUDES = frozenset(
 )
 
 PAYLOAD_DIRS = (
+    # The app's package alone: the Org server (src/row_bot_org) is its own deployment and never
+    # ships in desktop installers or update parts (tests/contracts/installers/test_org_server_exclusion.py).
     "src/row_bot",
 )
 

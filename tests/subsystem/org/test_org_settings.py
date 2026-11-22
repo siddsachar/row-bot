@@ -1,0 +1,133 @@
+"""The Org server's settings: loopback by default, from variables or secret files, errors without values."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from row_bot_org.settings import OrgSettings, SettingsError, load_settings
+
+# Reads secret files from a folder: paths, links and file types differ by OS.
+pytestmark = pytest.mark.platform
+
+MARKER = "marker-value-7f3a"
+
+
+def _secrets(tmp_path: Path, **files: bytes) -> Path:
+    folder = tmp_path / "secrets"
+    folder.mkdir()
+    for name, content in files.items():
+        (folder / name).write_bytes(content)
+    return folder
+
+
+def test_defaults_listen_on_loopback_without_openapi() -> None:
+    settings = load_settings({})
+
+    assert settings == OrgSettings()
+    assert (settings.host, settings.port, settings.log_level, settings.openapi) == ("127.0.0.1", 8100, "INFO", False)
+
+
+def test_variables_set_each_setting() -> None:
+    settings = load_settings({
+        "ROW_BOT_ORG_HOST": "0.0.0.0",
+        "ROW_BOT_ORG_PORT": "9000",
+        "ROW_BOT_ORG_LOG_LEVEL": "debug",
+        "ROW_BOT_ORG_OPENAPI": "true",
+        "PATH": "unrelated",
+    })
+
+    assert settings == OrgSettings(host="0.0.0.0", port=9000, log_level="DEBUG", openapi=True)
+
+
+def test_a_blank_variable_is_unset() -> None:
+    assert load_settings({"ROW_BOT_ORG_PORT": " "}).port == 8100
+
+
+def test_every_bad_setting_is_named_and_none_is_echoed() -> None:
+    with pytest.raises(SettingsError) as raised:
+        load_settings({
+            "ROW_BOT_ORG_HOST": f"{MARKER}.example",
+            "ROW_BOT_ORG_PORT": f"{MARKER}",
+            "ROW_BOT_ORG_LOG_LEVEL": MARKER,
+            "ROW_BOT_ORG_OPENAPI": MARKER,
+            "ROW_BOT_ORG_DATABASE_PASSWORD": MARKER,
+        })
+
+    message = str(raised.value)
+    assert MARKER not in message
+    assert raised.value.problems == [
+        "ROW_BOT_ORG_DATABASE_PASSWORD is not a Row-Bot Org setting",
+        "ROW_BOT_ORG_HOST must be an IP address or localhost",
+        "ROW_BOT_ORG_PORT must be a port number from 1 to 65535",
+        "ROW_BOT_ORG_LOG_LEVEL must be one of DEBUG, INFO, WARNING, ERROR",
+        "ROW_BOT_ORG_OPENAPI must be 1, true, 0 or false",
+    ]
+
+
+@pytest.mark.parametrize("port", ["0", "65536", "-1", "80.5", "9" * 5000, "٨٠"],
+                         ids=["zero", "too-high", "negative", "decimal", "5000-digits", "non-ascii-digits"])
+def test_a_port_outside_the_range_is_refused(port: str) -> None:
+    with pytest.raises(SettingsError, match="ROW_BOT_ORG_PORT must be a port number"):
+        load_settings({"ROW_BOT_ORG_PORT": port})
+
+
+def test_a_setting_can_come_from_the_secrets_folder(tmp_path: Path) -> None:
+    folder = _secrets(tmp_path, ROW_BOT_ORG_PORT=b"9100\n", ROW_BOT_ORG_LOG_LEVEL=b"WARNING\r\n")
+
+    settings = load_settings({"ROW_BOT_SECRETS_DIR": str(folder)})
+
+    assert (settings.port, settings.log_level) == (9100, "WARNING")
+
+
+def test_a_variable_wins_over_a_secret_file(tmp_path: Path) -> None:
+    folder = _secrets(tmp_path, ROW_BOT_ORG_PORT=b"9100")
+
+    assert load_settings({"ROW_BOT_SECRETS_DIR": str(folder), "ROW_BOT_ORG_PORT": "9200"}).port == 9200
+
+
+def test_a_missing_secrets_folder_or_file_leaves_the_default(tmp_path: Path) -> None:
+    assert load_settings({"ROW_BOT_SECRETS_DIR": str(tmp_path / "absent")}) == OrgSettings()
+    assert load_settings({"ROW_BOT_SECRETS_DIR": str(_secrets(tmp_path))}) == OrgSettings()
+
+
+@pytest.mark.parametrize(
+    ("content", "problem"),
+    [
+        (MARKER.encode() + b"\xff\xfe", "is not UTF-8"),
+        (MARKER.encode() * 5000, "is larger than 64 KiB"),
+        (f"{MARKER}\n".encode(), "must be a port number"),
+    ],
+    ids=["not-utf8", "too-large", "not-a-port"],
+)
+def test_a_bad_secret_file_is_refused_without_its_content(tmp_path: Path, content: bytes, problem: str) -> None:
+    folder = _secrets(tmp_path, ROW_BOT_ORG_PORT=content)
+
+    with pytest.raises(SettingsError) as raised:
+        load_settings({"ROW_BOT_SECRETS_DIR": str(folder)})
+
+    assert problem in str(raised.value)
+    assert MARKER not in str(raised.value)
+
+
+def test_a_folder_in_place_of_a_secret_file_is_refused(tmp_path: Path) -> None:
+    folder = _secrets(tmp_path)
+    (folder / "ROW_BOT_ORG_PORT").mkdir()
+
+    with pytest.raises(SettingsError, match="ROW_BOT_ORG_PORT in the secrets folder must be a regular file"):
+        load_settings({"ROW_BOT_SECRETS_DIR": str(folder)})
+
+
+def test_a_linked_secret_file_is_refused(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.write_text("9100", encoding="utf-8")
+    folder = _secrets(tmp_path)
+    try:
+        os.symlink(outside, folder / "ROW_BOT_ORG_PORT")
+    except OSError:
+        pytest.skip("this account can't make symbolic links")
+
+    with pytest.raises(SettingsError, match="ROW_BOT_ORG_PORT in the secrets folder must not be a link"):
+        load_settings({"ROW_BOT_SECRETS_DIR": str(folder)})

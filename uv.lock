@@ -4012,7 +4012,7 @@ requires-dist = [
     { name = "youtube-transcript-api", marker = "extra == 'all'", specifier = ">=1.2,<2.0" },
     { name = "youtube-transcript-api", marker = "extra == 'media'", specifier = ">=1.2,<2.0" },
 ]
-provides-extras = ["voice", "designer", "browser", "channels", "mcp", "developer", "local-embeddings", "media", "all"]
+provides-extras = ["voice", "designer", "browser", "channels", "mcp", "developer", "local-embeddings", "media", "org", "all"]
 
 [package.metadata.requires-dev]
 dev = [
