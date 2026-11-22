@@ -10,6 +10,7 @@ from row_bot.voice.client_talk import SPEECH_TEST_PHRASE, ClientTalkTransport, T
 from row_bot.voice.client_transport import ClientDictationTransport, DictationError, DictationOwner
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.provider_base import SynthesizedSpeech
+from row_bot.voice.speech_policy import ON_SCREEN_POINTER
 from tests.helpers.voice_fakes import fake_browser_speech
 
 
@@ -17,7 +18,7 @@ from tests.helpers.voice_fakes import fake_browser_speech
 def runtime():
     clock = [0.0]
     calls, modes = [], []
-    voice = SimpleNamespace(is_running=False, whisper_model_available=lambda: True)
+    voice = SimpleNamespace(whisper_model_available=lambda: True)
 
     def transcribe(*args, validate, mode):
         validate()
@@ -35,7 +36,7 @@ def runtime():
         calls.append(("submit", owner.conversation_id, text, utterance))
         return "run-" + utterance
 
-    coordinator = VoiceSessionCoordinator(voice)
+    coordinator = VoiceSessionCoordinator()
     service = fake_browser_speech(voice, transcribe=transcribe, synthesize=synthesize)
     dictation = ClientDictationTransport(coordinator=coordinator, browser_service=lambda: service,
                                          clock=lambda: clock[0])
@@ -65,15 +66,10 @@ def test_passive_construction_and_one_shared_owner(runtime):
     assert not r.calls and r.coordinator._dictation_lease is None
     first = start(r)
     assert first.state == "listening" and first.quiesced
-    assert r.coordinator.is_running and not r.coordinator.voice_service.is_running
+    assert r.coordinator.is_running
     assert r.coordinator.mode == "talk"
     with pytest.raises(DictationError, match="voice_session_busy"):
         r.dictation.start(r.owner, request_id=str(uuid4()), validate=lambda: None)
-    for method in (r.coordinator.start_talk, r.coordinator.start_realtime_talk,
-                   r.coordinator.start_dictation, r.coordinator.start_browser):
-        with pytest.raises(DictationError, match="voice_session_busy"):
-            method()
-    r.coordinator.stop()
     assert r.talk.snapshot(r.owner, first.handle, validate=lambda: None).state == "listening"
 
 
@@ -312,7 +308,7 @@ def test_talk_reuses_phantom_and_spoken_echo_filter_but_new_session_resets_echo(
     assert finish(r, receive(r, replacement)).outcome == "submitted"
 
 
-def test_legacy_can_take_over_after_hard_session_expiry_even_after_utterance_refresh(runtime):
+def test_a_new_session_can_take_over_after_hard_session_expiry_even_after_utterance_refresh(runtime):
     r = runtime
     snapshot = start(r)
     for now in (100, 200, 300, 400, 500):
@@ -321,7 +317,7 @@ def test_legacy_can_take_over_after_hard_session_expiry_even_after_utterance_ref
     r.clock[0] = 590
     finish(r, receive(r, snapshot))
     r.clock[0] = 601
-    r.coordinator.start_browser()
+    assert start(r).handle != snapshot.handle
     with pytest.raises(DictationError, match="voice_session_expired"):
         receive(r, snapshot)
 
@@ -348,6 +344,29 @@ def test_synthesis_owner_validates_before_model_and_after_worker(runtime):
     with pytest.raises(DictationError, match="revoked"):
         service.synthesize("isolated", "Never spoken", validate=validate)
     assert effects == ["Saved response"]
+
+
+def test_spoken_replies_say_saved_pronunciations_and_keep_the_written_reply(runtime):
+    from row_bot import sound
+    from row_bot.voice.browser_local import BrowserLocalVoiceService
+
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    said = []
+
+    def speak(text, **_options):
+        said.append(text)
+        return b"RIFF\0\0\0\0WAVE-synthetic"
+
+    r = runtime
+    r.service.synthesize = BrowserLocalVoiceService(voice_service=object(), tts_service=SimpleNamespace(
+        is_installed=lambda: True, reload_settings=lambda: None, synthesize_wav_bytes=speak)).synthesize
+    r.talk._resolve_output = lambda *args: TalkSpeechSource("Qwen is ready.")
+    snapshot = start(r)
+    result = finish(r, receive(r, snapshot))
+    r.talk.output(r.owner, snapshot.handle, run_id=result.run_id, output_id="message", validate=lambda: None)
+    assert said == ["Kwen is ready."]
+    # The echo guard, like the captions, keeps the written words.
+    assert r.coordinator.output_activity.should_drop_echo("qwen is ready.")
 
 
 def test_talk_transcribes_with_the_talk_selection(runtime):
@@ -379,3 +398,17 @@ def test_speech_test_speaks_only_the_fixed_phrase_without_a_session(runtime):
     with pytest.raises(DictationError, match="authority_revoked"):
         r.talk.speech_test(r.owner.client_session_id, validate=revoked)
     assert r.calls == [("speech", SPEECH_TEST_PHRASE)]
+
+
+@pytest.mark.parametrize(("answer", "said"), [
+    (" ".join(f"Step {index} is done." for index in range(1, 31)),
+     " ".join(f"Step {index} is done." for index in range(1, 31))),
+    ("```python\nprint('hi')\n```\n| a | b |\n|---|---|", ON_SCREEN_POINTER),
+], ids=("long-answer-whole", "nothing-to-say-points-to-screen"))
+def test_the_whole_answer_is_spoken_and_only_an_unspeakable_one_points_to_the_screen(runtime, answer, said):
+    r = runtime
+    r.talk._resolve_output = lambda *args: TalkSpeechSource(answer)
+    snapshot = start(r)
+    result = finish(r, receive(r, snapshot))
+    r.talk.output(r.owner, snapshot.handle, run_id=result.run_id, output_id="message", validate=lambda: None)
+    assert r.calls[-1] == ("speech", said)

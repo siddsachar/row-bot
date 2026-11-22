@@ -37,6 +37,8 @@ export type ClientError = {
   /** Absent when the sentence already says what to change. */
   action?: ErrorAction;
 };
+/** One part of a saved reply, spoken by Read aloud, and how many parts it has. */
+export type ReadAloudSpeech = Wire.ReadAloudSpeech;
 export type DictationScope = Readonly<{
   conversationId: string;
   clientSessionId: string;
@@ -738,6 +740,13 @@ export interface ClientTransport {
   ): Promise<Blob>;
   /** The Voice settings test phrase, spoken by the selected output provider. */
   speechTest?(signal?: AbortSignal): Promise<Blob>;
+  /** Part *part* of a saved reply, spoken by the selected output provider. */
+  readAloud?(
+    conversationId: string,
+    messageId: string,
+    part: number,
+    signal?: AbortSignal,
+  ): Promise<Wire.ReadAloudSpeech>;
   realtimeEvent?(
     handle: Wire.DictationHandle,
     event: Wire.RealtimeEvent,

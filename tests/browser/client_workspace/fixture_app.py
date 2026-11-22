@@ -1889,8 +1889,8 @@ def _s5_stream(text: str, config: dict):
                      "send it to your devices instead: use the button below.")
         else:
             args = {"files": ["q3-report.pdf"], "to": "devices"}
-            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop and tap "
-                     "Download; it's there for 7 days.")
+            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop to see it "
+                     "there.")
         steps = [("send_file", args,
                   lambda: (_s4_in_thread(thread, lambda: file_delivery_tool._send_file(**args)), []))]
         yield from _s3_steps(thread, identity, steps)
@@ -5931,9 +5931,6 @@ def main() -> None:
 
     voice = get_voice_service()
     voice.whisper_model_available = lambda: True
-    def deny_host_capture():
-        raise AssertionError("Browser fixture must never start host audio capture")
-    voice.start = deny_host_capture
     from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
     def transcribe_fixture(session_key, audio, mime, *, validate, mode="dictate"):
         validate()
@@ -5960,6 +5957,9 @@ def main() -> None:
                                        # No ffmpeg: Show Row-Bot how's narration says why it can't run.
                                        ffmpeg_command=lambda: None)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
+    # The synthetic voice stands in for Kokoro, so Read aloud is ready (the plain "Read aloud" label).
+    from row_bot.application import read_aloud
+    read_aloud.read_aloud_reason = lambda: "available"
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):
         import time

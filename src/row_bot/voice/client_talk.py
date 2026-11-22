@@ -12,13 +12,13 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
-from row_bot.voice.browser_local import MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_TEXT_CHARS, MAX_UTTERANCE_SECONDS
+from row_bot.voice.browser_local import MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, MAX_UTTERANCE_SECONDS
 from row_bot.voice.client_transport import (
     ClientDictationTransport, DictationError, DictationHandle, DictationOperation,
     DictationOwner, LEASE_SECONDS, _CONVERSATION,
 )
 from row_bot.voice.provider_base import SynthesizedSpeech
-from row_bot.voice.speech_policy import make_speakable_response
+from row_bot.voice.speech_policy import spoken_text
 
 MAX_SESSION_SECONDS = 600.0
 NO_SPEECH_SECONDS = 45.0
@@ -51,7 +51,6 @@ class TalkResult:
 class TalkSpeechSource:
     """Server-resolved final assistant output; never supplied by a media request."""
     text: str
-    allow_long: bool = False
 
 
 @dataclass(frozen=True)
@@ -183,9 +182,7 @@ class ClientTalkTransport:
                 raise DictationError("voice_output_unavailable")
             if len(source.text) > 256_000:
                 raise DictationError("voice_output_too_large")
-            text = make_speakable_response(source.text, allow_long=source.allow_long).text
-            if len(text) > MAX_TEXT_CHARS:
-                raise DictationError("voice_output_too_large")
+            text = spoken_text(source.text)
             admitted()
             speech = self._transport._browser_service().synthesize(owner.client_session_id, text, validate=admitted)
             admitted()

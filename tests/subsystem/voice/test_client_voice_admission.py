@@ -150,7 +150,7 @@ def test_submission_passes_frozen_server_policy_without_wire_or_handle_content(s
     accepted = []
     original_start = service._start
     def start(*args, **kwargs):
-        assert kwargs['frozen_context']['configurable'] == lease.chat_context['_policy']
+        assert kwargs['frozen_context']['configurable'] == {**lease.chat_context['_policy'], 'voice_mode': True}
         accepted.append(kwargs['frozen_context'])
         return original_start(*args, **kwargs)
     monkeypatch.setattr(service, '_start', start)
