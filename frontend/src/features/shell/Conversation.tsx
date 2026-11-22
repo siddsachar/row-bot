@@ -4661,7 +4661,15 @@ export default function Conversation({
                         scope={voiceScope}
                         available={
                           voiceExposure.key === voiceHostKey &&
-                          (voiceExposure.talk || voiceExposure.realtime)
+                          voiceExposure.talk
+                        }
+                        liveAvailable={
+                          voiceExposure.key === voiceHostKey &&
+                          voiceExposure.realtime
+                        }
+                        phone={phone}
+                        focusComposer={() =>
+                          composerRef.current?.focus({ preventScroll: true })
                         }
                         unavailableReason={voiceExposure.talkReason}
                         disabled={busy}

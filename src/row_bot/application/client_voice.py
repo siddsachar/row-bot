@@ -15,8 +15,7 @@ from uuid import UUID, uuid5
 
 from row_bot.application.client_platform import _COMMAND_LOCK
 from row_bot.runtime import admissions
-from row_bot.voice.client_transport import DictationError, DictationOwner
-from row_bot.voice.client_talk import TalkSpeechSource
+from row_bot.voice.client_transport import DictationError, DictationOwner, TalkSpeechSource
 
 
 class ClientVoiceAdmission:

@@ -31,6 +31,7 @@ GROUPS = {
         "fastapi",
         "starlette",
         "uvicorn",
+        "websockets",
         "ollama",
         "langchain",
         "langchain_core",
@@ -77,6 +78,8 @@ GROUPS = {
     "voice": (
         "faster_whisper",
         "kokoro_onnx",
+        "pipecat.audio.vad.silero",
+        "pipecat.audio.turn.smart_turn.local_smart_turn_v3",
         *FUNASR_VOICE_MODULES,
     ),
     "designer": (

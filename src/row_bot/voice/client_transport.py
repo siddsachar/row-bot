@@ -78,6 +78,12 @@ class DictationResult:
 
 
 @dataclass(frozen=True)
+class TalkSpeechSource:
+    """Server-resolved final assistant output; never supplied by a media request."""
+    text: str
+
+
+@dataclass(frozen=True)
 class DictationOperation:
     token: str
     owner: DictationOwner
@@ -166,8 +172,9 @@ class ClientDictationTransport:
                 self.coordinator._reset_realtime_runtime_state()
 
     def _expire(self, lease: _Lease) -> None:
+        # Live voice (a paid provider) keeps its ten-minute session; Row-Bot Voice lasts as long as it is used.
         if (self._clock() >= lease.expires or
-                (lease.mode == "talk" and self._clock() >= lease.started_at + 600.0)):
+                (lease.transport == "realtime" and self._clock() >= lease.started_at + 600.0)):
             self._invalidate(lease)
 
     def _lease(self, owner: DictationOwner, handle: DictationHandle, *, active: bool = True) -> _Lease:
@@ -191,7 +198,7 @@ class ClientDictationTransport:
 
     def _start(self, owner: DictationOwner, *, request_id: str,
                validate: Callable[[], None], mode: Literal["dictate", "talk"],
-               _transport: Literal["browser", "realtime"] = "browser",
+               _transport: Literal["browser", "realtime", "duplex"] = "browser",
                _prepare: Callable[[Callable[[], None]], None] | None = None,
                _chat_context: dict | None = None) -> DictationSnapshot:
         _owner(owner)

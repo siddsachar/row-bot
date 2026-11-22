@@ -74,6 +74,7 @@ _SECRET_FIELDS = {
 _ENUMS = {
     ("voice", "runtime.talk_provider"): {"local", "openai_realtime"},
     ("voice", "runtime.dictation_provider"): {"local"},
+    ("voice", "runtime.turn_eagerness"): {"relaxed", "normal", "eager"},
     ("voice", "runtime.speech_output_provider"): {"local"},
     ("voice", "runtime.realtime_voice"): {
         "alloy",
@@ -127,6 +128,7 @@ _ENUMS = {
 _RETIRED_FIELDS = {("tools", "compression_mode")}
 _BOOL_FIELDS = {
     ("voice", "runtime.captions_enabled"),
+    ("voice", "runtime.push_to_talk"),
     ("system", "shell.enabled"),
     ("system", "shell.allow_data_folder"),
     ("system", "browser.enabled"),

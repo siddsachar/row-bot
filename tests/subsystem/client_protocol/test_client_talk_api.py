@@ -1,15 +1,15 @@
-"""Talk/realtime HTTP through canonical normal chat, with fake speech/providers."""
+"""Row-Bot Voice and Live voice (realtime) HTTP through canonical normal chat, with fakes."""
 # ruff: noqa: F811 -- shared isolated fixture.
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.provider_base import SynthesizedSpeech
 from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier
-from tests.helpers.voice_fakes import fake_browser_speech
+from tests.helpers.voice_fakes import FakeClock, FakeSpeechToText, fake_browser_speech, fake_engine_parts
 from tests.subsystem.client_protocol.test_protocol_application import _client, _command, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 from tests.subsystem.voice.test_dictation_lifecycle import Voice
@@ -39,8 +39,12 @@ def api(service):
         assert client_secret == 'synthetic-ephemeral-only'
         effects.append('exchange')
         return b'v=0\r\nsynthetic-answer'
+    clock = FakeClock()
+    stt = FakeSpeechToText(clock, 'Synthetic spoken request')
+    engine = SimpleNamespace(readiness=lambda: None, build=lambda: fake_engine_parts(clock, stt))
     service.bind_voice(coordinator, browser_service=lambda: browser, clock=lambda: 0.0,
-        realtime_provider_factory=lambda: SimpleNamespace(create_client_secret=credentials, exchange_sdp=exchange))
+        realtime_provider_factory=lambda: SimpleNamespace(create_client_secret=credentials, exchange_sdp=exchange),
+        voice_engine=engine)
     service.realtime._wall_clock = lambda: 0.0
     service.readiness_factory = lambda controls: True
     with _client(service) as client:
@@ -51,7 +55,8 @@ def api(service):
         body = {'request_id': str(uuid4()), 'conversation_revision': result.json()['revision'],
                 'model_selection': {'provider_id': 'fixture', 'model_ref': 'model:fixture:model'}, 'write_targets': []}
         yield SimpleNamespace(client=client, headers=headers, conversation=conversation, body=body,
-            base=f'/api/v1/conversations/{conversation}/voice/', service=service, effects=effects, voice=voice)
+            base=f'/api/v1/conversations/{conversation}/voice/', service=service, effects=effects, voice=voice,
+            engine=engine, stt=stt)
     service.close_voice()
 
 
@@ -69,55 +74,25 @@ def url(api, snapshot, mode='talk', action=''):
     return api.base + mode + '/' + snapshot['handle']['lease_id'] + ('/' + action if action else '')
 
 
-@pytest.mark.slow
-def test_actual_talk_transcription_normal_chat_final_speech_and_exclusive_stop(api):
-    barrier = StreamBarrier()
-    api.service.stream_factory = ScriptedAgentStream((barrier, ('token', 'Saved voice answer'),
-        CheckpointCommit((AIMessage(id='spoken-output', content='Saved voice answer'),), 'spoken-output'), ('done', None))).stream
-    capture = start(api)
-    assert not api.effects
-    assert start(api) == capture
-    headers = {**api.headers, 'Content-Type': 'audio/webm', 'X-Dictation-Utterance': str(uuid4()),
-               'X-Voice-Session-Id': str(capture['handle']['voice_session_id']), 'X-Server-Epoch': capture['handle']['server_epoch']}
-    try:
-        response = api.client.post(url(api, capture, action='transcribe'), headers=headers, content=b'fake audio')
-        assert response.status_code == 200, response.text
-        result = response.json()
-        assert result['outcome'] == 'submitted' and result['run_id']
-        assert barrier.entered.wait(5)
-        handle = api.service.registry.conversation_generation(api.conversation, result['run_id'])
-        assert handle.runtime_surface == 'normal_chat'
-    finally:
-        barrier.release.set()
-    assert handle.producer_done.wait(5)
-    lease = api.service.dictation.coordinator._dictation_lease
-    for _ in range(2):
-        view = api.service.voice_admission.run_view(lease.owner, lease.handle, lambda: None)
-        assert view == {'run_id': result['run_id'], 'state': 'completed', 'output_id': 'spoken-output', 'text': 'Saved voice answer.'}
-    assert api.effects == ['transcribe']
-    speech = {**identity(capture), 'run_id': result['run_id'], 'output_id': 'spoken-output'}
-    response = api.client.post(url(api, capture, action='output'), headers=api.headers, json=speech)
-    assert response.status_code == 200, response.text
-    assert response.content == b'RIFF-synthetic-WAVE' and response.headers['Cache-Control'] == 'no-store'
-    assert response.headers['X-Voice-Output'] == 'spoken-output'
-    assert api.effects == ['transcribe', ('synthesize', 'Saved voice answer.')]
-    # A repeated synthesis cannot duplicate audio/provider effects.
-    assert api.client.post(url(api, capture, action='output'), headers=api.headers, json=speech).status_code == 409
-    assert api.effects == ['transcribe', ('synthesize', 'Saved voice answer.')]
-
-
-def test_talk_context_is_exact_and_another_client_cannot_keep_or_stop_lease(api):
-    capture = start(api)
+def test_voice_start_freezes_context_issues_a_ticket_and_another_client_cannot_use_or_stop_it(api):
+    started = start(api)
+    capture = started['snapshot']
+    assert capture['state'] == 'listening' and capture['transport'] == 'row_bot_voice'
+    assert len(started['ticket']) >= 20 and 0 < started['ticket_expires_in_ms'] <= 30000
     modified = {**api.body, 'write_targets': [], 'model_selection': {'provider_id': 'fixture', 'model_ref': 'model:fixture:other'}}
     response = api.client.post(api.base + 'talk', headers=api.headers, json=modified)
     assert response.status_code == 409 and response.json()['code'] == 'idempotency_mismatch'
     _, other = bootstrap(api.client)
-    for action in ('heartbeat', 'stop'):
+    for action in ('ticket', 'stop'):
         assert api.client.post(url(api, capture, action=action), headers=other, json=identity(capture)).status_code == 403
-    response = api.client.post(url(api, capture, action='heartbeat'), headers=api.headers, json=identity(capture))
-    assert response.status_code == 200 and response.json()['state'] == 'listening'
+    # Another conversation's path never reaches this lease.
+    elsewhere = _command(api.client, api.headers, 'conversation.create', {'title': 'Elsewhere'}).json()['conversation_id']
+    wrong = f"/api/v1/conversations/{elsewhere}/voice/talk/{capture['handle']['lease_id']}/ticket"
+    assert api.client.post(wrong, headers=api.headers, json=identity(capture)).status_code in {403, 410}
+    response = api.client.post(url(api, capture, action='ticket'), headers=api.headers, json=identity(capture))
+    assert response.status_code == 200 and response.json()['ticket'] != started['ticket']
     response = api.client.post(url(api, capture, action='stop'), headers=api.headers, json=identity(capture))
-    assert response.status_code == 200 and response.json()['quiesced']
+    assert response.status_code == 200 and response.json()['quiesced'] and response.json()['state'] == 'stopped'
     assert api.service.dictation.coordinator._dictation_lease.chat_context is None
     assert not api.effects
 
@@ -263,7 +238,7 @@ SPEECH_TEST = '/api/v1/settings/voice/speech-test'
 
 
 def test_speech_test_plays_only_the_fixed_phrase_to_the_requesting_browser(api):
-    from row_bot.voice.client_talk import SPEECH_TEST_PHRASE
+    from row_bot.voice.client_duplex import SPEECH_TEST_PHRASE
 
     assert api.client.post(SPEECH_TEST).status_code in {401, 403}
     assert api.client.post(SPEECH_TEST, headers={'Origin': 'http://localhost'}).status_code in {401, 403}
@@ -283,55 +258,3 @@ def test_speech_test_reports_missing_voice_instead_of_playing_on_the_host(servic
         _, headers = bootstrap(client)
         response = client.post(SPEECH_TEST, headers=headers)
     assert response.status_code == 403 and response.json()['code'] == 'capability_unavailable'
-
-
-def _talk_turn(api, *steps):
-    """One spoken Talk turn through HTTP, run by *steps*; returns its capture, run id and the run's configs."""
-    configs = []
-    scripted = ScriptedAgentStream(tuple(steps))
-    def stream(text, tools, config, *, stop_event=None):
-        configs.append(config['configurable'])
-        yield from scripted.stream(text, tools, config, stop_event=stop_event)
-    api.service.stream_factory = stream
-    capture = start(api)
-    headers = {**api.headers, 'Content-Type': 'audio/webm', 'X-Dictation-Utterance': str(uuid4()),
-               'X-Voice-Session-Id': str(capture['handle']['voice_session_id']), 'X-Server-Epoch': capture['handle']['server_epoch']}
-    response = api.client.post(url(api, capture, action='transcribe'), headers=headers, content=b'fake audio')
-    assert response.status_code == 200, response.text
-    run_id = response.json()['run_id']
-    assert api.service.registry.conversation_generation(api.conversation, run_id).producer_done.wait(5)
-    return capture, run_id, configs
-
-
-def _call(call_id, name):
-    return {'id': call_id, 'name': name, 'args': {}, 'type': 'tool_call'}
-
-
-def test_a_multi_agent_turn_speaks_its_final_answer_whole_not_its_steps_or_tool_results(api):
-    final = ' '.join(f'Helper finding {index} is worth hearing.' for index in range(1, 9))
-    capture, run_id, configs = _talk_turn(api, ('token', 'Let me ask two helpers.'), ('token', final),
-        CheckpointCommit((
-            AIMessage(id='plan', content='Let me ask two helpers.', tool_calls=[_call('call-delegate', 'delegate_work')]),
-            ToolMessage(content='Started helpers A and B.', tool_call_id='call-delegate', name='delegate_work'),
-            AIMessage(id='wait', content='', tool_calls=[_call('call-wait', 'agent_wait')]),
-            ToolMessage(content='Helper A: private tool output.', tool_call_id='call-wait', name='agent_wait'),
-            AIMessage(id='final', content=final)), 'final'), ('done', None))
-    assert configs and all(config.get('voice_mode') is True for config in configs)
-    lease = api.service.dictation.coordinator._dictation_lease
-    view = api.service.voice_admission.run_view(lease.owner, lease.handle, lambda: None)
-    assert view['state'] == 'completed' and view['output_id'] == 'final' and view['text'] == final
-    speech = {**identity(capture), 'run_id': run_id, 'output_id': 'final'}
-    response = api.client.post(url(api, capture, action='output'), headers=api.headers, json=speech)
-    assert response.status_code == 200, response.text
-    assert api.effects == ['transcribe', ('synthesize', final)]
-
-
-def test_a_final_answer_written_with_a_tool_call_is_spoken_without_the_call(api):
-    answer = 'I saved that to your notes. Here is the gist: buy milk.\n```json\n{"note": "buy milk"}\n```'
-    capture, run_id, _ = _talk_turn(api, ('token', answer), CheckpointCommit((
-        AIMessage(id='final', content=answer, tool_calls=[_call('call-save', 'save_note')]),
-        ToolMessage(content='{"saved": true}', tool_call_id='call-save', name='save_note')), 'final'), ('done', None))
-    speech = {**identity(capture), 'run_id': run_id, 'output_id': 'final'}
-    response = api.client.post(url(api, capture, action='output'), headers=api.headers, json=speech)
-    assert response.status_code == 200, response.text
-    assert api.effects == ['transcribe', ('synthesize', 'I saved that to your notes. Here is the gist: buy milk.')]

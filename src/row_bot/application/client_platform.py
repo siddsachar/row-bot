@@ -407,6 +407,8 @@ class ClientPlatformService:
         self.talk = None
         self.realtime = None
         self.voice_admission = None
+        # A live Row-Bot Voice session hears its conversation's run events.
+        self.voice_listeners: dict[str, Callable[[tuple, Any], None]] = {}
         self._voice_binding: tuple[Any, ...] | None = None
         self._voice_binding_lock = threading.Lock()
         from row_bot.application.subscription_controls import SubscriptionFlows
@@ -419,9 +421,10 @@ class ClientPlatformService:
     def bind_voice(self, coordinator: VoiceSessionCoordinator, *,
                    browser_service: Callable[[], BrowserLocalVoiceService],
                    clock: Callable[[], float] = time.monotonic,
-                   realtime_provider_factory: Callable[[], Any] | None = None) -> None:
+                   realtime_provider_factory: Callable[[], Any] | None = None,
+                   voice_engine: Any = None) -> None:
         """Expose the host's existing voice owner without starting a service."""
-        binding = (coordinator, browser_service, clock, realtime_provider_factory)
+        binding = (coordinator, browser_service, clock, realtime_provider_factory, voice_engine)
         with self._voice_binding_lock:
             if self._voice_binding is not None:
                 if all(old is new for old, new in zip(self._voice_binding, binding)):
@@ -431,11 +434,12 @@ class ClientPlatformService:
             self.dictation = ClientDictationTransport(coordinator=coordinator,
                                                       browser_service=browser_service, clock=clock)
             from row_bot.application.client_voice import ClientVoiceAdmission, realtime_provider
-            from row_bot.voice.client_talk import ClientTalkTransport
+            from row_bot.voice.client_duplex import DuplexTalkTransport, LocalVoiceEngine
             from row_bot.voice.client_realtime import ClientRealtimeTransport
             self.voice_admission = ClientVoiceAdmission(self)
-            self.talk = ClientTalkTransport(dictation=self.dictation,
-                submit=self.voice_admission.submit, resolve_output=self.voice_admission.output)
+            self.talk = DuplexTalkTransport(dictation=self.dictation, admission=self.voice_admission,
+                engine=voice_engine or LocalVoiceEngine(browser_service), listeners=self.voice_listeners,
+                clock=clock)
             self.realtime = ClientRealtimeTransport(dictation=self.dictation,
                 provider_factory=realtime_provider_factory or realtime_provider,
                 submit=self.voice_admission.submit, active_generation=self.voice_admission.active,
@@ -632,6 +636,7 @@ class ClientPlatformService:
                 touch_thread(conversation_id)
             self.projection.publish(conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
+            self._voice_follows(conversation_id, ("finished", status), handle)
             from row_bot.application import approval_grants
             if status != "waiting_approval":
                 approval_grants.end_turn(handle.conversation_id)
@@ -1706,6 +1711,9 @@ class ClientPlatformService:
                           "device_time_zone", "voice_mode"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
+        if not resume and followup is None and self.voice_live(conversation_id):
+            # Typed while voice listens: the answer is spoken, so it is written for listening too.
+            config["configurable"]["voice_mode"] = True
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
         # Apps: the profile is the ceiling; this chat's switches and the message's mentions only narrow
         # it. A queued message narrows by its own mentions (never by the turn it waited behind); a
@@ -1977,6 +1985,20 @@ class ClientPlatformService:
     def observe_event(self, conversation_id: str, event: tuple, handle: Any) -> None:
         with _COMMAND_LOCK:
             self._observe_event_locked(conversation_id, event, handle)
+        self._voice_follows(conversation_id, event, handle)
+
+    def voice_live(self, conversation_id: str) -> bool:
+        """A Row-Bot Voice session is open and listening in this conversation (not paused)."""
+        listener = self.voice_listeners.get(conversation_id)
+        return bool(listener is not None and getattr(listener, "live", lambda: False)())
+
+    def _voice_follows(self, conversation_id: str, event: tuple, handle: Any) -> None:
+        listener = self.voice_listeners.get(conversation_id)
+        if listener is not None:
+            try:
+                listener(event, handle)
+            except Exception:
+                _LOG.warning("Row-Bot Voice missed a run event in %s", conversation_id, exc_info=True)
 
     def _observe_event_locked(self, conversation_id: str, event: tuple, handle: Any) -> None:
         kind, payload = event
