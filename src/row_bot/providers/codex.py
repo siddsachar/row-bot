@@ -12,7 +12,8 @@ from typing import Any
 
 import row_bot.secret_store as secret_store
 
-from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderHealth, TransportMode
+from row_bot.providers.models import (
+    AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderHealth, TransportMode, gpt_generation)
 from row_bot.providers.oauth import DeviceCodePrompt, OAuthToken, expiry_from_seconds
 
 CODEX_PROVIDER_ID = "codex"
@@ -313,7 +314,6 @@ def _codex_model_info_from_live_item(item: dict[str, Any]) -> ModelInfo | None:
         or item.get("inputModalities")
         or item.get("modalities")
     ) or {ModelModality.TEXT.value}
-    reasoning_efforts = item.get("supported_reasoning_efforts") or item.get("supportedReasoningEfforts") or []
     tool_calling = item.get("tool_calling") or item.get("supports_tools") or item.get("supportsTools")
     if tool_calling is not None:
         tool_calling = bool(tool_calling)
@@ -327,11 +327,24 @@ def _codex_model_info_from_live_item(item: dict[str, Any]) -> ModelInfo | None:
         tool_calling=tool_calling,
         streaming=item.get("streaming") if isinstance(item.get("streaming"), bool) else True,
     )
-    if isinstance(reasoning_efforts, (list, tuple, set)) and reasoning_efforts:
-        from row_bot.providers.reasoning import ReasoningCapabilities
+    # The /models list names each model's levels as objects, ``supported_reasoning_levels: [{"effort": "low",
+    # "description": ...}]`` with ``default_reasoning_level`` (ModelInfo in codex-rs/protocol/src/openai_models.rs,
+    # openai/codex rust-v0.171.0); Codex's app server says ``supportedReasoningEfforts: [{"reasoningEffort": ...}]``
+    # and ``defaultReasoningEffort``; older lists named them as strings.
+    from row_bot.providers.reasoning import ReasoningCapabilities, effort_names
 
+    levels = next(filter(None, (effort_names(item.get(key)) for key in (
+        "supported_reasoning_levels", "supportedReasoningLevels",
+        "supported_reasoning_efforts", "supportedReasoningEfforts",
+    ))), ())
+    if levels:
+        default = next((item[key] for key in (
+            "default_reasoning_level", "defaultReasoningLevel",
+            "default_reasoning_effort", "defaultReasoningEffort",
+        ) if isinstance(item.get(key), str)), "")
         reasoning = ReasoningCapabilities(
-            supported_efforts=tuple(str(value) for value in reasoning_efforts),
+            supported_efforts=levels,
+            default_effort=default,
             source="codex_live_catalog",
             request_style="openai_responses",
         ).to_json()
@@ -675,7 +688,7 @@ def fallback_codex_model_infos() -> list[ModelInfo]:
         _codex_model_info(
             str(model["id"]),
             display_name=str(model["display_name"]),
-            input_modalities=set(model.get("input_modalities") or ({ModelModality.TEXT.value, ModelModality.IMAGE.value} if str(model["id"]).startswith("gpt-5") else {ModelModality.TEXT.value})),
+            input_modalities=set(model.get("input_modalities") or ({ModelModality.TEXT.value, ModelModality.IMAGE.value} if gpt_generation(str(model["id"])) >= 5 else {ModelModality.TEXT.value})),
             source_confidence=str(model.get("source_confidence") or "documented_chatgpt_codex_model"),
             source="codex_documented_fallback_catalog",
             tool_calling=None,

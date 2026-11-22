@@ -3972,6 +3972,16 @@ it('says which levels exist when /reasoning names none, and keeps the text', asy
   expect(mock.drafts.get('conversation-a')?.text).toBe('/reasoning turbo');
 });
 
+it('shows the thinking level and its choices for a bare /reasoning', async () => {
+  withCommands();
+  await sendText('/reasoning');
+  expect(mock.notify).toHaveBeenCalledWith(
+    'Thinking: Provider default. Choices: Low, High.',
+  );
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(mock.drafts.get('conversation-a')?.text).toBe('');
+});
+
 it('switches the profile with /profile', async () => {
   withCommands();
   await sendText('/profile writer');

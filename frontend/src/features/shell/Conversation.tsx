@@ -103,6 +103,7 @@ import {
   goalRequest,
   profileChoice,
   reasoningChoice,
+  reasoningStatus,
   slashArgument,
   watchRequest,
   type SlashArgument,
@@ -1213,6 +1214,17 @@ export default function Conversation({
     try {
       if (command.handler_kind === 'reasoning') {
         const reasoning = chatReasoning;
+        if (['', 'status'].includes(argument.toLocaleLowerCase())) {
+          // A bare "/reasoning" says the level and the choices, as channels do.
+          const status = reasoningStatus(reasoning);
+          if (!status) {
+            setError(notALevel(argument));
+            return;
+          }
+          clear();
+          overlay.notify(status);
+          return;
+        }
         const choice = reasoningChoice(argument, reasoning);
         if (!reasoning?.available || !choice) {
           setError(notALevel(argument));

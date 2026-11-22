@@ -1,5 +1,7 @@
 from row_bot.providers.capabilities import model_supports_surface
 from row_bot.providers.catalog import classify_model_capabilities, get_provider_definition, infer_provider_id, legacy_cache_to_model_infos, model_info_to_cache_entry
+import pytest
+
 from row_bot.providers.models import ModelInfo, TransportMode
 from row_bot.providers.ollama import (
     is_ollama_cloud_offload_model,
@@ -23,6 +25,13 @@ def test_minimax_provider_definition_and_model_inference():
     assert definition.default_transport == TransportMode.ANTHROPIC_MESSAGES
     assert definition.base_url == "https://api.minimax.io/anthropic"
     assert definition.auth_methods[0].value == "api_key"
+
+
+def test_atlascloud_reads_gpt6_through_its_openai_route_as_seeing_images():
+    from row_bot.providers.atlascloud import atlascloud_model_info_from_metadata
+
+    assert "image" in atlascloud_model_info_from_metadata("openai/gpt-6.1-sol", {}).input_modalities
+    assert "image" not in atlascloud_model_info_from_metadata("openai/gpt-4", {}).input_modalities
 
 
 def test_atlascloud_provider_definition_and_capabilities():
@@ -128,6 +137,25 @@ def test_openai_responses_only_models_are_chat_surface_compatible():
     assert classified["transport"] == TransportMode.OPENAI_RESPONSES
     assert TransportMode.OPENAI_RESPONSES in classified["endpoint_compatibility"]
     assert "responses" in classified["tasks"]
+
+
+@pytest.mark.parametrize("model_id", ["gpt-5.5-pro", "gpt-6.1-sol", "gpt-6-astra", "gpt-10"])
+def test_gpt5_and_later_take_responses_and_images(model_id):
+    classified = classify_model_capabilities("openai", model_id)
+
+    assert classified["transport"] == TransportMode.OPENAI_RESPONSES
+    assert "responses" in classified["tasks"] and "vision" in classified["capabilities"]
+    # Gateways passing OpenAI's names through read the same families.
+    assert "vision" in classify_model_capabilities("openrouter", f"openai/{model_id}")["capabilities"]
+
+
+@pytest.mark.parametrize(("model_id", "vision"), [("gpt-4o", True), ("gpt-4.1-mini", True), ("gpt-4", False),
+                                                  ("o4-mini", True), ("gpt-oss-120b", False)])
+def test_earlier_openai_models_keep_chat_completions_and_their_vision(model_id, vision):
+    classified = classify_model_capabilities("openai", model_id)
+
+    assert classified["transport"] == TransportMode.OPENAI_CHAT
+    assert ("vision" in classified["capabilities"]) is vision
 
 
 def test_non_chat_models_are_excluded_from_chat_surface():

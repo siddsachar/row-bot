@@ -92,7 +92,7 @@ class ReasoningCapabilities:
         default_enabled = value.get("default_enabled") if isinstance(value.get("default_enabled"), bool) else None
         inferred_mode = "manual" if supports_budget else "toggle" if default_enabled is not None and not efforts else "none"
         caps = cls(
-            supported_efforts=tuple(str(item) for item in efforts if str(item)),
+            supported_efforts=effort_names(efforts),
             default_effort=str(value.get("default_effort") or value.get("defaultEffort") or ""),
             default_enabled=default_enabled,
             can_disable=bool(can_disable),
@@ -106,6 +106,17 @@ class ReasoningCapabilities:
             request_style=str(value.get("request_style") or ""),
         )
         return caps if caps.controllable else None
+
+
+def effort_names(values: Any) -> tuple[str, ...]:
+    """Effort names from a list of names or of objects naming one (``{"effort": "low", "description": ...}``)."""
+    names = []
+    for value in values if isinstance(values, (list, tuple, set, frozenset)) else ():
+        if isinstance(value, Mapping):
+            value = value.get("effort") or value.get("reasoningEffort")
+        if isinstance(value, str) and value.strip():
+            names.append(value)
+    return tuple(names)
 
 
 @dataclass(frozen=True)
@@ -408,7 +419,7 @@ def apply_reasoning_command(thread_id: str, canonical_model_ref: str, argument: 
         return f"Reasoning controls are not available for {canonical_model_ref}."
     from row_bot.threads import get_thread_reasoning_selection, set_thread_reasoning_selection
 
-    if not str(argument or "").strip():
+    if str(argument or "").strip().lower() in {"", "status"}:
         saved = get_thread_reasoning_selection(thread_id, canonical_model_ref)
         try:
             selection = validate_reasoning_selection(ReasoningSelection.from_json(saved), caps)
@@ -693,7 +704,9 @@ _CATALOGUE_REASONING: dict[str, ReasoningCapabilities] = {
     "anthropic": _catalogue_caps(_ANTHROPIC_EFFORTS, style="anthropic", thinking_mode="adaptive"),
     "claude_subscription": _catalogue_caps(_ANTHROPIC_EFFORTS, style="anthropic", thinking_mode="adaptive"),
     "google": _catalogue_caps(("low", "high"), style="google_level"),
-    "xai": _catalogue_caps(("low", "high"), style="xai", mandatory=True),
+    # The ChatGPT plan's models and Grok on the xAI sign-in, which models.dev knows by their API names.
+    "codex": _catalogue_caps(_CODEX_EFFORTS, style="openai_responses"),
+    **{provider: _catalogue_caps(("low", "high"), style="xai", mandatory=True) for provider in ("xai", "xai_oauth")},
     # reasoning_effort, as OpenAI's chat API takes it (gpt-oss and the others these hosts run).
     **{provider: _catalogue_caps(("low", "medium", "high"), style="openai")
        for provider in ("groq", "cerebras", "fireworks", "together", "huggingface", "vercel", "nvidia")},

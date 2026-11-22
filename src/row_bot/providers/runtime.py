@@ -1280,6 +1280,7 @@ def _infer_provider(model_name: str) -> str:
 
 
 def openai_model_uses_responses_api(model_name: str) -> bool:
-    """Return True for direct OpenAI models that are not chat-completions native."""
-    bare = str(model_name or "").split("/")[-1].strip().lower()
-    return bare.startswith("gpt-5")
+    """Return True for direct OpenAI models that are not chat-completions native: GPT-5 and later."""
+    from row_bot.providers.models import gpt_generation
+
+    return gpt_generation(model_name) >= 5

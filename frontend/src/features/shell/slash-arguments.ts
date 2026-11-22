@@ -17,7 +17,8 @@ export type SlashArgument = { command: SlashCommandSpec; argument: string };
 /**
  * "/goal Ship the docs" → the goal command and "Ship the docs". Only the
  * palette's own commands that take an argument count; anything else is an
- * ordinary message.
+ * ordinary message. A bare "/reasoning" counts too: it shows the chat's
+ * thinking level and its choices, as it does in channels.
  */
 export function slashArgument(
   text: string,
@@ -26,15 +27,20 @@ export function slashArgument(
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
   const space = trimmed.search(/\s/);
-  if (space < 0) return null;
-  const token = trimmed.slice(0, space).toLocaleLowerCase();
-  const argument = trimmed.slice(space).trim();
+  const token = (
+    space < 0 ? trimmed : trimmed.slice(0, space)
+  ).toLocaleLowerCase();
+  const argument = space < 0 ? '' : trimmed.slice(space).trim();
   const command = commands.find((item) =>
     [item.token, ...item.aliases].some(
       (value) => value.toLocaleLowerCase() === token,
     ),
   );
-  if (!command || !argument || !WITH_ARGUMENT.has(command.handler_kind))
+  if (
+    !command ||
+    !WITH_ARGUMENT.has(command.handler_kind) ||
+    (!argument && command.handler_kind !== 'reasoning')
+  )
     return null;
   // "/watch the deploy and tell me when it's live" is a message: the model
   // sets the watch (B4).
@@ -129,6 +135,31 @@ export function reasoningChoice(
         ['on', 'off'].includes(item.selection.kind)),
   );
   return choice ? { selection: choice.selection, label: choice.label } : null;
+}
+
+/** The chat's thinking level as the Thinking control names it. */
+export function currentThinkingLabel(
+  reasoning: ReasoningView | null | undefined,
+): string {
+  return (
+    reasoning?.choices.find(
+      (item) =>
+        JSON.stringify(item.selection) === JSON.stringify(reasoning.selection),
+    )?.label ??
+    (reasoning?.selection.kind === 'budget'
+      ? `${reasoning.selection.budget} tokens`
+      : 'Provider default')
+  );
+}
+
+/** "/reasoning" or "/reasoning status": the chat's level and its choices. */
+export function reasoningStatus(
+  reasoning: ReasoningView | null | undefined,
+): string | null {
+  if (!reasoning?.available) return null;
+  const choices = reasoning.choices.map((item) => item.label);
+  if (reasoning.supports_budget) choices.push('budget <tokens>');
+  return `Thinking: ${currentThinkingLabel(reasoning)}. Choices: ${choices.join(', ')}.`;
 }
 
 /**

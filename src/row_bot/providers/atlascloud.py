@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from typing import Any
 
-from row_bot.providers.models import ModelInfo, ModelModality, ModelTask, TransportMode
+from row_bot.providers.models import ModelInfo, ModelModality, ModelTask, TransportMode, gpt_generation
 
 ATLASCLOUD_PROVIDER_ID = "atlascloud"
 ATLASCLOUD_BASE_URL = "https://api.atlascloud.ai/v1"
@@ -140,7 +140,7 @@ _UPSTREAM_TOOL_PROVIDER_PREFIXES = {
     "zai-org",
 }
 _UPSTREAM_OPENAI_TOOL_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
-_UPSTREAM_OPENAI_VISION_PREFIXES = ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4")
+_UPSTREAM_OPENAI_VISION_PREFIXES = ("gpt-4o", "gpt-4.1", "o3", "o4")  # and every GPT-5 or later
 _UPSTREAM_ANTHROPIC_VISION_PREFIXES = ("claude-3", "claude-sonnet-4", "claude-opus-4")
 _UPSTREAM_VISION_EXACT_NEGATIVES = {
     ("openai", "o3-mini"),
@@ -230,7 +230,7 @@ def _upstream_model_supports_vision(model_id: str) -> bool | None:
     if (upstream, normalized) in _UPSTREAM_VISION_EXACT_NEGATIVES:
         return False
     if upstream == "openai":
-        return normalized.startswith(_UPSTREAM_OPENAI_VISION_PREFIXES)
+        return normalized.startswith(_UPSTREAM_OPENAI_VISION_PREFIXES) or gpt_generation(normalized) >= 5
     if upstream == "anthropic":
         return normalized.startswith(_UPSTREAM_ANTHROPIC_VISION_PREFIXES)
     if upstream == "google":
