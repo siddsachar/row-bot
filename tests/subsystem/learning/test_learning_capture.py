@@ -382,6 +382,36 @@ def test_the_persons_next_message_is_marked_as_following_the_reply(writer, chats
     assert store.find("signal") == []
 
 
+def test_the_persons_message_after_a_live_voice_line_follows_no_reply(writer, chats, learning_on):
+    booked = AIMessage(content="Booked for 7.", id="a1")
+    first = _turn(writer, chats, person_message=True)
+    writer.model_call(first, messages=_request("Book a table"), response=booked)
+    writer.end_turn(first, "completed")
+    # Live voice's own small talk, saved after the run (V4), then the person's next request.
+    talk = [HumanMessage(content="Thanks!", id="hf"),
+            AIMessage(content="Anytime!", id="f1", additional_kwargs={"voice_front": True})]
+    second = _turn(writer, chats, person_message=True)
+    moved = AIMessage(content="Moved to 8.", id="a2")
+    writer.model_call(second, messages=[*_request("Book a table"), booked, *talk,
+                                        HumanMessage(content="No, make it 8", id="h2")], response=moved)
+    writer.end_turn(second, "completed")
+    third = _turn(writer, chats, person_message=True)
+    writer.model_call(third, messages=[*_request("Book a table"), booked, *talk,
+                                       HumanMessage(content="No, make it 8", id="h2"), moved,
+                                       HumanMessage(content="And for four people", id="h3")],
+                      response=AIMessage(content="Four it is.", id="a3"))
+    writer.end_turn(third, "completed")
+    writer.drain()
+
+    store = _store(learning_on)
+    replies = {d.episode_id: d.id for d in store.find("decision")}
+    episodes = {e.id: e for e in store.find("episode")}
+    # "No, make it 8" answered the voice line, so it isn't read as a correction of "Booked for 7."...
+    assert episodes[second.episode_id].follows_decision_id is None
+    # ...while a message after Row-Bot's own reply follows it, as before.
+    assert episodes[third.episode_id].follows_decision_id == replies[second.episode_id]
+
+
 def test_retry_is_a_signal_on_the_reply_it_replaced(writer, chats, learning_on):
     turn = _turn(writer, chats, person_message=True)
     writer.model_call(turn, messages=_request("Check my apps"), response=AIMessage(content="Error.", id="answer-1"))

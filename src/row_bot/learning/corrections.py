@@ -181,6 +181,7 @@ _TURN_CONTEXT_KEY = "row_bot_turn_context"
 _NOTE_KEY = "row_bot_note"  # Row-Bot's own note to the model (5.3.1's progress nudge), never the person's
 _MID_TURN_KEY = "mid_turn"  # 5.3.1: what the person sent while a turn worked, read at its next step
 _TAPPED_KEY = "tapped_choice"  # F3: the person tapped one of a reply's answer buttons; its words are the button's
+_VOICE_FRONT_KEY = "voice_front"  # V4: a line Live voice's speech model said itself, saved after its run
 _REPLIES = frozenset({"ai", "AIMessageChunk"})
 
 
@@ -198,6 +199,31 @@ def is_row_bot_note(message: Any) -> bool:
     kept in the request exactly as sent, but never the person's words."""
 
     return bool(_kwargs(message).get(_NOTE_KEY))
+
+
+def is_voice_front(message: Any) -> bool:
+    """Whether a reply (captured, ``message_to_dict``, or as saved) is a line Live voice's speech model said
+    itself (a greeting, small talk): Row-Bot's model never wrote it, under other instructions and without
+    tools. It stays in later requests as context, but is never a reply to learn from."""
+
+    return bool(_kwargs(message).get(_VOICE_FRONT_KEY))
+
+
+def follows_voice_front(messages: Sequence[Any]) -> bool:
+    """Whether the person's newest message in a request came right after a Live voice line
+    (``is_voice_front``): the person was answering that line, not the reply before it, so their message
+    corrects nothing Learning recorded."""
+
+    from row_bot.turn_context import is_person_message
+
+    items = list(messages)
+    person = max((index for index, item in enumerate(items) if is_person_message(item)
+                  and not is_row_bot_note(item) and not is_row_bot_prompt(item)), default=-1)
+    for item in reversed(items[:max(person, 0)]):
+        kind = item.get("type") if isinstance(item, Mapping) else getattr(item, "type", "")
+        if str(kind or "") in _REPLIES:
+            return is_voice_front(item)
+    return False
 
 
 def is_row_bot_prompt(message: Any) -> bool:
@@ -585,8 +611,10 @@ __all__ = [
     "confirm",
     "corrected_decisions",
     "first_call",
+    "follows_voice_front",
     "is_row_bot_note",
     "is_row_bot_prompt",
+    "is_voice_front",
     "judge",
     "opening_texts",
     "person_text",
