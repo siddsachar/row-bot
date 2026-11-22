@@ -37,10 +37,65 @@
       ],
       "title": "DictationHandle",
       "type": "object"
+    },
+    "VoiceCue": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 32,
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 128,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "VoiceCue",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
+    "call_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Call Id"
+    },
+    "cues": {
+      "items": {
+        "$ref": "#/$defs/VoiceCue"
+      },
+      "maxItems": 8,
+      "title": "Cues",
+      "type": "array"
+    },
+    "function_output": {
+      "anyOf": [
+        {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Function Output"
+    },
     "handle": {
       "$ref": "#/$defs/DictationHandle"
     },
@@ -80,7 +135,8 @@
         "completed",
         "stopped",
         "failed",
-        "interrupted"
+        "interrupted",
+        "waiting_approval"
       ],
       "title": "State",
       "type": "string"

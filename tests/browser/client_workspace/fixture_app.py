@@ -6038,7 +6038,12 @@ def main() -> None:
         assert client_secret == 'synthetic-browser-ephemeral'
         _voice_fixture['exchanges'] += 1
         return b'v=0\r\nsynthetic-browser-answer'
-    client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
+    client_voice.realtime_provider = lambda option='openai': SimpleNamespace(
+        create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange, transport='openai_realtime',
+        status=lambda: VoiceProviderStatus('fixture_live', 'Fixture live voice', True))
+    # Live voice: OpenAI's and Google's keys are saved here, xAI's is not (the picker shows both states).
+    from row_bot.voice import provider_base
+    provider_base.provider_api_key = lambda credential: 'synthetic-saved-key' if credential in {'openai', 'google'} else ''
     _install_voice_engine_fixture()
 
     # The middleware stack is built on the first request. Wrap the completed

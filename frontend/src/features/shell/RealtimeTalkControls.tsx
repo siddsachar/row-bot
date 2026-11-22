@@ -32,7 +32,9 @@ export type RealtimeTalkControlsProps = {
     event: RealtimeEvent,
     signal: AbortSignal,
   ): Promise<RealtimeEventResult>;
-  output?: RealtimeOutput;
+  /** What Row-Bot asks the front to say: the consult's answer, progress cues. Each is sent once. */
+  outputs?: RealtimeOutput[];
+  onSent?(output: RealtimeOutput): void;
   onBusy?(busy: boolean): void;
   onRun?(runId: string): void;
 };
@@ -59,10 +61,12 @@ function dispose(a: Attempt) {
 
 function failureMessage(code: unknown) {
   if (code === 'realtime_auth_unavailable')
-    return 'Realtime provider authorization failed. Review the connected provider.';
+    return 'The provider refused its key. Check it in Providers.';
+  if (code === 'realtime_key_missing')
+    return 'Live voice needs this provider’s API key. Add it in Providers.';
   if (code === 'realtime_quota_or_rate_limit')
-    return 'Realtime provider quota or rate limit reached. Review provider limits before retrying.';
-  return 'Realtime Talk stopped. Check voice readiness and the conversation before retrying.';
+    return 'The provider’s quota or rate limit was reached. Try again later.';
+  return 'Live voice stopped. Check the provider and this chat, then try again.';
 }
 
 export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
@@ -161,14 +165,8 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
 
   async function start() {
     if (current.current || !props.available || props.disabled) return;
-    if (
-      !globalThis.isSecureContext ||
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof RTCPeerConnection === 'undefined'
-    ) {
-      setMessage(
-        'Realtime Talk needs a secure browser context with microphone and WebRTC support.',
-      );
+    if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setMessage('Live voice needs a secure page with microphone access.');
       return;
     }
     const a: Attempt = {
@@ -202,7 +200,7 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
           .then((snapshot) => apply(a, snapshot))
           .catch(() => {
             if (live(a))
-              void stop(a, 'Voice connection lost. Realtime Talk stopped.');
+              void stop(a, 'Voice connection lost. Live voice stopped.');
           })
           .finally(() => {
             a.polling = false;
@@ -249,8 +247,10 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
 
   useEffect(() => {
     const a = current.current;
-    if (a && !a.stopped && props.output) a.session?.sendOutput(props.output);
-  }, [props.output, state]);
+    if (!a || a.stopped || !a.session) return;
+    for (const output of props.outputs ?? [])
+      if (a.session.sendOutput(output)) latest.current.onSent?.(output);
+  }, [props.outputs, state]);
 
   const label =
     state === 'idle'
@@ -273,7 +273,7 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
     <div
       className="voice-controls realtime-talk-controls"
       role="group"
-      aria-label="Realtime Talk controls"
+      aria-label="Live voice controls"
       aria-busy={state !== 'idle'}
     >
       {state === 'idle' ? (
@@ -310,11 +310,6 @@ export default function RealtimeTalkControls(props: RealtimeTalkControlsProps) {
         <span role="status" className="voice-state-reason">
           {label}
         </span>
-      )}
-      {state === 'idle' && !props.available && (
-        <small className="voice-state-reason">
-          Realtime Talk is unavailable in this session.
-        </small>
       )}
       {captions && caption && (
         <p className="voice-caption" role="status" aria-label="Voice caption">

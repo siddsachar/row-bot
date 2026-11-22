@@ -79,7 +79,11 @@
           "type": "string"
         },
         "transport": {
-          "const": "openai_realtime",
+          "enum": [
+            "openai_realtime",
+            "gemini_live",
+            "grok_voice"
+          ],
           "title": "Transport",
           "type": "string"
         }

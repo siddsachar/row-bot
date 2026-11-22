@@ -1,5 +1,14 @@
-/* Sole browser realtime response arbiter for the unified client.
- * Network and authenticated event delivery are injected by each transport. */
+/* Sole browser realtime response arbiter for the unified client: OpenAI
+ * Realtime over WebRTC, and Grok Voice (the same event schema) over a
+ * WebSocket the client opens (options.socket). Network and authenticated
+ * event delivery are injected by each transport. */
+
+// What the front is told when Row-Bot asks it to speak (model-visible).
+export const RUN_EVENT_INSTRUCTIONS = {
+  answer: 'Say this answer from Row-Bot naturally and faithfully, as your own, without adding to it: ',
+  status: 'Pass on this status from Row-Bot in a few words: '
+};
+
 export async function startRealtimeRuntime(options) {
   const sessionId = options.sessionId;
   const threadId = options.threadId || '';
@@ -53,7 +62,9 @@ export async function startRealtimeRuntime(options) {
       (existing.stream && existing.stream.getTracks() || []).forEach((track) => track.stop());
     } catch (_) {}
     try {
-      if (existing.audio) {
+      if (existing.audio && existing.audio.stop) {
+        existing.audio.stop();
+      } else if (existing.audio) {
         if (existing.audio.pause) existing.audio.pause();
         existing.audio.srcObject = null;
         existing.audio.remove();
@@ -75,9 +86,8 @@ export async function startRealtimeRuntime(options) {
     pendingResponseCreate: null,
     responseSettleTimer: null,
     lastResponseCreate: null,
-    pendingTranscript: '',
-    pendingTranscriptItemId: '',
-    consultStartedForItemId: '',
+    // Set when Row-Bot sends response.create: the next response is Row-Bot's, not the front's own.
+    awaitingRowBotResponse: false,
     functionArgumentDeltas: Object.create(null),
     handledCallIds: new Set(),
     outputQueue: [],
@@ -183,9 +193,11 @@ export async function startRealtimeRuntime(options) {
         this.responseState = 'idle';
         this.lastResponseCreate = null;
       } else {
+        this.awaitingRowBotResponse = true;
         emit('provider_response_create_sent', {
           response_state: this.responseState,
-          output_label: label || ''
+          output_label: label || '',
+          origin: 'row_bot'
         });
       }
       return sent;
@@ -242,7 +254,7 @@ export async function startRealtimeRuntime(options) {
       const cleanCallId = String(callId || '').trim();
       const cleanOutput = typeof output === 'string' ? output : JSON.stringify(output || {});
       const localMeta = localControlMeta(meta);
-      if (!cleanCallId) return this.sendRunEvent(cleanOutput, Object.assign({}, meta || {}, {origin: 'forced_consult_result'}));
+      if (!cleanCallId) return this.sendRunEvent(cleanOutput, Object.assign({}, meta || {}, {origin: 'final'}));
       const sent = this.queueOrSendOutput({
         type: 'conversation.item.create',
         item: {
@@ -266,11 +278,10 @@ export async function startRealtimeRuntime(options) {
       if (!clean) return false;
       if (clean.length > 8192) return this.failLimit();
       const origin = String(meta && meta.origin || '');
-      const answerOrigin = origin === 'final' || origin === 'stream_chunk' || origin.includes('result');
-      const priority = (answerOrigin || origin === 'tool_start' || origin === 'tool_progress' || origin === 'long_running') ? 'normal' : 'low';
-      const instructions = answerOrigin
-        ? 'Speak this Row-Bot response naturally and faithfully. Do not add framing, summarize, or ask follow-up questions: ' + clean
-        : 'Speak exactly this brief Row-Bot status. Do not add details or ask follow-up questions: ' + clean;
+      const answerOrigin = origin === 'final';
+      // A status waits for nothing: it is dropped while the front is speaking.
+      const priority = answerOrigin ? 'normal' : 'low';
+      const instructions = (answerOrigin ? RUN_EVENT_INSTRUCTIONS.answer : RUN_EVENT_INSTRUCTIONS.status) + clean;
       return this.createResponse({
           output_modalities: ['audio'],
           metadata: responseMetadata(meta, {row_bot_origin: 'run_event'}),
@@ -290,7 +301,9 @@ export async function startRealtimeRuntime(options) {
       }
       let sentCancel = false;
       if (this.activeResponseId) sentCancel = this.sendEvent({type: 'response.cancel'});
-      this.sendEvent({type: 'output_audio_buffer.clear'});
+      // Over a socket the audio already received plays here: stop it at once.
+      if (this.session && this.session.audio && this.session.audio.flush) this.session.audio.flush();
+      else this.sendEvent({type: 'output_audio_buffer.clear'});
       emit('barge_in_cancelled', {
         reason: reason || 'user_speech_started',
         response_id: this.activeResponseId,
@@ -319,9 +332,6 @@ export async function startRealtimeRuntime(options) {
       delete this.functionArgumentDeltas[callId];
       if (item.id) delete this.functionArgumentDeltas[item.id];
       if (argumentsText.length > 8192) return this.failLimit();
-      if (item.name === 'row_bot_agent_consult') {
-        this.consultStartedForItemId = this.pendingTranscriptItemId || 'unknown';
-      }
       emit('function_call_ready', {
         name: String(item.name || ''),
         call_id: callId,
@@ -341,8 +351,178 @@ export async function startRealtimeRuntime(options) {
   window.RowBotRealtimeVoice = runtime;
   if (options.onRuntime) options.onRuntime(runtime);
 
+  function onMessage(event) {
+    if (!isCurrent()) return;
+    if (typeof event.data !== 'string' || event.data.length > 131072) { runtime.failLimit(); return; }
+    let payload = null;
+    try { payload = JSON.parse(event.data); } catch (_) { return; }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    const type = String(payload.type || '');
+    const response = payload.response || {};
+    const responseId = String(response.id || payload.response_id || '');
+    if (responseId && !responseIdentities.has(responseId)) {
+      if (responseId.length > 128 || responseIdentities.size >= 200) { runtime.failLimit(); return; }
+      const meta = response.metadata || {};
+      // Row-Bot's own responses carry its metadata (OpenAI echoes it); Grok's are known by order.
+      const rowBot = Boolean(meta.row_bot_origin) || runtime.awaitingRowBotResponse;
+      runtime.awaitingRowBotResponse = false;
+      responseIdentities.set(responseId, {
+        thread_id: String(meta.thread_id || threadId),
+        generation_id: String(meta.generation_id ?? currentGenerationId),
+        origin: rowBot ? 'row_bot' : 'front'
+      });
+    }
+    if (type === 'session.created' || type === 'session.updated') {
+      emit('session_lifecycle', {event_type: type, raw: payload});
+    } else if (type === 'input_audio_buffer.speech_started') {
+      runtime.cancelActiveOutput('user_speech_started');
+      emit('speech_started', {raw: payload});
+    } else if (type === 'input_audio_buffer.speech_stopped') {
+      emit('speech_stopped', {raw: payload});
+    } else if (type === 'conversation.item.input_audio_transcription.delta') {
+      emit('transcript_delta', {text: payload.delta || '', item_id: payload.item_id || '', raw: payload});
+    } else if (type === 'conversation.item.input_audio_transcription.completed') {
+      const transcript = String(payload.transcript || payload.text || '');
+      if (transcript.length > 4000) { runtime.failLimit(); return; }
+      emit('transcript_final', {
+        text: transcript,
+        item_id: String(payload.item_id || ''),
+        raw: payload
+      });
+    } else if (type === 'response.output_audio.delta' || type === 'response.audio.delta') {
+      // Only a socket carries audio as events; WebRTC plays it from the media track.
+      const audio = runtime.session && runtime.session.audio;
+      if (audio && audio.play) audio.play(String(payload.delta || ''));
+    } else if (type === 'response.function_call_arguments.done') {
+      runtime.emitFunctionCall({type: 'function_call', call_id: payload.call_id, id: payload.item_id,
+        name: payload.name, arguments: payload.arguments}, type, responseId);
+    } else if (type === 'response.created') {
+      const responseId = String(payload.response && payload.response.id || payload.response_id || '');
+      runtime.activeResponseId = responseId;
+      runtime.playbackActive = true;
+      runtime.responseState = 'active';
+      runtime.outputStartedAt = performance.now();
+      emit('output_started', {
+        response_id: runtime.activeResponseId,
+        response_state: runtime.responseState,
+        raw: payload
+      });
+    } else if (type === 'response.output_item.added' || type === 'response.output_item.created') {
+      const item = payload.item || {};
+      runtime.activeOutputItemId = String(item.id || payload.item_id || runtime.activeOutputItemId || '');
+      emit('output_item_started', {
+        response_id: String(payload.response_id || runtime.activeResponseId || ''),
+        output_item_id: runtime.activeOutputItemId,
+        item_type: String(item.type || ''),
+        raw: payload
+      });
+    } else if (type === 'response.function_call_arguments.delta') {
+      const callId = String(payload.call_id || payload.item_id || '');
+      const nextArguments = String(runtime.functionArgumentDeltas[callId] || '') + String(payload.delta || '');
+      if (callId.length > 128 || nextArguments.length > 8192 ||
+          (!Object.hasOwn(runtime.functionArgumentDeltas, callId) && Object.keys(runtime.functionArgumentDeltas).length >= 200)) {
+        runtime.failLimit(); return;
+      }
+      runtime.functionArgumentDeltas[callId] = nextArguments;
+      emit('function_call_delta', {
+        call_id: callId,
+        delta: String(payload.delta || ''),
+        raw: payload
+      });
+    } else if (type === 'response.output_item.done') {
+      const item = payload.item || {};
+      runtime.handleResponseOutputItem(item, type, responseId);
+      emit('output_item_done', {
+        response_id: String(payload.response_id || runtime.activeResponseId || ''),
+        output_item_id: String(item.id || payload.item_id || runtime.activeOutputItemId || ''),
+        item_type: String(item.type || ''),
+        raw: payload
+      });
+    } else if (type === 'response.output_audio_transcript.delta') {
+      emit('assistant_transcript_delta', {
+        text: payload.delta || '',
+        response_id: String(payload.response_id || runtime.activeResponseId || ''),
+        output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
+        raw: payload
+      });
+    } else if (type === 'response.output_audio_transcript.done') {
+      emit('assistant_transcript_final', {
+        text: payload.transcript || payload.text || '',
+        response_id: String(payload.response_id || runtime.activeResponseId || ''),
+        output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
+        raw: payload
+      });
+    } else if (type === 'response.output_audio.done') {
+      emit('output_audio_done', {
+        response_id: String(payload.response_id || runtime.activeResponseId || ''),
+        output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
+        response_state: runtime.responseState,
+        raw: payload
+      });
+      if (runtime.responseState === 'draining') {
+        runtime.responseState = 'idle';
+        runtime.flushResponseQueue();
+      }
+    } else if (type === 'response.done') {
+      const response = payload.response || {};
+      const outputs = Array.isArray(response.output) ? response.output : [];
+      if (outputs.length > 50) { runtime.failLimit(); return; }
+      let hadFunctionCall = false;
+      outputs.forEach((item) => {
+        if (item && item.type === 'function_call') hadFunctionCall = runtime.emitFunctionCall(item, type, String(response.id || '')) || hadFunctionCall;
+      });
+      const responseId = String(response.id || runtime.activeResponseId || '');
+      const outputItemId = runtime.activeOutputItemId;
+      const elapsedMs = runtime.outputStartedAt ? Math.max(0, Math.round(performance.now() - runtime.outputStartedAt)) : 0;
+      runtime.playbackActive = false;
+      runtime.activeResponseId = '';
+      runtime.activeOutputItemId = '';
+      runtime.outputStartedAt = 0;
+      emit('response_done', {
+        response_id: responseId,
+        output_item_id: outputItemId,
+        output_elapsed_ms: elapsedMs,
+        response_state: runtime.responseState,
+        had_function_call: hadFunctionCall,
+        raw: payload
+      });
+      runtime.settleResponseLifecycle('response_done', 180);
+      runtime.flushOutputQueue();
+    } else if (type === 'response.cancelled') {
+      runtime.playbackActive = false;
+      runtime.responseState = 'cancelling';
+      emit('response_cancelled', {
+        response_id: String(payload.response_id || runtime.activeResponseId || ''),
+        output_item_id: runtime.activeOutputItemId,
+        response_state: runtime.responseState,
+        raw: payload
+      });
+      runtime.activeResponseId = '';
+      runtime.activeOutputItemId = '';
+      runtime.settleResponseLifecycle('response_cancelled', 300);
+    } else if (type === 'error') {
+      const message = (payload.error && payload.error.message) || payload.message || 'Realtime error';
+      const requeued = runtime.handleProviderError(message, payload);
+      emit('server_error', {message, requeued, response_state: runtime.responseState, raw: payload});
+    } else {
+      emit('server_event', {event_type: type, raw: payload});
+    }
+  }
+
   try {
     emit('connecting');
+    if (options.socket) {
+      // Grok Voice: the client opens the socket (microphone, player, session.update first).
+      const link = await options.socket();
+      if (!isCurrent()) { await cleanup(link); return runtime; }
+      runtime.session = link;
+      link.dc.addEventListener('message', onMessage);
+      link.dc.addEventListener('close', () => emit('disconnected'));
+      link.dc.addEventListener('error', () => emit('fatal_error', {message: 'Realtime socket error'}));
+      emit('connected');
+      emit('listening');
+      return runtime;
+    }
     const tokenData = await options.bootstrap();
     if (!isCurrent()) return runtime;
     const ephemeralKey = tokenData.value;
@@ -387,7 +567,7 @@ export async function startRealtimeRuntime(options) {
       });
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
     if (!isCurrent()) { await cleanup({pc, audio, stream}); return; }
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
@@ -395,168 +575,7 @@ export async function startRealtimeRuntime(options) {
     runtime.session = {pc, dc, stream, audio};
 
     dc.addEventListener('open', () => emit('connected'));
-    dc.addEventListener('message', (event) => {
-      if (!isCurrent()) return;
-      if (typeof event.data !== 'string' || event.data.length > 131072) { runtime.failLimit(); return; }
-      let payload = null;
-      try { payload = JSON.parse(event.data); } catch (_) { return; }
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
-      const type = String(payload.type || '');
-      const response = payload.response || {};
-      const responseId = String(response.id || payload.response_id || '');
-      if (responseId && !responseIdentities.has(responseId)) {
-        if (responseId.length > 128 || responseIdentities.size >= 200) { runtime.failLimit(); return; }
-        const meta = response.metadata || {};
-        responseIdentities.set(responseId, {
-          thread_id: String(meta.thread_id || threadId),
-          generation_id: String(meta.generation_id ?? currentGenerationId)
-        });
-      }
-      if (type === 'session.created' || type === 'session.updated') {
-        emit('session_lifecycle', {event_type: type, raw: payload});
-      } else if (type === 'input_audio_buffer.speech_started') {
-        runtime.cancelActiveOutput('user_speech_started');
-        emit('speech_started', {raw: payload});
-      } else if (type === 'input_audio_buffer.speech_stopped') {
-        emit('speech_stopped', {raw: payload});
-      } else if (type === 'conversation.item.input_audio_transcription.delta') {
-        emit('transcript_delta', {text: payload.delta || '', item_id: payload.item_id || '', raw: payload});
-      } else if (type === 'conversation.item.input_audio_transcription.completed') {
-        runtime.pendingTranscript = String(payload.transcript || payload.text || '');
-        if (runtime.pendingTranscript.length > 4000) { runtime.failLimit(); return; }
-        runtime.pendingTranscriptItemId = String(payload.item_id || '');
-        runtime.consultStartedForItemId = '';
-        emit('transcript_final', {
-          text: runtime.pendingTranscript,
-          item_id: runtime.pendingTranscriptItemId,
-          raw: payload
-        });
-      } else if (type === 'response.created') {
-        const responseId = String(payload.response && payload.response.id || payload.response_id || '');
-        runtime.activeResponseId = responseId;
-        runtime.playbackActive = true;
-        runtime.responseState = 'active';
-        runtime.outputStartedAt = performance.now();
-        emit('output_started', {
-          response_id: runtime.activeResponseId,
-          response_state: runtime.responseState,
-          raw: payload
-        });
-      } else if (type === 'response.output_item.added' || type === 'response.output_item.created') {
-        const item = payload.item || {};
-        runtime.activeOutputItemId = String(item.id || payload.item_id || runtime.activeOutputItemId || '');
-        emit('output_item_started', {
-          response_id: String(payload.response_id || runtime.activeResponseId || ''),
-          output_item_id: runtime.activeOutputItemId,
-          item_type: String(item.type || ''),
-          raw: payload
-        });
-      } else if (type === 'response.function_call_arguments.delta') {
-        const callId = String(payload.call_id || payload.item_id || '');
-        const nextArguments = String(runtime.functionArgumentDeltas[callId] || '') + String(payload.delta || '');
-        if (callId.length > 128 || nextArguments.length > 8192 ||
-            (!Object.hasOwn(runtime.functionArgumentDeltas, callId) && Object.keys(runtime.functionArgumentDeltas).length >= 200)) {
-          runtime.failLimit(); return;
-        }
-        runtime.functionArgumentDeltas[callId] = nextArguments;
-        emit('function_call_delta', {
-          call_id: callId,
-          delta: String(payload.delta || ''),
-          raw: payload
-        });
-      } else if (type === 'response.output_item.done') {
-        const item = payload.item || {};
-        runtime.handleResponseOutputItem(item, type, responseId);
-        emit('output_item_done', {
-          response_id: String(payload.response_id || runtime.activeResponseId || ''),
-          output_item_id: String(item.id || payload.item_id || runtime.activeOutputItemId || ''),
-          item_type: String(item.type || ''),
-          raw: payload
-        });
-      } else if (type === 'response.output_audio_transcript.delta') {
-        emit('assistant_transcript_delta', {
-          text: payload.delta || '',
-          response_id: String(payload.response_id || runtime.activeResponseId || ''),
-          output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
-          raw: payload
-        });
-      } else if (type === 'response.output_audio_transcript.done') {
-        emit('assistant_transcript_final', {
-          text: payload.transcript || payload.text || '',
-          response_id: String(payload.response_id || runtime.activeResponseId || ''),
-          output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
-          raw: payload
-        });
-      } else if (type === 'response.output_audio.done') {
-        emit('output_audio_done', {
-          response_id: String(payload.response_id || runtime.activeResponseId || ''),
-          output_item_id: String(payload.item_id || runtime.activeOutputItemId || ''),
-          response_state: runtime.responseState,
-          raw: payload
-        });
-        if (runtime.responseState === 'draining') {
-          runtime.responseState = 'idle';
-          runtime.flushResponseQueue();
-        }
-      } else if (type === 'response.done') {
-        const response = payload.response || {};
-        const outputs = Array.isArray(response.output) ? response.output : [];
-        if (outputs.length > 50) { runtime.failLimit(); return; }
-        let hadFunctionCall = false;
-        outputs.forEach((item) => {
-          if (item && item.type === 'function_call') hadFunctionCall = runtime.emitFunctionCall(item, type, String(response.id || '')) || hadFunctionCall;
-        });
-        const responseId = String(response.id || runtime.activeResponseId || '');
-        const outputItemId = runtime.activeOutputItemId;
-        const elapsedMs = runtime.outputStartedAt ? Math.max(0, Math.round(performance.now() - runtime.outputStartedAt)) : 0;
-        runtime.playbackActive = false;
-        runtime.activeResponseId = '';
-        runtime.activeOutputItemId = '';
-        runtime.outputStartedAt = 0;
-        emit('response_done', {
-          response_id: responseId,
-          output_item_id: outputItemId,
-          output_elapsed_ms: elapsedMs,
-          response_state: runtime.responseState,
-          had_function_call: hadFunctionCall,
-          consult_started: Boolean(runtime.consultStartedForItemId),
-          pending_transcript: runtime.pendingTranscript,
-          pending_transcript_item_id: runtime.pendingTranscriptItemId,
-          raw: payload
-        });
-        if (runtime.pendingTranscript && !runtime.consultStartedForItemId && !hadFunctionCall) {
-          emit('consult_fallback_needed', {
-            text: runtime.pendingTranscript,
-            item_id: runtime.pendingTranscriptItemId,
-            response_id: responseId,
-            raw: payload
-          });
-        }
-        runtime.pendingTranscript = '';
-        runtime.pendingTranscriptItemId = '';
-        runtime.consultStartedForItemId = '';
-        runtime.settleResponseLifecycle('response_done', 180);
-        runtime.flushOutputQueue();
-      } else if (type === 'response.cancelled') {
-        runtime.playbackActive = false;
-        runtime.responseState = 'cancelling';
-        emit('response_cancelled', {
-          response_id: String(payload.response_id || runtime.activeResponseId || ''),
-          output_item_id: runtime.activeOutputItemId,
-          response_state: runtime.responseState,
-          raw: payload
-        });
-        runtime.activeResponseId = '';
-        runtime.activeOutputItemId = '';
-        runtime.settleResponseLifecycle('response_cancelled', 300);
-      } else if (type === 'error') {
-        const message = (payload.error && payload.error.message) || payload.message || 'Realtime error';
-        const requeued = runtime.handleProviderError(message, payload);
-        emit('server_error', {message, requeued, response_state: runtime.responseState, raw: payload});
-      } else {
-        emit('server_event', {event_type: type, raw: payload});
-      }
-    });
+    dc.addEventListener('message', onMessage);
     dc.addEventListener('close', () => emit('disconnected'));
     dc.addEventListener('error', () => emit('fatal_error', {message: 'Realtime data channel error'}));
 

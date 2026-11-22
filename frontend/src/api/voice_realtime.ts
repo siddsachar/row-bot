@@ -1,9 +1,23 @@
-/** Transport entry for the sole packaged realtime arbiter. No UI or state store. */
+/**
+ * Transport entry for a Live voice session: OpenAI Realtime (WebRTC, the host
+ * exchanges the SDP), Grok Voice (the same event schema over a socket) and
+ * Gemini Live (its own runtime). No UI or state store.
+ */
 import {
   startRealtimeRuntime,
   type RealtimeRuntime,
 } from '../../../src/row_bot/voice/realtime_runtime.js';
 import type { DictationHandle } from './types';
+import { openLiveSocket } from './voice_live_audio';
+import {
+  GEMINI_INPUT_RATE,
+  GEMINI_OUTPUT_RATE,
+  geminiAudioFrame,
+  startGeminiRuntime,
+} from './voice_live_gemini';
+
+export type LiveTransport = 'openai_realtime' | 'gemini_live' | 'grok_voice';
+const GROK_RATE = 24_000;
 
 export type RealtimeSnapshot = {
   schema_version: 1;
@@ -12,13 +26,16 @@ export type RealtimeSnapshot = {
   quiesced: boolean;
   expires_in_ms: number;
   run_id: string | null;
-  transport: 'openai_realtime';
+  transport: LiveTransport;
 };
 export type RealtimeStart = {
   snapshot: RealtimeSnapshot;
+  /** A socket front's ephemeral credential; null for OpenAI, whose SDP the host exchanges. */
   client_secret: string | null;
   secret_expires_in_ms: number;
   exchange_available?: boolean;
+  connect_url?: string;
+  setup?: string;
 };
 export type RealtimeEvent = {
   event_id: string;
@@ -31,6 +48,7 @@ export type RealtimeEvent = {
   name: string;
   arguments: string;
   text: string;
+  origin: '' | 'front' | 'row_bot';
 };
 export type RealtimeEventResult = {
   snapshot: RealtimeSnapshot;
@@ -64,14 +82,15 @@ const eventTypes = new Set([
   'transcript_final',
   'assistant_transcript_final',
   'function_call_ready',
-  'consult_fallback_needed',
   'output_started',
   'output_item_started',
   'response_done',
   'response_cancelled',
   'output_audio_done',
   'barge_in_cancelled',
+  'provider_response_create_sent',
 ]);
+const origins = new Set(['', 'front', 'row_bot']);
 const identifier = /^[A-Za-z0-9:_-]{1,128}$/;
 
 function projectEvent(raw: Record<string, unknown>): RealtimeEvent | null {
@@ -87,7 +106,12 @@ function projectEvent(raw: Record<string, unknown>): RealtimeEvent | null {
     name: '',
     arguments: '',
     text: '',
+    origin: '',
   };
+  const origin = raw.origin ?? '';
+  if (typeof origin !== 'string' || !origins.has(origin))
+    throw new Error('invalid_voice_event');
+  event.origin = origin as RealtimeEvent['origin'];
   for (const key of [
     'generation_id',
     'response_id',
@@ -113,53 +137,6 @@ function projectEvent(raw: Record<string, unknown>): RealtimeEvent | null {
   if (new TextEncoder().encode(JSON.stringify(event)).byteLength > 16_384)
     throw new Error('voice_event_too_large');
   return event;
-}
-
-async function exchangeSdp(
-  sdp: string,
-  key: string,
-  signal: AbortSignal,
-): Promise<string> {
-  if (
-    typeof sdp !== 'string' ||
-    sdp.length > 1_048_576 ||
-    !key ||
-    key.length > 4096
-  )
-    throw new Error('invalid_realtime_exchange');
-  const response = await fetch('https://api.openai.com/v1/realtime/calls', {
-    method: 'POST',
-    body: sdp,
-    signal,
-    credentials: 'omit',
-    redirect: 'error',
-    cache: 'no-store',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/sdp',
-    },
-  });
-  if (response.status === 401 || response.status === 403)
-    throw new Error('realtime_auth_unavailable');
-  if (response.status === 429) throw new Error('realtime_quota_or_rate_limit');
-  if (!response.ok || !response.body)
-    throw new Error('realtime_connection_failed');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let bytes = 0;
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > 1_048_576) throw new Error('realtime_response_too_large');
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
 }
 
 export async function openRealtimeSession(options: {
@@ -223,7 +200,7 @@ export async function openRealtimeSession(options: {
       const meta = {
         thread_id: handle.conversation_id,
         generation_id: generation,
-        origin: output.kind === 'cue' ? 'tool_progress' : 'final',
+        origin: output.kind === 'cue' ? 'status' : 'final',
         silent: Boolean(output.silent),
       };
       if (output.kind === 'function_output')
@@ -301,34 +278,40 @@ export async function openRealtimeSession(options: {
     }
   }
 
-  const managed =
-    options.start.exchange_available === true && !!options.exchange;
-  if ((!managed && !secret) || options.start.secret_expires_in_ms <= 0) {
+  const transport = options.start.snapshot.transport;
+  let setup: unknown = null;
+  try {
+    setup = options.start.setup ? JSON.parse(options.start.setup) : null;
+  } catch {
+    setup = null;
+  }
+  const url = options.start.connect_url || '';
+  const ready =
+    options.start.secret_expires_in_ms > 0 &&
+    (transport === 'openai_realtime'
+      ? options.start.exchange_available === true && !!options.exchange
+      : !!secret && !!setup && url.startsWith('wss://'));
+  if (!ready) {
     fail('realtime_credential_expired');
     return session;
   }
-  await startRealtimeRuntime({
-    exchangeManaged: managed,
+  // A socket front's credential is used once, to open its socket.
+  function takeSecret(): string {
+    if (!isCurrent() || !secret) throw new Error('voice_session_expired');
+    const value = secret;
+    secret = null;
+    return value;
+  }
+  const common = {
     sessionId: handle.voice_session_id,
     threadId: handle.conversation_id,
     generationId: generation,
     current: isCurrent,
-    onRuntime(value) {
+    onRuntime(value: RealtimeRuntime) {
       runtime = value;
       if (!isCurrent()) void value.stop();
     },
-    async bootstrap() {
-      if (!isCurrent() || (!managed && !secret))
-        throw new Error('voice_session_expired');
-      const value = secret;
-      secret = null;
-      return { value };
-    },
-    exchange: (sdp, key) =>
-      managed
-        ? options.exchange!(sdp, network.signal)
-        : exchangeSdp(sdp, key, network.signal),
-    emit(raw) {
+    emit(raw: Record<string, unknown>) {
       if (!isCurrent()) return;
       if (runtime?.session) runtime.session.audio.muted = muted;
       if (raw.type === 'fatal_error' || raw.type === 'disconnected') {
@@ -353,6 +336,49 @@ export async function openRealtimeSession(options: {
         fail('invalid_voice_event');
       }
     },
-  });
+  };
+  if (transport === 'gemini_live') {
+    await startGeminiRuntime({
+      ...common,
+      socket: () =>
+        openLiveSocket({
+          url: `${url}?access_token=${encodeURIComponent(takeSecret())}`,
+          setup,
+          inputRate: GEMINI_INPUT_RATE,
+          outputRate: GEMINI_OUTPUT_RATE,
+          frame: geminiAudioFrame,
+          ready: (message) => 'setupComplete' in message,
+          signal: network.signal,
+        }),
+    });
+  } else if (transport === 'grok_voice') {
+    await startRealtimeRuntime({
+      ...common,
+      bootstrap: async () => ({ value: null }),
+      exchange: async () => {
+        throw new Error('invalid_realtime_exchange');
+      },
+      socket: () =>
+        openLiveSocket({
+          url,
+          protocols: [`xai-client-secret.${takeSecret()}`],
+          setup,
+          inputRate: GROK_RATE,
+          outputRate: GROK_RATE,
+          frame: (audio) => ({ type: 'input_audio_buffer.append', audio }),
+          signal: network.signal,
+        }),
+    });
+  } else {
+    await startRealtimeRuntime({
+      ...common,
+      exchangeManaged: true,
+      bootstrap: async () => {
+        if (!isCurrent()) throw new Error('voice_session_expired');
+        return { value: null };
+      },
+      exchange: (sdp) => options.exchange!(sdp, network.signal),
+    });
+  }
   return session;
 }

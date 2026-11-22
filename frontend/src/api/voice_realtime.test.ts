@@ -4,6 +4,7 @@ import {
   type RealtimeEvent,
   type RealtimeSession,
   type RealtimeSnapshot,
+  type RealtimeStart,
 } from './voice_realtime';
 
 class Peer {
@@ -66,9 +67,11 @@ function options() {
   return {
     start: {
       snapshot,
-      client_secret: 'synthetic-ephemeral',
+      client_secret: null as string | null,
       secret_expires_in_ms: 60_000,
-    },
+      exchange_available: true,
+    } as RealtimeStart,
+    exchange: vi.fn().mockResolvedValue('v=0 synthetic host answer'),
     signal: new AbortController().signal,
     current: () => true,
     event: vi.fn().mockImplementation(async (event: RealtimeEvent) => ({
@@ -94,13 +97,8 @@ async function flush() {
 
 it('exchanges through the authenticated host without a browser credential', async () => {
   const base = options();
-  const exchange = vi.fn().mockResolvedValue('v=0 synthetic host answer');
-  await openRealtimeSession({
-    ...base,
-    start: { ...base.start, client_secret: null, exchange_available: true },
-    exchange,
-  });
-  expect(exchange).toHaveBeenCalledWith(
+  await openRealtimeSession(base);
+  expect(base.exchange).toHaveBeenCalledWith(
     'v=0 synthetic offer',
     expect.any(AbortSignal),
   );
@@ -109,14 +107,18 @@ it('exchanges through the authenticated host without a browser credential', asyn
     type: 'answer',
     sdp: 'v=0 synthetic host answer',
   });
+  expect(media).toHaveBeenCalledWith({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  });
 });
 
 it('refuses a managed exchange response without its authenticated exchange callback', async () => {
   const base = options();
-  await openRealtimeSession({
-    ...base,
-    start: { ...base.start, client_secret: null, exchange_available: true },
-  });
+  await openRealtimeSession({ ...base, exchange: undefined });
   expect(base.onFailure).toHaveBeenCalledWith('realtime_credential_expired');
   expect(media).not.toHaveBeenCalled();
   expect(fetch).not.toHaveBeenCalled();
@@ -151,22 +153,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it('uses the sole arbiter with exact provider exchange and projects only whitelisted event fields', async () => {
+it('uses the sole arbiter and projects only whitelisted event fields', async () => {
   const o = options();
   const session = await openRealtimeSession(o);
   expect(media).toHaveBeenCalledTimes(1);
-  expect(fetch).toHaveBeenCalledWith(
-    'https://api.openai.com/v1/realtime/calls',
-    expect.objectContaining({
-      credentials: 'omit',
-      redirect: 'error',
-      cache: 'no-store',
-      headers: {
-        Authorization: 'Bearer synthetic-ephemeral',
-        'Content-Type': 'application/sdp',
-      },
-    }),
-  );
+  expect(fetch).not.toHaveBeenCalled();
   const peer = Peer.instances[0];
   peer.deliver({
     type: 'response.created',
@@ -223,7 +214,7 @@ it('a late microphone grant after cancellation closes all tracks and never excha
   await sessions[0].stop();
   grant(stream());
   await pending;
-  expect(fetch).not.toHaveBeenCalled();
+  expect(o.exchange).not.toHaveBeenCalled();
   expect(tracks[0].stop).toHaveBeenCalledTimes(1);
   expect(Peer.instances[0].closed).toBe(true);
 });
@@ -305,6 +296,93 @@ it('expired credential never opens microphone or provider exchange', async () =>
   o.start.secret_expires_in_ms = 0;
   await openRealtimeSession(o);
   expect(media).not.toHaveBeenCalled();
-  expect(fetch).not.toHaveBeenCalled();
+  expect(o.exchange).not.toHaveBeenCalled();
   expect(o.onFailure).toHaveBeenCalledWith('realtime_credential_expired');
+});
+
+it('marks responses the front makes by itself apart from the ones Row-Bot asks for', async () => {
+  const o = options();
+  o.event.mockImplementation(async (event: RealtimeEvent) => ({
+    snapshot: { ...snapshot, run_id: 'run-1' },
+    event_id: event.event_id,
+    accepted: true,
+    caption: '',
+    call_id: '',
+    function_output: '',
+    silent: false,
+  }));
+  const session = await openRealtimeSession(o);
+  const peer = Peer.instances[0];
+  peer.listeners.get('open')?.();
+  await flush();
+  peer.deliver({ type: 'response.created', response: { id: 'front-reply' } });
+  peer.deliver({
+    type: 'response.output_audio_transcript.done',
+    response_id: 'front-reply',
+    transcript: 'Hello!',
+  });
+  peer.deliver({ type: 'response.done', response: { id: 'front-reply' } });
+  await flush();
+  session.sendOutput({
+    id: 'answer',
+    runId: 'run-1',
+    kind: 'function_output',
+    callId: 'consult',
+    text: '{"status":"completed","answer":"Sunny."}',
+  });
+  await new Promise((done) => setTimeout(done, 220));
+  peer.deliver({
+    type: 'response.created',
+    response: { id: 'row-bot-answer' },
+  });
+  await flush();
+  const events = o.event.mock.calls.map(([event]) => event);
+  const origin = (type: string, response: string) =>
+    events.find(
+      (event) => event.type === type && event.response_id === response,
+    )?.origin;
+  expect(origin('assistant_transcript_final', 'front-reply')).toBe('front');
+  expect(origin('output_started', 'row-bot-answer')).toBe('row_bot');
+  expect(
+    events.find((event) => event.type === 'provider_response_create_sent')
+      ?.origin,
+  ).toBe('row_bot');
+  const sent = peer.sent.map((value) => JSON.parse(value));
+  expect(sent[0]).toEqual({
+    type: 'conversation.item.create',
+    item: {
+      type: 'function_call_output',
+      call_id: 'consult',
+      output: '{"status":"completed","answer":"Sunny."}',
+    },
+  });
+  expect(sent[1].type).toBe('response.create');
+});
+
+it('a progress cue is dropped while the front is speaking, never queued behind it', async () => {
+  const o = options();
+  o.event.mockImplementation(async (event: RealtimeEvent) => ({
+    snapshot: { ...snapshot, run_id: 'run-1' },
+    event_id: event.event_id,
+    accepted: true,
+    caption: '',
+    call_id: '',
+    function_output: '',
+    silent: false,
+  }));
+  const session = await openRealtimeSession(o);
+  const peer = Peer.instances[0];
+  peer.listeners.get('open')?.();
+  await flush();
+  peer.deliver({ type: 'response.created', response: { id: 'speaking' } });
+  await flush();
+  expect(
+    session.sendOutput({
+      id: 'cue',
+      runId: 'run-1',
+      kind: 'cue',
+      text: 'Working on: web search.',
+    }),
+  ).toBe(true);
+  expect(peer.sent).toEqual([]);
 });

@@ -1232,7 +1232,7 @@ def _query_voice() -> str:
         except Exception:
             lines.append("- Voice runtime: error reading settings")
         try:
-            from row_bot.voice.openai_realtime import OpenAIRealtimeProvider
+            from row_bot.voice.live_voice import live_voice_readiness
             from row_bot.voice.agent_bridge import (
                 REALTIME_ALLOWED_BRIDGE_TOOLS,
                 REALTIME_DIRECT_TOOL_POLICY,
@@ -1240,15 +1240,16 @@ def _query_voice() -> str:
                 VOICE_BRAIN_STRATEGY,
             )
 
-            realtime = OpenAIRealtimeProvider().status()
-            lines.append(f"- OpenAI Realtime: {'ready' if realtime.ready else 'not configured'}")
+            fronts = ", ".join(f"{row['label']} {'ready' if row['available'] else 'needs a key'}"
+                               for row in live_voice_readiness())
+            lines.append(f"- Live voice: {fronts}")
             lines.append(f"- Realtime brain strategy: {VOICE_BRAIN_STRATEGY}")
             lines.append(f"- Realtime direct normal-tool access: {REALTIME_DIRECT_TOOL_POLICY}")
             lines.append(f"- Realtime bridge tools: {', '.join(REALTIME_ALLOWED_BRIDGE_TOOLS)}")
             lines.append(f"- Realtime quiet idle tool: {REALTIME_WAIT_TOOL}")
             lines.append("- Realtime credential safety: browser receives ephemeral client secrets only; long-lived provider keys stay server-side")
         except Exception:
-            lines.append("- OpenAI Realtime: unavailable")
+            lines.append("- Live voice: unavailable")
         try:
             from row_bot.runtime import executions
 

@@ -849,6 +849,65 @@
       "title": "LearningSourcesSnapshot",
       "type": "object"
     },
+    "LiveVoiceProvider": {
+      "additionalProperties": false,
+      "description": "A Live voice option: who hears the audio, its approximate price, and whether its key is saved.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "company": {
+          "maxLength": 64,
+          "title": "Company",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "openai",
+            "gemini",
+            "grok"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "price": {
+          "maxLength": 64,
+          "title": "Price",
+          "type": "string"
+        },
+        "price_checked": {
+          "maxLength": 32,
+          "title": "Price Checked",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "available",
+            "realtime_key_missing",
+            "host_unavailable"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "company",
+        "price",
+        "price_checked",
+        "available",
+        "reason"
+      ],
+      "title": "LiveVoiceProvider",
+      "type": "object"
+    },
     "MigrationSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -2227,11 +2286,16 @@
           "title": "Dictation Providers",
           "type": "array"
         },
+        "live_providers": {
+          "items": {
+            "$ref": "#/$defs/LiveVoiceProvider"
+          },
+          "maxItems": 8,
+          "title": "Live Providers",
+          "type": "array"
+        },
         "local": {
           "$ref": "#/$defs/VoiceLocalSettingsSnapshot"
-        },
-        "openai_realtime_credential": {
-          "$ref": "#/$defs/SettingsCredentialState"
         },
         "realtime_voice_options": {
           "items": {
@@ -2285,7 +2349,7 @@
         "runtime",
         "local",
         "tts",
-        "openai_realtime_credential",
+        "live_providers",
         "talk_providers",
         "dictation_providers",
         "speech_output_providers",

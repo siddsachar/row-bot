@@ -36,6 +36,16 @@
       "title": "Name",
       "type": "string"
     },
+    "origin": {
+      "default": "",
+      "enum": [
+        "",
+        "front",
+        "row_bot"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
     "output_item_id": {
       "default": "",
       "maxLength": 128,
@@ -64,13 +74,13 @@
         "transcript_final",
         "assistant_transcript_final",
         "function_call_ready",
-        "consult_fallback_needed",
         "output_started",
         "output_item_started",
         "response_done",
         "response_cancelled",
         "output_audio_done",
-        "barge_in_cancelled"
+        "barge_in_cancelled",
+        "provider_response_create_sent"
       ],
       "title": "Type",
       "type": "string"

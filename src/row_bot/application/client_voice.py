@@ -5,17 +5,19 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from row_bot.runtime.executions import ExecutionHandle
-    from row_bot.voice.openai_realtime import OpenAIRealtimeProvider
 
 from collections.abc import Callable
 from copy import deepcopy
 import json
+import logging
 from typing import Any
 from uuid import UUID, uuid5
 
 from row_bot.application.client_platform import _COMMAND_LOCK
 from row_bot.runtime import admissions
 from row_bot.voice.client_transport import DictationError, DictationOwner, TalkSpeechSource
+
+logger = logging.getLogger(__name__)
 
 
 class ClientVoiceAdmission:
@@ -226,7 +228,8 @@ class ClientVoiceAdmission:
         run = self.service.registry.conversation_generation(owner.conversation_id, run_id)
         if run is None or run.server_epoch != owner.server_epoch:
             raise DictationError("voice_run_changed")
-        result = {"run_id": run_id, "state": run.status, "output_id": None, "text": None}
+        result = {"run_id": run_id, "state": run.status, "output_id": None, "text": None,
+                  "call_id": None, "function_output": None, "cues": []}
         if run.producer_done.is_set() and run.status == "completed" and run.segment_committed and run.output_message_id:
             from row_bot.voice.speech_policy import spoken_text
             source = self.output(owner, run_id, run.output_message_id, admitted)
@@ -236,13 +239,105 @@ class ClientVoiceAdmission:
             result.update(output_id=run.output_message_id, text=text)
         admitted()
         with transport.coordinator._dictation_lock:
-            if transport._lease(owner, handle).run_id != run_id:
+            lease = transport._lease(owner, handle)
+            if lease.run_id != run_id:
                 raise DictationError("voice_run_changed")
+            call_id = lease.realtime.run_calls.get(run_id, "") if lease.realtime is not None else ""
+        if call_id:
+            result.update(call_id=call_id, **_consult_progress(run, result["text"]))
+            if result["function_output"]:
+                transport.coordinator.mark_realtime_latency("consult_answered")
         return result
 
+    def front_context(self, owner: DictationOwner) -> str:
+        """The Live voice front's context: the profile's name, the chat's recent turns and a few memories."""
+        from row_bot import threads
+        from row_bot.turn_context import is_turn_context_message
+        from row_bot.voice.live_front import HISTORY_MESSAGES, context_block
+        policy = self._context(owner).get("_policy") or {}
+        snapshot = policy.get("agent_profile_snapshot") or {}
+        profile = str(snapshot.get("display_name") or "") if snapshot.get("slug") != "row_bot_default" else ""
+        history: list[tuple[str, str]] = []
+        for message in threads.get_latest_checkpoint_messages(owner.conversation_id):
+            kind = getattr(message, "type", "")
+            extra = getattr(message, "additional_kwargs", None) or {}
+            if kind not in {"human", "ai"} or getattr(message, "tool_calls", None) or extra.get("ephemeral") \
+                    or is_turn_context_message(message):
+                continue
+            text = _message_text(getattr(message, "content", ""))
+            if text:
+                history.append(("person" if kind == "human" else "assistant", text))
+        history = history[-HISTORY_MESSAGES:]
+        memories: list[str] = []
+        if not threads.incognito_state(owner.conversation_id).incognito:
+            memories = _recalled([text for role, text in reversed(history) if role == "person"][:3],
+                                 owner.conversation_id)
+        return context_block(profile_name=profile, history=history, memories=memories)
 
-def realtime_provider() -> OpenAIRealtimeProvider:
-    from row_bot.voice.openai_realtime import OpenAIRealtimeProvider
-    from row_bot.voice.runtime import load_voice_runtime_settings
-    settings = load_voice_runtime_settings()
-    return OpenAIRealtimeProvider(model=settings.talk_model, voice=settings.realtime_voice)
+    def save_front(self, owner: DictationOwner, turns: list[tuple[str, str]], validate: Callable[[], None]) -> None:
+        """Save the front's own turns: the person's words, then its reply marked ``voice_front``."""
+        from langchain_core.messages import AIMessage, HumanMessage
+        from row_bot import threads
+        messages: list = []
+        for person, reply in turns:
+            if person.strip():
+                messages.append(HumanMessage(content=person.strip()))
+            messages.append(AIMessage(content=reply.strip(), additional_kwargs={"voice_front": True}))
+        with _COMMAND_LOCK:
+            validate()
+            if admissions.deletion_state(owner.conversation_id) != "active":
+                raise DictationError("conversation_deleting")
+            if self.active(owner) is not None:
+                raise DictationError("voice_run_changed")
+            if not threads.append_checkpoint_messages(owner.conversation_id, messages):
+                raise DictationError("voice_operation_failed")
+        self.service.conversation_changed(owner.conversation_id)
+
+
+def _message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        return "\n".join(str(item.get("text") or "") for item in content
+                         if isinstance(item, dict) and item.get("type") == "text").strip()
+    return ""
+
+
+def _recalled(person_texts: list[str], conversation_id: str) -> list[str]:
+    """A few memories the agent's own recall picks for the chat's latest words (none on failure)."""
+    if not person_texts:
+        return []
+    from row_bot.memory_policy import build_auto_recall
+    from row_bot.voice.live_front import MEMORY_ITEMS
+    try:
+        decision = build_auto_recall(person_texts[0], person_texts[1:], thread_id=conversation_id,
+                                     runtime_surface="live_voice")
+    except Exception:
+        logger.warning("Live voice started without memories: recall failed", exc_info=True)
+        return []
+    if not decision.allowed:
+        return []
+    return [f"{memory.get('subject') or ''}: {memory.get('description') or ''}".strip(": ")
+            for memory in decision.selected[:MEMORY_ITEMS]]
+
+
+def _consult_progress(run: Any, answer: str | None) -> dict:
+    """The consult call's result once the run ends, and a cue per tool the run started meanwhile."""
+    from row_bot.application.conversation_traces import canonical_group
+    from row_bot.voice.live_front import consult_output, progress_cue
+    if run.producer_done.is_set() or run.status == "waiting_approval":
+        if run.status == "completed" and not answer:
+            return {"function_output": None, "cues": []}
+        return {"function_output": consult_output(run.status, answer or ""), "cues": []}
+    labels: list[str] = []
+    for name in list(run.__dict__.get("tool_names", {}).values()):
+        label = canonical_group(name)[0].replace("_", " ")
+        if label not in labels:
+            labels.append(label)
+    return {"function_output": None,
+            "cues": [{"id": f"cue-{index}", "text": progress_cue(label)} for index, label in enumerate(labels[:8])]}
+
+
+def realtime_provider(option_id: str = "openai") -> Any:
+    from row_bot.voice.live_voice import live_voice_provider
+    return live_voice_provider(option_id)

@@ -7,7 +7,7 @@ import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Voice
 
-Voice lets you speak to Row-Bot and hear it. Dictate turns speech into text for the composer. Talk is a spoken conversation. Read aloud speaks a reply you choose. Realtime voice uses a low-latency provider path when configured.
+Voice lets you speak to Row-Bot and hear it. Dictate turns speech into text for the composer. Talk is a spoken conversation. Read aloud speaks a reply you choose. Live voice uses a cloud speech-to-speech provider when you choose one.
 
 <Screenshot id="settings-voice" alt="Settings: Voice in Row-Bot." caption="The Voice page manages Talk, Dictate, read-aloud, voice model readiness, and diagnostics." />
 
@@ -24,7 +24,7 @@ Open **Settings**, then choose **Voice** in the **Models** group, or search for 
 - Local voice controls choose Whisper, the default local STT engine, or the optional FunASR/SenseVoice engine for Talk and Dictate. Once SenseVoice is installed, **Speech engine** (**Talk listens with**, **Dictation listens with**) chooses it for each mode.
 - A saved Whisper size, SenseVoice model, or Kokoro voice and speed applies to the next use, without restarting Row-Bot.
 - SenseVoice readiness shows whether the platform, packaged runtime, and verified local model snapshot are ready. Its install action is always explicit.
-- Realtime voice controls (under **Advanced**, while Talk listens with OpenAI Realtime) choose the realtime voice and model.
+- **Live voice** (under **Advanced**) lists OpenAI Realtime, Gemini Live and Grok Voice with each one's approximate price a minute, who hears the audio, and whether its API key is saved. You choose one in a chat's Talk panel.
 - **Voice models** lists each speech model and whether it is installed.
 - **Diagnostics** says what Settings knows without checking: opening Settings never probes a microphone or a provider.
 
@@ -38,7 +38,7 @@ Talk and Dictate controls live in the full chat composer, not the compact Buddy 
 2. Use Talk when you want hands-light conversation and are comfortable with immediate submission.
 3. Choose local Whisper for the default local path, or install and select SenseVoice Small when you want the optional FunASR engine.
 4. Treat the SenseVoice install as a deliberate approximately 940 MB ModelScope download. After verification, normal transcription stays local and cache-only.
-5. Choose realtime voice when latency matters and you accept provider requirements, cost, and internet use.
+5. Choose Live voice in a chat's Talk panel when you want the most natural conversation and accept that audio goes to that provider, at its price.
 
 ## Read Aloud
 
@@ -66,5 +66,5 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 - If **Test voice** says "This browser couldn't play the test phrase.", check the browser's sound output and that the page is allowed to play audio.
 - If SenseVoice is missing or invalid, use its install or reinstall action in Voice settings. Source installs also require the `voice` extra.
 - SenseVoice is unavailable on Intel macOS because the required CPU PyTorch and Torchaudio wheels are not published for that runtime; use local Whisper there.
-- If realtime voice is unavailable, configure a compatible provider in Providers.
+- If a Live voice provider is unavailable, add its API key in Providers.
 - If Talk submits too quickly, use Dictate mode instead.

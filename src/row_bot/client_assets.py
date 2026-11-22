@@ -215,10 +215,14 @@ def _shell_headers(content: bytes) -> dict[str, str]:
     # origin's scripts can mint blob URLs, and the client frames only bytes it
     # verified as PDF and re-typed as application/pdf. Designer previews keep
     # their own frame-src 'none'.
+    # connect-src names the two Live voice fronts the browser talks to itself, with
+    # an ephemeral credential the host minted (Gemini Live, Grok Voice); OpenAI's
+    # WebRTC answer comes through this origin. Nothing else leaves the page.
     return {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; "
+            "connect-src 'self' wss://generativelanguage.googleapis.com wss://api.x.ai; "
             "font-src 'self' data:; worker-src 'self'; manifest-src 'self'; object-src 'none'; "
             "frame-src 'self' blob: https://www.youtube-nocookie.com; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
 

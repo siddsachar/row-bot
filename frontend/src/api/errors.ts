@@ -3273,32 +3273,37 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   realtime_auth_unavailable: [
-    'Realtime Talk needs an OpenAI key or sign-in.',
+    'Live voice: the provider refused the key. Check it in Providers.',
+    'review',
+    PROVIDERS,
+  ],
+  realtime_key_missing: [
+    'Live voice needs this provider’s API key. Add it in Providers.',
     'review',
     PROVIDERS,
   ],
   realtime_credential_expired: [
-    'The Realtime Talk session expired. Start Talk again.',
+    'The Live voice session expired. Start it again.',
     'retry',
     RETRY,
   ],
   realtime_credential_unavailable: [
-    "Realtime Talk couldn't get a session. Try again.",
+    "Live voice couldn't get a session. Try again.",
     'retry',
     RETRY,
   ],
   realtime_exchange_timeout: [
-    'Realtime Talk took too long to connect. Try again.',
+    'Live voice took too long to connect. Try again.',
     'retry',
     RETRY,
   ],
   realtime_provider_unavailable: [
-    "The Realtime Talk service isn't responding. Try again.",
+    "The Live voice provider isn't responding. Try again.",
     'retry',
     RETRY,
   ],
   realtime_quota_or_rate_limit: [
-    'The Realtime Talk provider refused the call: its quota or rate limit was reached.',
+    'The Live voice provider refused the call: its quota or rate limit was reached.',
     'review',
     PROVIDERS,
   ],
@@ -3376,11 +3381,6 @@ const CATALOG: Record<string, Entry> = {
   ],
   voice_session_limit: [
     'Voice is already in use in another window.',
-    'retry',
-    RETRY,
-  ],
-  voice_transcript_changed: [
-    'The transcript changed. Try again.',
     'retry',
     RETRY,
   ],

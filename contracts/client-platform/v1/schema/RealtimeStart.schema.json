@@ -79,7 +79,11 @@
           "type": "string"
         },
         "transport": {
-          "const": "openai_realtime",
+          "enum": [
+            "openai_realtime",
+            "gemini_live",
+            "grok_voice"
+          ],
           "title": "Transport",
           "type": "string"
         }
@@ -111,6 +115,12 @@
       ],
       "title": "Client Secret"
     },
+    "connect_url": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Connect Url",
+      "type": "string"
+    },
     "exchange_available": {
       "default": false,
       "title": "Exchange Available",
@@ -121,6 +131,12 @@
       "minimum": 0,
       "title": "Secret Expires In Ms",
       "type": "integer"
+    },
+    "setup": {
+      "default": "",
+      "maxLength": 32768,
+      "title": "Setup",
+      "type": "string"
     },
     "snapshot": {
       "$ref": "#/$defs/RealtimeSnapshot"

@@ -421,7 +421,7 @@ class ClientPlatformService:
     def bind_voice(self, coordinator: VoiceSessionCoordinator, *,
                    browser_service: Callable[[], BrowserLocalVoiceService],
                    clock: Callable[[], float] = time.monotonic,
-                   realtime_provider_factory: Callable[[], Any] | None = None,
+                   realtime_provider_factory: Callable[[str], Any] | None = None,
                    voice_engine: Any = None) -> None:
         """Expose the host's existing voice owner without starting a service."""
         binding = (coordinator, browser_service, clock, realtime_provider_factory, voice_engine)
@@ -443,7 +443,8 @@ class ClientPlatformService:
             self.realtime = ClientRealtimeTransport(dictation=self.dictation,
                 provider_factory=realtime_provider_factory or realtime_provider,
                 submit=self.voice_admission.submit, active_generation=self.voice_admission.active,
-                control_generation=self.voice_admission.control)
+                control_generation=self.voice_admission.control,
+                session_context=self.voice_admission.front_context, save_front=self.voice_admission.save_front)
             self._voice_binding = binding
 
     def close_voice(self) -> bool:

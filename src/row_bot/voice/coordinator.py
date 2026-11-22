@@ -176,7 +176,8 @@ class VoiceSessionCoordinator:
 
     def set_active_row_bot_generation(self, generation_id: str) -> None:
         self.active_row_bot_generation_id = str(generation_id or "")
-        self.mark_realtime_latency("row_bot_consult_started")
+        if self.active_row_bot_generation_id:
+            self.mark_realtime_latency("row_bot_consult_started")
         self._emit("realtime_row_bot_generation_active", detail=self.active_row_bot_generation_id)
 
     def clear_active_row_bot_generation(self, *, generation_id: str = "") -> None:
@@ -247,6 +248,9 @@ class VoiceSessionCoordinator:
         if not self._active or self.transport != "realtime":
             return
         self._realtime_speech_window_id += 1
+        # Each spoken turn measures from its own start; the session's connect marks stay.
+        self._realtime_latency_marks = {name: value for name, value in self._realtime_latency_marks.items()
+                                        if name in _SESSION_LATENCY_MARKS}
         self.mark_realtime_latency("speech_started")
         self.set_realtime_state("user_speaking", session_id=session_id)
         self._emit("realtime_speech_window_started", detail=str(self._realtime_speech_window_id))
@@ -281,7 +285,7 @@ class VoiceSessionCoordinator:
         if self._realtime_completed_speech_window_id <= self._realtime_last_transcript_window_id:
             self._emit("realtime_transcript_without_speech_window_ignored", detail=clean_item_id)
             return None
-        if text and self._should_drop_transcript(text, drop_fragments=True):
+        if text and self._should_drop_transcript(text):
             self._emit("transcript_dropped", detail=text)
             if clean_item_id:
                 self._realtime_transcript_item_ids.append(clean_item_id)
@@ -292,6 +296,7 @@ class VoiceSessionCoordinator:
                 self._realtime_transcript_item_ids.append(clean_item_id)
             self._realtime_last_transcript_window_id = self._realtime_completed_speech_window_id
             self._last_activity_at = time.monotonic()
+            self.mark_realtime_latency("transcript_final")
             self._emit("transcript_final", detail=text)
             return text
         return None
@@ -320,20 +325,16 @@ class VoiceSessionCoordinator:
                 return None
             return int(max(0.0, (marks[end] - marks[start]) * 1000))
 
+        # The latest spoken turn: the front's own reply, or a consult answered by the agent's run.
         pairs = {
-            "speech_stop_to_thinking_ui": delta("speech_stopped", "thinking_ui"),
             "speech_stop_to_transcript_final": delta("speech_stopped", "transcript_final"),
+            "speech_stop_to_first_audio": delta("speech_stopped", "first_assistant_audio"),
             "speech_stop_to_function_call_ready": delta("speech_stopped", "function_call_ready"),
-            "speech_stop_to_forced_consult": delta("speech_stopped", "forced_consult_started"),
-            "speech_stop_to_row_bot_start": delta("speech_stopped", "row_bot_consult_started"),
-            "speech_stop_to_first_token": delta("speech_stopped", "first_token"),
-            "speech_stop_to_first_speakable_chunk": delta("speech_stopped", "first_speakable_chunk"),
-            "speech_stop_to_first_spoken_row_bot": delta("speech_stopped", "first_substantive_audio_requested"),
-            "transcript_final_to_forced_consult": delta("transcript_final", "forced_consult_started"),
-            "consult_to_first_token": delta("row_bot_consult_started", "first_token"),
-            "first_token_to_first_speakable_chunk": delta("first_token", "first_speakable_chunk"),
-            "first_speakable_chunk_to_provider_response_create": delta("first_speakable_chunk", "provider_response_create"),
-            "provider_response_create_to_first_audio": delta("provider_response_create", "first_assistant_audio"),
+            "function_call_to_row_bot_start": delta("function_call_ready", "row_bot_consult_started"),
+            "row_bot_start_to_answer": delta("row_bot_consult_started", "consult_answered"),
+            "answer_to_provider_response_create": delta("consult_answered", "provider_response_create"),
+            "provider_response_create_to_answer_audio": delta("provider_response_create", "first_answer_audio"),
+            "speech_stop_to_answer_audio": delta("speech_stopped", "first_answer_audio"),
         }
         return {key: value for key, value in pairs.items() if value is not None}
 
@@ -343,11 +344,9 @@ class VoiceSessionCoordinator:
         current = time.monotonic() if now is None else now
         return (current - self._last_activity_at) >= self.no_speech_timeout_seconds
 
-    def _should_drop_transcript(self, text: str, *, drop_fragments: bool = False) -> bool:
+    def _should_drop_transcript(self, text: str) -> bool:
         normalized = _normalize_transcript(text)
         if normalized in PHANTOM_TRANSCRIPTS:
-            return True
-        if drop_fragments and len(normalized) < 8 and not normalized.endswith("?"):
             return True
         return self.output_activity.should_drop_echo(normalized)
 
@@ -375,6 +374,8 @@ class VoiceSessionCoordinator:
             detail=detail,
         ))
 
+
+_SESSION_LATENCY_MARKS = frozenset({"talk_activation", "connected"})
 
 PHANTOM_TRANSCRIPTS = {
     "thanks for watching",

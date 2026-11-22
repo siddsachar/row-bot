@@ -2165,19 +2165,42 @@ export function VoiceSnapshotPanel({
           </>
         )}
       </SettingsGroup>
-      <SettingsAdvanced meta="Other speech models, realtime voice, diagnostics">
-        {realtime && (
-          <SettingsGroup title="Realtime Talk">
+      <SettingsAdvanced meta="Live voice, other speech models, diagnostics">
+        {/* Live voice: a cloud speech-to-speech front per provider, chosen in a chat's Talk panel. */}
+        <SettingsGroup
+          title="Live voice"
+          anchor="live-voice"
+          note="A cloud voice that talks with you and hands real work to Row-Bot. Pick it in a chat's Talk panel."
+          meta={
+            <Link className="settings-link" to="/settings/models">
+              Open Providers
+            </Link>
+          }
+        >
+          {snapshot.live_providers.map((provider) => (
+            <VoiceModelRow
+              key={provider.id}
+              title={provider.label}
+              description={`${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)} (${provider.company}’s prices, ${provider.price_checked}). Your voice and the chat’s recent messages go to ${provider.company}.`}
+              status={
+                provider.available
+                  ? 'Key saved'
+                  : `Needs your ${provider.company} API key`
+              }
+              ready={provider.available ? undefined : false}
+            />
+          ))}
+          {realtime && (
             <SelectSetting
               mutation={mutation}
               field="runtime.realtime_voice"
               label="Realtime voice"
-              hint="Realtime Talk only, not read aloud."
+              hint="OpenAI Realtime only, not read aloud."
               value={snapshot.runtime.realtime_voice}
               options={snapshot.realtime_voice_options}
             />
-          </SettingsGroup>
-        )}
+          )}
+        </SettingsGroup>
         {/* Realtime Talk's own model: the saved talk model names it while
             Realtime Talk is on (anything else uses the default). */}
         {realtime && (
@@ -2276,18 +2299,6 @@ export function VoiceSnapshotPanel({
             status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
             ready={snapshot.tts.installed}
           />
-          <VoiceModelRow
-            title="OpenAI Realtime Talk"
-            description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice} · online`}
-            status={
-              snapshot.openai_realtime_credential.configured
-                ? 'Credential saved · not checked'
-                : 'Setup needed'
-            }
-            ready={
-              snapshot.openai_realtime_credential.configured ? undefined : false
-            }
-          />
         </SettingsGroup>
         <SettingsGroup title="Diagnostics">
           <SettingsItem
@@ -2300,7 +2311,7 @@ export function VoiceSnapshotPanel({
           />
           <SettingsItem
             label="Costs"
-            help="Talk can call models and tools. Realtime sessions can incur provider cost while active."
+            help="Talk can call models and tools. Live voice is billed by its provider for each minute you talk."
           />
         </SettingsGroup>
       </SettingsAdvanced>

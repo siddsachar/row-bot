@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
+import logging
 import math
 import time
 from typing import Any
@@ -21,10 +22,18 @@ from row_bot.voice.client_transport import (
     DictationOwner, REALTIME_LEASE_SECONDS, _CONVERSATION, _uuid,
 )
 
+logger = logging.getLogger(__name__)
+
 _EVENTS = frozenset({"connected", "disconnected", "fatal_error", "speech_started", "speech_stopped",
                      "transcript_final", "assistant_transcript_final", "function_call_ready",
-                     "consult_fallback_needed", "output_started", "output_item_started", "response_done",
-                     "response_cancelled", "output_audio_done", "barge_in_cancelled"})
+                     "output_started", "output_item_started", "response_done",
+                     "response_cancelled", "output_audio_done", "barge_in_cancelled",
+                     "provider_response_create_sent"})
+# Who made a provider response: the front on its own ("front"), or Row-Bot asking it to speak.
+_ORIGINS = frozenset({"", "front", "row_bot"})
+_CONSULT = "row_bot_agent_consult"
+# The WebSocket fronts: the browser connects with the ephemeral credential and sends ``setup`` first.
+_SOCKET_HOSTS = {"gemini_live": "wss://generativelanguage.googleapis.com/", "grok_voice": "wss://api.x.ai/"}
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,9 @@ class RealtimeStart:
     snapshot: RealtimeSnapshot
     client_secret: str | None = field(repr=False)
     secret_expires_in_ms: int
+    # A WebSocket front's address and first message (its instructions and tools), JSON.
+    connect_url: str = ""
+    setup: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)
@@ -57,6 +69,7 @@ class RealtimeEvent:
     name: str = ""
     arguments: str = ""
     text: str = ""
+    origin: str = ""
 
 
 @dataclass(frozen=True)
@@ -86,10 +99,24 @@ class _RealtimeState:
     consult_run_id: str = ""
     provider: Any = field(default=None, repr=False)
     exchange_attempted: bool = False
+    transport: str = "openai_realtime"
+    connect_url: str = ""
+    setup: str = field(default="", repr=False)
+    # The consult call each admitted run answers, by run id.
+    pending_call: str = ""
+    run_calls: dict[str, str] = field(default_factory=dict)
+    # The front's own lines: its speech per response, the responses that called a tool,
+    # the person's words since its last reply, and finished turns waiting to be saved.
+    front_text: dict[str, str] = field(default_factory=dict, repr=False)
+    tool_responses: set[str] = field(default_factory=set)
+    front_user: str = field(default="", repr=False)
+    front_turns: list[tuple[str, str]] = field(default_factory=list, repr=False)
 
     def clear_private(self) -> None:
         self.secret = self.transcript = self.transcript_item = self.last_digest = ""
         self.consult_digest = self.consult_run_id = ""
+        self.setup = self.front_user = ""
+        self.front_text, self.front_turns = {}, []
         self.provider = None
         self.last_result = None
 
@@ -114,16 +141,27 @@ def _provider_error(exc: Exception) -> DictationError:
 
 
 class ClientRealtimeTransport:
-    def __init__(self, *, dictation: ClientDictationTransport, provider_factory: Callable[[], Any],
+    """One Live voice session: its front, the consults it starts, and the front's saved lines.
+
+    ``session_context`` builds the front's instructions when the session starts
+    (the chat's recent turns, persona and memories); ``save_front`` saves the
+    front's own finished turns in the chat while no run is writing to it.
+    """
+
+    def __init__(self, *, dictation: ClientDictationTransport, provider_factory: Callable[[str], Any],
                  submit: Callable[[DictationOwner, str, str, Callable[[], None]], str],
                  active_generation: Callable[[DictationOwner], Any],
                  control_generation: Callable[[DictationOwner, Any, str, str, str, Callable[[], None]], dict],
+                 session_context: Callable[[DictationOwner], str] | None = None,
+                 save_front: Callable[[DictationOwner, list[tuple[str, str]], Callable[[], None]], None] | None = None,
                  wall_clock: Callable[[], float] = time.time) -> None:
         self._transport = dictation
         self._provider = provider_factory
         self._submit = submit
         self._active = active_generation
         self._control = control_generation
+        self._session_context = session_context
+        self._save_front = save_front
         self._wall_clock = wall_clock
 
     @property
@@ -144,20 +182,25 @@ class ClientRealtimeTransport:
             else self.coordinator.realtime_state,
             not lease.starting and lease.operation is None,
             max(0, int((min(lease.expires, lease.started_at + 600) - self._transport._clock()) * 1000)),
-            lease.run_id or None)
+            lease.run_id or None, lease.realtime.transport if lease.realtime is not None else "openai_realtime")
 
-    def start(self, owner: DictationOwner, *, request_id: str, validate: Callable[[], None], chat_context: dict | None = None) -> RealtimeStart:
+    def start(self, owner: DictationOwner, *, request_id: str, validate: Callable[[], None],
+              chat_context: dict | None = None, live_provider: str = "openai") -> RealtimeStart:
         def prepare(admitted: Callable[[], None]) -> None:
             admitted()
             try:
-                provider = self._provider()
+                provider = self._provider(live_provider)
             except DictationError:
                 raise
             except Exception as exc:
                 raise _provider_error(exc) from None
             admitted()
+            if not provider.status().ready:
+                raise DictationError("realtime_key_missing")
+            instructions = self._session_context(owner) if self._session_context is not None else ""
+            admitted()
             try:
-                value = provider.create_client_secret(expires_after_seconds=60)
+                value = provider.create_client_secret(instructions=instructions, expires_after_seconds=60)
             except DictationError:
                 raise
             except Exception as exc:
@@ -169,6 +212,16 @@ class ClientRealtimeTransport:
             if (not isinstance(secret, str) or not 1 <= len(secret) <= 4096 or
                     type(expiry) not in {int, float} or not math.isfinite(expiry)):
                 raise DictationError("realtime_credential_unavailable")
+            transport = str(getattr(provider, "transport", "openai_realtime"))
+            url, setup = "", ""
+            if transport in _SOCKET_HOSTS:
+                url = value.get("url")
+                setup = json.dumps(value.get("setup"), ensure_ascii=False)
+                if (not isinstance(url, str) or not url.startswith(_SOCKET_HOSTS[transport]) or len(url) > 512
+                        or not isinstance(value.get("setup"), dict) or len(setup.encode("utf-8")) > 32768):
+                    raise DictationError("realtime_credential_unavailable")
+            elif transport != "openai_realtime":
+                raise DictationError("voice_provider_unavailable")
             remaining = min(60.0, expiry - self._wall_clock())
             if remaining <= 0:
                 raise DictationError("realtime_credential_expired")
@@ -176,17 +229,22 @@ class ClientRealtimeTransport:
             admitted()
             with self.coordinator._dictation_lock:
                 lease = self.coordinator._dictation_lease
-                lease.realtime = _RealtimeState(secret, self._transport._clock() + remaining, provider=provider)
+                lease.realtime = _RealtimeState(secret, self._transport._clock() + remaining, provider=provider,
+                                                transport=transport, connect_url=url, setup=setup)
                 lease.run_id = _generation_id(generation)
-                self.coordinator.set_active_row_bot_generation(lease.run_id)
+                self.coordinator.mark_realtime_latency("talk_activation")
+                if lease.run_id:
+                    self.coordinator.set_active_row_bot_generation(lease.run_id)
 
+        context = None if chat_context is None else {**chat_context, "live_provider": live_provider}
         snapshot = self._transport._start(owner, request_id=request_id, validate=validate,
-                                           mode="talk", _transport="realtime", _prepare=prepare, _chat_context=chat_context)
+                                           mode="talk", _transport="realtime", _prepare=prepare, _chat_context=context)
         with self.coordinator._dictation_lock:
             lease = self._lease(owner, snapshot.handle)
             state = lease.realtime
             return RealtimeStart(self._snapshot(lease), state.secret or None,
-                                 max(0, int((state.secret_expires - self._transport._clock()) * 1000)))
+                                 max(0, int((state.secret_expires - self._transport._clock()) * 1000)),
+                                 state.connect_url, state.setup if state.secret else "")
 
     def snapshot(self, owner: DictationOwner, handle: DictationHandle, *, validate: Callable[[], None],
                  heartbeat: bool = False) -> RealtimeSnapshot:
@@ -208,6 +266,8 @@ class ClientRealtimeTransport:
             state = lease.realtime
             if not lease.ready or lease.operation is not None:
                 raise DictationError("voice_session_busy")
+            if state.transport != "openai_realtime":
+                raise DictationError("action_denied")
             if state.exchange_attempted or state.connected:
                 raise DictationError("voice_exchange_consumed")
             if not state.secret or self._transport._clock() >= state.secret_expires:
@@ -268,7 +328,7 @@ class ClientRealtimeTransport:
             if not isinstance(value, str) or (value and not _CONVERSATION.fullmatch(value)):
                 raise DictationError("invalid_voice_event")
         if (not isinstance(event.text, str) or len(event.text) > 4000 or
-                not isinstance(event.arguments, str) or len(event.arguments) > 8192):
+                not isinstance(event.arguments, str) or len(event.arguments) > 8192 or event.origin not in _ORIGINS):
             raise DictationError("invalid_voice_event")
         encoded = json.dumps(asdict(event), ensure_ascii=False).encode("utf-8")
         if len(encoded) > 16_384:
@@ -352,7 +412,11 @@ class ClientRealtimeTransport:
                 generation = current
                 lease.run_id = run_id
                 state.consult_digest, state.consult_run_id = digest, run_id
+                if state.pending_call and len(state.run_calls) < 200:
+                    # The run's final answer is this call's result (``run_calls``, read by the run view).
+                    state.run_calls[run_id] = state.pending_call
                 self.coordinator.set_active_row_bot_generation(run_id)
+                self.coordinator.set_realtime_state("thinking", session_id=handle.voice_session_id)
 
         def queue(call: dict[str, Any]) -> None:
             admitted()
@@ -384,45 +448,69 @@ class ClientRealtimeTransport:
                 if caption and event.item_id != state.transcript_item:
                     state.consult_digest = state.consult_run_id = ""
                 state.transcript, state.transcript_item = caption, event.item_id
+                if caption:
+                    state.front_user = f"{state.front_user} {caption}".strip()[:4000]
             elif kind == "assistant_transcript_final":
                 self.coordinator.record_assistant_output(event.text, session_id=handle.voice_session_id)
                 caption = event.text
-            elif kind in {"function_call_ready", "consult_fallback_needed"}:
-                if kind == "function_call_ready":
-                    if not event.call_id or event.call_id in state.calls:
-                        raise DictationError("voice_event_consumed")
-                    if len(state.calls) >= 200:
-                        raise DictationError("voice_session_limit")
-                    state.calls.add(event.call_id)
-                elif not state.transcript or event.text != state.transcript or event.item_id != state.transcript_item:
-                    raise DictationError("voice_transcript_changed")
+                # Only the front's own speech is its line: Row-Bot's answers are saved by their runs.
+                rid = event.response_id
+                if (event.origin == "front" and rid and rid not in state.tool_responses and event.text.strip()
+                        and (rid in state.front_text or len(state.front_text) < 50)):
+                    state.front_text[rid] = f"{state.front_text.get(rid, '')} {event.text.strip()}".strip()[:4000]
+            elif kind == "function_call_ready":
+                if not event.call_id or event.call_id in state.calls:
+                    raise DictationError("voice_event_consumed")
+                if len(state.calls) >= 200:
+                    raise DictationError("voice_session_limit")
+                state.calls.add(event.call_id)
+                self.coordinator.mark_realtime_latency("function_call_ready")
+                # A response that calls a tool hands the turn over: its preamble is not a saved line,
+                # and the person's words reach the chat through the consult (or were not addressed).
+                if event.response_id:
+                    state.tool_responses.add(event.response_id)
+                    state.front_text.pop(event.response_id, None)
+                state.front_user = ""
+                if event.name == _CONSULT:
+                    state.pending_call = event.call_id
                 # The retained bridge owns allowed tool/consult policy. New-client
                 # active-run effects belong to canonical command admission, never
                 # its legacy in-memory voice_control_queue mutation path.
                 bridge = VoiceAgentBridge(send_message=submit, active_generation=lambda: None,
                     surface="normal_chat", thread_id=owner.conversation_id)
-                if kind == "function_call_ready" and event.name == "row_bot_agent_control":
+                if event.name == "row_bot_agent_control":
                     parsed = bridge._parse_arguments(event.arguments)
                     action = str(parsed.get("action") or "status").strip().lower()
                     text = str(parsed.get("text") or "").strip()
                     result = {"output": json.dumps(control(action if action in {"status", "cancel"} else "input",
                                                            text or action), ensure_ascii=False)}
-                elif kind == "function_call_ready":
+                else:
                     result = await bridge.handle_realtime_function_call(name=event.name, call_id=event.call_id,
                                                                         arguments=event.arguments, queue_consult=queue)
-                else:
-                    result = await bridge.force_consult_if_substantive(event.text, queue_consult=queue)
-                    state.transcript = ""
+                state.pending_call = ""
                 if control_result is not None:
                     result = {"output": json.dumps(control_result, ensure_ascii=False),
                               "silent": control_result.get("status") == "already_running"}
             elif kind in {"output_started", "output_item_started"}:
                 self.coordinator.record_realtime_output_started(response_id=event.response_id,
                     output_item_id=event.output_item_id, session_id=handle.voice_session_id)
+                if event.origin == "row_bot":
+                    self.coordinator.mark_realtime_latency("first_answer_audio")
+            elif kind == "provider_response_create_sent":
+                if event.origin == "row_bot":
+                    self.coordinator.mark_realtime_latency("provider_response_create")
             elif kind == "barge_in_cancelled":
                 accepted = self.coordinator.record_barge_in(reason="user_speech_started", session_id=handle.voice_session_id)
             elif kind in {"response_done", "response_cancelled", "output_audio_done"}:
                 self.coordinator.record_realtime_output_done(session_id=handle.voice_session_id)
+                line = state.front_text.pop(event.response_id, "") if kind != "output_audio_done" else ""
+                if line and event.response_id not in state.tool_responses and len(state.front_turns) < 50:
+                    state.front_turns.append((state.front_user, line))
+                    state.front_user = ""
+            if state.front_turns and self._save_front is not None and self._active(owner) is None:
+                # A run writes the chat while it works; the front's lines wait until none is active.
+                turns, state.front_turns = state.front_turns, []
+                self._save(owner, turns, admitted)
             output = str(result.get("output") or "")
             if len(output.encode("utf-8")) > 8192:
                 raise DictationError("voice_output_too_large")
@@ -444,9 +532,26 @@ class ClientRealtimeTransport:
             with self.coordinator._dictation_lock:
                 self._transport._release(lease, operation)
 
+    def _save(self, owner: DictationOwner, turns: list[tuple[str, str]], validate: Callable[[], None]) -> None:
+        try:
+            self._save_front(owner, turns, validate)
+        except DictationError:
+            raise
+        except Exception:
+            # A line that can't be saved never ends the conversation; it is logged, not retried.
+            logger.warning("Live voice could not save %d front line(s)", len(turns), exc_info=True)
+
     def stop(self, owner: DictationOwner, handle: DictationHandle, *, validate: Callable[[], None]) -> RealtimeSnapshot:
         validate()
+        turns: list[tuple[str, str]] = []
         with self.coordinator._dictation_lock:
             lease = self._lease(owner, handle, active=False)
+            state = lease.realtime
+            if (state is not None and state.front_turns and not lease.revoked and self._save_front is not None
+                    and self._active(owner) is None):
+                turns, state.front_turns = state.front_turns, []
             self._transport._invalidate(lease)
-            return self._snapshot(lease)
+            snapshot = self._snapshot(lease)
+        if turns:
+            self._save(owner, turns, validate)
+        return snapshot

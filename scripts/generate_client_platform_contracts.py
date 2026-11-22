@@ -766,7 +766,7 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // The desktop terminal sends each typed key and reads its echo (B248); the Browser pane sends the person's keys.
   const terminal = method !== 'DELETE' && /^\/native\/terminals\/[^/?]+(?:\/(?:input|resize))?(?:\?|$)/.test(path)
     || method === 'POST' && /^\/conversations\/[^/]+\/browser\/input$/.test(path);
-  const lane = terminal ? 'terminal' : observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
+  const lane = terminal ? 'terminal' : observation || voiceEvent && eventType !== 'function_call_ready' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
   let lanes = budgets.get(proof);
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
   const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];

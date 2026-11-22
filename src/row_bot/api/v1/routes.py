@@ -1091,7 +1091,6 @@ _STATUS.update(
             "voice_output_consumed",
             "voice_output_unavailable",
             "voice_event_consumed",
-            "voice_transcript_changed",
             "realtime_credential_expired",
         ),
         409,
@@ -1112,6 +1111,7 @@ _STATUS.update(
         "realtime_quota_or_rate_limit": 429,
         "realtime_provider_unavailable": 503,
         "realtime_credential_unavailable": 503,
+        "realtime_key_missing": 409,
     }
 )
 _STATUS.update(
@@ -2229,15 +2229,27 @@ def create_router(
                 "reason": "host_unavailable",
             }
         )
+        live: list[dict] = []
+        if getattr(service, "realtime", None) is not None:
+            from row_bot.voice.live_voice import live_voice_readiness
+
+            # Each front is available when the person's provider key is saved (no provider call).
+            live = await call(live_voice_readiness)
+        realtime_reason = (
+            "host_unavailable"
+            if getattr(service, "realtime", None) is None
+            else "available"
+            if any(row["available"] for row in live)
+            else "realtime_key_missing"
+        )
         value.update(
             talk_available=getattr(service, "talk", None) is not None,
-            realtime_available=getattr(service, "realtime", None) is not None,
+            realtime_available=realtime_reason == "available",
             talk_reason="available"
             if getattr(service, "talk", None) is not None
             else "host_unavailable",
-            realtime_reason="available"
-            if getattr(service, "realtime", None) is not None
-            else "host_unavailable",
+            realtime_reason=realtime_reason,
+            live_providers=live,
         )
         if transport is not None:
             from row_bot.application.read_aloud import read_aloud_reason
@@ -2302,6 +2314,7 @@ def create_router(
                 validate=validate_start,
                 **({"chat_context": chat_context} if chat_context is not None else {}),
                 **({"csrf": current.csrf} if mode == "talk" else {}),
+                **({"live_provider": body.live_provider} if mode == "realtime" else {}),
             ),
             name="client-voice-start",
         )
@@ -2317,7 +2330,8 @@ def create_router(
             if cancelled.is_set():
                 raise ProtocolError("voice_session_expired", 410)
             value = asdict(result)
-            if mode == "realtime":
+            if mode == "realtime" and result.snapshot.transport == "openai_realtime":
+                # The host exchanges OpenAI's SDP itself: the browser never holds that secret.
                 value.update(
                     client_secret=None, exchange_available=bool(result.client_secret)
                 )
@@ -2745,7 +2759,7 @@ def create_router(
     ) -> JSONResponse:
         current = await session(request, lane="observation")
         body = await _body(request, dto.RealtimeEventRequest, 18432)
-        if body.event.type in {"function_call_ready", "consult_fallback_needed"}:
+        if body.event.type == "function_call_ready":
             security.rate(current, "mutation")
         handle = dictation_handle(
             conversation_id,

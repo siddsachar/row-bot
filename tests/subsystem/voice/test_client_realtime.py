@@ -21,8 +21,10 @@ def runtime():
         calls.append(("secret", kwargs))
         return {"value": "synthetic-ephemeral", "expires_at": 1060}
 
-    provider = SimpleNamespace(create_client_secret=secret)
+    provider = SimpleNamespace(create_client_secret=secret, transport="openai_realtime",
+                               status=lambda: SimpleNamespace(ready=True))
     coordinator = VoiceSessionCoordinator()
+    saved = []
 
     def no_local():
         pytest.fail("realtime must not initialize local audio models")
@@ -47,11 +49,16 @@ def runtime():
             pending.append((owner.conversation_id, expected.generation_id, text, event_id))
         return {"control": action, "status": "queued" if action == "input" else "running"}
 
-    adapter = ClientRealtimeTransport(dictation=transport, provider_factory=lambda: provider,
+    def save_front(owner, turns, validate):
+        validate()
+        saved.append((owner.conversation_id, list(turns)))
+
+    adapter = ClientRealtimeTransport(dictation=transport, provider_factory=lambda option: provider,
         submit=submit, active_generation=lambda owner: generation[0], control_generation=control,
+        session_context=lambda owner: f"Synthetic context for {owner.conversation_id}", save_front=save_front,
         wall_clock=lambda: 1000 + clock[0])
     owner = DictationOwner(str(uuid4()), "local:synthetic", "A", "epoch")
-    return SimpleNamespace(adapter=adapter, transport=transport, coordinator=coordinator,
+    return SimpleNamespace(adapter=adapter, transport=transport, coordinator=coordinator, saved=saved,
                            owner=owner, generation=generation, provider=provider, clock=clock, calls=calls, pending=pending)
 
 
@@ -72,7 +79,7 @@ def test_passive_adapter_and_exact_secret_replay_no_local_models(runtime):
     assert first.client_secret == "synthetic-ephemeral" and first.secret_expires_in_ms == 60_000
     assert first.snapshot.state == "connecting" and first.snapshot.quiesced
     assert start(r, request) == first
-    assert r.calls == [("secret", {"expires_after_seconds": 60})]
+    assert r.calls == [("secret", {"instructions": "Synthetic context for A", "expires_after_seconds": 60})]
     with pytest.raises(DictationError, match="idempotency_mismatch"):
         r.transport.start(r.owner, request_id=request, validate=lambda: None)
     with pytest.raises(DictationError, match="voice_session_busy"):
@@ -201,17 +208,6 @@ def test_direct_tools_blocked_wait_silent_and_steer_uses_existing_queue(runtime)
     assert len([call for call in r.calls if call[0] == "submit"]) == 1
 
 
-def test_exact_fallback_transcript_required(runtime):
-    r = runtime
-    handle = start(r).snapshot.handle
-    event(r, handle, "speech_started")
-    event(r, handle, "speech_stopped")
-    event(r, handle, "transcript_final", item_id="item", text="Please inspect my work")
-    with pytest.raises(DictationError, match="voice_transcript_changed"):
-        event(r, handle, "consult_fallback_needed", item_id="item", text="Different request")
-    assert all(call[0] != "submit" for call in r.calls)
-
-
 def test_output_barge_in_and_exact_stop_do_not_cancel_other_work(runtime):
     r = runtime
     handle = start(r).snapshot.handle
@@ -255,7 +251,7 @@ def test_authority_exception_after_factory_is_preserved_and_no_provider_call(run
     revoked = [False]
     sentinel = PermissionError("synthetic revoked authority")
 
-    def factory():
+    def factory(option):
         revoked[0] = True
         return r.provider
 
@@ -411,3 +407,115 @@ def test_provider_status_disposition_never_exposes_private_response(runtime, sta
         start(r)
     assert caught.value.code == expected and "private" not in str(caught.value)
     assert not r.coordinator.is_running
+
+
+def turn(r, handle, text, item, run=""):
+    event(r, handle, "speech_started", generation_id=run)
+    event(r, handle, "speech_stopped", generation_id=run)
+    return event(r, handle, "transcript_final", generation_id=run, item_id=item, text=text)
+
+
+def test_front_small_talk_is_saved_marked_once_its_response_ends(runtime):
+    r = runtime
+    handle = start(r).snapshot.handle
+    turn(r, handle, "Good morning", "u1")
+    event(r, handle, "output_started", response_id="resp-1", origin="front")
+    event(r, handle, "assistant_transcript_final", response_id="resp-1", origin="front", text="Morning! How can I help?")
+    assert not r.saved
+    event(r, handle, "response_done", response_id="resp-1", origin="front")
+    assert r.saved == [("A", [("Good morning", "Morning! How can I help?")])]
+    event(r, handle, "response_done", response_id="resp-1", origin="front")
+    assert len(r.saved) == 1
+
+
+def test_a_consulting_response_and_row_bot_answers_are_never_front_lines(runtime):
+    r = runtime
+    handle = start(r).snapshot.handle
+    turn(r, handle, "What is on my calendar", "u1")
+    event(r, handle, "assistant_transcript_final", response_id="resp-1", origin="front", text="Let me check.")
+    event(r, handle, "function_call_ready", response_id="resp-1", call_id="consult-1",
+          name="row_bot_agent_consult", arguments='{"request":"What is on my calendar"}')
+    r.generation[0] = None  # the run finished
+    event(r, handle, "response_done", generation_id="run-1", response_id="resp-1", origin="front")
+    event(r, handle, "assistant_transcript_final", generation_id="run-1", response_id="resp-2", origin="row_bot",
+          text="You have two meetings.")
+    event(r, handle, "response_done", generation_id="run-1", response_id="resp-2", origin="row_bot")
+    assert not r.saved
+    lease = r.coordinator._dictation_lease
+    assert lease.realtime.run_calls == {"run-1": "consult-1"}
+
+
+def test_front_lines_wait_while_a_run_writes_the_chat(runtime):
+    r = runtime
+    r.generation[0] = SimpleNamespace(generation_id="run-1")
+    handle = start(r).snapshot.handle
+    turn(r, handle, "Are you still there", "u1", run="run-1")
+    event(r, handle, "assistant_transcript_final", generation_id="run-1", response_id="resp-1", origin="front",
+          text="Yes, still working on it.")
+    event(r, handle, "response_done", generation_id="run-1", response_id="resp-1", origin="front")
+    assert not r.saved
+    r.generation[0] = None
+    r.adapter.stop(r.owner, handle, validate=lambda: None)
+    assert r.saved == [("A", [("Are you still there", "Yes, still working on it.")])]
+
+
+def test_a_websocket_front_gets_its_ephemeral_credential_and_setup_never_the_sdp_path(runtime):
+    r = runtime
+    seen = []
+
+    def secret(**kwargs):
+        seen.append(kwargs)
+        return {"value": "synthetic-socket-token", "expires_at": 1060, "url": "wss://api.x.ai/v1/realtime?model=m",
+                "setup": {"type": "session.update", "session": {"instructions": kwargs["instructions"]}}}
+
+    socket = SimpleNamespace(create_client_secret=secret, transport="grok_voice",
+                             status=lambda: SimpleNamespace(ready=True))
+    chosen = []
+    r.adapter._provider = lambda option: chosen.append(option) or socket
+    started = r.adapter.start(r.owner, request_id=str(uuid4()), validate=lambda: None, live_provider="grok")
+    assert chosen == ["grok"] and seen[0]["instructions"] == "Synthetic context for A"
+    assert started.snapshot.transport == "grok_voice" and started.client_secret == "synthetic-socket-token"
+    assert started.connect_url.startswith("wss://api.x.ai/")
+    assert json.loads(started.setup)["session"]["instructions"] == "Synthetic context for A"
+    with pytest.raises(DictationError, match="action_denied"):
+        r.adapter.exchange(r.owner, started.snapshot.handle, offer=b"v=0 synthetic", validate=lambda: None)
+
+
+def test_an_unexpected_socket_address_is_refused(runtime):
+    r = runtime
+    socket = SimpleNamespace(transport="gemini_live", status=lambda: SimpleNamespace(ready=True),
+        create_client_secret=lambda **kwargs: {"value": "t", "expires_at": 1060, "url": "wss://elsewhere.example/",
+                                               "setup": {}})
+    r.adapter._provider = lambda option: socket
+    with pytest.raises(DictationError, match="realtime_credential_unavailable"):
+        r.adapter.start(r.owner, request_id=str(uuid4()), validate=lambda: None, live_provider="gemini")
+
+
+def test_no_key_refuses_before_any_provider_call(runtime):
+    r = runtime
+    r.provider.status = lambda: SimpleNamespace(ready=False)
+    with pytest.raises(DictationError, match="realtime_key_missing"):
+        start(r)
+    assert not r.calls and not r.coordinator.is_running
+
+
+def test_latency_marks_follow_the_turn_not_the_session_start(runtime):
+    r = runtime
+    handle = start(r).snapshot.handle
+    marks = r.coordinator._realtime_latency_marks
+    assert "talk_activation" in marks and "row_bot_consult_started" not in marks
+    turn(r, handle, "Please check the weather", "u1")
+    event(r, handle, "function_call_ready", call_id="c1", name="row_bot_agent_consult",
+          arguments='{"request":"Please check the weather"}')
+    marks = r.coordinator._realtime_latency_marks
+    assert {"speech_stopped", "transcript_final", "function_call_ready", "row_bot_consult_started"} <= set(marks)
+    event(r, handle, "provider_response_create_sent", generation_id="run-1", origin="row_bot")
+    event(r, handle, "output_started", generation_id="run-1", response_id="answer", origin="row_bot")
+    assert {"provider_response_create", "first_answer_audio"} <= set(r.coordinator._realtime_latency_marks)
+    assert set(r.coordinator.realtime_latency_summary()) >= {
+        "speech_stop_to_transcript_final", "speech_stop_to_function_call_ready", "function_call_to_row_bot_start",
+        "provider_response_create_to_answer_audio", "speech_stop_to_answer_audio"}
+    # A new turn measures from its own start; the session's marks stay.
+    event(r, handle, "speech_started", generation_id="run-1")
+    assert "function_call_ready" not in r.coordinator._realtime_latency_marks
+    assert "talk_activation" in r.coordinator._realtime_latency_marks

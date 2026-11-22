@@ -332,6 +332,7 @@ export class ClientController {
         talk_reason: 'host_unavailable',
         realtime_reason: 'host_unavailable',
         read_aloud_reason: 'host_unavailable',
+        live_providers: [],
       }
     );
   }

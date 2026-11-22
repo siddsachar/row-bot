@@ -19,6 +19,7 @@ import type {
   ConversationComposer,
   DelegatedActivityView,
   ErrorAction,
+  LiveVoiceProvider,
   PanelDescriptor,
   ResourceView,
   SlashCommandSpec,
@@ -405,11 +406,20 @@ export default function Conversation({
   }>({ conversation: null, page: null });
   const delegatedPage = delegated.conversation === id ? delegated.page : null;
   const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
-  const [voiceExposure, setVoiceExposure] = useState({
+  const [voiceExposure, setVoiceExposure] = useState<{
+    key: string;
+    dictate: boolean;
+    talk: boolean;
+    realtime: boolean;
+    live: LiveVoiceProvider[];
+    dictateReason: string;
+    talkReason: string;
+  }>({
     key: '',
     dictate: false,
     talk: false,
     realtime: false,
+    live: [],
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
@@ -431,6 +441,7 @@ export default function Conversation({
             dictate: value.browser_dictation_available,
             talk: value.talk_available ?? false,
             realtime: value.realtime_available ?? false,
+            live: value.live_providers ?? [],
             dictateReason:
               value.reason === 'available'
                 ? 'Dictate'
@@ -448,6 +459,7 @@ export default function Conversation({
             dictate: false,
             talk: false,
             realtime: false,
+            live: [],
             dictateReason: 'Voice capability could not be read.',
             talkReason: 'Voice capability could not be read.',
           });
@@ -4672,6 +4684,7 @@ export default function Conversation({
                           composerRef.current?.focus({ preventScroll: true })
                         }
                         unavailableReason={voiceExposure.talkReason}
+                        liveProviders={voiceExposure.live}
                         disabled={busy}
                         running={isRunning}
                         onBusy={setTalkBusy}

@@ -164,7 +164,7 @@ def test_provider_exact_https_no_redirect_api_key_lookup_or_unbounded_response(
 
     monkeypatch.setattr(module.requests, "post", post)
     monkeypatch.setattr(
-        module, "get_key", lambda *args: pytest.fail("durable key lookup")
+        module, "provider_api_key", lambda *args: pytest.fail("durable key lookup")
     )
     result = OpenAIRealtimeProvider().exchange_sdp(
         b"v=0\r\nsynthetic offer",

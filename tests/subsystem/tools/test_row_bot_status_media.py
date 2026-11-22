@@ -92,7 +92,7 @@ def test_row_bot_status_voice_says_read_aloud_is_ready_once_kokoro_is_installed(
     from row_bot.tools.row_bot_status_tool import _query_voice
     from row_bot.tts import TTSService
 
-    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
     monkeypatch.setattr(TTSService, "is_installed", lambda self: True)
 
     lines = _query_voice().splitlines()
@@ -104,7 +104,7 @@ def test_row_bot_status_voice_says_read_aloud_is_ready_once_kokoro_is_installed(
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     from row_bot.tools.row_bot_status_tool import _query_voice
 
-    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
 
     output = _query_voice()
 
@@ -115,7 +115,7 @@ def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     assert ("- Read aloud and spoken replies: Kokoro, not installed (only the person can start the download: "
             "[Voice](/settings/voice#read-aloud))") in output
     assert "Realtime fallback" not in output and "TTS enabled" not in output
-    assert "OpenAI Realtime:" in output
+    assert "Live voice: OpenAI Realtime needs a key, Gemini Live needs a key, Grok Voice needs a key" in output
     assert "User-facing modes: Talk, Dictate" in output
     assert "Dictate policy: STT-only" in output
     assert "Realtime brain strategy: row-bot-consult" in output
@@ -132,7 +132,7 @@ def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
     from row_bot.runtime import executions
     from row_bot.tools.row_bot_status_tool import _query_voice
 
-    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
     registry = executions.GenerationRuntimeRegistry()
     monkeypatch.setattr(executions, "generation_registry", registry)
     handle = registry.register("thread123")
