@@ -102,6 +102,25 @@ def test_allowed_tenants_are_for_entra_only() -> None:
     assert "for Entra only" in problem
 
 
+GOOGLE = {"kind": "google", "issuer": "https://accounts.google.com", "client_id": "client-3"}
+
+
+def test_google_needs_the_hosted_domains_whose_accounts_may_sign_in() -> None:
+    # Without them any Google account in the world could sign in.
+    for entry in (GOOGLE, {**GOOGLE, "hosted_domains": []}, {**GOOGLE, "allowed_email_domains": ["example.com"]}):
+        (problem,) = _problems(_env(entry))
+        assert problem.startswith("ROW_BOT_ORG_IDP (Google) needs hosted_domains")
+    assert load_settings(_env({**GOOGLE, "hosted_domains": ["Example.com"]})).idp.hosted_domains == ("example.com",)
+    assert _problems(_env({**OKTA, "hosted_domains": ["example.com"]})) == [
+        "ROW_BOT_ORG_IDP hosted_domains is for Google only"]
+
+
+def test_entra_takes_no_email_domains_because_it_sends_no_email_verified() -> None:
+    (problem,) = _problems(_env({**ENTRA, "allowed_email_domains": ["contoso.com"]}))
+    assert problem.startswith("ROW_BOT_ORG_IDP allowed_email_domains doesn't work with Entra")
+    assert "allowed_tenants" in problem and "Assignment required" in problem
+
+
 def test_the_provider_needs_its_client_secret_and_a_secret_needs_a_provider() -> None:
     assert _problems(_env(OKTA, secret=None)) == ["ROW_BOT_ORG_IDP needs ROW_BOT_ORG_IDP_CLIENT_SECRET"]
     assert _problems(_env(OKTA, secret=MARKER + "\x01")) == [

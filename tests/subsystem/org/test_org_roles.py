@@ -1,6 +1,6 @@
 """The server's database role on a real (throwaway) Postgres: it never runs as a role row-level security
-doesn't hold back (a superuser, BYPASSRLS, or one that can SET ROLE to either), each Org database has
-its own runtime group, and only that group may connect.
+doesn't hold back (a superuser, BYPASSRLS, one that can SET ROLE to either, or the owner or a member of
+it), each Org database has its own runtime group, and only that group may connect.
 
 Security-sensitive: these run in the pull request lane's Org job.
 """
@@ -25,7 +25,6 @@ from psycopg_pool import PoolTimeout  # noqa: E402
 
 from row_bot_org import cli  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
-from row_bot_org.db.checks import runtime_role_warnings  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.logging import configure_logging  # noqa: E402
 from row_bot_org.settings import OrgSettings  # noqa: E402
@@ -84,6 +83,8 @@ UNFIT = [
      "the database role can SET ROLE to row_bot_test, which is a superuser"),
     ("set_bypass", "", ("CREATE ROLE {role}_bypass NOLOGIN BYPASSRLS", "GRANT {role}_bypass TO {role}"),
      "the database role can SET ROLE to set_bypass_bypass, which has BYPASSRLS"),
+    ("can_become_owner", "", (f"GRANT {OWNER} TO {{role}} WITH INHERIT FALSE, SET TRUE",),
+     "the database role owns (or is a member of the owner of) the row_bot_org schema or its tables"),
 ]
 
 
@@ -145,18 +146,45 @@ def test_the_pool_hands_out_no_connection_for_an_unfit_role(make_role) -> None:
         pool.close()
 
 
-def test_a_role_that_can_become_the_owner_is_warned_about(make_role, monkeypatch: pytest.MonkeyPatch,
-                                                         capsys) -> None:
-    url = make_role("sneaky", "", f"GRANT {OWNER} TO {{role}} WITH INHERIT FALSE, SET TRUE")
+OWNS = "the database role owns (or is a member of the owner of) the row_bot_org schema or its tables"
 
-    with psycopg.connect(url) as conn:
-        assert runtime_role_warnings(conn) == [
-            "the database role owns (or is a member of the owner of) the row_bot_org schema or its tables, "
-            "so it could turn row-level security off"
-        ]
-    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", url)
-    assert cli.main(["check-config"]) == 0
-    assert capsys.readouterr().err.startswith("Warning: the database role owns")
+
+@pytest.mark.parametrize("command", ["serve", "check-config"])
+def test_the_owner_never_serves(org_database, monkeypatch: pytest.MonkeyPatch, served, capsys, command: str) -> None:
+    # The owner matches the "_definer" policies: as the runtime role it would read every principal's rows.
+    monkeypatch.setenv("ROW_BOT_ORG_DATABASE_URL", org_database.owner_url)
+
+    assert cli.main([command]) == 1
+
+    assert served == {}
+    err = capsys.readouterr().err
+    assert f"{OWNS}, so row-level security wouldn't hold it back." in err
+    assert "not the owner that migrates" in err
+
+
+def test_the_pool_hands_out_no_connection_as_the_owner(org_database) -> None:
+    pool = create_pool(org_database.owner_url, max_size=1)
+    pool.open(wait=False)
+    try:
+        with pytest.raises(PoolTimeout), pool.connection(timeout=1.0):
+            pass
+    finally:
+        pool.close()
+
+
+def test_a_role_made_a_member_of_the_owner_after_start_makes_the_server_not_ready(org_database, make_role) -> None:
+    url = make_role("joined")
+    app = create_app(OrgSettings(), create_pool(url, max_size=1))
+
+    with TestClient(app) as client:
+        assert client.get("/readyz").status_code == 200
+        with psycopg.connect(org_database.superuser_url, autocommit=True) as admin:
+            admin.execute(f"GRANT {OWNER} TO joined")
+        response = client.get("/readyz")
+        with psycopg.connect(org_database.superuser_url, autocommit=True) as admin:
+            admin.execute(f"REVOKE {OWNER} FROM joined")
+
+    assert response.status_code == 503
 
 
 def test_each_database_has_its_own_runtime_group_and_only_it_may_connect(empty_org_database, org_database) -> None:

@@ -9,6 +9,10 @@ One provider per server. ``ROW_BOT_ORG_IDP`` is a JSON object (not a secret)::
 ``ROW_BOT_ORG_IDP_CLIENT_SECRET`` (a secret) is the client secret the server sends to the token
 endpoint (``client_secret_basic``).
 
+Google needs ``hosted_domains``: the Workspace domains whose accounts may sign in (the ID token's ``hd``).
+Without it any Google account in the world would get in. Entra takes no ``allowed_email_domains``: it sends
+no ``email_verified``, so its tenants (``allowed_tenants``) and the application's assignment decide.
+
 Each problem is worded without the value, as for every setting.
 """
 
@@ -27,7 +31,8 @@ ENTRA_MULTI_TENANT = ("common", "organizations", "consumers", "{tenantid}")
 _TENANT = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 _CLAIM = re.compile(r"^[A-Za-z0-9_:./-]{1,64}$")
-_KEYS = {"kind", "issuer", "client_id", "allowed_tenants", "groups_claim", "group_map", "allowed_email_domains"}
+_KEYS = {"kind", "issuer", "client_id", "allowed_tenants", "hosted_domains", "groups_claim", "group_map",
+         "allowed_email_domains"}
 _MAX_GROUP_NAME = 256
 
 
@@ -42,6 +47,8 @@ class IdpConfig:
     client_id: str
     # Entra only: the tenants whose tokens are accepted (the token's `tid`).
     allowed_tenants: tuple[str, ...] = ()
+    # Google only: the Workspace domains whose accounts are accepted (the token's `hd`).
+    hosted_domains: tuple[str, ...] = ()
     groups_claim: str = "groups"
     # IdP group (an Entra object id, an Okta group name) -> Row-Bot group. With a map, other groups are dropped.
     group_map: tuple[tuple[str, str], ...] = ()
@@ -114,8 +121,21 @@ def parse_idp(raw: str, client_secret: str) -> IdpConfig:
         tenants = _strings(entry.get("allowed_tenants"), "allowed_tenants", _TENANT, lower=True)
         if not tenants:
             raise IdpConfigError("(Entra) needs allowed_tenants")
+        if "allowed_email_domains" in entry:
+            raise IdpConfigError(
+                "allowed_email_domains doesn't work with Entra, which sends no email_verified: allowed_tenants "
+                "and the application's assignment (Assignment required) decide who signs in"
+            )
     elif "allowed_tenants" in entry:
         raise IdpConfigError("allowed_tenants is for Entra only")
+    hosted: tuple[str, ...] = ()
+    if kind == "google":
+        hosted = _strings(entry.get("hosted_domains", []), "hosted_domains", _DOMAIN, lower=True)
+        if not hosted:
+            raise IdpConfigError("(Google) needs hosted_domains, the Workspace domains whose accounts may sign in: "
+                                 "without them any Google account could")
+    elif "hosted_domains" in entry:
+        raise IdpConfigError("hosted_domains is for Google only")
     groups_claim = entry.get("groups_claim", "groups")
     if not isinstance(groups_claim, str) or not _CLAIM.fullmatch(groups_claim):
         raise IdpConfigError("groups_claim isn't a valid claim name")
@@ -127,7 +147,8 @@ def parse_idp(raw: str, client_secret: str) -> IdpConfig:
         raise IdpConfigError("group_map must map group names to non-empty group names")
     domains = _strings(entry.get("allowed_email_domains", []), "allowed_email_domains", _DOMAIN, lower=True)
     return IdpConfig(
-        kind=kind, issuer=issuer, client_id=client_id, allowed_tenants=tenants, groups_claim=groups_claim,
+        kind=kind, issuer=issuer, client_id=client_id, allowed_tenants=tenants, hosted_domains=hosted,
+        groups_claim=groups_claim,
         group_map=tuple(sorted((k, v.strip()) for k, v in raw_map.items())), allowed_email_domains=domains,
         client_secret=client_secret,
     )

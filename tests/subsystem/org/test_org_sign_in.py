@@ -395,6 +395,28 @@ def test_one_principal_never_reads_anothers_sessions_groups_or_profile(org_datab
         pool.close()
 
 
+@pytest.mark.parametrize("change", ["revoked_at = NULL", "expires_at = now() + interval '100 years'",
+                                    "idle_timeout = interval '100 years', idle_expires_at = now() + interval '100 years'"],
+                         ids=["un-revoke", "lifetime", "idle"])
+def test_the_runtime_may_revoke_its_sessions_but_never_revive_or_extend_one(org_database, change: str) -> None:
+    with running_idp("okta") as idp, org_server(org_database, idp) as client:
+        sign_in(client, idp)
+        principal_id = client.get("/api/me").json()["id"]
+    # An operator signs the person out.
+    owner_sql(org_database, "UPDATE row_bot_org.server_sessions SET revoked_at = now()")
+
+    pool = create_pool(org_database.runtime_url, max_size=1)
+    pool.open(wait=True, timeout=30)
+    try:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege), \
+                principal_transaction(pool, principal_id, []) as conn:
+            conn.execute(f"UPDATE row_bot_org.server_sessions SET {change}")
+    finally:
+        pool.close()
+    assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.server_sessions WHERE revoked_at IS NULL"
+                                   " OR expires_at > now() + interval '1 day'") == [(0,)]
+
+
 def test_the_session_lookup_returns_one_row_for_one_verifier_and_nothing_for_a_guess(org_database) -> None:
     with running_idp("okta") as idp, org_server(org_database, idp) as client:
         sign_in(client, idp)
