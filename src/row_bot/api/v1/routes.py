@@ -1079,6 +1079,9 @@ _STATUS.update(
         "audio_receive_timeout": 408,
         "transcript_too_large": 413,
         "voice_operation_failed": 503,
+        "voice_rate_limited": 429,
+        "kokoro_model_missing": 409,
+        "nothing_to_read": 422,
     }
 )
 _STATUS.update(
@@ -2236,6 +2239,10 @@ def create_router(
             if getattr(service, "realtime", None) is not None
             else "host_unavailable",
         )
+        if transport is not None:
+            from row_bot.application.read_aloud import read_aloud_reason
+
+            value["read_aloud_reason"] = await call(read_aloud_reason)
         return await respond(request, dto.DictationCapability, value)
 
     @router.post("/conversations/{conversation_id}/voice/dictation")
@@ -2612,6 +2619,23 @@ def create_router(
         speech = await call(talk.speech_test, current.id, validate=validate)
         await call(validate)
         return Response(speech.audio, media_type=speech.content_type, headers=HEADERS)
+
+    @router.post("/conversations/{conversation_id}/read-aloud/{message_id}")
+    async def read_aloud(conversation_id: str, message_id: str, request: Request) -> Response:
+        """Speak one part of a saved reply to this browser: the reply's words are read here, never sent."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.ReadAloudRequest, 256)
+        if not 1 <= len(message_id) <= 256:
+            raise ProtocolError("invalid_command", 422)
+        await readable_conversation(conversation_id)
+        validate = dispatch_validation(request, current)
+        from row_bot.application.read_aloud import read_aloud as speak
+
+        result = await call(speak, service, conversation_id, message_id, body.part,
+                            session_key=current.id, validate=validate)
+        await call(validate)
+        return Response(result.audio, media_type=result.content_type, headers={
+            **HEADERS, "X-Read-Aloud-Part": str(result.part), "X-Read-Aloud-Parts": str(result.parts)})
 
     @router.post("/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange")
     async def realtime_exchange(

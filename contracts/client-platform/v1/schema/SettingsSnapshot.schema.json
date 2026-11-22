@@ -2154,10 +2154,6 @@
           "title": "Dictation Provider",
           "type": "string"
         },
-        "realtime_fallback_to_local": {
-          "title": "Realtime Fallback To Local",
-          "type": "boolean"
-        },
         "realtime_voice": {
           "maxLength": 32,
           "title": "Realtime Voice",
@@ -2172,15 +2168,6 @@
           "maxLength": 64,
           "title": "Speech Output Provider",
           "type": "string"
-        },
-        "speech_output_voice": {
-          "maxLength": 64,
-          "title": "Speech Output Voice",
-          "type": "string"
-        },
-        "talk_auto_start": {
-          "title": "Talk Auto Start",
-          "type": "boolean"
         },
         "talk_model": {
           "maxLength": 128,
@@ -2200,11 +2187,8 @@
         "dictation_model",
         "speech_output_provider",
         "speech_output_model",
-        "speech_output_voice",
         "realtime_voice",
-        "captions_enabled",
-        "talk_auto_start",
-        "realtime_fallback_to_local"
+        "captions_enabled"
       ],
       "title": "VoiceRuntimeSettingsSnapshot",
       "type": "object"
@@ -2299,15 +2283,8 @@
     },
     "VoiceTtsSettingsSnapshot": {
       "additionalProperties": false,
+      "description": "Kokoro, the voice that speaks Read aloud and Talk's replies: its voice and speed.",
       "properties": {
-        "auto_speak": {
-          "title": "Auto Speak",
-          "type": "boolean"
-        },
-        "enabled": {
-          "title": "Enabled",
-          "type": "boolean"
-        },
         "installed": {
           "title": "Installed",
           "type": "boolean"
@@ -2326,10 +2303,8 @@
       },
       "required": [
         "installed",
-        "enabled",
         "voice",
-        "speed",
-        "auto_speak"
+        "speed"
       ],
       "title": "VoiceTtsSettingsSnapshot",
       "type": "object"

@@ -99,7 +99,8 @@ def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     assert "Talk model:" in output
     assert "Dictation provider:" in output
     assert "Speech output provider:" in output
-    assert "Realtime fallback:" in output
+    assert "Read aloud and spoken replies: Kokoro, not installed" in output
+    assert "Realtime fallback" not in output and "TTS enabled" not in output
     assert "OpenAI Realtime:" in output
     assert "User-facing modes: Talk, Dictate" in output
     assert "Dictate policy: STT-only" in output

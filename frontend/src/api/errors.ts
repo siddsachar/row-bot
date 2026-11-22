@@ -36,6 +36,7 @@ const PROVIDERS = open('models', 'Models', 'connections');
 const CUSTOM_ENDPOINTS = open('models', 'Custom endpoints', 'custom-endpoints');
 const IMAGE_MODEL = open('models', 'Image model', 'image-model');
 const VOICE = open('voice', 'Voice settings', 'dictation');
+const READ_ALOUD = open('voice', 'Voice settings', 'read-aloud');
 // Accounts and channels are apps: their fixes open the app.
 const ACCOUNTS = open('apps', 'Apps');
 const GITHUB = open('apps/github', 'GitHub');
@@ -3387,6 +3388,20 @@ const CATALOG: Record<string, Entry> = {
     'Set up a speech recognition model in Voice settings before using Dictate.',
     'review',
     VOICE,
+  ],
+  kokoro_model_missing: [
+    'Read aloud needs the Kokoro voice. Install it in Voice settings.',
+    'review',
+    READ_ALOUD,
+  ],
+  nothing_to_read: [
+    'This reply is code or a table, with nothing to read aloud.',
+    'none',
+  ],
+  voice_rate_limited: [
+    'Voice has been used a lot in the last minute. Wait a moment, then try again.',
+    'retry',
+    RETRY,
   ],
 
   // Uploads

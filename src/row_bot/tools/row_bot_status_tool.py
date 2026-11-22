@@ -1195,9 +1195,12 @@ def _query_voice() -> str:
         # TTS
         try:
             tts_path = _DATA_DIR / "tts_settings.json"
+            from row_bot.tts import TTSService
+
+            lines.append(f"- Read aloud and spoken replies: Kokoro, "
+                         f"{'installed' if TTSService().is_installed() else 'not installed'}")
             if tts_path.is_file():
                 tts = json.loads(tts_path.read_text(encoding="utf-8"))
-                lines.append(f"- TTS enabled: {'yes' if tts.get('enabled', False) else 'no'}")
                 lines.append(f"- TTS voice: {tts.get('voice', 'af_heart')}")
                 lines.append(f"- TTS speed: {tts.get('speed', 1.0)}")
             else:
@@ -1224,9 +1227,7 @@ def _query_voice() -> str:
             lines.append(f"- Dictation model: {runtime.dictation_model}")
             lines.append(f"- Speech output provider: {runtime.speech_output_provider}")
             lines.append(f"- Speech output model: {runtime.speech_output_model}")
-            lines.append(f"- Speech output voice: {runtime.speech_output_voice}")
             lines.append(f"- Captions: {'on' if runtime.captions_enabled else 'off'}")
-            lines.append(f"- Realtime fallback: {'on' if runtime.realtime_fallback_to_local else 'off'}")
         except Exception:
             lines.append("- Voice runtime: error reading settings")
         try:

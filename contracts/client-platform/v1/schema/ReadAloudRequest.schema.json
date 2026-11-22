@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "description": "Which part of a saved reply to speak; the reply's words are read on the server, never sent.",
+  "properties": {
+    "part": {
+      "maximum": 9999,
+      "minimum": 0,
+      "title": "Part",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "part"
+  ],
+  "title": "ReadAloudRequest",
+  "type": "object"
+}

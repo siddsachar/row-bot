@@ -346,6 +346,29 @@ def test_synthesis_owner_validates_before_model_and_after_worker(runtime):
     assert effects == ["Saved response"]
 
 
+def test_spoken_replies_say_saved_pronunciations_and_keep_the_written_reply(runtime):
+    from row_bot import sound
+    from row_bot.voice.browser_local import BrowserLocalVoiceService
+
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    said = []
+
+    def speak(text, **_options):
+        said.append(text)
+        return b"RIFF\0\0\0\0WAVE-synthetic"
+
+    r = runtime
+    r.service.synthesize = BrowserLocalVoiceService(voice_service=object(), tts_service=SimpleNamespace(
+        is_installed=lambda: True, reload_settings=lambda: None, synthesize_wav_bytes=speak)).synthesize
+    r.talk._resolve_output = lambda *args: TalkSpeechSource("Qwen is ready.")
+    snapshot = start(r)
+    result = finish(r, receive(r, snapshot))
+    r.talk.output(r.owner, snapshot.handle, run_id=result.run_id, output_id="message", validate=lambda: None)
+    assert said == ["Kwen is ready."]
+    # The echo guard, like the captions, keeps the written words.
+    assert r.coordinator.output_activity.should_drop_echo("qwen is ready.")
+
+
 def test_talk_transcribes_with_the_talk_selection(runtime):
     r = runtime
     finish(r, receive(r, start(r)))

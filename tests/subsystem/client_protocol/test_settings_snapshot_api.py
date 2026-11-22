@@ -1031,6 +1031,30 @@ def test_voice_test_is_no_longer_a_settings_action_on_the_host(api, monkeypatch)
     assert not calls
 
 
+@pytest.mark.parametrize(("field", "value"), [
+    ("runtime.talk_auto_start", True),
+    ("runtime.realtime_fallback_to_local", False),
+    ("runtime.speech_output_voice", "af_bella"),
+    ("tts.enabled", True),
+    ("tts.auto_speak", False),
+])
+def test_removed_voice_settings_are_neither_shown_nor_saved(api, field, value):
+    """Nothing read these: Talk never auto-started or fell back, Kokoro's voice is tts.voice, and Read aloud
+    is a button on each reply, not a switch."""
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    voice = snapshot["voice"]
+    assert set(voice["runtime"]).isdisjoint({"talk_auto_start", "realtime_fallback_to_local", "speech_output_voice"})
+    assert set(voice["tts"]) == {"installed", "voice", "speed"}
+    assert field not in snapshot["defaults"]["voice"]
+    before = _tree(data)
+    refused = client.post(BASE + "/review", headers=headers, json={
+        "settings_revision": snapshot["revision"], "page": "voice", "field": field, "value": value})
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "settings_action_unavailable"
+    assert _tree(data) == before
+
+
 @pytest.mark.parametrize(
     "field",
     [

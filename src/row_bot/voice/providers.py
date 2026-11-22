@@ -70,8 +70,11 @@ class LocalKokoroOutput:
         )
 
     def synthesize(self, text: str) -> SynthesizedSpeech:
+        from row_bot.sound import respelled
+
         self._tts.reload_settings()
-        return SynthesizedSpeech(self._tts.synthesize_wav_bytes(text), "audio/wav")
+        # Only the voice hears the person's pronunciations; captions and the chat keep the written words.
+        return SynthesizedSpeech(self._tts.synthesize_wav_bytes(respelled(text)), "audio/wav")
 
 
 def speech_to_text_provider(
