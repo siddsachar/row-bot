@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Film, Image, Music, RefreshCw, Search, Tag } from 'lucide-react';
 import { clientError } from '../../api/errors';
@@ -10,8 +10,8 @@ import {
   ErrorState,
   IconButton,
   Input,
+  ListSkeleton,
   Segmented,
-  Skeleton,
 } from '../../ui/primitives';
 import { absoluteTime } from '../../ui/format';
 import { formatBytes } from './MediaPreview';
@@ -21,12 +21,34 @@ type Kind = '' | MediaItem['kind'];
 
 const ICONS = { image: Image, video: Film, audio: Music } as const;
 
-/** A picture's own thumbnail; a video or a sound its kind's icon. */
+/**
+ * A picture's own thumbnail; a video or a sound its kind's icon. A picture is
+ * read once it nears the screen: hundreds of them read at once took the
+ * server's whole view budget, and the next screen waited behind them.
+ */
 export function Thumb({ item }: { item: MediaItem }) {
   const { controller } = useRuntime();
   const [src, setSrc] = useState('');
+  const [near, setNear] = useState(false);
+  const holder = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    if (item.kind !== 'image') return;
+    const element = holder.current;
+    if (item.kind !== 'image' || near || !element) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true);
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [item.kind, near]);
+  useEffect(() => {
+    if (item.kind !== 'image' || !near) return;
     const abort = new AbortController();
     let url = '';
     controller.attachmentThumbnail(item.ref, abort.signal).then(
@@ -41,12 +63,16 @@ export function Thumb({ item }: { item: MediaItem }) {
       abort.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [controller, item.kind, item.ref]);
+  }, [controller, item.kind, item.ref, near]);
   const Icon = ICONS[item.kind];
   return src ? (
     <img className="media-library-thumb" src={src} alt="" />
   ) : (
-    <span className="media-library-thumb media-library-icon" aria-hidden>
+    <span
+      ref={holder}
+      className="media-library-thumb media-library-icon"
+      aria-hidden
+    >
       <Icon size={22} />
     </span>
   );
@@ -200,7 +226,11 @@ export default function LibraryMedia() {
           {error}
         </ErrorState>
       ) : !items ? (
-        <Skeleton label="Loading media" />
+        <ListSkeleton
+          label="Loading media"
+          rows={10}
+          className="media-library-loading"
+        />
       ) : items.length === 0 ? (
         query || kind ? (
           <EmptyState title="Nothing matches">

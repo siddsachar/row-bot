@@ -134,6 +134,59 @@ it('leaves a helper’s own thread to the chat that started it, as the sidebar d
   expect(screen.getByText('2 conversations · newest first')).toBeVisible();
 });
 
+it('shows loading rows in the list shape while the library is read, then its rows in their place', async () => {
+  const transport = new FixtureTransport({ conversationCount: 3 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  let release!: () => void;
+  const read = controller.readConversationLibrary.bind(controller);
+  vi.spyOn(controller, 'readConversationLibrary').mockImplementation(
+    async (signal) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return read(signal);
+    },
+  );
+  renderLibrary(controller);
+  const loading = screen.getByRole('status', {
+    name: 'Loading all conversations',
+  });
+  expect(loading).toHaveAttribute('aria-busy', 'true');
+  expect(screen.getByText('Loading conversations…')).toBeVisible();
+  // No retry offered while it is still reading.
+  expect(screen.queryByRole('button', { name: 'Retry library' })).toBeNull();
+  await waitFor(() =>
+    expect(loading.querySelectorAll('.skeleton-row')).toHaveLength(14),
+  );
+  await act(async () => release());
+  expect(
+    await screen.findByText('3 conversations · newest first'),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('status', { name: 'Loading all conversations' }),
+  ).toBeNull();
+});
+
+it('reads a large library in the server’s largest pages, not fifty at a time', async () => {
+  const transport = new FixtureTransport({ conversationCount: 426 });
+  const list = vi.spyOn(transport, 'listConversations');
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  list.mockClear();
+  renderLibrary(controller);
+  expect(
+    await screen.findByText('426 conversations · newest first'),
+  ).toBeVisible();
+  expect(list.mock.calls.map(([, , group, limit]) => [group, limit])).toEqual([
+    ['all', 200],
+    ['all', 200],
+    ['all', 200],
+  ]);
+});
+
 it('selects a range with Shift and ticks the focused row with Space (B270)', async () => {
   await setup(8);
   tick('Sample conversation 2');

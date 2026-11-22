@@ -49,11 +49,16 @@ export class HttpTransport implements ClientTransport {
     };
     return view;
   }
-  listConversations(cursor?: string, signal?: AbortSignal, group = 'all') {
+  listConversations(
+    cursor?: string,
+    signal?: AbortSignal,
+    group = 'all',
+    limit = 50,
+  ) {
     return wire.listConversations(
       this.base,
       this.session(),
-      50,
+      limit,
       cursor,
       signal,
       group,

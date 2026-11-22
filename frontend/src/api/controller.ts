@@ -83,6 +83,8 @@ const DELAYS = [1000, 2000, 3000, 5000, 5000, 5000];
  */
 const RECOVERY_DELAYS = [500, 1500, 3000, 5000];
 const SESSION_RECOVERY_ATTEMPTS = 3;
+/** The server's largest conversation page (`GET /conversations?limit=`). */
+const LIBRARY_PAGE = 200;
 /** With no conversation stream open, background notices are read this often. */
 const NOTICE_READ_MS = 30000;
 /**
@@ -1179,7 +1181,11 @@ export class ClientController {
       typedConversations: typed && { ...typed, rows: typed.rows.map(replace) },
     });
   }
-  /** An explicit library review reads every page without the sidebar's 1,000-row cache cap. */
+  /**
+   * An explicit library review reads every page without the sidebar's
+   * 1,000-row cache cap, in the server's largest pages: each read waits its
+   * turn in the paced query lane, so 426 chats are three reads, not nine.
+   */
   async readConversationLibrary(
     signal?: AbortSignal,
   ): Promise<import('./types').ConversationView[]> {
@@ -1198,7 +1204,12 @@ export class ClientController {
       signal?.throwIfAborted();
       const page = validateWire<import('./types').ConversationPage>(
         'ConversationPage',
-        await this.transport.listConversations(cursor, signal, 'all'),
+        await this.transport.listConversations(
+          cursor,
+          signal,
+          'all',
+          LIBRARY_PAGE,
+        ),
       );
       if (
         this.disposed ||
@@ -2438,6 +2449,15 @@ export class ClientController {
   recentConversations = (signal?: AbortSignal) =>
     this.query(() =>
       this.transport.listConversations(undefined, signal, 'all'),
+    );
+  /** The newest conversations of one listing group, one page of `limit`. */
+  conversationsOfGroup = (
+    group: import('./types').ConversationListGroup,
+    limit: number,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.listConversations(undefined, signal, group, limit),
     );
   library = (
     kind: 'artifact' | 'workspace',
