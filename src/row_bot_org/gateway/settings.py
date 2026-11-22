@@ -1,4 +1,5 @@
-"""The gateway's setting: ``ROW_BOT_ORG_GATEWAY_KEY``, read by ``row_bot_org.settings``.
+"""The gateway's settings, read by ``row_bot_org.settings``: ``ROW_BOT_ORG_GATEWAY_KEY`` and
+``ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS`` (``parse_budgeted_calls``).
 
 It is the server key that seals every endpoint key in the database (``gateway.keys``): 32 random
 bytes, base64-encoded, for example from
@@ -15,6 +16,8 @@ import base64
 import binascii
 
 GATEWAY_KEY_SUFFIX = "GATEWAY_KEY"
+BUDGETED_CALLS_SUFFIX = "GATEWAY_BUDGETED_CALLS"
+DEFAULT_BUDGETED_CALLS = 4
 KEY_BYTES = 32
 
 
@@ -31,4 +34,14 @@ def parse_gateway_key(raw: str) -> bytes:
     return key
 
 
-__all__ = ["GATEWAY_KEY_SUFFIX", "KEY_BYTES", "parse_gateway_key"]
+def parse_budgeted_calls(raw: str) -> int:
+    """``ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS``: the calls a person under a hard budget may have running at once
+    (per server process), 1 to 64. Budgets count spend after a call, so this bounds the overshoot."""
+    value = raw.strip()
+    if not (len(value) <= 2 and value.isascii() and value.isdigit() and 1 <= int(value) <= 64):
+        raise ValueError("must be a number of calls from 1 to 64")
+    return int(value)
+
+
+__all__ = ["BUDGETED_CALLS_SUFFIX", "DEFAULT_BUDGETED_CALLS", "GATEWAY_KEY_SUFFIX", "KEY_BYTES",
+           "parse_budgeted_calls", "parse_gateway_key"]

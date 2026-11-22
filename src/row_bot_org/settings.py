@@ -7,8 +7,8 @@ link, at most 64 KiB of UTF-8, with one trailing newline dropped. A variable win
 Errors name the setting and what is wrong with it, never its value: some settings are secrets.
 ``ROW_BOT_ORG_DATABASE_URL``, ``ROW_BOT_ORG_MIGRATION_DATABASE_URL``, ``ROW_BOT_ORG_HMAC_PEPPER``,
 ``ROW_BOT_ORG_IDP_CLIENT_SECRET`` and ``ROW_BOT_ORG_GATEWAY_KEY`` are: ``remove_secret_variables`` takes them
-out of the process environment once read, so no program the server starts inherits them, and they never appear in the
-settings' ``repr``.
+out of the process environment once read, so no program the server starts inherits them, and they never
+appear in the settings' ``repr``.
 
 Sign-in (``row_bot_org.identity``) needs ``ROW_BOT_ORG_IDP`` (``identity/config.py`` describes it),
 its client secret, ``ROW_BOT_ORG_PUBLIC_URL`` (the address browsers use, for the redirect URI and the
@@ -29,7 +29,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from row_bot_org.gateway.settings import GATEWAY_KEY_SUFFIX, parse_gateway_key
+from row_bot_org.gateway.settings import (
+    BUDGETED_CALLS_SUFFIX,
+    DEFAULT_BUDGETED_CALLS,
+    GATEWAY_KEY_SUFFIX,
+    parse_budgeted_calls,
+    parse_gateway_key,
+)
 from row_bot_org.identity.config import IdpConfig, IdpConfigError, is_loopback_host, parse_idp
 
 ENV_PREFIX = "ROW_BOT_ORG_"
@@ -89,6 +95,8 @@ class OrgSettings:
     trusted_proxies: tuple[str, ...] = ()
     # The model gateway's server key (row_bot_org.gateway.settings). A secret.
     gateway_key: bytes | None = dataclass_field(default=None, repr=False)
+    # Gateway calls at once for a person under a hard budget, per process.
+    gateway_budgeted_calls: int = DEFAULT_BUDGETED_CALLS
 
 
 class _Invalid(Exception):
@@ -180,11 +188,15 @@ def _json_text(raw: str) -> str:
     return raw.strip()
 
 
-def _gateway_key(raw: str) -> bytes:
-    try:
-        return parse_gateway_key(raw)
-    except ValueError as problem:
-        raise _Invalid(str(problem)) from None
+def _gateway(parse: Callable[[str], Any]) -> Callable[[str], Any]:
+    """A gateway setting's parser (row_bot_org.gateway.settings), its ValueError worded as a setting's problem."""
+    def parsed(raw: str) -> Any:
+        try:
+            return parse(raw)
+        except ValueError as problem:
+            raise _Invalid(str(problem)) from None
+
+    return parsed
 
 
 def _client_secret(raw: str) -> str:
@@ -223,7 +235,8 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "HMAC_PEPPER": ("hmac_pepper", _pepper),
     "SESSION_LIFETIME": ("session_lifetime", _session_seconds),
     "SESSION_IDLE_TIMEOUT": ("session_idle_timeout", _session_seconds),
-    GATEWAY_KEY_SUFFIX: ("gateway_key", _gateway_key),
+    GATEWAY_KEY_SUFFIX: ("gateway_key", _gateway(parse_gateway_key)),
+    BUDGETED_CALLS_SUFFIX: ("gateway_budgeted_calls", _gateway(parse_budgeted_calls)),
     "SIGN_IN_RATE_LIMIT": ("sign_in_rate_limit", _rate_limit),
     "TRUSTED_PROXIES": ("trusted_proxies", _trusted_proxies),
     # Combined after the loop: the provider needs its client secret.

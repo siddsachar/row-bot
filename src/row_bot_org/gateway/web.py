@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -43,7 +44,7 @@ from starlette.concurrency import run_in_threadpool
 from row_bot_org.admin import admin_connection
 from row_bot_org.db.rls import principal_transaction
 from row_bot_org.gateway import store, upstream
-from row_bot_org.gateway.keys import KeyUnavailable, seal, unseal
+from row_bot_org.gateway.keys import KeyUnavailable, endpoint_origin, seal, unseal
 from row_bot_org.identity.gate import RequestPrincipal, request_principal
 from row_bot_org.identity.web import principal_connection
 from row_bot_org.settings import OrgSettings
@@ -62,16 +63,38 @@ class _Refusal(Exception):
 
 
 class GatewayService:
-    """The gateway for one server: its pool and the server key that opens the endpoints' keys."""
+    """The gateway for one server: its pool, the server key that opens the endpoints' keys, and the count of
+    calls running for each person under a hard budget."""
 
     def __init__(self, settings: OrgSettings, pool: Any) -> None:
         if settings.gateway_key is None:
             raise ValueError("the gateway needs ROW_BOT_ORG_GATEWAY_KEY")
         self.pool = pool
         self._server_key = settings.gateway_key
+        self._budgeted_calls = settings.gateway_budgeted_calls
+        self._running: dict[str, int] = {}
+        self._running_lock = threading.Lock()
 
-    def seal(self, endpoint_id: str, api_key: str) -> bytes:
-        return seal(self._server_key, endpoint_id, api_key)
+    def seal(self, endpoint_id: str, base_url: str, api_key: str) -> bytes:
+        return seal(self._server_key, endpoint_id, base_url, api_key)
+
+    # -- calls running under a hard budget -------------------------------------------------------
+
+    def _take_slot(self, principal_id: str) -> bool:
+        with self._running_lock:
+            running = self._running.get(principal_id, 0)
+            if running >= self._budgeted_calls:
+                return False
+            self._running[principal_id] = running + 1
+            return True
+
+    def _give_back_slot(self, principal_id: str) -> None:
+        with self._running_lock:
+            left = self._running.get(principal_id, 1) - 1
+            if left > 0:
+                self._running[principal_id] = left
+            else:
+                self._running.pop(principal_id, None)
 
     # -- the database, in worker threads ---------------------------------------------------------
 
@@ -90,6 +113,9 @@ class GatewayService:
 
     async def record(self, principal: RequestPrincipal, route: store.Route, usage: upstream.Usage, started: float,
                      outcome: str) -> None:
+        if (outcome == "ok" and usage.input_tokens == 0 and usage.output_tokens == 0
+                and (route.input_price or route.output_price)):
+            logger.warning("endpoint %s reported no usage for priced model %s", route.endpoint_name, route.model)
         # Shielded: a stream the caller dropped still records what it used.
         with anyio.CancelScope(shield=True):
             try:
@@ -111,6 +137,8 @@ class GatewayService:
         if not isinstance(model, str) or not model:
             raise _Refusal(400, "invalid_request", "The request needs a model.")
         passed = _passed_headers(request) if api == upstream.ANTHROPIC else {}
+        if problem := upstream.request_problem(api, payload, passed):
+            raise _Refusal(400, "invalid_request", problem)
         route, budgets = await run_in_threadpool(self._lookup, principal, model)
         if route is None:
             raise _Refusal(403, "model_not_allowed", "This model isn't available to you.")
@@ -122,7 +150,22 @@ class GatewayService:
             raise _Refusal(503, "endpoint_disabled", "This model's endpoint is turned off.")
         warnings = _check_budgets(budgets)
         api_key = self._key_of(route)
+        # Budgets count a call's spend after it, so a person under a hard budget gets only a few at once.
+        slotted = any(budget.hard_limit is not None for budget in budgets)
+        if slotted and not self._take_slot(principal.principal_id):
+            raise _Refusal(429, "too_many_calls", "Too many model calls at once under a budget: wait for one to end.")
+        try:
+            return await self._forward(principal, route, payload, passed, warnings, slotted, api_key)
+        except BaseException:
+            if slotted:
+                self._give_back_slot(principal.principal_id)
+            raise
 
+    async def _forward(self, principal: RequestPrincipal, route: store.Route, payload: dict[str, Any],
+                       passed: dict[str, str], warnings: list[str], slotted: bool, api_key: str | None) -> Response:
+        """Send the call; the slot (when ``slotted``) is given back when its answer is done, or by the caller
+        when this raises."""
+        api, kind = route.api, route.kind
         stream = kind == "chat" and payload.get("stream") is True
         payload["model"] = route.upstream_model
         if stream and api == upstream.OPENAI:
@@ -149,65 +192,113 @@ class GatewayService:
             refusal = await self._failed(route, response, api_key)
             await _close(client, response)
             await self.record(principal, route, upstream.Usage(), started, "error")
+            self._done(principal, slotted)
             return refusal
         if stream:
-            return StreamingResponse(self._relay(principal, route, client, response, started),
-                                     status_code=response.status_code, media_type="text/event-stream",
-                                     headers=headers)
+            relay = _Relay(self, principal, route, client, response, started, slotted)
+            return _RelayResponse(relay, status_code=response.status_code, media_type="text/event-stream",
+                                  headers=headers)
         try:
             body = await _read_capped(response)
-            usage = upstream.usage_of(api, json.loads(body))
+            answer = json.loads(body)
+            usage = upstream.usage_of(api, answer)
         except (httpx.HTTPError, ValueError, _Refusal) as error:
             await self.record(principal, route, upstream.Usage(), started, "error")
             raise _upstream_refusal(route, error) from None
         finally:
             await _close(client, response)
+        if isinstance(answer, dict) and answer.get("model") != route.upstream_model:
+            logger.warning("endpoint %s answered for model %s with another model", route.endpoint_name, route.model)
         await self.record(principal, route, usage, started, "ok")
+        self._done(principal, slotted)
         return Response(body, status_code=response.status_code, media_type="application/json", headers=headers)
+
+    def _done(self, principal: RequestPrincipal, slotted: bool) -> None:
+        if slotted:
+            self._give_back_slot(principal.principal_id)
 
     def _key_of(self, route: store.Route) -> str | None:
         if route.key_sealed is None:
             return None
         try:
-            return unseal(self._server_key, route.endpoint_id, route.key_sealed)
+            return unseal(self._server_key, route.endpoint_id, route.base_url, route.key_sealed)
         except KeyUnavailable:
             logger.error("the key of endpoint %s doesn't open with this server's gateway key", route.endpoint_name)
             raise _Refusal(503, "endpoint_key_unavailable", "This model's endpoint can't be used right now.") from None
 
     async def _failed(self, route: store.Route, response: httpx.Response, api_key: str | None) -> Response:
-        """The endpoint's error, passed on without its key; a refused key is the server's problem, not the caller's."""
+        """The endpoint's error in the caller's wire format: only a 4xx's type and message (without the key)
+        pass on; a refused key is the server's problem, and a 5xx says only that the endpoint failed."""
         try:
             body = await _read_capped(response)
         except (httpx.HTTPError, _Refusal):
             body = b""
-        logger.warning("endpoint %s answered %s", route.endpoint_name, response.status_code)
-        if response.status_code in (401, 403):
+        status = response.status_code
+        logger.warning("endpoint %s answered %s", route.endpoint_name, status)
+        if status in (401, 403):
             return JSONResponse(upstream.error_body(route.api, "endpoint_auth_failed",
                                                     "The company's model endpoint refused the server's key."),
                                 status_code=502)
-        if api_key:
-            body = body.replace(api_key.encode("utf-8"), b"[redacted]")
-        status = response.status_code if response.status_code < 500 else 502
-        return Response(body, status_code=status, media_type=response.headers.get("content-type", "application/json"))
+        if status >= 500:
+            return JSONResponse(upstream.error_body(route.api, "endpoint_error",
+                                                    "The company's model endpoint failed."), status_code=502)
+        kind, message = upstream.endpoint_error(body)
+        if message and api_key:
+            message = message.replace(api_key, "[redacted]")
+        return JSONResponse(upstream.error_body(route.api, kind or "endpoint_rejected",
+                                                message or "The company's model endpoint refused the request."),
+                            status_code=status)
 
-    async def _relay(self, principal: RequestPrincipal, route: store.Route, client: httpx.AsyncClient,
-                     response: httpx.Response, started: float) -> AsyncIterator[bytes]:
-        meter = upstream.StreamUsage(route.api)
-        outcome = "ok"
+
+class _Relay:
+    """A stream passed through line by line, its usage read on the way; ``finish`` runs once, however it ends."""
+
+    def __init__(self, service: GatewayService, principal: RequestPrincipal, route: store.Route,
+                 client: httpx.AsyncClient, response: httpx.Response, started: float, slotted: bool) -> None:
+        self.service, self.principal, self.route = service, principal, route
+        self.client, self.response, self.started, self.slotted = client, response, started, slotted
+        self.meter = upstream.StreamUsage(route.api)
+        self.outcome = "ok"
+        self.finished = False
+
+    async def lines(self) -> AsyncIterator[bytes]:
         try:
-            async for line in response.aiter_lines():
-                meter.feed(line)
+            async for line in self.response.aiter_lines():
+                self.meter.feed(line)
                 yield (line + "\n").encode("utf-8")
         except httpx.HTTPError as error:
-            outcome = "error"
-            refusal = _upstream_refusal(route, error)
-            yield upstream.stream_error_event(route.api, refusal.code, refusal.message)
+            self.outcome = "error"
+            refusal = _upstream_refusal(self.route, error)
+            yield upstream.stream_error_event(self.route.api, refusal.code, refusal.message)
         finally:
-            # A stream the caller dropped before its end is recorded as an error, with what it used so far.
-            if outcome == "ok" and not response.is_stream_consumed:
-                outcome = "error"
-            await _close(client, response)
-            await self.record(principal, route, meter.usage, started, outcome)
+            await self.finish()
+
+    async def finish(self) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        # A stream the caller dropped before its end is recorded as an error, with what it used so far.
+        if self.outcome == "ok" and not self.response.is_stream_consumed:
+            self.outcome = "error"
+        try:
+            await _close(self.client, self.response)
+            await self.service.record(self.principal, self.route, self.meter.usage, self.started, self.outcome)
+        finally:
+            self.service._done(self.principal, self.slotted)
+
+
+class _RelayResponse(StreamingResponse):
+    """Finishes its relay even when the caller goes before the stream starts (its lines never run then)."""
+
+    def __init__(self, relay: _Relay, **options: Any) -> None:
+        super().__init__(relay.lines(), **options)
+        self.relay = relay
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self.relay.finish()
 
 
 async def _close(client: httpx.AsyncClient, response: httpx.Response | None = None) -> None:
@@ -281,7 +372,8 @@ def _upstream_refusal(route: store.Route, error: Exception) -> _Refusal:
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 ModelName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Group = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
-ApiKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8192)]
+# Printable ASCII: it goes into an HTTP header.
+ApiKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8192, pattern=r"^[!-~]+$")]
 Price = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=6)]
 
 
@@ -419,7 +511,7 @@ def gateway_router(service: GatewayService) -> APIRouter:
     @router.post("/api/admin/endpoints")
     def create_endpoint(body: EndpointIn, conn: psycopg.Connection = admin) -> JSONResponse:
         endpoint_id = str(uuid.uuid4())
-        sealed = None if body.api_key is None else service.seal(endpoint_id, body.api_key)
+        sealed = None if body.api_key is None else service.seal(endpoint_id, body.base_url, body.api_key)
         try:
             with conn.transaction():
                 created = store.create_endpoint(conn, endpoint_id=endpoint_id, name=body.name, api=body.api,
@@ -432,13 +524,20 @@ def gateway_router(service: GatewayService) -> APIRouter:
     @router.patch("/api/admin/endpoints/{endpoint_id}")
     def change_endpoint(endpoint_id: str, body: EndpointChange, conn: psycopg.Connection = admin) -> JSONResponse:
         endpoint_id = _uuid(endpoint_id) or ""
+        current = store.endpoint_target(conn, endpoint_id) if endpoint_id else None
+        if current is None:
+            return _error(404, "endpoint_not_found")
         changes = _set_fields(body, nullable=frozenset({"api_key"}))
+        base_url = changes.get("base_url", current[1])
         if "api_key" in changes:
             key = changes.pop("api_key")
-            changes["key_sealed"] = None if key is None else service.seal(endpoint_id, key)
+            changes["key_sealed"] = None if key is None else service.seal(endpoint_id, base_url, key)
+        elif endpoint_origin(base_url) != endpoint_origin(current[1]):
+            # The key goes only to the host it was entered for: another host needs it entered again.
+            changes["key_sealed"] = None
         try:
             with conn.transaction():
-                changed = store.update_endpoint(conn, endpoint_id, changes) if endpoint_id else None
+                changed = store.update_endpoint(conn, endpoint_id, changes)
         except psycopg.errors.UniqueViolation:
             return _error(409, "name_taken")
         return JSONResponse(changed) if changed else _error(404, "endpoint_not_found")
@@ -461,10 +560,10 @@ def gateway_router(service: GatewayService) -> APIRouter:
 
     @router.post("/api/admin/models")
     def create_model(body: ModelIn, conn: psycopg.Connection = admin) -> JSONResponse:
-        api = store.endpoint_api(conn, str(body.endpoint_id))
-        if api is None:
+        target = store.endpoint_target(conn, str(body.endpoint_id))
+        if target is None:
             return _error(404, "endpoint_not_found")
-        if api == upstream.ANTHROPIC and body.kind == "embeddings":
+        if target[0] == upstream.ANTHROPIC and body.kind == "embeddings":
             return _error(400, "anthropic_has_no_embeddings")
         fields = body.model_dump()
         fields["endpoint_id"] = str(body.endpoint_id)

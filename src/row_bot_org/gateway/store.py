@@ -130,9 +130,10 @@ def update_endpoint(conn: psycopg.Connection, endpoint_id: str, changes: dict[st
     return None if row is None else _endpoint(row)
 
 
-def endpoint_api(conn: psycopg.Connection, endpoint_id: str) -> str | None:
-    row = conn.execute("SELECT api FROM row_bot_org.model_endpoints WHERE id = %s", (endpoint_id,)).fetchone()
-    return None if row is None else row[0]
+def endpoint_target(conn: psycopg.Connection, endpoint_id: str) -> tuple[str, str] | None:
+    """An endpoint's api and base URL, or None."""
+    row = conn.execute("SELECT api, base_url FROM row_bot_org.model_endpoints WHERE id = %s", (endpoint_id,)).fetchone()
+    return None if row is None else (row[0], row[1])
 
 
 def delete_endpoint(conn: psycopg.Connection, endpoint_id: str) -> bool:
@@ -225,6 +226,6 @@ def usage_report(conn: psycopg.Connection, *, by: str, start: datetime, end: dat
 
 
 __all__ = ["BudgetState", "Route", "available_models", "budget_state", "create_endpoint", "create_model",
-           "delete_budget", "delete_endpoint", "delete_model", "endpoint_api", "list_budgets", "list_endpoints",
+           "delete_budget", "delete_endpoint", "delete_model", "endpoint_target", "list_budgets", "list_endpoints",
            "list_models", "model_kind", "put_budget", "record_usage", "route", "update_endpoint", "update_model",
            "usage_report"]

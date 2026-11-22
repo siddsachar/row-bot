@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import secrets
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
@@ -48,6 +49,8 @@ HELLO = [{"role": "user", "content": "Hello"}]
 # Per million tokens: 1200 in and 300 out cost 0.0036 + 0.0045.
 PRICES = {"input_price": 3, "output_price": 15}
 CALL_COST = 0.0081
+# The beta flag Row-Bot's own Anthropic transport sends.
+ANTHROPIC_BETA = "thinking-binding-controls-2026-08-01"
 
 
 def new_gateway_key() -> str:
@@ -63,12 +66,19 @@ def idp() -> Iterator[FakeIdp]:
         yield running
 
 
+# The provider's groups as the server knows them; "IT Admins" is mapped to the admin group explicitly.
+IT_ADMINS = "IT Admins"
+GROUP_MAP = {IT_ADMINS: ADMIN_GROUP, **{name: name for name in ("Sales", "Engineering", "Finance", "Execs")}}
+
+
 @contextmanager
-def org_server(database, idp: FakeIdp, gateway_key: str = GATEWAY_KEY) -> Iterator[TestClient]:
+def org_server(database, idp: FakeIdp, gateway_key: str = GATEWAY_KEY, group_map: dict | None = None,
+               **env: str) -> Iterator[TestClient]:
     settings = load_settings({
-        "ROW_BOT_ORG_IDP": json.dumps(idp.config()), "ROW_BOT_ORG_IDP_CLIENT_SECRET": CLIENT_SECRET,
+        "ROW_BOT_ORG_IDP": json.dumps(idp.config(group_map=GROUP_MAP if group_map is None else group_map)),
+        "ROW_BOT_ORG_IDP_CLIENT_SECRET": CLIENT_SECRET,
         "ROW_BOT_ORG_PUBLIC_URL": PUBLIC_URL, "ROW_BOT_ORG_HMAC_PEPPER": PEPPER,
-        "ROW_BOT_ORG_GATEWAY_KEY": gateway_key,
+        "ROW_BOT_ORG_GATEWAY_KEY": gateway_key, **env,
     })
     pool = create_pool(database.runtime_url, max_size=4)
     with TestClient(create_app(settings, pool), base_url=PUBLIC_URL) as client:
@@ -86,7 +96,7 @@ def person(server: TestClient, idp: FakeIdp, subject: str, groups: list[str] | N
 
 
 def admin_of(server: TestClient, idp: FakeIdp) -> TestClient:
-    return person(server, idp, "it-admin", [ADMIN_GROUP])
+    return person(server, idp, "it-admin", [IT_ADMINS])
 
 
 def add_endpoint(admin: TestClient, base_url: str, api: str = "openai", **fields: Any) -> str:
@@ -186,7 +196,7 @@ def test_an_anthropic_message_goes_through_in_its_own_wire_format_and_is_metered
                   upstream_model="claude-sonnet-4-5", **PRICES)
         ada = person(server, idp, "ada")
 
-        response = ada.post(MESSAGES, headers={"anthropic-beta": "context-1m-2025-08-07"},
+        response = ada.post(MESSAGES, headers={"anthropic-beta": ANTHROPIC_BETA},
                             json={"model": "company-claude", "max_tokens": 100, "messages": HELLO, "stream": stream})
 
         assert response.status_code == 200, response.text
@@ -199,7 +209,7 @@ def test_an_anthropic_message_goes_through_in_its_own_wire_format_and_is_metered
         assert seen.path == "/v1/messages" and seen.body["model"] == "claude-sonnet-4-5"
         assert seen.headers["x-api-key"] == KEY and "authorization" not in seen.headers
         assert seen.headers["anthropic-version"] == "2023-06-01"
-        assert seen.headers["anthropic-beta"] == "context-1m-2025-08-07"
+        assert seen.headers["anthropic-beta"] == ANTHROPIC_BETA
         assert usage(admin) == [{"model": "company-claude", "calls": 1, "input_tokens": INPUT_TOKENS,
                                  "output_tokens": OUTPUT_TOKENS, "cost": CALL_COST}]
 
@@ -402,6 +412,185 @@ def test_the_company_default_moves_and_an_endpoint_with_models_stays(org_databas
             assert admin.delete(f"/api/admin/models/{model['id']}").status_code == 204
         assert admin.delete(f"/api/admin/endpoints/{endpoint_id}").status_code == 204
         assert second["endpoint_id"] == endpoint_id
+
+
+# -- what the gateway forwards ----------------------------------------------------------------------
+
+def test_a_request_may_not_pick_other_models_or_send_a_stream_flag_that_isnt_a_boolean(org_database, idp) -> None:
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        endpoint_id = add_endpoint(admin, endpoint.base_url)
+        add_model(admin, endpoint_id, "cheap-chat", upstream_model="openai/gpt-4o-mini")
+        add_model(admin, endpoint_id, "exec-chat", upstream_model="anthropic/claude-opus-4", allowed_groups=["Execs"])
+        ada = person(server, idp, "ada", ["Sales"])
+        call = {"model": "cheap-chat", "messages": HELLO}
+
+        # The fields aggregators (OpenRouter, LiteLLM) pick other models with.
+        for field, value in (("models", ["anthropic/claude-opus-4"]), ("route", "fallback"),
+                             ("fallbacks", ["anthropic/claude-opus-4"]),
+                             ("context_window_fallbacks", [{"cheap": ["anthropic/claude-opus-4"]}]),
+                             ("provider", {"order": ["anthropic"]})):
+            refused = ada.post(CHAT, json={**call, field: value})
+            assert refused.status_code == 400, field
+            assert refused.json()["error"]["code"] == "invalid_request" and field in refused.json()["error"]["message"]
+        for stream in ("true", 1, None):
+            refused = ada.post(CHAT, json={**call, "stream": stream})
+            assert refused.json()["error"] == {"message": "stream must be true or false.", "type": "invalid_request",
+                                               "code": "invalid_request"}
+        assert endpoint.requests == []
+        assert usage(admin) == []
+
+
+def test_anthropic_server_tools_mcp_servers_and_other_betas_are_refused(org_database, idp) -> None:
+    with running_endpoint("anthropic") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        add_model(admin, add_endpoint(admin, endpoint.base_url, api="anthropic"), "company-claude")
+        ada = person(server, idp, "ada")
+        call = {"model": "company-claude", "max_tokens": 10, "messages": HELLO}
+        custom = {"name": "lookup", "description": "Look a word up.", "input_schema": {"type": "object"}}
+
+        for extra, headers in (({"tools": [custom, {"type": "web_search_20250305", "name": "web_search"}]}, {}),
+                               ({"tools": [{"type": "bash_20250124", "name": "bash"}]}, {}),
+                               ({"tools": "web_search"}, {}),
+                               ({"mcp_servers": [{"type": "url", "url": "https://mcp.example.test", "name": "x"}]}, {}),
+                               ({}, {"anthropic-beta": "mcp-client-2025-04-04"}),
+                               ({}, {"anthropic-beta": f"{ANTHROPIC_BETA},web-search-2025-03-05"})):
+            refused = ada.post(MESSAGES, headers=headers, json={**call, **extra})
+            assert refused.status_code == 400, (extra, headers)
+            assert refused.json()["type"] == "error" and refused.json()["error"]["type"] == "invalid_request"
+        assert endpoint.requests == []
+
+        # Custom tools and Row-Bot's own beta flag go through.
+        tools = [custom, {**custom, "name": "other", "type": "custom"}]
+        assert ada.post(MESSAGES, headers={"anthropic-beta": ANTHROPIC_BETA},
+                        json={**call, "tools": tools}).status_code == 200
+        assert endpoint.last().body["tools"] == tools
+
+
+def test_endpoint_errors_reach_the_caller_as_json_without_the_key_or_a_server_errors_body(org_database,
+                                                                                          idp) -> None:
+    with running_endpoint("anthropic") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        add_model(admin, add_endpoint(admin, endpoint.base_url, api="anthropic"), "company-claude")
+        ada = person(server, idp, "ada")
+        call = {"model": "company-claude", "max_tokens": 10, "messages": HELLO}
+
+        endpoint.error = 400
+        rejected = ada.post(MESSAGES, json=call)
+        assert (rejected.status_code, rejected.headers["content-type"]) == (400, "application/json")
+        assert rejected.json() == {"type": "error", "error": {"type": "invalid_request_error",
+                                                              "message": "Something failed for key [redacted]"}}
+        endpoint.error = 500
+        failed = ada.post(MESSAGES, json={**call, "stream": True})
+        assert (failed.status_code, failed.headers["content-type"]) == (502, "application/json")
+        assert failed.json() == {"type": "error", "error": {"type": "endpoint_error",
+                                                            "message": "The company's model endpoint failed."}}
+
+
+def test_odd_answers_are_logged_by_endpoint_name_without_their_bodies(org_database, idp, log_text) -> None:
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        add_model(admin, add_endpoint(admin, endpoint.base_url, name="gpu-box"), "company-chat",
+                  upstream_model="llama-3.3-70b", **PRICES)
+        ada = person(server, idp, "ada")
+
+        endpoint.answer_model = "some-other-model"
+        assert ada.post(CHAT, json={"model": "company-chat", "messages": HELLO}).status_code == 200
+        endpoint.answer_model, endpoint.report_usage = None, False
+        assert ada.post(CHAT, json={"model": "company-chat", "messages": HELLO}).status_code == 200
+
+    logs = log_text()
+    assert "endpoint gpu-box answered for model company-chat with another model" in logs
+    assert "endpoint gpu-box reported no usage for priced model company-chat" in logs
+    for body_text in ("some-other-model", "".join(STREAM_WORDS), "Hello"):
+        assert body_text not in logs
+
+
+def test_a_person_under_a_hard_budget_has_only_a_few_calls_at_once(org_database, idp) -> None:
+    with running_endpoint("openai") as endpoint, \
+            org_server(org_database, idp, ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS="1") as server:
+        admin = admin_of(server, idp)
+        add_model(admin, add_endpoint(admin, endpoint.base_url), "company-chat", **PRICES)
+        ada = person(server, idp, "ada")
+        admin.put("/api/admin/budgets", json={"scope": "person", "subject": ada.get("/api/me").json()["id"],
+                                              "hard_limit": "10"})
+        call = {"model": "company-chat", "messages": HELLO}
+
+        endpoint.holding = True
+        held: list = []
+        running = threading.Thread(target=lambda: held.append(ada.post(CHAT, json=call)))
+        running.start()
+        assert endpoint.arrived.acquire(timeout=10)
+        busy = ada.post(CHAT, json=call)
+        assert busy.status_code == 429 and busy.json()["error"]["code"] == "too_many_calls"
+
+        endpoint.holding = False
+        endpoint.hang.set()
+        running.join(10)
+        assert held[0].status_code == 502
+        # Its slot came back with its end.
+        assert ada.post(CHAT, json=call).status_code == 200
+        assert len(endpoint.requests) == 2
+
+
+# -- the endpoint's address and the admins ----------------------------------------------------------
+
+def test_a_new_host_for_an_endpoint_never_gets_its_old_key(org_database, idp) -> None:
+    with running_endpoint("openai") as real, running_endpoint("openai") as elsewhere, \
+            org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        endpoint_id = add_endpoint(admin, real.base_url)
+        add_model(admin, endpoint_id, "company-chat")
+        call = {"model": "company-chat", "messages": HELLO}
+
+        repointed = admin.patch(f"/api/admin/endpoints/{endpoint_id}", json={"base_url": elsewhere.base_url})
+        assert (repointed.status_code, repointed.json()["has_key"]) == (200, False)
+        refused = admin.post(CHAT, json=call)
+        assert (refused.status_code, refused.json()["error"]["code"]) == (502, "endpoint_auth_failed")
+        assert "authorization" not in elsewhere.last().headers
+
+        # The key entered again with the new address goes there.
+        rekeyed = admin.patch(f"/api/admin/endpoints/{endpoint_id}", json={"base_url": elsewhere.base_url,
+                                                                            "api_key": KEY})
+        assert rekeyed.json()["has_key"] is True
+        assert admin.post(CHAT, json=call).status_code == 200
+        assert elsewhere.last().headers["authorization"] == f"Bearer {KEY}"
+
+        # An address changed behind the server's back: the sealed key doesn't open for the other host.
+        superuser_sql(org_database, "UPDATE row_bot_org.model_endpoints SET base_url = %s", real.base_url)
+        moved = admin.post(CHAT, json=call)
+        assert (moved.status_code, moved.json()["error"]["code"]) == (503, "endpoint_key_unavailable")
+        assert real.requests == []
+
+
+@pytest.mark.parametrize("group_map", [{}, {"Sales": "Sales"}], ids=["no-map", "map-without-admins"])
+def test_a_provider_group_named_like_the_admin_group_never_makes_an_admin(org_database, idp,
+                                                                         group_map: dict) -> None:
+    with org_server(org_database, idp, group_map=group_map) as server:
+        mallory = person(server, idp, "mallory", [ADMIN_GROUP, "Sales"])
+        assert mallory.get("/api/admin/endpoints").status_code == 403
+        assert mallory.get("/api/admin/usage").status_code == 403
+
+
+def test_admin_refusals_never_echo_a_key(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        answers = [admin.post("/api/admin/endpoints", json=body) for body in (
+            {"api_key": KEY},
+            {"name": "x", "api": "nope", "base_url": "http://h.example.test", "api_key": KEY},
+            {"name": "x", "api": "openai", "base_url": KEY, "api_key": KEY},
+            {"name": "x", "api": "openai", "base_url": "http://h.example.test", "api_key": KEY, KEY: 1},
+            {"name": "x", "api": "openai", "base_url": "http://h.example.test", "api_key": [KEY]},
+            # Keys go into a header: printable ASCII only.
+            {"name": "x", "api": "openai", "base_url": "http://h.example.test", "api_key": KEY + "-café"},
+        )]
+        answers.append(admin.post("/api/admin/endpoints", content=b'{"api_key": "' + KEY.encode() + b'", ',
+                                  headers={"content-type": "application/json"}))
+
+        assert [answer.status_code for answer in answers] == [422] * 7
+        for answer in answers:
+            assert KEY not in answer.text and "café" not in answer.text
+        assert superuser_sql(org_database, "SELECT count(*) FROM row_bot_org.model_endpoints") == [(0,)]
 
 
 # -- row-level security -----------------------------------------------------------------------------

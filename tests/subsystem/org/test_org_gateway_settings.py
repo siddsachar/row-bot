@@ -49,12 +49,27 @@ def test_the_gateway_key_comes_from_the_secrets_folder_and_leaves_the_environmen
     assert environ == {"ROW_BOT_ORG_PORT": "8100"}
 
 
-def test_a_sealed_key_opens_only_with_its_server_key_on_its_endpoint() -> None:
-    sealed = seal(RAW, "endpoint-1", "sk-endpoint-key")
+def test_a_sealed_key_opens_only_with_its_server_key_on_its_endpoint_at_its_origin() -> None:
+    base = "https://gpu.example.test/v1"
+    sealed = seal(RAW, "endpoint-1", base, "sk-endpoint-key")
 
     assert b"sk-endpoint-key" not in sealed
-    assert unseal(RAW, "endpoint-1", sealed) == "sk-endpoint-key"
-    assert seal(RAW, "endpoint-1", "sk-endpoint-key") != sealed  # a fresh nonce each time
-    for key, endpoint in ((secrets.token_bytes(32), "endpoint-1"), (RAW, "endpoint-2")):
+    assert seal(RAW, "endpoint-1", base, "sk-endpoint-key") != sealed  # a fresh nonce each time
+    # Another path on the same origin (the default port written or not) still opens it.
+    for same in (base, "https://GPU.example.test:443/v2", "https://gpu.example.test"):
+        assert unseal(RAW, "endpoint-1", same, sealed) == "sk-endpoint-key"
+    for key, endpoint, url in ((secrets.token_bytes(32), "endpoint-1", base), (RAW, "endpoint-2", base),
+                               (RAW, "endpoint-1", "https://elsewhere.example.test/v1"),
+                               (RAW, "endpoint-1", "http://gpu.example.test/v1"),
+                               (RAW, "endpoint-1", "https://gpu.example.test:8443/v1")):
         with pytest.raises(KeyUnavailable):
-            unseal(key, endpoint, sealed)
+            unseal(key, endpoint, url, sealed)
+
+
+def test_the_calls_at_once_under_a_hard_budget_default_to_four_and_are_checked() -> None:
+    assert load_settings({}).gateway_budgeted_calls == 4
+    assert load_settings({"ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS": "2"}).gateway_budgeted_calls == 2
+    for value in ("0", "65", "many"):
+        with pytest.raises(SettingsError) as raised:
+            load_settings({"ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS": value})
+        assert raised.value.problems == ["ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS must be a number of calls from 1 to 64"]

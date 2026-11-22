@@ -53,10 +53,16 @@ class _SecurityHeaders:
 
 
 async def _invalid_request(_request: Request, error: Exception) -> JSONResponse:
-    """FastAPI's 422 without the ``input`` and ``ctx`` it echoes: a refused body may carry a key."""
+    """FastAPI's 422 without what it echoes of the body (``input``, ``ctx``, an unexpected field's name): a
+    refused body may carry a key."""
     errors = error.errors() if isinstance(error, RequestValidationError) else []
-    return JSONResponse({"detail": [{"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")}
-                                    for e in errors]}, status_code=422)
+    detail = []
+    for e in errors:
+        loc = list(e.get("loc", ()))
+        if e.get("type") == "extra_forbidden" and loc:
+            loc[-1] = "(unexpected field)"
+        detail.append({"loc": loc, "msg": e.get("msg", ""), "type": e.get("type", "")})
+    return JSONResponse({"detail": detail}, status_code=422)
 
 
 def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> FastAPI:

@@ -40,6 +40,51 @@ class Usage:
     output_tokens: int = 0
 
 
+# Top-level fields with which aggregators (OpenRouter, LiteLLM) pick other models than the one named.
+ROUTING_FIELDS = ("models", "route", "fallbacks", "context_window_fallbacks", "provider")
+# The Anthropic beta flags Row-Bot's own Anthropic transport sends (row_bot.providers.transports).
+ANTHROPIC_BETAS = frozenset({"thinking-binding-controls-2026-08-01"})
+_ERROR_TYPE = re.compile(r"^[a-z0-9_]{1,64}$")
+MAX_ERROR_MESSAGE = 2000
+
+
+def request_problem(api: str, payload: dict[str, Any], passed: dict[str, str]) -> str | None:
+    """Why the gateway won't forward this request, or None. The gateway, not the endpoint, picks the model
+    and what runs: no model routing, no server-side tools, no MCP servers, no unknown beta features."""
+    if "stream" in payload and not isinstance(payload["stream"], bool):
+        return "stream must be true or false."
+    if api == OPENAI:
+        chosen = [name for name in ROUTING_FIELDS if name in payload]
+        if chosen:
+            return f"The gateway picks the model: {', '.join(chosen)} isn't allowed."
+        return None
+    if "mcp_servers" in payload:
+        return "MCP servers aren't allowed through the gateway."
+    tools = payload.get("tools")
+    if tools is not None:
+        if not isinstance(tools, list) or not all(
+                isinstance(tool, dict) and tool.get("type", "custom") == "custom" for tool in tools):
+            return "Only custom tools are allowed through the gateway: no server tools."
+    betas = passed.get("anthropic-beta")
+    if betas is not None and not all(flag.strip() in ANTHROPIC_BETAS for flag in betas.split(",")):
+        return "This anthropic-beta feature isn't allowed through the gateway."
+    return None
+
+
+def endpoint_error(body: bytes) -> tuple[str | None, str | None]:
+    """The type and message of an endpoint's error body (either wire format), or None for each."""
+    try:
+        document = json.loads(body)
+    except ValueError:
+        return None, None
+    error = document.get("error") if isinstance(document, dict) else None
+    if not isinstance(error, dict):
+        return None, None
+    kind, message = error.get("type"), error.get("message")
+    return (kind if isinstance(kind, str) and _ERROR_TYPE.fullmatch(kind) else None,
+            message[:MAX_ERROR_MESSAGE] if isinstance(message, str) else None)
+
+
 def target_url(api: str, base_url: str, kind: str) -> str:
     return base_url + PATHS[(api, kind)]
 
@@ -127,5 +172,6 @@ def stream_error_event(api: str, code: str, message: str) -> bytes:
     return (f"event: error\ndata: {data}\n\n" if api == ANTHROPIC else f"data: {data}\n\n").encode("utf-8")
 
 
-__all__ = ["ANTHROPIC", "ANTHROPIC_PASS_THROUGH", "OPENAI", "PATHS", "StreamUsage", "Usage", "error_body",
-           "request_headers", "stream_error_event", "target_url", "usage_of", "valid_header_value"]
+__all__ = ["ANTHROPIC", "ANTHROPIC_BETAS", "ANTHROPIC_PASS_THROUGH", "OPENAI", "PATHS", "ROUTING_FIELDS", "StreamUsage",
+           "Usage", "endpoint_error", "error_body", "request_headers", "request_problem", "stream_error_event",
+           "target_url", "usage_of", "valid_header_value"]

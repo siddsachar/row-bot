@@ -10,8 +10,9 @@
 It checks the key (``Authorization: Bearer`` or ``x-api-key``) against ``KEY``. A wrong key gets a 401
 that quotes the key it was sent, as some providers do, so tests can show it never reaches the caller.
 Every request is kept in ``requests`` (path, headers, JSON body). ``error`` makes the next answers an
-error with that status (the body quotes the key it was sent); ``hang`` holds answers until the test
-ends (for timeouts). The usage it reports is ``INPUT_TOKENS`` / ``OUTPUT_TOKENS``.
+error with that status (the body quotes the key it was sent); ``holding`` holds answers until ``hang`` is
+set or the test ends (for timeouts); ``answer_model`` names another model in whole answers, and
+``report_usage = False`` leaves their usage out. The usage it reports is ``INPUT_TOKENS`` / ``OUTPUT_TOKENS``.
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ class FakeEndpoint:
     error: int | None = None
     hang: threading.Event = field(default_factory=threading.Event)
     holding: bool = False
+    # Released once per request that arrives.
+    arrived: threading.Semaphore = field(default_factory=lambda: threading.Semaphore(0))
+    # A whole answer names this model instead of the one asked for.
+    answer_model: str | None = None
+    # Whole answers leave out their usage.
+    report_usage: bool = True
 
     def last(self) -> Seen:
         return self.requests[-1]
@@ -109,8 +116,10 @@ def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
             raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
             body = json.loads(raw) if raw else None
             endpoint.requests.append(Seen(self.path, {k.lower(): v for k, v in self.headers.items()}, body))
+            endpoint.arrived.release()
             if endpoint.holding:
                 endpoint.hang.wait(30)
+                self.close_connection = True  # no answer: the connection just ends
                 return
             sent = (self.headers.get("x-api-key") if endpoint.api == "anthropic"
                     else (self.headers.get("Authorization") or "").removeprefix("Bearer "))
@@ -122,15 +131,19 @@ def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
                                                       "type": "invalid_request_error"}})
                 return
             route = (endpoint.api, self.path)
+            named = endpoint.answer_model or (body or {}).get("model")
             if route == ("openai", "/v1/chat/completions"):
                 if body.get("stream"):
                     _sse(self, _openai_stream(body))
                     return
-                self._json(200, {"id": "chatcmpl-fake", "object": "chat.completion", "model": body["model"],
-                                 "choices": [{"index": 0, "finish_reason": "stop",
-                                              "message": {"role": "assistant", "content": "".join(STREAM_WORDS)}}],
-                                 "usage": {"prompt_tokens": INPUT_TOKENS, "completion_tokens": OUTPUT_TOKENS,
-                                           "total_tokens": INPUT_TOKENS + OUTPUT_TOKENS}})
+                answer = {"id": "chatcmpl-fake", "object": "chat.completion", "model": named,
+                          "choices": [{"index": 0, "finish_reason": "stop",
+                                       "message": {"role": "assistant", "content": "".join(STREAM_WORDS)}}],
+                          "usage": {"prompt_tokens": INPUT_TOKENS, "completion_tokens": OUTPUT_TOKENS,
+                                    "total_tokens": INPUT_TOKENS + OUTPUT_TOKENS}}
+                if not endpoint.report_usage:
+                    del answer["usage"]
+                self._json(200, answer)
             elif route == ("openai", "/v1/embeddings"):
                 inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
                 self._json(200, {"object": "list", "model": body["model"],
@@ -141,7 +154,7 @@ def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
                 if body.get("stream"):
                     _sse(self, _anthropic_stream(body))
                     return
-                self._json(200, {"id": "msg_fake", "type": "message", "role": "assistant", "model": body["model"],
+                self._json(200, {"id": "msg_fake", "type": "message", "role": "assistant", "model": named,
                                  "content": [{"type": "text", "text": "".join(STREAM_WORDS)}],
                                  "stop_reason": "end_turn",
                                  "usage": {"input_tokens": INPUT_TOKENS, "output_tokens": OUTPUT_TOKENS}})
