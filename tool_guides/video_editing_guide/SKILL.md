@@ -2,7 +2,7 @@
 name: video_editing_guide
 display_name: Video Editing Guide
 icon: "🎬"
-description: Guidance for making videos with video and editing them with edit_video.
+description: Making videos (video first, edit_video for edits); present the finished video with present; frames and review sheets are working files.
 tools:
   - video_editing
 tags: []
@@ -11,11 +11,15 @@ tags: []
   clips, title cards, a voice, music) starts with the video tool. A scene
   without a source is a title card, and it voices each line and lays the
   music itself.
-- When a look needs more than the video tool offers (a studio launch film,
-  motion and compositing of your own), writing your own compositor is
-  fine: a script in the workspace (Pillow, ffmpeg). Check still frames of
-  each scene first, render the whole film once they're right, and hold it
-  to the same checks.
+- Render the final through the video tool whenever it can do the job. Only
+  when a look needs more than it offers, a script of your own (ffmpeg,
+  Pillow) is the fallback: check still frames of each scene first, render
+  the whole film once they're right, hold it to the same checks, and
+  present the result.
+- When a video is finished, present it with present in the reply that
+  delivers it. Frames, contact sheets, review sheets and recordings are
+  working material for you, not something to present. Once a file is
+  presented, don't paste or send it again.
 - A demo of a site or app in Row-Bot's browser: write the story first, 3-8
   steps with one spoken line each. Start browser_record, then before each
   step mark a beat with its note (a short title) and its line, do the step,
@@ -60,8 +64,8 @@ tags: []
   done: a quiet gap wants a line or a shorter part, and a picture held 10 s
   (20 s under the voice) wants that part cut shorter, sped up or zoomed.
   Fix it and make it again.
-- The result is an MP4 in this chat with a player; do not paste it again.
-  A long edit carries on in the background with its own progress and Stop:
+- The result is an MP4 in this chat: present it when it's the final. A
+  long edit carries on in the background with its own progress and Stop:
   say so, and call edit_video with action status and its edit_id to wait.
 - The first edit may ask to download ffmpeg; if the person says no or the
   chat is on Block, say what happened and stop.

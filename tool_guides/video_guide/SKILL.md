@@ -30,8 +30,8 @@ tags: []
   settings from the prompt. Let the provider defaults apply.
 - xAI supports 1–15 second durations. Aspect ratios: 1:1, 16:9, 9:16, 4:3,
   3:4, 3:2, 2:3. Resolutions: 480p or 720p.
-- Generated videos are saved as MP4 files in the thread media folder and
-  displayed inline in chat.
+- A generated video is saved as an MP4 in this chat and shows here by
+  itself: don't present or paste it again.
 - Do NOT promise video extension, reference-image workflows, or fal-backed
   models — these are not available in this version. Editing a video the
   person already has (trim, join, speed, captions) is edit_video.

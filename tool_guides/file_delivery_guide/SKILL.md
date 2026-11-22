@@ -2,11 +2,14 @@
 name: file_delivery_guide
 display_name: Send Files Guide
 icon: "📤"
-description: Guidance for sending files to the person's devices or a chat app with send_file.
+description: Show a finished file in this chat with present, once; send_file sends files to the person's devices or a chat app.
 tools:
   - file_delivery
 tags: []
 ---
+- A finished video, image or file is shown in this chat with present. Don't
+  present working material (frames, contact sheets, recordings), and don't
+  paste a file again once it's presented.
 - send_file sends files the person already has: files in this chat by
   name, recordings (rec-…), video edits (edit-…) or workspace paths. Make
   or export the file first, then send it, in the same reply.
@@ -19,4 +22,4 @@ tags: []
 - If a file is too big for an app, or the app can't take files, say so in
   one line and offer to send it to their devices instead (the chat's card
   also has that button).
-- At most 10 files in one reply.
+- At most 50 files in one reply.

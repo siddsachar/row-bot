@@ -3,9 +3,9 @@
 The agent calls ``generate_video`` to create videos from text prompts, or
 ``animate_image`` to turn a still image into a short video clip.
 
-Generated videos are saved to the per-thread media directory and rendered
-inline in the desktop chat via an HTML5 video player.  Channel adapters
-attach the saved MP4 as a file.
+Generated videos are saved as this chat's media and shown in the chat
+with the client's video player.  Channel adapters attach the saved MP4 as
+a file.
 
 The user picks a provider+model combination in Settings › Models (e.g.
 ``google/veo-3.1-generate-preview`` or ``xai/grok-imagine-video``). The

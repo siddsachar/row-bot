@@ -32,5 +32,5 @@ tags: []
 - To compare or review several pictures, pass them together in files (up to
   8: chat files by name, workspace paths, 'browser', rec-…, edit-…); a
   recording or video gives frames. For more, or to save tokens, set
-  contact_sheet: they are tiled into one numbered picture the person also
-  sees, so refer to them by number.
+  contact_sheet: they are tiled into one numbered picture, so refer to them
+  by number. A contact sheet is working material for you: don't present it.

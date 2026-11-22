@@ -6323,6 +6323,64 @@ RARELY_USED_TOOLS = frozenset({
     "link_memories", "explore_connections", "list_memories", "task_run_now", "task_delete", "export_to_pdf",
     "list_conversations",
 })
+# M7: a chat that makes media keeps its media tools bound for the rest of it. Deferred, one video chat
+# reached them through 552 tool_invoke calls, and the delivery step was the one forgotten.
+MEDIA_TOOLS = frozenset({
+    "generate_video", "animate_image", "generate_image", "edit_image", "edit_video", "video", "speak",
+    "make_music", "browser_record", "computer_record", "send_file", "present",
+})
+STICKY_MEDIA_GROUPS = frozenset({"video_editing", "sound", "file_delivery", "media"})
+STICKY_MEDIA_TOOLS = frozenset({"browser_record", "computer_record", "present"})
+
+
+@dataclass(frozen=True)
+class StickyMedia:
+    """The tool groups and tools a chat keeps bound because it makes media (``sticky_media_tools``)."""
+
+    groups: frozenset[str] = frozenset()
+    tools: frozenset[str] = frozenset()
+
+    def binds(self, parent: str, name: str) -> bool:
+        return parent in self.groups or name in self.tools
+
+
+def sticky_media_tools(messages: Any, *, small: bool) -> StickyMedia:
+    """What a chat binds, beyond its window's own set, once it makes media (M7).
+
+    *messages* are the conversation's saved messages; a media tool (``MEDIA_TOOLS``) called in them,
+    by name or through ``tool_invoke``, makes the chat a media chat. Then a large window binds the
+    video-editing, sound, file-delivery and media groups and the recorders (each only when its group
+    is enabled). A *small* one (the middle tier and the small profile:
+    64K or less, or a local model up to 128K) binds only the media tools the chat has called, and
+    ``present``. A turn's @mention or media scope still refuses a call it leaves out. Learning's
+    training shape calls this too, so the tools it rebuilds are the ones served.
+    """
+    used: set[str] = set()
+    for message in messages or ():
+        calls = message.get("tool_calls") if isinstance(message, Mapping) else getattr(message, "tool_calls", None)
+        for call in calls or ():
+            name = str(call.get("name") or "") if isinstance(call, Mapping) else ""
+            if name == "tool_invoke":
+                args = call.get("args")
+                name = str(args.get("name") or "") if isinstance(args, Mapping) else ""
+            if name in MEDIA_TOOLS:
+                used.add(name)
+    if not used:
+        return StickyMedia()
+    if small:
+        return StickyMedia(tools=frozenset(used | {"present"}))
+    return StickyMedia(groups=STICKY_MEDIA_GROUPS, tools=STICKY_MEDIA_TOOLS)
+
+
+def _sticky_media_for_this_chat(*, small: bool) -> StickyMedia:
+    thread_id = _current_thread_id_var.get("")
+    if not thread_id:
+        return StickyMedia()
+    from row_bot.threads import get_latest_checkpoint_messages
+
+    return sticky_media_tools(get_latest_checkpoint_messages(thread_id), small=small)
+
+
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}
 )
@@ -6789,6 +6847,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     # 32K or less: core tools bound, the rest through tool search (WP A5, F43).
     small_profile = _small_context_profile(effective_context)
     defer_to_core = small_profile and normalized_allowlist is None
+    # Once this chat makes media its media tools stay bound (M7): one tool-list change, then stable.
+    sticky_media = _sticky_media_for_this_chat(small=small_window) if defer_rarely_used else StickyMedia()
     has_code_folder = _has_code_folder()
     if not has_code_folder and "developer" in enabled_tool_names:
         # Developer tools work only on a code folder (F34); one bound mid-turn is used by the turn after,
@@ -6917,6 +6977,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"skills:{skill_fingerprint}",
         f"apps_off:{sorted(app_scope.get('off_servers') or [])}:{sorted(app_scope.get('off_tools') or [])}",
         f"small_window:{small_window}:{small_profile}:{defer_to_core}:{has_code_folder}",
+        f"sticky_media:{sorted(sticky_media.groups)}:{sorted(sticky_media.tools)}",
     })
     # Designer tool schemas are scoped to the captured project, not whichever
     # project a client currently shows.
@@ -7041,10 +7102,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             # Wrapped already (approvals, profile limits, repeat guard), so tool search keeps every boundary.
             on_demand_entries = [
                 entry for entry in eager_core_entries
-                if (small_window and entry["parent"] in ON_DEMAND_TOOL_GROUPS)
-                or (defer_to_core and entry["parent"] not in SMALL_PROFILE_CORE_GROUPS)
-                or (defer_rarely_used and (entry["parent"] in RARELY_USED_TOOL_GROUPS
-                                           or str(getattr(entry["tool"], "name", "")) in RARELY_USED_TOOLS))
+                if not sticky_media.binds(str(entry["parent"]), str(getattr(entry["tool"], "name", "")))
+                and ((small_window and entry["parent"] in ON_DEMAND_TOOL_GROUPS)
+                     or (defer_to_core and entry["parent"] not in SMALL_PROFILE_CORE_GROUPS)
+                     or (defer_rarely_used and (entry["parent"] in RARELY_USED_TOOL_GROUPS
+                                                or str(getattr(entry["tool"], "name", "")) in RARELY_USED_TOOLS)))
             ]
             if on_demand_entries:
                 eager_core_entries = [entry for entry in eager_core_entries if entry not in on_demand_entries]
