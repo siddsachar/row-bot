@@ -472,7 +472,8 @@ def _file(text: str, conversation_id: str, *, kinds: frozenset[str] | None, outs
             return Media(label=str(path), kind=_kind_of(path.name) or "video", path=path)
     if absolute or "/" in text or "\\" in text:
         if place is None:
-            raise SourceError(f"{text} isn't in the workspace: there's no workspace folder.")
+            raise SourceError(f"{text} isn't in the workspace: there's no workspace folder (the person can choose "
+                              "one in Settings).")
         return _workspace_media(place, text)
     files = _files(conversation_id)
     at = _AT_VERSION.fullmatch(text)

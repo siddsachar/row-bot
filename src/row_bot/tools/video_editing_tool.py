@@ -280,7 +280,7 @@ def _save(edit_id: str, path: str) -> str:
         return "Say where to save it in the workspace with path, for example videos/demo.mp4."
     place = workspace()
     if place is None:
-        return "There's no workspace folder to save into. Choose one in Settings."
+        return "There's no workspace folder to save into: ask the person to choose one in Settings."
     stem = Path(edit.output_name).stem or "frame"
     if edit.kind == "frames":
         folder = str(path).rstrip("/\\")

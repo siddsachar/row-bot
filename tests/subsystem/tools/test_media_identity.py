@@ -101,6 +101,22 @@ def test_a_media_result_names_its_output_on_its_first_line_which_masking_keeps(s
         '[make_music]: Output "Birthday tune" v1 (working) · Birthday tune.wav')
 
 
+def test_masking_keeps_the_output_after_a_results_approval_lines(studio):  # noqa: F811
+    """A download asked for, or a file elsewhere allowed by the reviewer, leads its result with an approval line;
+    the masked result still names the output, and a result that is only approval lines keeps the first."""
+    from row_bot.agent import _summarize_tool_result
+    from row_bot.tools.approval_gate import with_approval
+
+    result = studio.edit(action="edit", inputs=["demo.mp4"], steps=TRIM, name="Sam's birthday")
+    approved = with_approval("Approval: asked; approved by you\nApproval: reviewer allowed it",
+                             result + "\n" + "More words. " * 200)
+
+    assert approved.startswith("Approval: asked; approved by you\n")  # The approval line stays first.
+    assert _summarize_tool_result("edit_video", approved) == f"[edit_video]: {result.splitlines()[0]}"
+    assert _summarize_tool_result("edit_video", "Approval: asked; refused by you") == (
+        "[edit_video]: Approval: asked; refused by you")
+
+
 def test_names_keep_what_the_person_wrote(studio, monkeypatch):  # noqa: F811
     """"£480" was "-480"; currency signs and accents are fine in every system's file names."""
     from row_bot import agent
