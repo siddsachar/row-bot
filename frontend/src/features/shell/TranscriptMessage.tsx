@@ -1121,8 +1121,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           </p>
         )}
         {readFailure && (
-          <p role="alert" className="message-error">
-            {readFailure.message}
+          <p role="alert" className="message-error message-error-with-fix">
+            <span>{readFailure.message}</span>
             {readFailure.action?.kind === 'open_setting' && (
               <ErrorFix action={readFailure.action} />
             )}

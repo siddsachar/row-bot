@@ -535,6 +535,26 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
+/* A message's own error line with its one fix (Read aloud's Open Voice settings). */
+.message-error-with-fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.message-error-with-fix .error-fix.button {
+  flex: none;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-12);
+}
+@media (pointer: coarse) {
+  .message-error-with-fix .error-fix.button {
+    min-height: 44px;
+    height: 44px;
+  }
+}
 
 /* Prose. */
 .message-text {
