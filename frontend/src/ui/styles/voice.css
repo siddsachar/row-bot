@@ -104,12 +104,19 @@
   opacity: 1;
   animation: voice-ripple 1.6s ease-out infinite;
 }
+/* Waiting for you: the orb keeps its own colour; an amber ring pulses gently around it. */
 .voice-orb[data-state='waiting'] {
-  --orb: var(--status-warning-border);
+  --waiting: color-mix(in srgb, var(--status-warning-border) 35%, #f5b301);
 }
 .voice-orb[data-state='waiting'] .voice-orb-ring {
   opacity: 1;
-  border-color: var(--status-warning-border);
+  border-color: var(--waiting);
+  animation: voice-waiting 2.4s ease-in-out infinite;
+}
+@keyframes voice-waiting {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--waiting) 28%, transparent);
+  }
 }
 .voice-orb[data-state='muted'] .voice-orb-core,
 .voice-orb[data-state='ended'] .voice-orb-core {
@@ -182,6 +189,89 @@
 }
 .voice-caption[data-role='row-bot'] .voice-caption-text {
   color: var(--text-primary);
+}
+/* A line Row-Bot says on its own while it works ("Checking your calendar…"). */
+.voice-caption[data-role='row-bot'][data-kind='progress'] .voice-caption-text {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+/* The run's waiting approval: what it asks, and how it may be answered. */
+.voice-bar-approval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 12px;
+  background: var(--status-warning-background);
+}
+.voice-bar-approval-icon {
+  flex: none;
+  color: var(--status-warning-text);
+}
+.voice-bar-approval-text {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-bar-approval-action {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-bar-approval-hint {
+  color: var(--text-muted);
+}
+/* The newest picture or video, in the phone's focus mode: one tap opens it. */
+.voice-bar-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 360px);
+  min-height: 56px;
+  margin-top: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.voice-bar-result:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.voice-bar-result .context-output-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.voice-bar-result-label {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-bar-result-kicker {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
 }
 .voice-bar-details,
 .voice-bar-targets {

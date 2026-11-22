@@ -3275,6 +3275,32 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "voice work fixture" in text:
+        # V3: a turn makes a picture, then asks to move a file (or, "delete", to delete one).
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "voice-work")
+        thread = call["conversation_id"]
+        identity = f"voice-work:{call['generation_id']}"
+        delete = "delete" in text.lower()
+        tool = "workspace_file_delete" if delete else "workspace_move_file"
+        args = ({"file_path": "notes/old-draft.md"} if delete
+                else {"source_path": "draft.md", "destination_path": "notes/draft.md"})
+        tool_id = fixture_id(identity + ":approval-tool")
+        try:
+            yield from _s3_steps(thread, identity, [("generate_image", {"prompt": "A lighthouse at dawn, watercolour"},
+                                                     lambda: ("Made the picture.",
+                                                              _s3_media(thread, _s3_page_picture(640, 400))))])
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":approval-call"), content="",
+                tool_calls=[{"id": tool_id, "name": tool, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": tool, "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": tool,
+                                 "label": "Delete file" if delete else "Move / rename file",
+                                 "description": ("Delete file: notes/old-draft.md" if delete
+                                                 else "Move / rename file: draft.md to notes/draft.md"),
+                                 "args": args}]
+        finally:
+            call["quiesced"] = True
+        return
     if "reviewer asked fixture" in text:
         # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
         from row_bot.threads import append_checkpoint_messages

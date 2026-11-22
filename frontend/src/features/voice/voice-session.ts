@@ -7,6 +7,7 @@
 import { setBuddyListening, setBuddyVoiceLevel } from '../buddy/living/voice';
 import type { VoiceSocket } from '../../api/types';
 import { BrowserVoiceAudio, type VoiceAudio } from './voice-audio';
+import { approvalQuestion } from '../shell/tool-activity';
 
 const OPEN = 1;
 
@@ -20,7 +21,28 @@ export type VoiceOrb =
   | 'paused'
   | 'ended';
 
-export type VoiceCaption = { text: string; final: boolean };
+/** What Row-Bot's line was: its answer, or a line it says on its own while working. */
+export type VoiceSpeechKind =
+  'answer' | 'control' | 'progress' | 'approval' | 'later';
+
+export type VoiceCaption = {
+  text: string;
+  final: boolean;
+  kind?: VoiceSpeechKind;
+};
+
+/** The run's waiting approval: its card's title, and `voice` when a spoken yes or no may answer it. */
+export type VoiceApproval = { id: string; title: string; voice: boolean };
+
+/** The title the approval card shows ("Move a file?"), from the same fields and the same wording. */
+export function cardTitle(card: unknown): string {
+  const view = (card ?? {}) as {
+    action_label?: string;
+    question?: string;
+    app?: { name: string; tool?: string };
+  };
+  return view.question || approvalQuestion(view.action_label ?? '', view.app);
+}
 
 export type VoiceLatency = {
   last: Record<string, number>;
@@ -40,6 +62,7 @@ export type VoiceSnapshot = {
   rowBot: VoiceCaption | null;
   inputLevel: number;
   latency: VoiceLatency | null;
+  approval: VoiceApproval | null;
   error: string;
 };
 
@@ -89,6 +112,7 @@ const INITIAL: VoiceSnapshot = {
   rowBot: null,
   inputLevel: 0,
   latency: null,
+  approval: null,
   error: '',
 };
 
@@ -97,7 +121,7 @@ export class VoiceSession {
   private listeners = new Set<() => void>();
   private socket: VoiceSocket | null = null;
   private audio: VoiceAudio;
-  private pendingCaptions = new Map<number, string>();
+  private pendingCaptions = new Map<number, VoiceCaption>();
   private reported = new Set<number>();
   private ended = false;
   private reconnected = false;
@@ -207,7 +231,11 @@ export class VoiceSession {
             },
           });
         else if (typeof event.segment === 'number') {
-          this.pendingCaptions.set(event.segment, String(event.text ?? ''));
+          this.pendingCaptions.set(event.segment, {
+            text: String(event.text ?? ''),
+            final: true,
+            kind: (event.kind as VoiceSpeechKind | undefined) ?? 'answer',
+          });
           this.audio.setOutputRate(Number(event.sample_rate) || 24000);
         }
         break;
@@ -221,6 +249,18 @@ export class VoiceSession {
       case 'latency':
         this.set({ latency: event as unknown as VoiceLatency });
         break;
+      case 'approval': {
+        if (!event.approval_id) {
+          this.set({ approval: null });
+          break;
+        }
+        const id = String(event.approval_id);
+        const title = cardTitle(event.card);
+        this.set({ approval: { id, title, voice: event.voice === true } });
+        // Row-Bot says the title the card shows, in the same words.
+        this.send({ type: 'approval_title', approval_id: id, title });
+        break;
+      }
       case 'error':
         this.set({ error: voiceError(String(event.code ?? '')) });
         break;
@@ -228,10 +268,10 @@ export class VoiceSession {
   }
 
   private played(segment: number, delayMs: number) {
-    const text = this.pendingCaptions.get(segment);
-    if (text !== undefined) {
+    const caption = this.pendingCaptions.get(segment);
+    if (caption !== undefined) {
       this.pendingCaptions.delete(segment);
-      this.set({ rowBot: { text, final: true } });
+      this.set({ rowBot: caption });
     }
     if (!this.reported.has(segment)) {
       this.reported.add(segment);
@@ -326,7 +366,11 @@ export class VoiceSession {
     void this.wakeLock?.release().catch(() => undefined);
     this.wakeLock = null;
     document.removeEventListener('visibilitychange', this.relock);
-    this.set({ orb: 'ended', error: code ? voiceError(code) : '' });
+    this.set({
+      orb: 'ended',
+      approval: null,
+      error: code ? voiceError(code) : '',
+    });
     setBuddyListening(false);
   }
 

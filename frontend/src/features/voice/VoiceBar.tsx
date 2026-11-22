@@ -1,14 +1,21 @@
-import { useState, useSyncExternalStore, type CSSProperties } from 'react';
+import {
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import {
   Captions,
   CaptionsOff,
   Gauge,
   Keyboard,
+  LocateFixed,
   Maximize2,
   Mic,
   MicOff,
   Minimize2,
   PhoneOff,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button, IconButton } from '../../ui/primitives';
 import type { VoiceOrb, VoiceSession, VoiceSnapshot } from './voice-session';
@@ -34,6 +41,9 @@ const STATE_LABEL: Record<VoiceOrb, string> = {
   paused: 'Paused',
   ended: 'Voice ended',
 };
+
+/** The newest result the run made while voice is on, shown in the phone's focus mode. */
+export type VoiceResult = { label: string; thumb?: ReactNode; open(): void };
 
 function seconds(ms: number) {
   return `${(ms / 1000).toFixed(1)} s`;
@@ -84,6 +94,9 @@ export default function VoiceBar(props: {
   targets?: string[];
   /** Live voice: the provider talking, named beside the state. */
   label?: string;
+  /** Bring the waiting approval's card into view. */
+  onShowApproval?(): void;
+  result?: VoiceResult | null;
 }) {
   const state = useSyncExternalStore(
     props.session.subscribe,
@@ -154,12 +167,64 @@ export default function VoiceBar(props: {
               </p>
             )}
             {state.rowBot && (
-              <p className="voice-caption" data-role="row-bot">
+              <p
+                className="voice-caption"
+                data-role="row-bot"
+                data-kind={state.rowBot.kind}
+              >
                 <span className="voice-caption-who">Row-Bot</span>
                 <span className="voice-caption-text">{state.rowBot.text}</span>
               </p>
             )}
           </div>
+        )}
+        {state.approval && (
+          <div
+            className="voice-bar-approval"
+            data-voice={state.approval.voice || undefined}
+          >
+            <ShieldCheck
+              className="voice-bar-approval-icon"
+              size={16}
+              aria-hidden
+            />
+            <p className="voice-bar-approval-text">
+              <span className="voice-bar-approval-action">
+                {state.approval.title || 'An action needs your OK'}
+              </span>
+              <span className="voice-bar-approval-hint">
+                {state.approval.voice
+                  ? 'Say yes or no, or tap the card'
+                  : 'Needs a tap on Approve'}
+              </span>
+            </p>
+            {props.onShowApproval && (
+              <IconButton
+                size="sm"
+                label="Show the approval"
+                onClick={() => {
+                  setFocus(false);
+                  props.onShowApproval?.();
+                }}
+              >
+                <LocateFixed size={16} aria-hidden />
+              </IconButton>
+            )}
+          </div>
+        )}
+        {focus && props.result && (
+          <button
+            type="button"
+            className="voice-bar-result"
+            title={props.result.label}
+            onClick={props.result.open}
+          >
+            {props.result.thumb}
+            <span className="voice-bar-result-label">
+              <span className="voice-bar-result-kicker">New</span>
+              {props.result.label}
+            </span>
+          </button>
         )}
         {details && state.latency && (
           <p className="voice-bar-details">{latencyLine(state.latency)}</p>

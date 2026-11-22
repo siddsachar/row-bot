@@ -10,7 +10,10 @@ import type { DictationScope } from './VoiceControls';
 import { Button, Menu } from '../../ui/primitives';
 import { AudioLines } from 'lucide-react';
 import { takeVoiceOnOpen } from './new-chat';
-import VoiceBar, { type VoiceBarSession } from '../voice/VoiceBar';
+import VoiceBar, {
+  type VoiceBarSession,
+  type VoiceResult,
+} from '../voice/VoiceBar';
 import { VoiceSession, voiceError } from '../voice/voice-session';
 import { LiveVoiceSession } from '../voice/live-voice-session';
 import { primeVoicePlayback } from '../voice/voice-audio';
@@ -19,6 +22,36 @@ import {
   liveVoiceActions,
   liveVoiceDisclosed,
 } from './live-voice';
+import { useOptionalOverlay } from '../../ui/overlays';
+import {
+  OutputThumb,
+  shortPrompt,
+  type ConversationOutput,
+} from './ContextOutputs';
+import { openMediaViewer } from './MediaPreview';
+
+/** The newest picture or video made since voice began, as the phone's focus mode shows it. */
+function newestResult(
+  outputs: ConversationOutput[],
+  before: ReadonlySet<string>,
+  open: (output: ConversationOutput, name: string) => void,
+): VoiceResult | null {
+  const output = [...outputs]
+    .reverse()
+    .find((item) => !before.has(item.reference));
+  if (!output) return null;
+  const video = output.mime.startsWith('video/');
+  const name = output.prompt
+    ? shortPrompt(output.prompt)
+    : video
+      ? 'Video'
+      : 'Picture';
+  return {
+    label: name,
+    thumb: <OutputThumb output={output} />,
+    open: () => open(output, name),
+  };
+}
 
 /**
  * Voice in a chat, in a bar above the composer: Row-Bot Voice (the default,
@@ -47,13 +80,18 @@ export default function ConversationVoice(props: {
   /** Show and focus the composer ("Type instead"). */
   focusComposer?(): void;
   phone?: boolean;
+  /** The chat's pictures and videos, oldest first. */
+  outputs?: ConversationOutput[];
 }) {
   const [voice, setVoice] = useState<{
     session: VoiceBarSession;
     handle: DictationHandle;
     targets: string[];
     label?: string;
+    /** What the chat already had when voice began. */
+    outputsBefore: ReadonlySet<string>;
   } | null>(null);
+  const overlay = useOptionalOverlay();
   const [starting, setStarting] = useState(false);
   const [typing, setTyping] = useState(false);
   // The Live voice provider whose disclosure (or missing key) is showing.
@@ -103,7 +141,14 @@ export default function ConversationVoice(props: {
         },
         started.ticket,
       );
-      setVoice({ session, handle, targets: [...latest.current.targets] });
+      setVoice({
+        session,
+        handle,
+        targets: [...latest.current.targets],
+        outputsBefore: new Set(
+          (latest.current.outputs ?? []).map((output) => output.reference),
+        ),
+      });
       setTyping(false);
       await session.start();
     } catch (failure) {
@@ -152,6 +197,9 @@ export default function ConversationVoice(props: {
         handle,
         targets: [...latest.current.targets],
         label: provider.label,
+        outputsBefore: new Set(
+          (latest.current.outputs ?? []).map((output) => output.reference),
+        ),
       });
       setTyping(false);
       await session.start();
@@ -257,6 +305,24 @@ export default function ConversationVoice(props: {
             phone={props.phone}
             targets={voice.targets}
             label={voice.label}
+            result={
+              overlay &&
+              newestResult(
+                props.outputs ?? [],
+                voice.outputsBefore,
+                (output, name) =>
+                  openMediaViewer(overlay, {
+                    reference: output.reference,
+                    mime: output.mime,
+                    name,
+                  }),
+              )
+            }
+            onShowApproval={() =>
+              document
+                .querySelector<HTMLElement>('.approval-card')
+                ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            }
             onTypeInstead={() => {
               const next = !typing;
               setTyping(next);

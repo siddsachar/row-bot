@@ -121,6 +121,8 @@ const INITIAL: VoiceSnapshot = {
   rowBot: null,
   inputLevel: 0,
   latency: null,
+  // Live voice answers approvals on their cards only.
+  approval: null,
   error: '',
 };
 

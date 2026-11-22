@@ -54,6 +54,29 @@ class FakeClock:
         self.now += ms / 1000
 
 
+class FakeSleep:
+    """``asyncio.sleep`` on the fake clock: a sleeper wakes once a test moves the clock past its time."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        self.clock = clock
+        self._sleepers: list[tuple[float, Any]] = []
+
+    async def __call__(self, seconds: float) -> None:
+        import asyncio
+
+        waiter = asyncio.get_running_loop().create_future()
+        self._sleepers.append((self.clock.now + seconds, waiter))
+        await waiter
+
+    def advance(self, ms: float) -> None:
+        self.clock.advance(ms)
+        for due, waiter in list(self._sleepers):
+            if due <= self.clock.now:
+                self._sleepers.remove((due, waiter))
+                if not waiter.done():
+                    waiter.set_result(None)
+
+
 class FakeActivity:
     """Speech wherever the audio is loud: Silero's role without the model."""
 
@@ -174,6 +197,9 @@ class FakeHost:
         self.spoken: list[str] = []
         self.outcome = outcome
         self.keepalives = 0
+        # A spoken answer to an approval: what the host says back, and what it was asked.
+        self.approval_result = "answered"
+        self.approvals: list[tuple[str, bool]] = []
 
     def take_turn(self, text: str, utterance_id: str) -> Any:
         from row_bot.voice.engine.session import TurnOutcome
@@ -190,6 +216,10 @@ class FakeHost:
 
     def keepalive(self) -> None:
         self.keepalives += 1
+
+    def answer_approval(self, approval_id: str, approve: bool, utterance_id: str) -> str:
+        self.approvals.append((approval_id, approve))
+        return self.approval_result
 
 
 def fake_engine_parts(clock: FakeClock, stt: FakeSpeechToText, tts: FakeSentenceSpeech | None = None,
