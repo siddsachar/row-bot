@@ -75,7 +75,6 @@ GROUPS = {
         *MACOS_APPKIT_MODULES,
     ),
     "voice": (
-        "sounddevice",
         "faster_whisper",
         "kokoro_onnx",
         *FUNASR_VOICE_MODULES,
@@ -179,26 +178,12 @@ def _is_headless_linux() -> bool:
     )
 
 
-def _no_audio_server(error: BaseException) -> bool:
-    """PortAudio loaded but found no sound system to talk to (a server or CI runner with no PulseAudio).
-
-    PortAudio 19.7 from 2026 starts its PulseAudio host at import and fails when no server answers;
-    the library is there, so sounddevice is installed. A missing library still fails the check.
-    """
-    return type(error).__name__ == "PortAudioError" and "Error initializing PortAudio" in str(error)
-
-
 def _verify_module(module: str) -> None:
     if module in HEADLESS_LINUX_PRESENCE_CHECKS and _is_headless_linux():
         if importlib.util.find_spec(module) is None:
             raise ModuleNotFoundError(f"No module named '{module}'")
         return
-    try:
-        importlib.import_module(module)
-    except Exception as error:
-        if module == "sounddevice" and platform.system() == "Linux" and _no_audio_server(error):
-            return
-        raise
+    importlib.import_module(module)
 
 
 def main(argv: list[str]) -> int:

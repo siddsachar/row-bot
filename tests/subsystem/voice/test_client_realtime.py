@@ -22,7 +22,7 @@ def runtime():
         return {"value": "synthetic-ephemeral", "expires_at": 1060}
 
     provider = SimpleNamespace(create_client_secret=secret)
-    coordinator = VoiceSessionCoordinator(SimpleNamespace(is_running=False))
+    coordinator = VoiceSessionCoordinator()
 
     def no_local():
         pytest.fail("realtime must not initialize local audio models")
@@ -76,7 +76,7 @@ def test_passive_adapter_and_exact_secret_replay_no_local_models(runtime):
     with pytest.raises(DictationError, match="idempotency_mismatch"):
         r.transport.start(r.owner, request_id=request, validate=lambda: None)
     with pytest.raises(DictationError, match="voice_session_busy"):
-        r.coordinator.start_browser()
+        r.transport.start(r.owner, request_id=str(uuid4()), validate=lambda: None)
     event(r, first.snapshot.handle, "connected")
     assert start(r, request).client_secret is None
     assert r.coordinator.state == "listening"

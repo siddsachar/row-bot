@@ -15,7 +15,6 @@ from row_bot.voice.browser_local import (
     BrowserVoiceError,
     MAX_INPUT_BYTES,
 )
-from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.provider_base import (
     SynthesizedSpeech,
     VoiceProviderError,
@@ -54,8 +53,6 @@ class _Voice:
     def __init__(self, *, ready: bool = True) -> None:
         self.ready = ready
         self.calls: list[tuple[bytes, bool]] = []
-        self.is_running = False
-        self.state = "stopped"
         self.sensevoice = _SenseVoice()
 
     def whisper_model_available(self) -> bool:
@@ -73,18 +70,6 @@ class _Voice:
 
     def install_whisper_model(self) -> None:
         self.ready = True
-
-    def start(self) -> None:
-        self.is_running = True
-
-    def stop(self) -> None:
-        self.is_running = False
-
-    def get_status(self):
-        return None
-
-    def get_transcription(self):
-        return None
 
 
 class _TTS:
@@ -184,17 +169,6 @@ def test_missing_models_are_explicit_and_synthesis_is_session_scoped() -> None:
     assert service.status()["whisper_ready"] is True
     assert service.status()["kokoro_ready"] is True
     assert service.synthesize("session-b", "Hello") == SynthesizedSpeech(_wav(), "audio/wav")
-
-
-def test_browser_transport_never_starts_the_device_voice_service() -> None:
-    voice = _Voice()
-    coordinator = VoiceSessionCoordinator(voice)  # type: ignore[arg-type]
-
-    coordinator.start_browser("talk")
-
-    assert coordinator.transport == "browser"
-    assert coordinator.is_running
-    assert voice.is_running is False
 
 
 def test_kokoro_runtime_temp_is_created_only_under_app_data(

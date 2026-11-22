@@ -381,31 +381,3 @@ def test_release_manifest_script_uses_brand_contract():
 
 def test_v4_is_newer_than_latest_v3_for_update_checks():
     assert updater.compare_versions("3.23.1", "4.0.0") > 0
-
-
-@pytest.mark.parametrize(("message", "passes"), [
-    ("Error initializing PortAudio: Unanticipated host error [PaErrorCode -9999]: "
-     "'PulseAudio_Initialize: Can't connect to server'", True),
-    ("PortAudio library not found", False),
-])
-def test_the_dependency_check_passes_sounddevice_with_no_sound_server_but_not_without_portaudio(
-        monkeypatch, message, passes):
-    """A Linux machine with no PulseAudio (a server, a CI runner) has sounddevice installed; one
-    without the PortAudio library doesn't."""
-    from scripts import verify_runtime_dependencies as check
-
-    class PortAudioError(Exception):
-        pass
-
-    def load(module):
-        raise PortAudioError(message) if message.startswith("Error") else OSError(message)
-
-    monkeypatch.setattr(check.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(check.importlib, "import_module", load)
-    if passes:
-        check._verify_module("sounddevice")
-        with pytest.raises(PortAudioError):
-            check._verify_module("other_module")  # Only sounddevice is excused.
-    else:
-        with pytest.raises(OSError):
-            check._verify_module("sounddevice")

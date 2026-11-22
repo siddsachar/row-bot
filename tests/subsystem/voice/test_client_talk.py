@@ -18,7 +18,7 @@ from tests.helpers.voice_fakes import fake_browser_speech
 def runtime():
     clock = [0.0]
     calls, modes = [], []
-    voice = SimpleNamespace(is_running=False, whisper_model_available=lambda: True)
+    voice = SimpleNamespace(whisper_model_available=lambda: True)
 
     def transcribe(*args, validate, mode):
         validate()
@@ -36,7 +36,7 @@ def runtime():
         calls.append(("submit", owner.conversation_id, text, utterance))
         return "run-" + utterance
 
-    coordinator = VoiceSessionCoordinator(voice)
+    coordinator = VoiceSessionCoordinator()
     service = fake_browser_speech(voice, transcribe=transcribe, synthesize=synthesize)
     dictation = ClientDictationTransport(coordinator=coordinator, browser_service=lambda: service,
                                          clock=lambda: clock[0])
@@ -66,15 +66,10 @@ def test_passive_construction_and_one_shared_owner(runtime):
     assert not r.calls and r.coordinator._dictation_lease is None
     first = start(r)
     assert first.state == "listening" and first.quiesced
-    assert r.coordinator.is_running and not r.coordinator.voice_service.is_running
+    assert r.coordinator.is_running
     assert r.coordinator.mode == "talk"
     with pytest.raises(DictationError, match="voice_session_busy"):
         r.dictation.start(r.owner, request_id=str(uuid4()), validate=lambda: None)
-    for method in (r.coordinator.start_talk, r.coordinator.start_realtime_talk,
-                   r.coordinator.start_dictation, r.coordinator.start_browser):
-        with pytest.raises(DictationError, match="voice_session_busy"):
-            method()
-    r.coordinator.stop()
     assert r.talk.snapshot(r.owner, first.handle, validate=lambda: None).state == "listening"
 
 
@@ -313,7 +308,7 @@ def test_talk_reuses_phantom_and_spoken_echo_filter_but_new_session_resets_echo(
     assert finish(r, receive(r, replacement)).outcome == "submitted"
 
 
-def test_legacy_can_take_over_after_hard_session_expiry_even_after_utterance_refresh(runtime):
+def test_a_new_session_can_take_over_after_hard_session_expiry_even_after_utterance_refresh(runtime):
     r = runtime
     snapshot = start(r)
     for now in (100, 200, 300, 400, 500):
@@ -322,7 +317,7 @@ def test_legacy_can_take_over_after_hard_session_expiry_even_after_utterance_ref
     r.clock[0] = 590
     finish(r, receive(r, snapshot))
     r.clock[0] = 601
-    r.coordinator.start_browser()
+    assert start(r).handle != snapshot.handle
     with pytest.raises(DictationError, match="voice_session_expired"):
         receive(r, snapshot)
 

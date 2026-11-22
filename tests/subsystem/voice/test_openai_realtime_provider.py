@@ -96,14 +96,6 @@ def test_openai_realtime_provider_sanitizes_stale_runtime_values():
     assert "speed" not in config
 
 
-def test_openai_realtime_transcription_config_is_dictation_only():
-    config = OpenAIRealtimeProvider(api_key="sk_test").transcription_session_config()
-
-    assert config["type"] == "transcription"
-    assert config["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
-    assert "tools" not in config
-
-
 def test_openai_realtime_client_secret_error_includes_response_body(monkeypatch):
     class Response:
         text = '{"error":{"message":"bad field"}}'

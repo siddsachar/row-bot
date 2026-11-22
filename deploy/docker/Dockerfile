@@ -129,7 +129,6 @@ RUN python -m playwright install-deps chromium \
         fonts-noto-color-emoji \
         libgl1 \
         libglib2.0-0 \
-        libportaudio2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid "${ROW_BOT_GID}" rowbot \

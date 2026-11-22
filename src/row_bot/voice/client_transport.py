@@ -216,7 +216,7 @@ class ClientDictationTransport:
                 if old.starting or old.operation is not None or (not old.revoked and
                         (old.mode == "talk" or old.state != "completed")):
                     raise DictationError("voice_session_busy")
-            if self.coordinator._active or self.coordinator._legacy_transition_owner is not None:
+            if self.coordinator._active:
                 raise DictationError("voice_session_busy")
             self.coordinator._session_id += 1
             handle = DictationHandle(str(uuid4()), self.coordinator.session_id,

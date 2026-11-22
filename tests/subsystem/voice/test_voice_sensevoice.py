@@ -65,13 +65,15 @@ def test_sensevoice_readiness_startup_and_transcription_do_not_download(
     with pytest.raises(SenseVoiceUnavailableError, match="explicitly"):
         provider.transcribe_bytes(b"\x00\x00")
 
-    service = VoiceService()
-    service._sensevoice_model_path = ""
-    service.stt_model = "local-funasr-sensevoice"
+    from row_bot.voice.providers import SENSEVOICE_MODEL, speech_to_text_provider
+    from row_bot.voice.runtime import VoiceRuntimeSettings
+
+    selected = speech_to_text_provider(
+        "dictate", voice_service=VoiceService(),
+        settings=VoiceRuntimeSettings(dictation_model=SENSEVOICE_MODEL),
+    )
     with pytest.raises(SenseVoiceUnavailableError, match="explicitly"):
-        service._ensure_selected_stt_model()
-    with pytest.raises(SenseVoiceUnavailableError, match="explicitly"):
-        service.transcribe_bytes(b"\x00\x00")
+        selected.transcribe_bytes(b"\x00\x00")
 
     assert model_factory_calls == []
 
@@ -211,8 +213,10 @@ def test_sensevoice_reports_intel_macos_as_unsupported(
 
 
 def test_whisper_transcription_path_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    from row_bot.voice.providers import speech_to_text_provider
+    from row_bot.voice.runtime import VoiceRuntimeSettings
+
     service = VoiceService()
-    service.stt_model = "local-whisper-small"
     calls = []
 
     def _transcribe(audio_bytes: bytes, *, allow_download: bool) -> str:
@@ -220,9 +224,11 @@ def test_whisper_transcription_path_is_unchanged(monkeypatch: pytest.MonkeyPatch
         return "whisper text"
 
     monkeypatch.setattr(service, "transcribe_pcm16", _transcribe)
+    provider = speech_to_text_provider("dictate", voice_service=service, settings=VoiceRuntimeSettings())
 
-    assert service.transcribe_bytes(b"pcm") == "whisper text"
-    assert calls == [(b"pcm", True)]
+    assert provider.transcribe_bytes(b"pcm") == "whisper text"
+    # Speech is never downloaded mid-utterance: installing is an explicit Settings action.
+    assert calls == [(b"pcm", False)]
 
 
 def _browser(service: VoiceService):
@@ -307,27 +313,3 @@ def test_browser_voice_uses_the_whisper_size_saved_after_start() -> None:
     )
     assert browser.speech_input_status("talk").ready
     assert service.whisper_size == "base"
-
-
-def test_listening_with_no_sound_system_says_no_microphone_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Where no sound system answers (Linux without PulseAudio), importing sounddevice itself fails."""
-    import builtins
-    import sys
-
-    real_import = builtins.__import__
-
-    def no_sound(name, *args, **kwargs):
-        if name == "sounddevice":
-            raise OSError("Error initializing PortAudio: PulseAudio_Initialize: Can't connect to server")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.delitem(sys.modules, "sounddevice", raising=False)
-    monkeypatch.setattr(builtins, "__import__", no_sound)
-    service = VoiceService()
-    monkeypatch.setattr(service, "_ensure_selected_stt_model", lambda: None)
-    service._set_state("listening")
-
-    service._run()
-
-    assert service.status_queue.get_nowait() == "No microphone detected on this system"
-    assert service.state == "stopped"
