@@ -7562,7 +7562,8 @@ class ModelContextMutation(WireModel):
 
 class LocalModelContextChoice(WireModel):
     tokens: int = Field(ge=1024, le=4194304)
-    # Its context cache in bytes where Row-Bot runs the model (Run on this computer); None elsewhere.
+    # What the model and this context take loaded (file, cache, working memory) where Row-Bot runs the model
+    # (Run on this computer); None elsewhere.
     memory_bytes: int | None = Field(default=None, ge=0)
     # A first reply on a long chat is slow at this size here (a Mac above 32K).
     slow: bool = False
@@ -7577,6 +7578,8 @@ class LocalModelContextSettings(WireModel):
     automatic: int | None = Field(default=None, ge=1, le=4194304)
     automatic_memory_bytes: int | None = Field(default=None, ge=0)
     memory_place: Literal["card", "memory"] | None = None
+    # The card's memory, or the computer's where the model runs on the processor or a Mac.
+    room_bytes: int | None = Field(default=None, ge=0)
     choices: list[LocalModelContextChoice] = Field(max_length=16)
     # What a chat with it reads now.
     current: int | None = Field(default=None, ge=1)

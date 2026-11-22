@@ -5511,6 +5511,27 @@ button.settings-mcp-server-name:hover {
     justify-content: flex-start;
   }
 }
+.local-model-sheet-picker.button {
+  justify-content: space-between;
+  min-width: 168px;
+  gap: 8px;
+}
+.local-model-sheet-picker-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  /* Room under the drag handle, as the title and close sit apart from it. */
+  .dialog.sheet.local-model-sheet > .dialog-header {
+    align-items: flex-start;
+    padding-top: 18px;
+  }
+  .local-model-sheet-picker.button {
+    width: 100%;
+  }
+}
 .local-model-sheet-more {
   margin-top: 4px;
   padding-top: 8px;

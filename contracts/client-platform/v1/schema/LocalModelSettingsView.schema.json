@@ -139,6 +139,19 @@
           "maxItems": 16,
           "title": "Reload Choices",
           "type": "array"
+        },
+        "room_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Room Bytes"
         }
       },
       "required": [

@@ -13,7 +13,10 @@ const mock = vi.hoisted(() => ({
   },
 }));
 
+const GIB = 2 ** 30;
 const KV = 34_816; // the 27B's cache per token
+/** What the 27B 4-bit takes loaded at a window: file, cache and working memory. */
+const need = (tokens: number) => 16_564_259_744 + KV * tokens + 700 * 2 ** 20;
 
 function builtIn(
   extra: Partial<LocalModelSettingsView['context']> = {},
@@ -29,11 +32,12 @@ function builtIn(
       editable: true,
       chosen: null,
       automatic: 65_536,
-      automatic_memory_bytes: KV * 65_536,
+      automatic_memory_bytes: need(65_536),
       memory_place: 'card',
+      room_bytes: 24 * GIB,
       choices: [32_768, 65_536].map((tokens) => ({
         tokens,
-        memory_bytes: KV * tokens,
+        memory_bytes: need(tokens),
         slow: false,
       })),
       current: 65_536,
@@ -66,6 +70,7 @@ function lmStudio(): LocalModelSettingsView {
       automatic: null,
       automatic_memory_bytes: null,
       memory_place: null,
+      room_bytes: null,
       choices: [],
       current: 32_768,
       loaded: 32_768,
@@ -96,20 +101,31 @@ function open(view: LocalModelSettingsView) {
   );
 }
 
-it('shows the window Automatic picks with its memory, and saves a size that fits', async () => {
-  open(builtIn());
-  const context = await screen.findByRole('combobox', { name: 'Context' });
+/** Opens one of the sheet's size menus (the app's Menu) and picks an item. */
+async function pick(menu: RegExp, item: string) {
+  fireEvent.pointerDown(await screen.findByRole('button', { name: menu }), {
+    button: 0,
+  });
+  fireEvent.click(await screen.findByRole('menuitem', { name: item }));
+}
 
-  expect(screen.getByRole('option', { name: 'Automatic · 64K' })).toBeTruthy();
+it('says what the model and its context take of the card, and saves a size that fits', async () => {
+  open(builtIn());
+
   expect(
-    screen.getByText('Reads 64K now · about 2.3 GB on your card'),
+    await screen.findByRole('button', { name: 'Context: Automatic · 64K' }),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(
+      'Reads 64K · model and context about 18.2 GB of your card’s 24 GB',
+    ),
   ).toBeTruthy();
   mock.controller.saveLocalModelSettings.mockResolvedValue({
     ...builtIn({ chosen: 32_768, current: 32_768 }),
     applied: 'restarted',
   });
 
-  fireEvent.change(context, { target: { value: '32768' } });
+  await pick(/^Context:/, '32K');
 
   await screen.findByText('Saved. It applies from the next message.');
   expect(mock.controller.saveLocalModelSettings).toHaveBeenCalledWith({
@@ -119,24 +135,37 @@ it('shows the window Automatic picks with its memory, and saves a size that fits
     reply_limit: null,
   });
   expect(
-    screen.getByText('Reads 32K now · about 1.1 GB on your card'),
+    screen.getByText(
+      'Reads 32K · model and context about 17.2 GB of your card’s 24 GB',
+    ),
   ).toBeTruthy();
+});
+
+it('opens with focus on the sheet itself, not a control that would show a ring', async () => {
+  open(builtIn());
+  await screen.findByRole('button', { name: /^Context:/ });
+
+  expect(document.activeElement?.className).toContain(
+    'local-model-sheet-focus',
+  );
 });
 
 it('says when a Mac would be slow at a size, and when a busy server applies it', async () => {
   const mac = builtIn({
     memory_place: 'memory',
+    room_bytes: 16 * GIB,
     choices: [
-      { tokens: 32_768, memory_bytes: KV * 32_768, slow: false },
-      { tokens: 65_536, memory_bytes: KV * 65_536, slow: true },
+      { tokens: 32_768, memory_bytes: need(32_768), slow: false },
+      { tokens: 65_536, memory_bytes: need(65_536), slow: true },
     ],
   });
   open(mac);
-  const context = await screen.findByRole('combobox', { name: 'Context' });
+  fireEvent.pointerDown(
+    await screen.findByRole('button', { name: /^Context:/ }),
+    { button: 0 },
+  );
   expect(
-    screen.getByRole('option', {
-      name: '64K · slow first reply on long chats',
-    }),
+    await screen.findByText('About 18.2 GB · slow first reply on long chats'),
   ).toBeTruthy();
   mock.controller.saveLocalModelSettings.mockResolvedValue({
     ...mac,
@@ -144,21 +173,21 @@ it('says when a Mac would be slow at a size, and when a busy server applies it',
     applied: 'when_idle',
   });
 
-  fireEvent.change(context, { target: { value: '65536' } });
+  fireEvent.click(screen.getByRole('menuitem', { name: '64K' }));
 
   await screen.findByText(
     'Saved. It applies once the reply being written finishes.',
   );
   expect(
     screen.getByText(
-      'Reads 64K now · about 2.3 GB in memory · slow first reply on long chats',
+      'Reads 64K · model and context about 18.2 GB of this computer’s 16 GB · slow first reply on long chats',
     ),
   ).toBeTruthy();
 });
 
 it('saves Thinking and, under More, the reply length', async () => {
   open(builtIn());
-  await screen.findByRole('combobox', { name: 'Context' });
+  await screen.findByRole('button', { name: /^Context:/ });
   mock.controller.saveLocalModelSettings.mockResolvedValue(builtIn());
 
   fireEvent.click(screen.getByRole('radio', { name: 'Off' }));
@@ -169,11 +198,11 @@ it('saves Thinking and, under More, the reply length', async () => {
   );
   fireEvent.click(screen.getByText('More'));
   expect(
-    screen.getByRole('option', { name: 'Automatic · up to 32K' }),
+    screen.getByRole('button', {
+      name: 'Reply length: Automatic · up to 32K',
+    }),
   ).toBeTruthy();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Reply length' }), {
-    target: { value: '8192' },
-  });
+  await pick(/^Reply length:/, '8K');
   await waitFor(() =>
     expect(mock.controller.saveLocalModelSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ reply_limit: 8192 }),
@@ -185,23 +214,25 @@ it('shows what a server the person runs loaded, and reloads LM Studio at another
   open(lmStudio());
   await screen.findByText(/LM Studio loaded it at 32K\./);
 
-  expect(screen.queryByRole('combobox', { name: 'Context' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Context:/ })).toBeNull();
   expect(screen.queryByRole('radiogroup', { name: 'Thinking' })).toBeNull();
+  // The next size up from what it loaded is offered first.
+  expect(
+    screen.getByRole('button', { name: 'Reload in LM Studio at 64K' }),
+  ).toBeTruthy();
   mock.controller.reloadLocalModelInLmStudio.mockResolvedValue({
     ...lmStudio(),
-    notice: 'LM Studio loaded it at 64K.',
+    notice: 'LM Studio loaded it at 128K.',
   });
-  fireEvent.change(screen.getByLabelText('Size to load it at in LM Studio'), {
-    target: { value: '65536' },
-  });
+  await pick(/^Size to load it at in LM Studio:/, '128K');
   fireEvent.click(
-    screen.getByRole('button', { name: 'Reload in LM Studio at 64K' }),
+    screen.getByRole('button', { name: 'Reload in LM Studio at 128K' }),
   );
 
-  await screen.findByText('LM Studio loaded it at 64K.');
+  await screen.findByText('LM Studio loaded it at 128K.');
   expect(mock.controller.reloadLocalModelInLmStudio).toHaveBeenCalledWith({
     model_ref: 'model:custom_openai_lmstudio-1234:gemma-4',
-    context: 65_536,
+    context: 131_072,
   });
 });
 
@@ -214,5 +245,5 @@ it('offers a way back when the settings cannot be read', async () => {
   await screen.findByText('These settings can’t be shown');
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
-  await screen.findByRole('combobox', { name: 'Context' });
+  await screen.findByRole('button', { name: /^Context:/ });
 });

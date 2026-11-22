@@ -88,7 +88,7 @@ def _ollama_context(model_id: str) -> dict[str, Any]:
         automatic = min(automatic, native)
     choices = [size for size in models.CONTEXT_SIZE_OPTIONS if not native or size <= native]
     return {"editable": True, "automatic": automatic, "automatic_memory_bytes": None, "memory_place": None,
-            "choices": [{"tokens": size, "memory_bytes": None, "slow": False} for size in choices],
+            "room_bytes": None, "choices": [{"tokens": size, "memory_bytes": None, "slow": False} for size in choices],
             "native": native}
 
 
@@ -102,12 +102,13 @@ def _built_in_context(model_id: str) -> dict[str, Any]:
     automatic = models.context_for(model, found)
     on_card = not metal and models.fit(model, found) == "gpu"
 
-    def memory(tokens: int) -> int:
-        return model.kv_bytes_per_token * tokens
-
-    return {"editable": True, "automatic": automatic, "automatic_memory_bytes": memory(automatic),
-            "memory_place": "card" if on_card else "memory",
-            "choices": [{"tokens": size, "memory_bytes": memory(size), "slow": metal and size > METAL_FAST_CONTEXT}
+    # What the model and its context take loaded (``need_bytes``: file, cache, working memory), out of the card's
+    # memory, or the computer's where it runs on the processor or a Mac.
+    room = found.gpu.memory_bytes if on_card and found.gpu is not None else found.ram_bytes
+    return {"editable": True, "automatic": automatic, "automatic_memory_bytes": model.need_bytes(automatic),
+            "memory_place": "card" if on_card else "memory", "room_bytes": room or None,
+            "choices": [{"tokens": size, "memory_bytes": model.need_bytes(size),
+                         "slow": metal and size > METAL_FAST_CONTEXT}
                         for size in models.context_choices(model, found)],
             "native": model.native_context}
 
@@ -133,7 +134,7 @@ def read_local_model_settings(model_ref: str, *, validate: Callable[[], None] = 
         assert endpoint is not None
         profile = str(endpoint.get("profile") or "generic_openai")
         context = {"editable": False, "automatic": None, "automatic_memory_bytes": None, "memory_place": None,
-                   "choices": [], "native": policy.native_limit_tokens}
+                   "room_bytes": None, "choices": [], "native": policy.native_limit_tokens}
         name, engine_name = model_id, str(endpoint.get("name") or "This server")
     reload_choices = [size for size in LM_STUDIO_SIZES if size != policy.native_limit_tokens] \
         if engine == "server" and profile == "lmstudio" else []

@@ -42,6 +42,13 @@ async function bothSchemes(page: Page, testInfo: TestInfo, name: string) {
   await page.emulateMedia({ colorScheme: null });
 }
 
+/** An open menu over the sheet, light only (the colours are the menu's own). */
+async function screenshotMenu(page: Page, testInfo: TestInfo, name: string) {
+  const file = testInfo.outputPath(`${name}.png`);
+  await page.screenshot({ path: file, animations: 'disabled' });
+  await testInfo.attach(name, { path: file, contentType: 'image/png' });
+}
+
 const sheet = (page: Page) => page.getByRole('dialog');
 
 test.beforeEach(async ({ page }) => fixture(page, 'on'));
@@ -61,16 +68,14 @@ test('a model Row-Bot runs offers the windows that fit, with their memory, and s
   await expect(dialog).toContainText(
     'Runs in Row-Bot (llama.cpp) on this computer.',
   );
-  const context = dialog.getByRole('combobox', { name: 'Context' });
-  await expect(context.locator('option')).toHaveText([
-    'Automatic · 128K',
-    '32K',
-    '64K',
-    '128K',
-    '256K',
-  ]);
+  const context = dialog.getByRole('button', { name: /^Context:/ });
+  await expect(context).toHaveAccessibleName('Context: Automatic · 128K');
+  // Opened with a click: focus is on the sheet, so no ring on its controls.
+  await expect(
+    dialog.getByRole('button', { name: 'Close dialog' }),
+  ).not.toBeFocused();
   await expect(dialog).toContainText(
-    'Reads 128K now · about 2.3 GB on your card',
+    'Reads 128K · model and context about 8.1 GB of your card’s 12 GB',
   );
   await expect(
     dialog.getByRole('radiogroup', { name: 'Thinking' }),
@@ -78,16 +83,26 @@ test('a model Row-Bot runs offers the windows that fit, with their memory, and s
   await accessibility(page, testInfo, 'built-in-sheet-axe');
   await bothSchemes(page, testInfo, 'desktop-built-in-sheet');
 
-  await context.selectOption('65536');
+  await context.click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    /^Automatic · 128K/,
+    /^32K/,
+    /^64K/,
+    /^128K/,
+    /^256K/,
+  ]);
+  await screenshotMenu(page, testInfo, 'desktop-built-in-context-menu');
+  await menu.getByRole('menuitem', { name: /^64K/ }).click();
   await expect(dialog.getByRole('status')).toHaveText(
     'Saved. It applies from the next message.',
   );
   await expect(dialog).toContainText(
-    'Reads 64K now · about 1.1 GB on your card',
+    'Reads 64K · model and context about 7 GB of your card’s 12 GB',
   );
   await dialog.locator('summary', { hasText: 'More' }).click();
   await expect(
-    dialog.getByRole('combobox', { name: 'Reply length' }),
+    dialog.getByRole('button', { name: /^Reply length:/ }),
   ).toBeVisible();
   await bothSchemes(page, testInfo, 'desktop-built-in-sheet-saved');
 
@@ -108,7 +123,7 @@ test('a server the person runs shows what it loaded and how to change it', async
   await expect(dialog).toContainText(
     'Load it at another size here, or change Context Length in LM Studio.',
   );
-  await expect(dialog.getByRole('combobox', { name: 'Context' })).toHaveCount(
+  await expect(dialog.getByRole('button', { name: /^Context:/ })).toHaveCount(
     0,
   );
   await expect(
@@ -145,11 +160,16 @@ for (const phone of PHONES.slice(0, 1)) {
       );
       const dialog = sheet(page);
       await expect(
-        dialog.getByRole('combobox', { name: 'Context' }),
+        dialog.getByRole('button', { name: /^Context:/ }),
       ).toBeVisible();
       await dialog.locator('summary', { hasText: 'More' }).click();
       await assertNoOverflow(page);
       await bothSchemes(page, testInfo, 'phone-built-in-sheet');
+      // On a phone the size menu rises as a sheet of its own.
+      await dialog.getByRole('button', { name: /^Context:/ }).click();
+      await expect(page.getByRole('menuitem', { name: /^64K/ })).toBeVisible();
+      await screenshotMenu(page, testInfo, 'phone-built-in-context-menu');
+      await page.keyboard.press('Escape');
 
       await page.goto(
         `/app-v2/settings/models?model-settings=${encodeURIComponent(STUDIO)}`,

@@ -22,6 +22,7 @@ import pytest
 # Imported at collection, before a test moves the data folder: patching its path then restores the real one.
 import row_bot.providers.config as provider_config
 from row_bot.local_runtime import install, models, server
+from row_bot.local_runtime.hardware import GIB
 from tests.fixtures.local_runtime import FakeFiles, fake_build, fake_model, python_command
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
@@ -531,7 +532,8 @@ def test_only_windows_that_fit_the_card_are_offered_and_a_choice_is_what_the_end
     assert [choice["tokens"] for choice in big["context"]["choices"]] == [32_768]
     assert [choice["tokens"] for choice in small["context"]["choices"]] == [32_768, 65_536, 131_072, 262_144]
     assert small["context"]["automatic"] == 131_072 and small["context"]["memory_place"] == "card"
-    assert small["context"]["automatic_memory_bytes"] == models.get("qwen3.5-4b").kv_bytes_per_token * 131_072
+    assert small["context"]["automatic_memory_bytes"] == models.get("qwen3.5-4b").need_bytes(131_072)
+    assert small["context"]["room_bytes"] == 16 * GIB
     with pytest.raises(ValueError, match="invalid_command"):
         _choose("qwen3.8-27b-q3", 65_536)  # doesn't fit: refused, nothing saved
 
