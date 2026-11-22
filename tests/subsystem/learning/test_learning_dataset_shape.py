@@ -43,6 +43,11 @@ CALENDAR = _tool("calendar_create_event", "Create an event in the calendar.", ti
                  start="string")
 MAIL = _tool("mail_send", "Send an email.", to="string", subject="string", body="string")
 CLOUD_TOOLS = [READ, SAVE, CALENDAR, MAIL]
+IMAGE = _tool("generate_image", "Generate an image from a description.", prompt="string")
+MUSIC = _tool("make_music", "Make a piece of music.", prompt="string")
+PRESENT = _tool("present", "Show a finished file to the person.", path="string")
+MEDIA_CHAT_TOOLS = [READ, SAVE, CALENDAR, MAIL, IMAGE, MUSIC, PRESENT]
+PICTURE = {"prompt": "a fox in the snow"}
 
 
 def _index(groups, loadable):
@@ -69,8 +74,10 @@ class CloudWork:
         self.count = 0
 
     def turn(self, thread_id: str, question: str, calls: list[tuple[str, dict, str]], answer: str, *,
-             system: list[str] | None = None, tools: list[dict] | None = None) -> list[str]:
-        """One turn: ``calls`` are (tool, arguments, result) steps, one model call each."""
+             system: list[str] | None = None, tools: list[dict] | None = None,
+             approved: tuple[int, ...] = ()) -> list[str]:
+        """One turn: ``calls`` are (tool, arguments, result) steps, one model call each; the person approves the
+        steps numbered in ``approved`` (the turn resumes before they run)."""
 
         if thread_id not in self.chats.threads:
             self.chats.chat(thread_id)
@@ -88,6 +95,9 @@ class CloudWork:
             message = AIMessage(content="", id=f"a{number}_{step}", tool_calls=[call])
             ids.append(self.writer.model_call(turn, messages=sent, response=message, tools=tools or CLOUD_TOOLS,
                                               model_ref="gpt-6.1-sol", provider_id="codex"))
+            if step in approved:
+                self.writer.approval(turn, payload={"tool": name, "label": name}, mode="approve", response=True,
+                                     line="Approval: asked; approved by you", tool_call_id=call["id"])
             output = ToolMessage(content=result, tool_call_id=call["id"], id=f"t{number}_{step}")
             self.writer.tool_call(turn, call=call, result=output)
             sent = [*sent, message, output]
@@ -221,6 +231,57 @@ def test_rows_too_long_as_captured_fit_once_rendered(work, learning_on, chats, r
     assert captured.examples == 0 and captured.left_out == {"too_long": 3}
     assert served.examples == 3 and served.left_out == {}
     assert max(item.estimated_tokens for item in served.train) < recipe.max_seq_length
+
+
+def _tool_names(example) -> list[str]:
+    return [tool["function"]["name"] for tool in example.row["tools"]]
+
+
+def _target_calls(example) -> list[tuple[str, dict]]:
+    return [call for message in example.row["messages"]
+            if message["role"] == "assistant" and message.get("weight") and message.get("tool_calls")
+            for call in _calls(message)]
+
+
+def test_once_a_chat_makes_media_its_rows_keep_the_media_tools_it_called_bound_as_row_bot_does(
+        work, learning_on, chats, recipe):
+    work.turn("chat-1", "Make a picture of a fox", [("generate_image", PICTURE, "fox.png")], "Here is your fox.",
+              tools=MEDIA_CHAT_TOOLS)
+    work.turn("chat-1", "Another one, and show it",
+              [("generate_image", PICTURE, "fox-2.png"), ("present", {"path": "fox-2.png"}, "Shown.")],
+              "Here it is.", tools=MEDIA_CHAT_TOOLS)
+
+    first, second = sorted(_compile(learning_on, chats, recipe).train, key=lambda example: example.started_at)
+
+    # The first picture's turn began before the chat made media: the tool is found and called through the bridge.
+    assert _tool_names(first) == ["workspace_read_file", "save_memory", "tool_search", "tool_invoke"]
+    assert _target_calls(first)[-1] == ("tool_invoke", {"name": "generate_image", "arguments": PICTURE})
+    # From the next turn the media tools it called, and present, are bound and called as they are; the media
+    # tools it never called and the other tools stay behind the bridge.
+    assert _tool_names(second) == [
+        "workspace_read_file", "save_memory", "generate_image", "present", "tool_search", "tool_invoke"]
+    assert _target_calls(second) == [("generate_image", PICTURE), ("present", {"path": "fox-2.png"})]
+    catalog = second.row["tools"][4]["function"]["description"]
+    assert "make_music" in catalog and "calendar_create_event" in catalog and "generate_image" not in catalog
+
+
+def test_a_media_tool_the_turn_called_is_bound_after_the_person_approves_a_later_step(work, learning_on, chats,
+                                                                                    recipe):
+    mail = {"to": "dana@example.com", "subject": "A fox", "body": "fox.png"}
+    for thread, approved in (("chat-1", (1,)), ("chat-2", ())):
+        work.turn(thread, "Make a fox picture and mail it to Dana",
+                  [("generate_image", PICTURE, "fox.png"), ("mail_send", mail, "sent")], "Made and sent.",
+                  tools=MEDIA_CHAT_TOOLS, approved=approved)
+
+    rows = {example.thread_id: example for example in _compile(learning_on, chats, recipe).train}
+
+    # The approval resumed the turn with a tool list built again, after the picture: the row's last request
+    # binds it. Without a resume the list is the turn's first, from before the chat made media.
+    assert _tool_names(rows["chat-1"]) == [
+        "workspace_read_file", "save_memory", "generate_image", "present", "tool_search", "tool_invoke"]
+    assert ("generate_image", PICTURE) in _target_calls(rows["chat-1"])
+    assert _tool_names(rows["chat-2"]) == ["workspace_read_file", "save_memory", "tool_search", "tool_invoke"]
+    assert ("tool_invoke", {"name": "generate_image", "arguments": PICTURE}) in _target_calls(rows["chat-2"])
 
 
 def test_the_manifest_and_the_release_name_the_rendering_and_count_derived_rows(work, learning_on, chats, recipe,
@@ -602,6 +663,19 @@ def test_a_tool_the_replayed_conversation_already_found_is_called_straight_throu
     history = [message for message in sent["messages"] if getattr(message, "tool_calls", None)]
     assert [call["name"] for message in history for call in message.tool_calls] == ["tool_search", "tool_invoke"]
     assert (searched.status, invoked.status) == ("failed", "passed")
+
+
+def test_a_replayed_decision_in_a_chat_that_made_media_is_asked_with_its_media_tools_bound(served_at_32k):
+    earlier = [HumanMessage(content="Make a picture of a fox"),
+               AIMessage(content="", tool_calls=[{"name": "generate_image", "args": PICTURE, "id": "c1",
+                                                  "type": "tool_call"}]),
+               ToolMessage(content="fox.png", tool_call_id="c1"), AIMessage(content="Here is your fox.")]
+    case = replace(_replay_case(earlier), tools=tuple(MEDIA_CHAT_TOOLS))
+
+    _result, sent = _ask(case, _reply(("present", {"path": "fox.png"})))
+
+    assert [tool["function"]["name"] for tool in sent["tools"]] == [
+        "workspace_read_file", "save_memory", "generate_image", "present", "tool_search", "tool_invoke"]
 
 
 def test_a_cloud_model_is_asked_the_decision_as_captured(served_at_32k):
