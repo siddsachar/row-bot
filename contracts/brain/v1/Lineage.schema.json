@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "ItemKind": {
+      "description": "The kinds of item a brain holds.",
+      "enum": [
+        "fact",
+        "relation",
+        "skill",
+        "source"
+      ],
+      "type": "string"
+    },
+    "ItemRef": {
+      "additionalProperties": false,
+      "description": "A reference to an item: its kind and its opaque id.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ItemKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The items this one was derived from; forgetting any of them retracts this one too.",
+  "properties": {
+    "derived_from": {
+      "items": {
+        "$ref": "#/$defs/ItemRef"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "derived_from"
+  ],
+  "title": "Lineage",
+  "type": "object"
+}
