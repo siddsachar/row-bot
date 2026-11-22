@@ -3,8 +3,8 @@
 No workflow runs pull-request code with repository secrets (pull_request_target),
 workflows started by events rather than by a person declare their token
 permissions, third-party actions are pinned to a release, only the jobs that
-sign or publish read secrets, and `CI / ci-ok` passes only when every required
-job did (B196).
+sign or publish read secrets, `CI / ci-ok` passes only when every required
+job did (B196), and every pull request CI checks is also security scanned.
 """
 from __future__ import annotations
 
@@ -96,3 +96,13 @@ def test_ci_ok_passes_only_when_every_required_job_did() -> None:
     assert "success|skipped" in gate["steps"][0]["run"]
     # A push to main is never cancelled, so every main commit gets a result.
     assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+
+
+@pytest.mark.parametrize("name", ["codeql.yml", "osv-scanner.yml", "dependency-review.yml"])
+def test_every_pull_request_ci_checks_is_security_scanned(name: str) -> None:
+    ci_branches = set(_load(Path(".github/workflows/ci.yml"))["on"]["pull_request"]["branches"])
+    scan = _load(Path(".github/workflows") / name)["on"]["pull_request"]
+
+    # No path filter, so the scan reports on every pull request and can be required.
+    assert set(scan) == {"branches"}
+    assert set(scan["branches"]) == ci_branches

@@ -1,0 +1,26 @@
+name: Dependency Review
+
+# GitHub's review of the dependencies a pull request adds or changes, from the
+# dependency graph's view of the lock files: it fails on a high or critical
+# advisory and on a licence outside the allow-list in
+# .github/dependency-review-config.yml. It runs on every pull request so it can
+# be a required check; it is quick and stands outside `ci-ok`.
+
+on:
+  pull_request:
+    branches: [main, feat/org]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/dependency-review-action@v5
+        with:
+          config-file: ./.github/dependency-review-config.yml

@@ -1,0 +1,80 @@
+# Dependency review (.github/workflows/dependency-review.yml) of the
+# dependencies a pull request adds or changes, in every lock file.
+
+fail-on-severity: high
+fail-on-scopes:
+  - runtime
+  - development
+  - unknown
+
+# Licences that fit distributing Row-Bot under Apache-2.0, taken from those
+# already in uv.lock and the package-lock.json files (22 Nov 2026). A package
+# under an expression with OR passes when one side is listed. Copyleft
+# licences (GPL, LGPL, MPL) are not listed: a new copyleft dependency fails
+# here and waits for the owner.
+allow-licenses:
+  - 0BSD
+  - Apache-2.0
+  - Apache-2.0 WITH LLVM-exception
+  - BlueOak-1.0.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - CC-BY-4.0
+  - CC0-1.0
+  - CNRI-Python
+  - ISC
+  - MIT
+  - MIT-0
+  - MIT-CMU
+  - OFL-1.1
+  - PSF-2.0
+  - Python-2.0
+
+# The weak-copyleft packages Row-Bot already uses, so their updates pass.
+# They are used unmodified as separate libraries. The two GPL-3.0 packages
+# (pkg:pypi/phonemizer-fork, pkg:npm/libsignal) are deliberately not listed:
+# a change to either fails until the owner decides.
+allow-dependencies-licenses:
+  # LGPL: PDF export, the Telegram channel, the tray icon and its Linux X11
+  # binding, audio resampling.
+  - pkg:pypi/fpdf2
+  - pkg:pypi/python-telegram-bot
+  - pkg:pypi/pystray
+  - pkg:pypi/python-xlib
+  - pkg:pypi/soxr
+  # MPL-2.0, alone or with permissive licences.
+  - pkg:pypi/certifi
+  - pkg:pypi/orjson
+  - pkg:pypi/py-vapid
+  - pkg:pypi/tqdm
+  # LGPL-3.0 libvips binaries of sharp (WhatsApp bridge, and the Cloudflare
+  # tooling of services/).
+  - pkg:npm/@img/sharp-libvips-darwin-arm64
+  - pkg:npm/@img/sharp-libvips-darwin-x64
+  - pkg:npm/@img/sharp-libvips-linux-arm
+  - pkg:npm/@img/sharp-libvips-linux-arm64
+  - pkg:npm/@img/sharp-libvips-linux-ppc64
+  - pkg:npm/@img/sharp-libvips-linux-riscv64
+  - pkg:npm/@img/sharp-libvips-linux-s390x
+  - pkg:npm/@img/sharp-libvips-linux-x64
+  - pkg:npm/@img/sharp-libvips-linuxmusl-arm64
+  - pkg:npm/@img/sharp-libvips-linuxmusl-x64
+  - pkg:npm/@img/sharp-wasm32
+  - pkg:npm/@img/sharp-win32-arm64
+  - pkg:npm/@img/sharp-win32-ia32
+  - pkg:npm/@img/sharp-win32-x64
+  # MPL-2.0 development tools: accessibility checks and the services' CSS tooling.
+  - pkg:npm/axe-core
+  - pkg:npm/@axe-core/playwright
+  - pkg:npm/lightningcss
+  - pkg:npm/lightningcss-android-arm64
+  - pkg:npm/lightningcss-darwin-arm64
+  - pkg:npm/lightningcss-darwin-x64
+  - pkg:npm/lightningcss-freebsd-x64
+  - pkg:npm/lightningcss-linux-arm-gnueabihf
+  - pkg:npm/lightningcss-linux-arm64-gnu
+  - pkg:npm/lightningcss-linux-arm64-musl
+  - pkg:npm/lightningcss-linux-x64-gnu
+  - pkg:npm/lightningcss-linux-x64-musl
+  - pkg:npm/lightningcss-win32-arm64-msvc
+  - pkg:npm/lightningcss-win32-x64-msvc

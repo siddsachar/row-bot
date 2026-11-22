@@ -195,7 +195,6 @@ def test_osv_scanner_scans_all_four_lockfiles():
         "docs-site/package-lock.json",
         "src/row_bot/channels/whatsapp_bridge/package-lock.json",
     }
-    assert lockfiles <= set(security_workflow["on"]["pull_request"]["paths"])
     scan = next(
         step for step in security_workflow["jobs"]["scan"]["steps"]
         if "osv-scanner-action" in step.get("uses", "")
