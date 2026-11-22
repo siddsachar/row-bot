@@ -9,12 +9,14 @@ model, and returns the description.
 Several images (F5, decision D6): up to eight pictures go in one call,
 from the chat's files, the workspace, the page in Row-Bot's browser,
 recordings and video edits (a video gives frames, through ffmpeg). A
-contact sheet tiles many of them into one labelled picture, shown in the
-chat too. Nothing is gathered when the model can't see images.
+contact sheet tiles many of them into one labelled picture, kept in the
+chat's files as a working file. Nothing is gathered when the model can't see
+images.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from langchain_core.tools import StructuredTool
@@ -23,6 +25,8 @@ from pydantic import BaseModel, Field
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 from row_bot.vision_runtime import get_vision_service
+
+logger = logging.getLogger(__name__)
 
 
 def _get_vision_service():
@@ -175,31 +179,29 @@ def _analyze_files(question: str, files: list[str], contact_sheet: bool, frames:
             sheet, tiles = make_sheet(pictures)
         except SheetError as exc:
             return with_approval(line, str(exc)) if line else str(exc)
-        shown = _show_sheet(sheet)
+        _keep_sheet(sheet)
         answer = service.analyze(
             sheet,
             f"This is a contact sheet of {len(tiles)} pictures, numbered 1 to {len(tiles)} in reading order; "
             f"each caption under a picture gives its number and name (or its time in a video). {question}",
         )
-        note = ("The contact sheet is shown to the person in the chat. " if shown else "")
-        result = f"Looked at a contact sheet of {len(tiles)} pictures. {note}\n{answer}"
+        result = f"Looked at a contact sheet of {len(tiles)} pictures (a working file the person doesn't see).\n{answer}"
     else:
         answer = service.analyze_many(pictures, question)
         result = f"Looked at {len(pictures)} image{'s' if len(pictures) != 1 else ''}.\n{answer}"
     return with_approval(line, result) if line else result
 
 
-def _show_sheet(sheet: bytes) -> bool:
-    """Show the contact sheet in the chat, as a generated picture (saved to the chat's files)."""
+def _keep_sheet(sheet: bytes) -> None:
+    """Keep the contact sheet in the chat's files as a working file: the person sees it only on asking."""
     import base64
 
     try:
         from row_bot.tools.image_gen_tool import _set_pending_image
 
-        _set_pending_image(base64.b64encode(sheet).decode("ascii"))
-        return True
+        _set_pending_image(base64.b64encode(sheet).decode("ascii"), "contact-sheet.jpg", "working")
     except Exception:
-        return False
+        logger.debug("The contact sheet wasn't kept", exc_info=True)
 
 
 def _analyze_image(

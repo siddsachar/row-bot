@@ -618,7 +618,8 @@ def export(project: Project, shape: str, number: int | None = None, *, download:
         edit = video_edits.start(video_edits.Request(
             conversation_id=project.conversation_id, kind="video", sources=resolve(made.edit_id,
                                                                                project.conversation_id),
-            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True))
+            output_name=_file_name(project.title, ".gif", f"v{version.number}"), download=download, gif=True,
+            role="draft", output_id=project.project_id, version=version.number))
         _update(project, version.number, exports={**version.exports, shape: edit.edit_id})
     else:
         thread = threading.Thread(target=_make, args=(project.project_id, project.conversation_id, version.number,
@@ -823,6 +824,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             conversation_id=conversation_id, kind="video", sources=media, steps=steps,
             output_name=_file_name(project.title, ".mp4", f"v{number} {shape.replace(':', 'x')}".strip()),
             download=download, sounds=sounds, check=True,
+            role="draft", output_id=project.project_id, version=number,
         ))
         if shape:
             fresh = get(project_id, conversation_id)

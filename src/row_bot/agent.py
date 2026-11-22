@@ -6794,6 +6794,9 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         # Developer tools work only on a code folder (F34); one bound mid-turn is used by the turn after,
         # a configuration change like any other (one new tool list).
         enabled_tool_names = [name for name in enabled_tool_names if name != "developer"]
+    if "presentation" in enabled_tool_names and _current_runtime_surface_var.get("") == "channel":
+        # present shows a final in a Row-Bot chat; a chat app's turn delivers files with send_file.
+        enabled_tool_names = [name for name in enabled_tool_names if name != "presentation"]
     eager_core_entries, external_entries, destructive_names = _collect_agent_tool_candidates(
         enabled_tool_names,
         allow_set,

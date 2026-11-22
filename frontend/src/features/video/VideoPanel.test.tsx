@@ -238,25 +238,33 @@ it('goes back a version in one tap, and Post to X asks Row-Bot in the chat', asy
   expect(body.text).toContain('(vid-1a2b3c4d) to X. Show me the post first.');
 });
 
-it("the chat's card says how the video stands and opens it beside the chat", async () => {
+it("the chat's card says how the video stands, plays it, and opens it beside the chat", async () => {
   const opened: VideoRequest[] = [];
   const stop = onVideoRequest((request) => {
     opened.push(request);
     return true;
   });
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:draft');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  const download = vi.fn(
+    async () => new Blob(['video'], { type: 'video/mp4' }),
+  );
   const controller = {
     subscribe: () => () => {},
     getSnapshot: () => ({ status: 'ready' }),
     videoProject: vi.fn(async () => view()),
+    download,
   } as unknown as ClientController;
-  render(
+  const { container } = render(
     <RuntimeContext.Provider
       value={{ controller, platform: {} as ClientPlatform }}
     >
-      <VideoProjectCard
-        projectId="vid-1a2b3c4d"
-        conversationId="conversation-a"
-      />
+      <OverlayProvider>
+        <VideoProjectCard
+          projectId="vid-1a2b3c4d"
+          conversationId="conversation-a"
+        />
+      </OverlayProvider>
     </RuntimeContext.Provider>,
   );
   const card = await screen.findByRole('group', {
@@ -264,6 +272,17 @@ it("the chat's card says how the video stands and opens it beside the chat", asy
   });
   expect(card).toHaveTextContent('Made');
   expect(card).toHaveTextContent('Version 2 of 2');
+  // The made version plays in the card: the draft is looked at in the chat.
+  await waitFor(() =>
+    expect(container.querySelector('video')).toHaveAttribute(
+      'src',
+      'blob:draft',
+    ),
+  );
+  expect(download).toHaveBeenCalledWith(
+    view().edit?.media_ref,
+    expect.anything(),
+  );
   await userEvent.click(within(card).getByRole('button', { name: 'Open' }));
   expect(opened).toEqual([
     {

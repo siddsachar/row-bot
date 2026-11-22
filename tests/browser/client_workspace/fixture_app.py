@@ -1530,6 +1530,84 @@ def media_seed(x_fixture_token: str = Header(default="")) -> dict:
     return {"conversation_id": thread}
 
 
+def _captured(thread: str, run, label: str = ""):
+    """A real tool step as the agent's wrapper runs it: its result, then the media it made or presented."""
+    from row_bot.application.attachment_context import AttachmentExecutionCaches, _current, tool_attachment_scope
+    from row_bot.application.generated_media import capture_generated_media
+
+    token = _current.set(AttachmentExecutionCaches(thread))
+    try:
+        with tool_attachment_scope() as caches:
+            content = _s4_in_thread(thread, run)
+            return content, capture_generated_media(thread, caches, label=label)
+    finally:
+        _current.reset(token)
+
+
+def _finals_steps(thread: str):
+    """Finals first (a birthday montage): the real tools make an AI clip, a recording, an edit and a contact sheet
+    on the way, then present the film. Only the clip and the film show; the rest fold as working files."""
+    from row_bot import recordings
+    from row_bot.application.attachments import register_attachment
+    from row_bot.application.generated_media import save_generated_output
+    from row_bot.tools import video_editing_tool as video_tool, vision_tool
+    from row_bot.tools.present_tool import _present
+    from row_bot.tools.video_gen_tool import _set_pending_video
+
+    _s4_patch(missing=False, seconds=0.6)
+    for index in range(1, 7):
+        register_attachment(thread, f"party-{index:02d}.png", _s4_steps_picture(index))
+    made: dict = {}
+
+    def clip():
+        path = save_generated_output(thread, _s3_video(), prefix="vid", extension="mp4")
+        _set_pending_video({"path": path})
+        return "Generated a 3-second video."
+
+    def record():
+        started = recordings.start(thread, "browser", max_minutes=5, begin=lambda rec, path: _S3Capture(rec, path))
+        recordings.stop(started.recording_id, by="agent")
+        recordings.wait(started, 10)
+        return recordings.summary(recordings.get(started.recording_id)), []
+
+    def cut():
+        from row_bot import video_edits
+
+        content = video_tool._edit_video(inputs=["signup.mp4"], steps=_S4_STEPS, name="Birthday montage")
+        made["edit"] = content.split(":", 1)[0].removeprefix("Video edit ")
+        video_edits.wait(video_edits.get(made["edit"]), 20)  # The film is made before it's presented.
+        return video_edits.summary(video_edits.get(made["edit"])), []
+
+    class _Vision:
+        def cannot_see(self, chat_model=None):
+            return ""
+
+        def analyze(self, image, question):
+            return "Every picture is sharp; picture 4 is the brightest."
+
+    def look():
+        original = vision_tool._get_vision_service
+        vision_tool._get_vision_service = lambda: _Vision()
+        try:
+            return vision_tool._analyze_image("Are the party pictures sharp?", contact_sheet=True,
+                                              files=[f"party-{index:02d}.png" for index in range(1, 7)])
+        finally:
+            vision_tool._get_vision_service = original
+
+    steps = [
+        ("generate_video", {"prompt": "Confetti falling over a birthday cake"},
+         lambda: _captured(thread, clip, label="confetti-falling-over-a-birthday-cake")),
+        ("browser_record", {"action": "start"}, lambda: _s4_in_thread(thread, record)),
+        ("edit_video", {"inputs": ["signup.mp4"], "steps": _S4_STEPS, "name": "Birthday montage"},
+         lambda: _s4_in_thread(thread, cut)),
+        ("analyze_image", {"question": "Are the party pictures sharp?", "contact_sheet": True},
+         lambda: _captured(thread, look)),
+        ("present", {"files": ["Birthday montage.mp4"], "caption": "Sam's birthday, 1 minute"},
+         lambda: _captured(thread, lambda: _present(files=[made["edit"]], caption="Sam's birthday, 1 minute"))),
+    ]
+    return steps, "Here's Sam's birthday montage, with the confetti clip at the start."
+
+
 def _s4_stream(text: str, config: dict):
     from row_bot import ffmpeg_runtime
     from row_bot.application.attachments import register_attachment
@@ -1556,7 +1634,6 @@ def _s4_stream(text: str, config: dict):
             for index in range(1, 13):
                 register_attachment(thread, f"step-{index:02d}.png", _s4_steps_picture(index))
             files = [f"step-{index:02d}.png" for index in range(1, 13)]
-            shown: list[str] = []
 
             class _Vision:
                 def cannot_see(self, chat_model=None):
@@ -1579,23 +1656,23 @@ def _s4_stream(text: str, config: dict):
                             "typed 6 characters, while the hint above it says 6 is enough.")
 
             def look():
-                originals = (vision_tool._get_vision_service, vision_tool._show_sheet)
+                original = vision_tool._get_vision_service
                 vision_tool._get_vision_service = lambda: _Vision()
-                vision_tool._show_sheet = lambda sheet: shown.append(sheet) or True
                 try:
-                    content = vision_tool._analyze_image("Which step of the sign-up goes wrong?", files=files,
-                                                          contact_sheet=True)
+                    return vision_tool._analyze_image("Which step of the sign-up goes wrong?", files=files,
+                                                      contact_sheet=True)
                 finally:
-                    vision_tool._get_vision_service, vision_tool._show_sheet = originals
-                return content, (_s3_media(thread, shown[0]) if shown else [])
+                    vision_tool._get_vision_service = original
 
             steps = [("analyze_image", {"question": "Which step of the sign-up goes wrong?", "files": files,
-                                        "contact_sheet": True}, lambda: _s4_in_thread(thread, look))]
+                                        "contact_sheet": True}, lambda: _captured(thread, look))]
             final = ("Step 9 goes wrong: the password field rejects a 6-character password although the hint says "
                      "6 is enough." if "no vision" not in text else
                      "I can't look at these screenshots with this chat's model: it can't see images. Choose a model "
                      "that can see images for Vision in **Settings › Models** (or switch this chat to one), and ask "
                      "me again.")
+        elif "finals" in text:
+            steps, final = _finals_steps(thread)
         else:
             long_edit = "long" in text
             _s4_patch(missing=False, seconds=20.0 if long_edit else 0.6)

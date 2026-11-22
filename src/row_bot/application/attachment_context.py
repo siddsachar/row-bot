@@ -22,7 +22,11 @@ class AttachmentExecutionCaches:
     images: dict[str, bytes] = field(default_factory=dict)
     pending_image: str | None = None
     pending_image_name: str = ""  # The file name it is saved under ("" is generated-image).
+    # A made picture shows like a final; a screenshot or a contact sheet is a working file.
+    pending_image_role: str = "final"
     pending_video: dict | None = None
+    # Chat files this call presents (``present``): shown in its reply as finals.
+    presented: list[dict] = field(default_factory=list)
 
 
 _current: ContextVar[AttachmentExecutionCaches | None] = ContextVar("attachment_execution_caches", default=None)
@@ -56,8 +60,9 @@ def tool_attachment_scope() -> Iterator[AttachmentExecutionCaches | None]:
         # Data and image dictionaries belong to the outer execution. A tool
         # finishing cannot clear attachments still needed by its siblings.
         child.pending_image = None
-        child.pending_image_name = ""
+        child.pending_image_name, child.pending_image_role = "", "final"
         child.pending_video = None
+        child.presented = []
 
 
 @contextmanager
@@ -86,5 +91,6 @@ def prepared_attachments(conversation_id: str, files: list[dict], *,
         caches.data.clear()
         caches.images.clear()
         caches.pending_image = None
-        caches.pending_image_name = ""
+        caches.pending_image_name, caches.pending_image_role = "", "final"
         caches.pending_video = None
+        caches.presented = []

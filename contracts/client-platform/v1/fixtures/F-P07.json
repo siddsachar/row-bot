@@ -418,6 +418,7 @@
               "payload": {
                 "media_ref": "conversation-a:66e43855-4a40-5bf8-8c89-1704c74273e9",
                 "mime_type": "image/png",
+                "role": "final",
                 "tool_call_id": "e7711d36-7e87-51be-b7eb-3ca2dfa54d3d",
                 "message_id": "99810e91-ab69-5013-8678-c32089c9263a"
               }
@@ -837,6 +838,7 @@
         "payload": {
           "media_ref": "conversation-a:66e43855-4a40-5bf8-8c89-1704c74273e9",
           "mime_type": "image/png",
+          "role": "final",
           "tool_call_id": "e7711d36-7e87-51be-b7eb-3ca2dfa54d3d",
           "message_id": "99810e91-ab69-5013-8678-c32089c9263a"
         }
