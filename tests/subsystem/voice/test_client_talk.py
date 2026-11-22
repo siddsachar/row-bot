@@ -10,6 +10,7 @@ from row_bot.voice.client_talk import SPEECH_TEST_PHRASE, ClientTalkTransport, T
 from row_bot.voice.client_transport import ClientDictationTransport, DictationError, DictationOwner
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.provider_base import SynthesizedSpeech
+from row_bot.voice.speech_policy import ON_SCREEN_POINTER
 from tests.helpers.voice_fakes import fake_browser_speech
 
 
@@ -379,3 +380,17 @@ def test_speech_test_speaks_only_the_fixed_phrase_without_a_session(runtime):
     with pytest.raises(DictationError, match="authority_revoked"):
         r.talk.speech_test(r.owner.client_session_id, validate=revoked)
     assert r.calls == [("speech", SPEECH_TEST_PHRASE)]
+
+
+@pytest.mark.parametrize(("answer", "said"), [
+    (" ".join(f"Step {index} is done." for index in range(1, 31)),
+     " ".join(f"Step {index} is done." for index in range(1, 31))),
+    ("```python\nprint('hi')\n```\n| a | b |\n|---|---|", ON_SCREEN_POINTER),
+], ids=("long-answer-whole", "nothing-to-say-points-to-screen"))
+def test_the_whole_answer_is_spoken_and_only_an_unspeakable_one_points_to_the_screen(runtime, answer, said):
+    r = runtime
+    r.talk._resolve_output = lambda *args: TalkSpeechSource(answer)
+    snapshot = start(r)
+    result = finish(r, receive(r, snapshot))
+    r.talk.output(r.owner, snapshot.handle, run_id=result.run_id, output_id="message", validate=lambda: None)
+    assert r.calls[-1] == ("speech", said)

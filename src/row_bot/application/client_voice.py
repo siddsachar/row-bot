@@ -113,7 +113,9 @@ class ClientVoiceAdmission:
             from row_bot.application.client_queue import freeze_context
             ids = {target["binding_id"] for target in context["write_targets"]}
             bindings = tuple(binding for binding in list_bindings(owner.conversation_id).bindings if binding.binding_id in ids)
-            frozen = freeze_context({"configurable": context["_policy"]}, bindings, context["write_targets"])
+            # A spoken turn: the agent answers for listening (voice_mode; the turn context's "voice" line).
+            frozen = freeze_context({"configurable": {**context["_policy"], "voice_mode": True}}, bindings,
+                                    context["write_targets"])
             def authority() -> None:
                 self.validate_context(owner, context, validate)
             authority()
@@ -188,7 +190,9 @@ class ClientVoiceAdmission:
                     matches.append(record)
                     if len(matches) > 1:
                         break
-            if len(matches) != 1 or matches[0]["role"] != "assistant" or matches[0]["tool_call_ids"] or matches[0]["tool_ids_lazy"]:
+            # The run's final answer, also when the turn used tools or Agents: only its text is spoken, never
+            # a tool's call or result, nor what the turn wrote before its last step.
+            if len(matches) != 1 or matches[0]["role"] != "assistant":
                 raise DictationError("voice_output_unavailable")
             encoded = bytearray()
             for chunk in reader.content_chunks(matches[0]):
@@ -225,9 +229,9 @@ class ClientVoiceAdmission:
             raise DictationError("voice_run_changed")
         result = {"run_id": run_id, "state": run.status, "output_id": None, "text": None}
         if run.producer_done.is_set() and run.status == "completed" and run.segment_committed and run.output_message_id:
-            from row_bot.voice.speech_policy import make_speakable_response
+            from row_bot.voice.speech_policy import spoken_text
             source = self.output(owner, run_id, run.output_message_id, admitted)
-            text = make_speakable_response(source.text, allow_long=source.allow_long).text
+            text = spoken_text(source.text)
             if len(text) > 4000:
                 raise DictationError("voice_output_too_large")
             result.update(output_id=run.output_message_id, text=text)
