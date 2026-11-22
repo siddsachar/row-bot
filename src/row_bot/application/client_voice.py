@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from row_bot.runtime.executions import ExecutionHandle
 
 from collections.abc import Callable
+from contextlib import closing
 from copy import deepcopy
 import json
 import logging
@@ -152,7 +153,7 @@ class ClientVoiceAdmission:
                 if classified in {"status", "cancel"}:
                     action = classified
             if action == "status":
-                return {"status": expected.status, "control": "status", "speakable": "The conversation run is " + expected.status + "."}
+                return {"status": expected.status, "control": "status", "speakable": "I'm still working on it."}
             revision = str(self.service._metadata(owner.conversation_id)["client_revision"])
             def authority() -> None:
                 validate()
@@ -162,14 +163,52 @@ class ClientVoiceAdmission:
                     self.validate_context(owner, context, validate)
             if action == "cancel":
                 self._command(owner, event_id, "conversation.stop", {}, revision, authority)
-                return {"status": "cancel_requested", "control": "cancel", "speakable": "Stopping the conversation run."}
+                return {"status": "cancel_requested", "control": "cancel", "speakable": "Okay, stopping."}
             if action != "input" or not text.strip():
                 raise DictationError("invalid_voice_event")
             self.validate_context(owner, context, validate, refresh_resources=True)
             if expected.model_ref != context["_policy"]["model_override"]:
                 raise DictationError("voice_policy_changed")
             self._command(owner, event_id, "conversation.steer", {"text": text, "steering_id": event_id}, revision, authority)
-            return {"status": "queued", "control": "follow_up", "speakable": "Your follow-up is queued in this conversation."}
+            return {"status": "queued", "control": "follow_up", "speakable": "Got it, I'll do that next."}
+
+    def answer_approval(self, owner: DictationOwner, approval_id: str, approved: bool, event_id: str,
+                        validate: Callable[[], None]) -> str:
+        """A spoken yes or no to the conversation's one waiting approval (VD4).
+
+        It goes through the very command a tap on the card sends (``approval.resolve``, answered once, with
+        the same records), and only for an action voice may answer (``voice.approvals``). "answered", "tap"
+        when only the card may answer it, "gone" when it no longer waits.
+        """
+        from row_bot.tasks import _get_conn
+        from row_bot.voice.approvals import voice_may_answer
+        with _COMMAND_LOCK:
+            validate()
+            self._context(owner)
+            if owner.server_epoch != self.service.server_epoch or admissions.deletion_state(owner.conversation_id) != "active":
+                raise DictationError("voice_session_expired")
+            with closing(_get_conn()) as conn:
+                waiting = conn.execute("SELECT id, resume_kind, approval_payload_json FROM approval_requests "
+                                       "WHERE source_thread_id=? AND status='pending'",
+                                       (owner.conversation_id,)).fetchall()
+            if not any(str(row["id"]) == approval_id for row in waiting):
+                return "gone"
+            # Two waiting at once: which one a "yes" means is not certain, so the cards answer them.
+            if len(waiting) != 1 or waiting[0]["resume_kind"] != "conversation":
+                return "tap"
+            try:
+                context = json.loads(str(waiting[0]["approval_payload_json"] or "{}"))
+            except ValueError:
+                return "tap"
+            if not isinstance(context, dict) or not voice_may_answer(context.get("interrupt")):
+                return "tap"
+            identity = str(uuid5(UUID(event_id), owner.client_session_id + ":" + approval_id + ":approval.resolve"))
+            self.service.execute(owner_id=self.service.instance_id, idempotency_key=identity,
+                command={"command_id": identity, "client_session_id": owner.client_session_id,
+                         "type": "approval.resolve", "expected_revision": "0",
+                         "payload": {"decision": "approve" if approved else "reject", "scope": "once"}},
+                target=approval_id, validate=validate)
+            return "answered"
 
     def output(self, owner: DictationOwner, run_id: str, output_id: str, validate: Callable[[], None]) -> TalkSpeechSource:
         validate()

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import time
 from typing import Any, Literal, Protocol
 
@@ -25,6 +26,7 @@ from row_bot.voice.client_transport import (
 from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderError
 from row_bot.voice.tickets import RedeemedTicket, VoiceTicket, VoiceTickets
 
+_LOG = logging.getLogger(__name__)
 SPEECH_TEST_PHRASE = "Hello! This is your Row-Bot voice test."
 
 
@@ -197,6 +199,14 @@ class DuplexTalkTransport:
         def follow(event: tuple, handle: Any) -> None:
             kind = str(event[0]) if event else ""
             payload = event[1] if len(event) > 1 else None
+            if kind == "interrupt":
+                # The card it raised, as voice says it: a summary, and whether a spoken yes may answer it.
+                from row_bot.voice.approvals import approval_notice
+                payload = approval_notice(payload, str(getattr(handle, "approval_id", "") or ""))
+            elif kind in {"tool_call", "tool_done"}:
+                get = getattr(payload, "get", None)
+                payload = {"tool": str(get("runtime_name") or get("raw_name") or ""),
+                           "id": str(get("tool_call_id") or get("id") or "")} if callable(get) else {}
             session.agent_event(kind, payload, str(getattr(handle, "pass_id", "") or ""),
                                 str(getattr(handle, "segment_id", "") or ""))
 
@@ -237,7 +247,8 @@ class ConversationVoiceHost:
             else:
                 # The person spoke while a run works: steer it, stop it or ask how it is going.
                 result = admission.control(self._owner, running, "input", text, utterance_id, self._admitted)
-                outcome = TurnOutcome("control", speakable=str(result.get("speakable") or ""))
+                outcome = TurnOutcome("control", speakable=str(result.get("speakable") or ""),
+                                      control=str(result.get("control") or ""))
             with self._transport.coordinator._dictation_lock:
                 lease = self._transport._lease(self._owner, self._handle)
                 lease.last_activity = self._transport._clock()
@@ -246,6 +257,15 @@ class ConversationVoiceHost:
             return TurnOutcome("rejected", code=exc.code)
         except Exception as exc:
             return TurnOutcome("rejected", code=str(getattr(exc, "code", "") or "voice_admission_failed"))
+
+    def answer_approval(self, approval_id: str, approve: bool, utterance_id: str) -> str:
+        try:
+            self._admitted()
+            return self._transport._admission.answer_approval(self._owner, approval_id, approve, utterance_id,
+                                                              self._admitted)
+        except Exception as exc:  # Refused or already answered: the card is the way now.
+            _LOG.info("A spoken approval answer was not taken: %s", str(getattr(exc, "code", "") or type(exc).__name__))
+            return "gone"
 
     def drops(self, text: str) -> bool:
         with self._transport.coordinator._dictation_lock:

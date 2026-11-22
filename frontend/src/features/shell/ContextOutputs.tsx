@@ -38,7 +38,7 @@ const STYLE_WORD =
   /\b(?:photorealistic|realistic|hyper-?realistic|cinematic|dramatic|stylized|stylised|4k|8k|close-up|aerial|slow-motion|shot|view)\b/i;
 
 /** A prompt's subject, cut at a word ("Colourful fireworks over a lake…"). */
-function shortPrompt(full: string) {
+export function shortPrompt(full: string) {
   const opening = STYLE_OPENING.exec(full)?.[0] ?? '';
   const subject = STYLE_WORD.test(opening) ? full.slice(opening.length) : full;
   const prompt =
@@ -55,7 +55,7 @@ function shortPrompt(full: string) {
  * A small server thumbnail: a picture's, or a video's frame half a second in
  * (I20) under a play mark. Without one, the mark alone.
  */
-function Thumb({ output }: { output: ConversationOutput }) {
+export function OutputThumb({ output }: { output: ConversationOutput }) {
   const { controller } = useRuntime();
   const [src, setSrc] = useState('');
   const video = output.mime.startsWith('video/');
@@ -261,7 +261,7 @@ export default function ContextOutputs({
                 }
               >
                 <span className="context-output-frame">
-                  <Thumb output={output} />
+                  <OutputThumb output={output} />
                 </span>
                 <span className="context-output-label" aria-hidden>
                   {output.name}

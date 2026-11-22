@@ -14,7 +14,7 @@ text-to-speech, admission) run off the event loop.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 import logging
 import re
@@ -24,14 +24,25 @@ from uuid import uuid4
 
 from row_bot.voice.engine.latency import LatencyLog, TurnMarks, recent_turns
 from row_bot.voice.engine.sentences import SentenceAggregator
+from row_bot.voice.engine.spoken import (
+    NEEDS_A_TAP,
+    PROGRESS_GAP_SECONDS,
+    STILL_WORKING,
+    STILL_WORKING_SECONDS,
+    progress_line,
+    spoken_answer,
+    status_line,
+)
 from row_bot.voice.engine.speech import MAX_UTTERANCE_SECONDS
 from row_bot.voice.engine.turns import EndOfTurn, SpeechTracker, TurnSettings, VoiceActivity
 from row_bot.voice.streaming_base import (
     INPUT_SAMPLE_RATE,
     SentenceSpeech,
+    SpeechAudio,
     SpeechToTextStream,
     StreamingSpeechToText,
 )
+from row_bot.voice.speech_policy import ON_SCREEN_POINTER
 
 _LOG = logging.getLogger(__name__)
 
@@ -49,6 +60,11 @@ BACKCHANNELS = frozenset({
 _WORDS = re.compile(r"[a-z0-9']+(?:-[a-z0-9']+)?")
 
 OrbState = Literal["connecting", "listening", "thinking", "speaking", "waiting", "muted", "paused"]
+# What a spoken piece is: the answer, a control's reply, a progress line, an approval's summary, or a
+# result that came back later. Only answers and replies count toward a turn's latency.
+SpeechKind = Literal["answer", "control", "progress", "approval", "later"]
+# Fixed lines are synthesised once per session.
+_FIXED_KINDS = frozenset({"progress", "control"})
 
 
 class VoiceLink(Protocol):
@@ -67,6 +83,8 @@ class TurnOutcome:
     # Fixed words to say back (a control's answer), never model text.
     speakable: str = ""
     code: str = ""
+    # Which control it was ("status", "cancel", "follow_up"): a status is answered from the run's progress.
+    control: str = ""
 
 
 class VoiceHost(Protocol):
@@ -84,6 +102,13 @@ class VoiceHost(Protocol):
         ...
 
     def keepalive(self) -> None:
+        ...
+
+    def answer_approval(self, approval_id: str, approve: bool, utterance_id: str) -> str:
+        """Answer the conversation's one waiting approval by voice, through the same path as a tap. Blocking.
+
+        "answered", "tap" (only the card may answer it) or "gone" (nothing of this id waits now).
+        """
         ...
 
 
@@ -125,6 +150,25 @@ def is_backchannel(text: str) -> bool:
     return joined in BACKCHANNELS or all(word in BACKCHANNELS for word in words)
 
 
+@dataclass
+class _Burst:
+    """Tool starts with no answer text between them: one progress line at most."""
+
+    started_at: float
+    said: bool = False
+
+
+@dataclass
+class _Approval:
+    approval_id: str
+    summary: str
+    voice: bool
+    # Its summary went to the client (or could not be spoken), and when it finished, in audio time: a
+    # spoken answer counts only when it starts after that, never while Row-Bot is talking.
+    sent: bool = False
+    armed_ms: float | None = None
+
+
 class _BargeIn:
     def __init__(self) -> None:
         self.confirmed = False
@@ -137,12 +181,14 @@ class DuplexSession:
     def __init__(self, parts: EngineParts, link: VoiceLink, host: VoiceHost, *,
                  settings: SessionSettings | None = None,
                  clock: Callable[[], float] = time.monotonic,
-                 log: LatencyLog | None = None) -> None:
+                 log: LatencyLog | None = None,
+                 sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep) -> None:
         self.parts = parts
         self.link = link
         self.host = host
         self.settings = settings or SessionSettings()
         self.clock = clock
+        self._sleep = sleep
         self.log = log or LatencyLog()
         self.tracker = SpeechTracker(parts.activity, self.settings.turns)
         self.closed = False
@@ -156,6 +202,8 @@ class DuplexSession:
         self._preroll_bytes = frames
         self._utterance: SpeechToTextStream | None = None
         self._utterance_id = ""
+        self._utterance_at = 0.0
+        self._utterance_over_voice = False
         self._turn_audio = bytearray()
         self._last_voice_at = 0.0
         self._voice_run_ms = 0
@@ -177,10 +225,21 @@ class DuplexSession:
         self._aggregator = SentenceAggregator()
         self._speech_epoch = 0
         self._segment = 0
-        self._speech: asyncio.Queue[tuple[int, int, str]] = asyncio.Queue()
+        self._speech: asyncio.Queue[tuple[int, int, str, SpeechKind]] = asyncio.Queue()
+        self._fixed_audio: dict[str, SpeechAudio] = {}
+        # When something was last said (queued, or its playback ended): progress lines keep their distance.
+        self._said_at = float("-inf")
+        self._said_ms = float("-inf")  # The same, in audio time: what the person's words are timed against.
+        self._burst: _Burst | None = None
+        self._open_tools: set[str] = set()
+        self._tool = ""
+        # Said at the next pause: an approval's summary, results that came back later.
+        self._deferred: list[tuple[str, SpeechKind]] = []
+        self._approval: _Approval | None = None
         self._marks: TurnMarks | None = None
         self._marks_segment = 0
         self._tasks: set[asyncio.Task] = set()
+        self._timers: set[asyncio.Task] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._speaker: asyncio.Task | None = None
         self.out_sample_rate = 24_000
@@ -209,9 +268,9 @@ class DuplexSession:
             self._utterance = None
         if self._speaker is not None:
             self._speaker.cancel()
-        for task in list(self._tasks):
+        for task in [*self._tasks, *self._timers]:
             task.cancel()
-        pending = [task for task in (self._speaker, *self._tasks) if task is not None]
+        pending = [task for task in (self._speaker, *self._tasks, *self._timers) if task is not None]
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._record_marks()
@@ -235,6 +294,17 @@ class DuplexSession:
         self._tasks.add(task)
         task.add_done_callback(self._finished)
 
+    def _timer(self, seconds: float, callback: Callable[..., Awaitable[None]], *args: Any) -> None:
+        """Run *callback* after *seconds*; never awaited by ``idle`` and cancelled on close."""
+        async def later() -> None:
+            await self._sleep(seconds)
+            if not self.closed:
+                await callback(*args)
+
+        task = asyncio.create_task(later())
+        self._timers.add(task)
+        task.add_done_callback(self._timers.discard)
+
     def _finished(self, task: asyncio.Task) -> None:
         self._tasks.discard(task)
         if not task.cancelled() and task.exception() is not None:
@@ -256,6 +326,7 @@ class DuplexSession:
         return "listening"
 
     async def _publish_state(self) -> None:
+        self._deliver()
         state = self.orb()
         if state != self._state and not self.closed:
             self._state = state
@@ -303,6 +374,7 @@ class DuplexSession:
         await self._check_barge_in()
         if self._utterance is not None and self.tracker.now_ms - self.tracker.speech_started_ms >= MAX_UTTERANCE_SECONDS * 1000:
             await self._end_turn()
+        self._deliver()
         busy = self._utterance is not None or self._audible or self._thinking or self._run_active
         if busy:
             self._idle_from_ms = self.tracker.now_ms
@@ -322,6 +394,9 @@ class DuplexSession:
         self._record_marks()
         self._utterance = self.parts.stt.open()
         self._utterance_id = str(uuid4())
+        # When the voice began, in audio time, and whether Row-Bot was talking then.
+        self._utterance_at = float(self.tracker.speech_started_ms)
+        self._utterance_over_voice = self._audible
         self._turn_audio = bytearray()
         self._push(bytes(self._preroll))
         self._idle_from_ms = self.tracker.now_ms
@@ -413,6 +488,8 @@ class DuplexSession:
             self._speech.get_nowait()
             self._speech.task_done()
         self._aggregator.reset()
+        if self._approval is not None and self._approval.armed_ms is None:
+            self._approval.armed_ms = self.tracker.now_ms  # Nothing of its summary plays after this.
         if self._current_pass:
             # The rest of this answer stays on screen; it is no longer spoken.
             self._silenced_pass = self._current_pass
@@ -430,6 +507,9 @@ class DuplexSession:
         if stream is None:
             return
         utterance_id = self._utterance_id
+        # Over Row-Bot's voice: it was talking when this began, or said or finished something since.
+        heard_at = self._utterance_at
+        over_voice = self._utterance_over_voice or heard_at < self._said_ms
         self._utterance = None
         self._barge = None
         self._turn_audio = bytearray()
@@ -441,21 +521,28 @@ class DuplexSession:
         self._thinking = True
         await self._publish_state()
         await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": False})
-        self._spawn(self._take_turn(stream, utterance_id, marks))
+        self._spawn(self._take_turn(stream, utterance_id, marks, heard_at, over_voice))
 
-    async def _take_turn(self, stream: SpeechToTextStream, utterance_id: str, marks: TurnMarks) -> None:
+    async def _take_turn(self, stream: SpeechToTextStream, utterance_id: str, marks: TurnMarks,
+                         heard_at: float = 0.0, over_voice: bool = False) -> None:
         try:
             heard = await asyncio.to_thread(stream.finish)
         finally:
             stream.close()
         marks.mark("transcript_final", self.clock())
         text = " ".join(heard.text.split())
-        if not text or self.host.drops(text) or self.closed:
+        pending = self._approval
+        # A yes or no while an approval waits is its answer (its summary's own words are no echo here).
+        answer = spoken_answer(text) if pending is not None and not self.closed else None
+        if answer is None and (not text or self.host.drops(text) or self.closed):
             self._thinking = False
             await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": True})
             await self._publish_state()
             return
         await self.link.send_event({"type": "caption", "role": "user", "text": text, "final": True})
+        if pending is not None and answer is not None:
+            await self._answer_approval(pending, answer, heard_at, over_voice, utterance_id)
+            return
         self._marks = marks
         self._marks_segment = 0
         outcome = await asyncio.to_thread(self.host.take_turn, text, utterance_id)
@@ -468,9 +555,98 @@ class DuplexSession:
             await self.link.send_event({"type": "error", "code": outcome.code or "voice_admission_failed"})
         elif outcome.kind == "control":
             self._thinking = False
-            if outcome.speakable:
-                self._enqueue(outcome.speakable)
+            # "How's it going?" is answered from the run's own progress; the run goes on.
+            speakable = (status_line(self._tool if self._open_tools else None) if outcome.control == "status"
+                         else outcome.speakable)
+            if speakable:
+                self._enqueue(speakable, "control")
         await self._publish_state()
+
+    # ── approvals by voice (VD4) ────────────────────────────────────────
+
+    async def _answer_approval(self, pending: _Approval, answer: str, heard_at: float, over_voice: bool,
+                               utterance_id: str) -> None:
+        try:
+            # Only a plain yes or no, begun after its summary finished and not over Row-Bot's voice, counts:
+            # anything else (an echo, a "yes, but…") is ignored, and the card still waits. Silence never answers.
+            if answer == "unclear" or pending.armed_ms is None or heard_at < pending.armed_ms or over_voice:
+                return
+            if not pending.voice:
+                self._enqueue(NEEDS_A_TAP, "control")
+                return
+            result = await asyncio.to_thread(self.host.answer_approval, pending.approval_id, answer == "yes",
+                                             utterance_id)
+            if result == "tap":
+                self._enqueue(NEEDS_A_TAP, "control")
+            else:
+                await self._clear_approval(pending)
+        finally:
+            self._thinking = False
+            await self._publish_state()
+
+    async def _ask_approval(self, notice: Mapping[str, Any]) -> None:
+        approval = _Approval(str(notice["approval_id"]), str(notice.get("summary") or ""), bool(notice.get("voice")))
+        self._approval = approval
+        self._deferred = [item for item in self._deferred if item[1] != "approval"]
+        if approval.summary:
+            self._deferred.append((approval.summary, "approval"))
+        else:
+            approval.sent, approval.armed_ms = True, self.tracker.now_ms
+        await self.link.send_event({"type": "approval", "approval_id": approval.approval_id,
+                                    "action": str(notice.get("action") or ""), "voice": approval.voice})
+
+    async def _clear_approval(self, only: _Approval | None = None) -> None:
+        if self._approval is None or (only is not None and self._approval is not only):
+            return
+        self._approval = None
+        self._deferred = [item for item in self._deferred if item[1] != "approval"]
+        await self.link.send_event({"type": "approval", "approval_id": ""})
+
+    # ── spoken progress and later results (V3) ──────────────────────────
+
+    def _quiet(self) -> bool:
+        """Nobody is talking and nothing is waiting to be said."""
+        return (not self.closed and not self.paused and self._utterance is None and self.tracker.state == "quiet"
+                and not self._audible and self._speech.empty())
+
+    def _at_pause(self) -> bool:
+        return self._quiet() and not self._thinking and not self._run_active
+
+    def _deliver(self) -> None:
+        """Say what waits for a pause (an approval's summary, a later result) once there is one."""
+        if not self._deferred or not self._at_pause():
+            return
+        waiting, self._deferred = self._deferred, []
+        for text, kind in waiting:
+            self._enqueue(text, kind)
+
+    def _tool_started(self, payload: Any) -> None:
+        tool = str(payload.get("tool") or "") if isinstance(payload, Mapping) else ""
+        call = str(payload.get("id") or "") if isinstance(payload, Mapping) else ""
+        self._open_tools.add(call or tool or f"tool-{len(self._open_tools)}")
+        self._tool = tool
+        if self._burst is not None:
+            return
+        burst = self._burst = _Burst(self.clock())
+        line = progress_line(tool)
+        if line and self._quiet() and self.clock() - self._said_at >= PROGRESS_GAP_SECONDS:
+            burst.said = True
+            self._enqueue(line, "progress")
+        self._timer(STILL_WORKING_SECONDS, self._still_working, burst)
+
+    async def _still_working(self, burst: _Burst) -> None:
+        # Nothing said since this burst began, and a tool still runs: one line, never over anyone.
+        if (self._burst is burst and not burst.said and self._open_tools and self._said_at <= burst.started_at
+                and self._quiet()):
+            burst.said = True
+            self._enqueue(STILL_WORKING, "progress")
+            await self._publish_state()
+
+    def _later(self, text: str) -> None:
+        """A result that came back after its turn ended (a helper's, in a later wake): said at the next pause."""
+        aggregator = SentenceAggregator()
+        pieces = aggregator.push(text) + aggregator.flush()
+        self._deferred.extend((piece, "later") for piece in pieces or [ON_SCREEN_POINTER])
 
     # ── the agent's answer ──────────────────────────────────────────────
 
@@ -505,12 +681,19 @@ class DuplexSession:
                     self._enqueue(piece)
             if kind == "token":
                 self._current_segment = segment_id
+        # The run went on (or ended) after its card: the approval no longer waits on voice.
+        if self._approval is not None and (kind in {"token", "tool_call", "done", "error"}
+                                           or (kind == "finished" and payload != "waiting_approval")):
+            await self._clear_approval()
         if silenced:
             self._run_active = self._thinking = False
             self._waiting = kind == "interrupt" or (kind == "finished" and payload == "waiting_approval")
+        elif kind == "later_answer":
+            self._later(str(payload or ""))
         elif kind == "token":
             self._run_active = True
             self._waiting = False
+            self._burst = None  # Answer text ends a burst of tool starts.
             if self._marks is not None:
                 self._marks.mark("first_token", self.clock())
             for piece in self._aggregator.push(str(payload or "")):
@@ -524,25 +707,45 @@ class DuplexSession:
         elif kind in {"tool_call", "tool_start", "platform_segment"}:
             self._run_active = True
             self._waiting = False
+            if kind == "tool_call":
+                for piece in self._aggregator.flush():  # What it said before the call is whole now.
+                    self._enqueue(piece)
+                self._tool_started(payload)
+        elif kind == "tool_done" and isinstance(payload, Mapping):
+            self._open_tools.discard(str(payload.get("id") or payload.get("tool") or ""))
+        if terminal:
+            self._burst = None
+            self._open_tools.clear()
+        if kind == "interrupt" and isinstance(payload, Mapping) and payload.get("approval_id"):
+            await self._ask_approval(payload)
         self._idle_from_ms = self.tracker.now_ms
         await self._publish_state()
 
-    def _enqueue(self, text: str) -> None:
+    def _enqueue(self, text: str, kind: SpeechKind = "answer") -> None:
         self._segment += 1
-        if self._marks is not None:
+        if self._marks is not None and kind in {"answer", "control"}:
             self._marks.mark("first_sentence", self.clock())
             if not self._marks_segment:
                 self._marks_segment = self._segment
-        self._speech.put_nowait((self._speech_epoch, self._segment, text))
+        self._said_at = self.clock()
+        self._said_ms = self.tracker.now_ms
+        self._speech.put_nowait((self._speech_epoch, self._segment, text, kind))
 
     async def _speak_loop(self) -> None:
         while True:
-            epoch, segment, text = await self._speech.get()
+            epoch, segment, text, kind = await self._speech.get()
+            sent = False
             try:
-                if epoch != self._speech_epoch:
+                # A progress line whose burst ended (the answer began) is stale: the answer goes first.
+                if epoch != self._speech_epoch or (kind == "progress" and self._burst is None):
                     continue
-                audio = await asyncio.to_thread(self.parts.tts.synthesize, text)
-                if epoch != self._speech_epoch or self.closed or not audio.pcm16:
+                audio = self._fixed_audio.get(text) if kind in _FIXED_KINDS else None
+                if audio is None:
+                    audio = await asyncio.to_thread(self.parts.tts.synthesize, text)
+                    if kind in _FIXED_KINDS and audio.pcm16 and len(self._fixed_audio) < 32:
+                        self._fixed_audio[text] = audio
+                if (epoch != self._speech_epoch or self.closed or not audio.pcm16
+                        or (kind == "progress" and self._burst is None)):
                     continue
                 self.out_sample_rate = audio.sample_rate
                 self.host.spoke(text)
@@ -550,7 +753,8 @@ class DuplexSession:
                 self._thinking = False
                 await self.link.send_event({"type": "caption", "role": "assistant", "text": text,
                                             "segment": segment, "sample_rate": audio.sample_rate,
-                                            "final": True})
+                                            "kind": kind, "final": True})
+                sent = True
                 step = int(audio.sample_rate * _AUDIO_CHUNK_SECONDS) * 2
                 if self._marks is not None and segment == self._marks_segment:
                     self._marks.mark("first_audio_sent", self.clock())
@@ -562,6 +766,11 @@ class DuplexSession:
             except Exception as exc:  # A sentence that cannot be spoken stays on screen.
                 _LOG.warning("Row-Bot Voice could not speak a sentence: %s", type(exc).__name__)
             finally:
+                approval = self._approval
+                if kind == "approval" and approval is not None and not approval.sent:
+                    approval.sent = True
+                    if not sent:
+                        approval.armed_ms = self.tracker.now_ms  # Unspoken: nothing to wait for.
                 self._speech.task_done()
 
     def _record_marks(self) -> None:
@@ -614,6 +823,11 @@ class DuplexSession:
                 await self.link.send_event({"type": "latency", "last": breakdown, "summary": self.log.summary()})
         elif state == "idle":
             self._audible = False
+            self._said_at = self.clock()
+            self._said_ms = self.tracker.now_ms
+            approval = self._approval
+            if approval is not None and approval.sent and approval.armed_ms is None:
+                approval.armed_ms = self.tracker.now_ms
             if self._ducked and self._barge is None:
                 self._ducked = False
             self._idle_from_ms = self.tracker.now_ms

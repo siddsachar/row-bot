@@ -22,6 +22,7 @@ function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
     rowBot: null,
     inputLevel: 0,
     latency: null,
+    approval: null,
     error: '',
     ...initial,
   };
@@ -180,4 +181,61 @@ it('timing reads as one plain line', () => {
       summary: { turns: 1, stages: { voice_to_voice: { p50: 640, p90: 640 } } },
     }),
   ).toBe('Replied in 0.6 s');
+});
+
+it('a progress line reads as Row-Bot working, not as its answer', () => {
+  const { session, update } = fakeSession();
+  bar(session);
+  update({
+    rowBot: { text: 'Checking your calendar…', final: true, kind: 'progress' },
+  });
+  expect(
+    screen.getByText('Checking your calendar…').closest('.voice-caption'),
+  ).toHaveAttribute('data-kind', 'progress');
+});
+
+it('a waiting approval says how it may be answered and points at its card', () => {
+  const { session, update } = fakeSession({ orb: 'waiting' });
+  const onShowApproval = vi.fn();
+  bar(session, { onShowApproval });
+  update({
+    approval: { id: 'approval-1', action: 'Move / rename file?', voice: true },
+  });
+  expect(screen.getByText('Move / rename file?')).toBeInTheDocument();
+  expect(screen.getByText('Say yes, or tap Approve')).toBeInTheDocument();
+  // The bar never answers it: only the card's own buttons do.
+  expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Show the approval' }));
+  expect(onShowApproval).toHaveBeenCalled();
+  update({
+    approval: { id: 'approval-2', action: 'Send email?', voice: false },
+  });
+  expect(screen.getByText('Needs a tap on Approve')).toBeInTheDocument();
+  expect(screen.queryByText('Say yes, or tap Approve')).toBeNull();
+  update({ approval: null });
+  expect(screen.queryByText('Send email?')).toBeNull();
+});
+
+it('the phone focus shows the newest result, opened with one tap, and leaves focus to show an approval', () => {
+  const { session, update } = fakeSession();
+  const open = vi.fn();
+  bar(session, {
+    phone: true,
+    onShowApproval: vi.fn(),
+    result: { label: 'Fireworks over a lake', open },
+  });
+  // Outside focus the transcript shows it already.
+  expect(screen.queryByText('Fireworks over a lake')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: /Fireworks over a lake/ }),
+  );
+  expect(open).toHaveBeenCalled();
+  update({
+    approval: { id: 'approval-1', action: 'Move / rename file?', voice: true },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Show the approval' }));
+  expect(
+    screen.getByRole('region', { name: 'Voice conversation' }),
+  ).not.toHaveAttribute('data-focus');
 });

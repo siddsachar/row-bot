@@ -13,7 +13,7 @@ import pytest
 from row_bot.voice.engine.session import DuplexSession, SessionSettings, TurnOutcome
 from row_bot.voice.engine.turns import TurnSettings
 from tests.helpers.voice_fakes import (
-    FRAME_MS, SILENT, VOICED, FakeClock, FakeEndOfTurn, FakeHost, FakeLink, FakeSentenceSpeech,
+    FRAME_MS, SILENT, VOICED, FakeClock, FakeEndOfTurn, FakeHost, FakeLink, FakeSentenceSpeech, FakeSleep,
     FakeSpeechToText, fake_engine_parts,
 )
 
@@ -29,8 +29,9 @@ class Rig:
         self.turn = FakeEndOfTurn(probability)
         self.link = FakeLink()
         self.host = host or FakeHost()
+        self.sleep = FakeSleep(self.clock)
         self.session = DuplexSession(fake_engine_parts(self.clock, self.stt, self.tts, self.turn),
-                                     self.link, self.host, settings=settings, clock=self.clock)
+                                     self.link, self.host, settings=settings, clock=self.clock, sleep=self.sleep)
         self.link.session = self.session
 
     async def feed(self, ms: int, *, voiced: bool, settle: bool = False) -> None:
@@ -184,7 +185,7 @@ def test_a_backchannel_or_cough_only_ducks_and_row_bot_keeps_talking():
 
 def test_after_a_barge_in_the_interrupted_run_is_silenced_and_the_next_answer_is_spoken():
     async def scenario():
-        control = TurnOutcome("control", speakable="Stopping the conversation run.")
+        control = TurnOutcome("control", speakable="Okay, stopping.")
         rig = Rig("Explain the plan", "Stop", partial="Stop", host=FakeHost())
         await rig.session.start()
         await rig.say()
@@ -195,7 +196,7 @@ def test_after_a_barge_in_the_interrupted_run_is_silenced_and_the_next_answer_is
         await rig.feed(400, voiced=False)
         await rig.session.idle()
         assert rig.link.of("flush") and rig.host.turns[-1] == "Stop"
-        assert rig.tts.spoken[-1] == "Stopping the conversation run."
+        assert rig.tts.spoken[-1] == "Okay, stopping."
         spoken = len(rig.tts.spoken)
         rig.answer("The old answer goes on. ", pass_id="pass-1")
         await rig.session.idle()
@@ -216,7 +217,7 @@ def test_a_steer_after_a_barge_in_is_answered_aloud_from_the_steer_on():
         rig.session.agent_event("token", "Then", "pass-1", "seg-1")
         await rig.session.idle()
         assert rig.tts.spoken == ["Here is the first long sentence about the plan."]
-        rig.host.outcome = TurnOutcome("control", speakable="Your follow-up is queued in this conversation.")
+        rig.host.outcome = TurnOutcome("control", speakable="Got it, I'll do that next.")
         await rig.feed(400, voiced=True)
         await rig.feed(400, voiced=False)
         await rig.session.idle()
@@ -229,7 +230,7 @@ def test_a_steer_after_a_barge_in_is_answered_aloud_from_the_steer_on():
         rig.session.agent_event("token", "Short version: ship on Friday. ", "pass-1", "seg-2")
         rig.session.agent_event("done", None, "pass-1", "seg-2")
         await rig.session.idle()
-        assert rig.tts.spoken[-2:] == ["Your follow-up is queued in this conversation.", "Short version: ship on Friday."]
+        assert rig.tts.spoken[-2:] == ["Got it, I'll do that next.", "Short version: ship on Friday."]
         await rig.session.close()
     run(scenario())
 
@@ -363,10 +364,11 @@ def test_an_approval_waiting_shows_waiting_for_you():
         rig = Rig("Delete the old files")
         await rig.session.start()
         await rig.say()
-        rig.session.agent_event("tool_call", {}, "pass-1")
+        rig.session.agent_event("tool_call", {"tool": "workspace_file_delete", "id": "call-1"}, "pass-1")
         rig.session.agent_event("interrupt", None, "pass-1")
         rig.session.agent_event("finished", "waiting_approval", "pass-1")
         await rig.session.idle()
+        await rig.session.control({"type": "playback", "state": "idle"})
         assert rig.link.states()[-1] == "waiting"
         await rig.session.close()
     run(scenario())

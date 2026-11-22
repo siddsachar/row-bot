@@ -1994,6 +1994,11 @@ class ClientPlatformService:
         listener = self.voice_listeners.get(conversation_id)
         return bool(listener is not None and getattr(listener, "live", lambda: False)())
 
+    def voice_later_answer(self, conversation_id: str, text: str) -> None:
+        """An answer that came after its turn ended (a later orchestration wake): an open voice session says it
+        at its next pause; with none open, nothing is said."""
+        self._voice_follows(conversation_id, ("later_answer", str(text or "")), None)
+
     def _voice_follows(self, conversation_id: str, event: tuple, handle: Any) -> None:
         listener = self.voice_listeners.get(conversation_id)
         if listener is not None:

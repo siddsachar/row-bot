@@ -29,6 +29,14 @@ Your provider key never leaves the computer running Row-Bot, and the app page co
 
 Use Dictate when accuracy and review matter. Use Talk when you want a faster hands-light conversation. Use local voice when privacy and offline-style behavior matter. Whisper remains the default local transcription engine. SenseVoice is an optional alternative on Windows, Linux, and Apple Silicon macOS; Intel macOS continues to use Whisper. Use Live voice for the most natural conversation when you accept that audio goes to the provider you choose, at its price.
 
+## While Row-Bot Works
+
+When you talk with Row-Bot Voice and it uses a tool, it says a short line such as "Checking your calendar…" so you know it is working, and "Still working on it…" if nothing has been said for a couple of seconds. These lines are spoken only: they are not saved in the chat and the model never sees them. They never play over you or in the middle of an answer.
+
+You can keep talking while it works. Ask "how's it going?" and it tells you what it is doing without stopping. Anything else you say goes to the work in progress, and Row-Bot says "Got it, I'll do that next." When helpers finish after the turn has ended, their answer is spoken at the next pause, as long as voice is still on. Pictures and videos appear in the chat as they are made; in the phone's full-screen voice view, the newest one shows under the captions and opens with one tap.
+
+When something needs your OK, Row-Bot says what it is and the approval card appears. For an action that can be undone, such as moving a file or adding a calendar event with no guests, you can say "yes" or "no" once it has finished asking. Anything that deletes, sends, posts, pays, publishes, runs a command or uses an app's tool needs a tap on the card, and Row-Bot says "This one needs a tap." A "yes" said over Row-Bot's own voice, a mixed answer such as "yes, but…", or silence never approves anything.
+
 ## Optional SenseVoice Setup
 
 Open Settings -> Voice, find **SenseVoice** under **Voice models**, and choose **Install SenseVoice Small**. Then choose it under **Speech engine** (**Talk listens with** or **Dictation listens with**). Installation is an explicit approximately 940 MB download from ModelScope. Row-Bot verifies the contained snapshot before saving it under the active data directory, and normal transcription then uses that local snapshot with update checks disabled. Startup, readiness checks, and ordinary transcription never download or repair the model automatically.

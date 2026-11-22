@@ -4672,6 +4672,7 @@ export default function Conversation({
                           voiceExposure.talk
                         }
                         phone={phone}
+                        outputs={outputs}
                         focusComposer={() =>
                           composerRef.current?.focus({ preventScroll: true })
                         }

@@ -165,3 +165,47 @@ it('a refused microphone ends the session with a plain reason', async () => {
   expect(sockets).toHaveLength(0);
   expect(session.getSnapshot().error).toMatch(/microphone/);
 });
+
+it('keeps what kind of line was said, and the waiting approval until it clears', async () => {
+  const { session, sockets, audio } = setup();
+  await session.start();
+  const socket = sockets[0];
+  socket.open();
+  socket.emit({
+    type: 'caption',
+    role: 'assistant',
+    text: 'Checking your calendar…',
+    segment: 1,
+    sample_rate: 24000,
+    kind: 'progress',
+    final: true,
+  });
+  socket.emit(audioFrame(1));
+  audio.playback?.started(1, 10);
+  expect(session.getSnapshot().rowBot).toEqual({
+    text: 'Checking your calendar…',
+    final: true,
+    kind: 'progress',
+  });
+  socket.emit({
+    type: 'approval',
+    approval_id: 'approval-1',
+    action: 'Move / rename file?',
+    voice: true,
+  });
+  expect(session.getSnapshot().approval).toEqual({
+    id: 'approval-1',
+    action: 'Move / rename file?',
+    voice: true,
+  });
+  socket.emit({ type: 'approval', approval_id: '' });
+  expect(session.getSnapshot().approval).toBeNull();
+  socket.emit({
+    type: 'approval',
+    approval_id: 'approval-2',
+    action: 'Send email?',
+    voice: false,
+  });
+  await session.end();
+  expect(session.getSnapshot().approval).toBeNull();
+});
