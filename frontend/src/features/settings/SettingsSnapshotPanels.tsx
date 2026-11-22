@@ -2172,7 +2172,7 @@ export function VoiceSnapshotPanel({
           anchor="live-voice"
           note="A cloud voice that talks with you and hands real work to Row-Bot. Pick it in a chat's Talk panel."
           meta={
-            <Link className="settings-link" to="/settings/models">
+            <Link className="settings-link" to="/settings/models#providers-api">
               Open Providers
             </Link>
           }
@@ -2181,7 +2181,7 @@ export function VoiceSnapshotPanel({
             <VoiceModelRow
               key={provider.id}
               title={provider.label}
-              description={`${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)} (${provider.company}’s prices, ${provider.price_checked}). Your voice and the chat’s recent messages go to ${provider.company}.`}
+              description={`${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)} (${provider.company}’s prices, ${provider.price_checked}). Your voice, the chat’s recent messages, the agent profile’s name and a few related memories go to ${provider.company} (no memories in an incognito chat).`}
               status={
                 provider.available
                   ? 'Key saved'

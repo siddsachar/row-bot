@@ -537,7 +537,7 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(screen.getByText('Needs your Google API key')).toBeVisible();
   expect(
     screen.getByText(
-      /About \$0\.02 a minute \(Google’s prices, 22 Nov 2026\)\. Your voice and the chat’s recent messages go to Google\./,
+      /About \$0\.02 a minute \(Google’s prices, 22 Nov 2026\)\. Your voice, the chat’s recent messages, the agent profile’s name and a few related memories go to Google \(no memories in an incognito chat\)\./,
     ),
   ).toBeVisible();
   expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);

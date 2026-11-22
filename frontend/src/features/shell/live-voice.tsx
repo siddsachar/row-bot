@@ -27,8 +27,15 @@ function remember(id: LiveId) {
 }
 
 /** Who hears the audio and what it costs, said before Live voice is first used. */
-export function liveVoiceDisclosure(provider: LiveVoiceProvider): string {
-  return `Your voice and this chat’s recent messages go to ${provider.company} while you talk. ${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)}, from ${provider.company}’s published prices (${provider.price_checked}), billed to your ${provider.company} key.`;
+export function liveVoiceDisclosure(
+  provider: LiveVoiceProvider,
+  incognito = false,
+): string {
+  // An incognito chat sends no memories (the host builds the context without them).
+  const what = incognito
+    ? 'Your voice, this chat’s recent messages and the agent profile’s name go'
+    : 'Your voice, this chat’s recent messages, the agent profile’s name and a few related memories go';
+  return `${what} to ${provider.company} while you talk. ${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)}, from ${provider.company}’s published prices (${provider.price_checked}), billed to your ${provider.company} key.`;
 }
 
 /** What the person hears: the consult's answer once its run ends, and its progress cues meanwhile. */
@@ -67,17 +74,18 @@ export function liveOutputs(
 
 export function LiveVoiceDisclosure(props: {
   provider: LiveVoiceProvider;
+  incognito?: boolean;
   acknowledged: boolean;
   onAcknowledge(): void;
 }) {
   const provider = props.provider;
   return (
     <div className="voice-live-disclosure" role="note">
-      <p>{liveVoiceDisclosure(provider)}</p>
+      <p>{liveVoiceDisclosure(provider, props.incognito)}</p>
       {!provider.available ? (
         <p className="voice-state-reason">
           Add your {provider.company} API key in{' '}
-          <Link to="/settings/models">Providers</Link> to use it.
+          <Link to="/settings/models#providers-api">Providers</Link> to use it.
         </p>
       ) : (
         !props.acknowledged &&

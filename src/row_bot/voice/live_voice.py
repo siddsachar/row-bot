@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 PRICES_CHECKED = "22 Nov 2026"
+# Where the person adds a provider's API key (Settings › Models › API providers).
+PROVIDERS_LINK = "/settings/models#providers-api"
 
 
 @dataclass(frozen=True)

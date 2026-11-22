@@ -4685,6 +4685,7 @@ export default function Conversation({
                         }
                         unavailableReason={voiceExposure.talkReason}
                         liveProviders={voiceExposure.live}
+                        incognito={incognito}
                         disabled={busy}
                         running={isRunning}
                         onBusy={setTalkBusy}
