@@ -1484,6 +1484,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
         ContextField("device_zone", _device_zone_line(), "The person's device is in this computer's time zone."),
+        ContextField("voice", VOICE_TURN_LINE if _current_voice_mode_var.get() else "", TYPED_TURN_LINE),
     ]
     off: list[str] = []
     switched_off: list[str] = []
@@ -4754,6 +4755,7 @@ def _prepare_agent_request(
     # ``messages`` update (LangGraph's add_messages reducer appends it after the turn's message),
     # and found in the checkpoint by every later call of the turn.
     budget = state.get("execution_budget")
+    _current_voice_mode_var.set(bool(((config or {}).get("configurable") or {}).get("voice_mode")))
     messages, created = _with_turn_context(list(state.get("messages") or []), budget)
     if created:
         state = {**state, "messages": messages}
@@ -5319,6 +5321,22 @@ _current_device_zone_var: _contextvars.ContextVar[str] = _contextvars.ContextVar
 def current_device_zone() -> str:
     """The zone of the device the person sent this turn from, or "" when no device said."""
     return _current_device_zone_var.get("")
+
+
+# Whether the person hears this turn's answer (Talk, Realtime): its turn context then says to answer for
+# listening (VD7). Read from the request's config on every Agent call; a child Agent's config never has it.
+# The line is part of the turn's saved context message (never the person's own message), so it costs no
+# cache: every later call of the turn and every later turn replays the same bytes, and the system prompt is
+# the same for spoken and typed turns.
+_current_voice_mode_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar("current_voice_mode", default=False)
+VOICE_TURN_LINE = (
+    "This turn is spoken: the person hears your answer read aloud and sees it on screen. Answer "
+    "conversationally, in plain spoken sentences, with no markdown, lists, headings or emoji in what you say. "
+    "Keep it as short as you would out loud. Anything better read than heard (code, tables, long lists, links) "
+    "still goes in your answer in full, formatted as usual; it's shown, not read aloud, so say in a few words "
+    "that it's on screen."
+)
+TYPED_TURN_LINE = "This turn is typed: format your answer as usual."
 
 
 # ── Learning (preview) seams ────────────────────────────────────────────────────────────────────

@@ -161,7 +161,7 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
     tts.reload_settings()
     text = respelled(text, pronunciations)
     chosen = voice or tts.voice
-    data = tts.synthesize_wav_bytes(text, voice=chosen, speed=speed or None, truncate=False)
+    data = tts.synthesize_wav_bytes(text, voice=chosen, speed=speed or None)
     if not data:
         raise SoundError("There was nothing to say once code and formatting were left out.")
     return Speech(data, wav_seconds(data), chosen)

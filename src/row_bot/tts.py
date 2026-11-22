@@ -14,7 +14,6 @@ import io
 import json
 import logging
 import os
-import re
 import tempfile
 import threading
 import time
@@ -25,7 +24,7 @@ from typing import Any, Callable
 
 import numpy as np
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.voice.speech_policy import make_speakable_response
+from row_bot.voice.speech_policy import clean_for_speech
 
 logger = logging.getLogger(__name__)
 
@@ -92,58 +91,6 @@ VOICE_CATALOG: dict[str, str] = {
     "bm_george":  "George (British Male)",
 }
 _DEFAULT_VOICE = "af_heart"
-
-# ── Markdown / noise stripping patterns ──────────────────────────────────────
-# Order matters: links/code first, then blocks, then line-level (bullets
-# BEFORE emphasis so `* ` bullets aren't eaten by the *italic* regex),
-# then emphasis (triple before double before single), then cleanup.
-_MD_STRIP: list[tuple[re.Pattern, str]] = [
-    # ── Fenced code blocks (must run BEFORE inline code) ─────────────
-    (re.compile(r"```[\s\S]*?```"),                   ""),       # fenced code blocks
-
-    # ── Inline formatting (keep inner text) ──────────────────────────
-    (re.compile(r"`([^`]+)`"),                         r"\1"),    # inline code → text
-    (re.compile(r"\[([^\]]+)\]\([^\)]*\)"),            r"\1"),    # [text](url) → text
-
-    # ── Blocks (remove entirely) ─────────────────────────────────────
-    (re.compile(r"^\|.*\|$", re.MULTILINE),           ""),       # table rows
-    (re.compile(r"^[-=]{3,}$", re.MULTILINE),         ""),       # horizontal rules
-    (re.compile(r"!\[.*?\]\(.*?\)"),                   ""),       # images
-    (re.compile(r"https?://\S+"),                      ""),       # raw URLs
-    (re.compile(r"\S+@\S+\.\S+"),                      ""),       # email addresses
-
-    # ── Line-level (must run BEFORE emphasis) ────────────────────────
-    (re.compile(r"^#{1,6}\s+", re.MULTILINE),          ""),       # headers
-    (re.compile(r"^>\s?", re.MULTILINE),               ""),       # blockquotes
-    (re.compile(r"^\s*[-*+•◦▪▸●○⬤◉⚫]\s+", re.MULTILINE), ""),  # bullet lists
-    (re.compile(r"^\s*\d+[.)]\s+", re.MULTILINE),      ""),       # numbered lists
-
-    # ── Emphasis (triple before double before single) ────────────────
-    (re.compile(r"\*{3}(.+?)\*{3}", re.DOTALL),       r"\1"),    # ***bold italic***
-    (re.compile(r"_{3}(.+?)_{3}", re.DOTALL),          r"\1"),    # ___bold italic___
-    (re.compile(r"\*{2}(.+?)\*{2}", re.DOTALL),       r"\1"),    # **bold**
-    (re.compile(r"_{2}(.+?)_{2}", re.DOTALL),          r"\1"),    # __bold__
-    (re.compile(r"(?<!\*)\*(?!\*)(.+?)\*(?!\*)", re.DOTALL), r"\1"),  # *italic*
-    (re.compile(r"~~(.+?)~~", re.DOTALL),              r"\1"),    # ~~strikethrough~~
-
-    # ── Emoji ────────────────────────────────────────────────────────
-    (re.compile(
-        r"[\U0001f000-\U0001ffff\u2600-\u27bf\ufe00-\ufe0f\u200d]"
-    ), ""),
-
-    # ── Final cleanup sweeps ─────────────────────────────────────────
-    (re.compile(r"[•◦▪▸▹►▻●○⬤◉⚫·∙⋅]"),             ""),       # ALL dot/bullet chars
-    (re.compile(r"[–—]"),                              " "),      # en/em dashes → space
-    (re.compile(r"\*{2,}"),                            ""),       # leftover ** or ***
-    (re.compile(r"(?<!\w)\*(?!\w)"),                   ""),       # stray lone *
-    (re.compile(r"\n{3,}"),                            "\n\n"),   # excess newlines
-    (re.compile(r"[ \t]{2,}"),                         " "),      # excess whitespace
-]
-
-_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
-_MAX_SPEAK_SENTENCES = 3
-_FALLBACK_MSG = "I've provided the response in the app."
-_TRUNCATION_SUFFIX = " The full response is shown in the app."
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -336,14 +283,12 @@ class TTSService:
         """Speak immediately (test button / future read-aloud)."""
         self._speak_internal(text)
 
-    def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, speed: float | None = None,
-                             truncate: bool = True) -> bytes:
-        """Generate local Kokoro audio without using a physical device.
+    def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, speed: float | None = None) -> bytes:
+        """Generate local Kokoro audio without using a physical device: every sentence, without markdown.
 
-        *voice* and *speed* override the saved ones for this call; *truncate* False keeps every sentence (a voice
-        file, 5.3.1 B) instead of a spoken reply's few.
+        *voice* and *speed* override the saved ones for this call.
         """
-        clean = _prepare_text(text, truncate=truncate)
+        clean = clean_for_speech(text)
         if not clean.strip():
             return b""
         samples, sample_rate = self._synthesize_samples(clean, voice=voice, speed=speed)
@@ -392,7 +337,7 @@ class TTSService:
         if not self.is_installed():
             return
 
-        clean = _prepare_text(sentence, truncate=False)
+        clean = clean_for_speech(sentence)
         if not clean.strip():
             return
 
@@ -518,7 +463,7 @@ class TTSService:
         if not self.is_installed():
             return
 
-        clean = _prepare_text(text)
+        clean = clean_for_speech(text)
         if not clean.strip():
             return
 
@@ -624,59 +569,6 @@ def _voice_lang(voice_id: str) -> str:
         "i": "it",
         "p": "pt-br",
     }.get(prefix, "en-us")
-
-
-def _prepare_text(text: str, *, truncate: bool = True) -> str:
-    """Strip markdown formatting and optionally truncate for speech.
-
-    When *truncate* is ``False`` the sentence-cap / truncation-suffix
-    logic is skipped — useful for streaming TTS where the caller
-    manages the sentence budget."""
-    speakable = make_speakable_response(
-        text,
-        max_sentences=_MAX_SPEAK_SENTENCES,
-        allow_long=not truncate,
-        fallback_text=_FALLBACK_MSG,
-        truncation_text=_TRUNCATION_SUFFIX.strip(),
-    )
-    return speakable.text
-
-    clean = text
-    for pattern, repl in _MD_STRIP:
-        clean = pattern.sub(repl, clean)
-
-    # Split into lines, ensure each ends with punctuation so the TTS
-    # pauses naturally between sentences / paragraphs.
-    lines = [ln.strip() for ln in clean.splitlines() if ln.strip()]
-    for i, ln in enumerate(lines):
-        if ln and not ln[-1] in ".!?:;,":
-            lines[i] = ln + "."
-    clean = "\n".join(lines)
-
-    clean = clean.strip()
-
-    # If most content was code/tables (stripped away), use a fallback phrase
-    if not clean or len(clean) < len(text.strip()) * 0.25:
-        return _FALLBACK_MSG
-
-    if not truncate:
-        return clean
-
-    # Split into sentences
-    sentences = _SENTENCE_END_RE.split(clean)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    if not sentences:
-        return _FALLBACK_MSG
-
-    # Short responses → read in full
-    if len(sentences) <= _MAX_SPEAK_SENTENCES:
-        return clean
-
-    # Long responses → first N sentences + truncation notice
-    truncated = " ".join(sentences[:_MAX_SPEAK_SENTENCES])
-    if not truncated.endswith((".", "!", "?")):
-        truncated += "."
-    return truncated + _TRUNCATION_SUFFIX
 
 
 def _download_file(
