@@ -88,6 +88,19 @@ def test_row_bot_status_resolves_explicit_xai_oauth_media_label(monkeypatch):
     assert normalize_media_model("grok-imagine-video", video_gen_tool.get_available_video_models()) == "grok-imagine-video"
 
 
+def test_row_bot_status_voice_says_read_aloud_is_ready_once_kokoro_is_installed(monkeypatch):
+    from row_bot.tools.row_bot_status_tool import _query_voice
+    from row_bot.tts import TTSService
+
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr(TTSService, "is_installed", lambda self: True)
+
+    lines = _query_voice().splitlines()
+
+    assert "- Read aloud and spoken replies: Kokoro, installed" in lines
+    assert not any("not installed" in line for line in lines if line.startswith("- Read aloud"))
+
+
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     from row_bot.tools.row_bot_status_tool import _query_voice
 
@@ -99,7 +112,9 @@ def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     assert "Talk model:" in output
     assert "Dictation provider:" in output
     assert "Speech output provider:" in output
-    assert "Realtime fallback:" in output
+    assert ("- Read aloud and spoken replies: Kokoro, not installed (only the person can start the download: "
+            "[Voice](/settings/voice#read-aloud))") in output
+    assert "Realtime fallback" not in output and "TTS enabled" not in output
     assert "OpenAI Realtime:" in output
     assert "User-facing modes: Talk, Dictate" in output
     assert "Dictate policy: STT-only" in output

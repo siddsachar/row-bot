@@ -3,7 +3,7 @@
 Kokoro is a fast, high-quality neural text-to-speech model that runs
 entirely via ONNX Runtime.  This module manages model downloads,
 preprocesses agent responses (stripping markdown, truncating long text),
-and plays audio through the default output device using sounddevice.
+and returns WAV bytes for the browser to play: it never uses a host speaker.
 
 Everything runs locally — no audio is sent to the cloud.
 """
@@ -16,10 +16,8 @@ import logging
 import os
 import tempfile
 import threading
-import time
 import wave
 from pathlib import Path
-from queue import Queue, Empty
 from typing import Any, Callable
 
 import numpy as np
@@ -119,34 +117,15 @@ _KOKORO_LOAD_LOCK = threading.Lock()
 
 
 class TTSService:
-    """Text-to-speech using Kokoro TTS via ONNX Runtime (local, offline).
-
-    Mic gating: when a ``voice_service`` is attached, this service will
-    call ``voice_service.mute()`` before speaking and
-    ``voice_service.unmute()`` when finished, preventing echo
-    feedback loops.
-    """
+    """Text-to-speech using Kokoro TTS via ONNX Runtime (local, offline): WAV bytes, never host playback."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._playback_thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
-
-        # Streaming TTS queue
-        self._stream_queue: Queue[str | None] = Queue()
-        self._stream_worker: threading.Thread | None = None
-
-        # Reference to VoiceService for mic gating (set via property)
-        self._voice_service = None
-
         # Lazy-loaded Kokoro instance (heavy — loads ~169 MB model)
         self._kokoro = None
 
         # Persisted settings
         self._voice: str = _DEFAULT_VOICE
         self._speed: float = 1.0
-        self._enabled: bool = False
-        self._auto_speak: bool = True
         self._load_settings()
 
     # ── Kokoro model (lazy-loaded) ───────────────────────────────────────
@@ -176,79 +155,15 @@ class TTSService:
 
         return self._kokoro
 
-    # ── Voice service link (mic gating) ──────────────────────────────────
-
-    @property
-    def voice_service(self):
-        return self._voice_service
-
-    @voice_service.setter
-    def voice_service(self, svc) -> None:
-        self._voice_service = svc
-
-    def _mute_mic(self) -> None:
-        """Tell the voice service to pause mic processing."""
-        if self._voice_service and self._voice_service.is_running:
-            self._voice_service.mute()
-
-    def _unmute_mic(self) -> None:
-        """Tell the voice service to resume listening."""
-        if self._voice_service and self._voice_service.is_running:
-            self._voice_service.unmute()
-
-    def _record_voice_output(self, text: str) -> None:
-        if self._voice_service and hasattr(self._voice_service, "record_assistant_output"):
-            try:
-                self._voice_service.record_assistant_output(text)
-            except Exception:
-                logger.debug("Could not record assistant voice output", exc_info=True)
-
     # ── Properties ───────────────────────────────────────────────────────
 
     @property
     def voice(self) -> str:
         return self._voice
 
-    @voice.setter
-    def voice(self, v: str) -> None:
-        self._voice = v
-        self._save_settings()
-
     @property
     def speed(self) -> float:
         return self._speed
-
-    @speed.setter
-    def speed(self, s: float) -> None:
-        self._speed = max(0.5, min(2.0, s))
-        self._save_settings()
-
-    @property
-    def enabled(self) -> bool:
-        return self._enabled
-
-    @enabled.setter
-    def enabled(self, e: bool) -> None:
-        self._enabled = e
-        self._save_settings()
-
-    @property
-    def auto_speak(self) -> bool:
-        return self._auto_speak
-
-    @auto_speak.setter
-    def auto_speak(self, a: bool) -> None:
-        self._auto_speak = a
-        self._save_settings()
-
-    @property
-    def is_speaking(self) -> bool:
-        return (
-            (self._playback_thread is not None
-             and self._playback_thread.is_alive())
-            or (self._stream_worker is not None
-                and self._stream_worker.is_alive())
-        )
 
     # ── Status checks ────────────────────────────────────────────────────
 
@@ -256,32 +171,7 @@ class TTSService:
         """True if the Kokoro model and voices file are both present."""
         return _MODEL_PATH.exists() and _VOICES_PATH.exists()
 
-    # Backward-compatible aliases used by app.py
-    def is_piper_installed(self) -> bool:
-        """Alias for is_installed() — kept for backward compatibility."""
-        return self.is_installed()
-
-    def is_voice_installed(self, voice_id: str | None = None) -> bool:
-        """True if the TTS engine is installed (all voices are bundled)."""
-        return self.is_installed()
-
-    def get_installed_voices(self) -> list[str]:
-        """Return voice IDs available in the catalog."""
-        if not self.is_installed():
-            return []
-        return sorted(VOICE_CATALOG.keys())
-
-    # ── Core speak / stop ────────────────────────────────────────────────
-
-    def speak(self, text: str, from_voice_input: bool = False) -> None:
-        """Auto-speak: only fires for voice input when *auto_speak* is on."""
-        if not self._enabled or not self._auto_speak or not from_voice_input:
-            return
-        self._speak_internal(text)
-
-    def speak_now(self, text: str) -> None:
-        """Speak immediately (test button / future read-aloud)."""
-        self._speak_internal(text)
+    # ── Synthesis ────────────────────────────────────────────────────────
 
     def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, speed: float | None = None) -> bytes:
         """Generate local Kokoro audio without using a physical device: every sentence, without markdown.
@@ -304,129 +194,6 @@ class TTSService:
             wav.writeframes(pcm.tobytes())
         return output.getvalue()
 
-    def stop(self) -> None:
-        """Stop current playback and clear the streaming queue."""
-        self._stop_event.set()
-        # Drain the streaming queue
-        try:
-            while True:
-                self._stream_queue.get_nowait()
-        except Empty:
-            pass
-        # Stop any sounddevice playback immediately
-        try:
-            import sounddevice as sd
-            sd.stop()
-        except Exception:
-            pass
-        # Don't block — let daemon threads wind down on their own
-        if self._playback_thread and self._playback_thread.is_alive():
-            self._playback_thread.join(timeout=0.5)
-        if self._stream_worker and self._stream_worker.is_alive():
-            # Signal worker to exit only if it's alive to consume the sentinel
-            self._stream_queue.put(None)
-            self._stream_worker.join(timeout=0.5)
-        self._stream_worker = None
-
-    # ── Streaming TTS (sentence-by-sentence) ─────────────────────────
-
-    def speak_streaming(self, sentence: str) -> None:
-        """Queue a sentence for streaming playback. Non-blocking."""
-        if not self._enabled or not self._auto_speak:
-            return
-        if not self.is_installed():
-            return
-
-        clean = clean_for_speech(sentence)
-        if not clean.strip():
-            return
-
-        # Mute mic on first sentence queued
-        self._mute_mic()
-        self._record_voice_output(clean)
-
-        # Ensure worker thread is running
-        if self._stream_worker is None or not self._stream_worker.is_alive():
-            self._stop_event.clear()
-            # Drain any stale items left from a previous stop()/session
-            try:
-                while True:
-                    self._stream_queue.get_nowait()
-            except Empty:
-                pass
-            self._stream_worker = threading.Thread(
-                target=self._stream_worker_loop, daemon=True,
-                name="row-bot-tts-stream",
-            )
-            self._stream_worker.start()
-
-        self._stream_queue.put(clean)
-
-    def flush_streaming(self, remaining: str = "") -> None:
-        """Send any remaining text and signal end-of-stream."""
-        if remaining and remaining.strip():
-            self.speak_streaming(remaining)
-        # Sentinel: worker will exit after playing everything queued
-        self._stream_queue.put(None)
-
-    def _stream_worker_loop(self) -> None:
-        """Background worker: pick sentences from the queue and play them.
-
-        When the stream ends naturally via the end-of-stream sentinel from
-        ``flush_streaming``, the mic is unmuted.  If ``stop()`` kills this
-        worker (sets ``_stop_event``), the mic stays muted so the caller
-        can decide what to do next.
-        """
-        try:
-            import sounddevice as sd
-        except Exception:
-            # No sound system to play through (a Linux machine without PulseAudio).
-            logger.warning("TTS stream playback unavailable", exc_info=True)
-            return
-
-        natural_end = False
-
-        while not self._stop_event.is_set():
-            try:
-                sentence = self._stream_queue.get(timeout=1)
-            except Empty:
-                continue
-
-            if sentence is None:
-                natural_end = True
-                break  # end-of-stream sentinel
-
-            if self._stop_event.is_set():
-                break
-
-            kokoro = self._get_kokoro()
-            if kokoro is None:
-                continue
-
-            try:
-                lang = _voice_lang(self._voice)
-                samples, sample_rate = kokoro.create(
-                    sentence,
-                    voice=self._voice,
-                    speed=self._speed,
-                    lang=lang,
-                )
-
-                if self._stop_event.is_set():
-                    break
-
-                sd.play(samples, samplerate=sample_rate)
-                sd.wait()
-
-            except Exception:
-                logger.debug("TTS stream playback error", exc_info=True)
-
-        # Only unmute on NATURAL end-of-stream (not forced stop).
-        if natural_end and not self._stop_event.is_set():
-            time.sleep(0.5)
-            if not self._stop_event.is_set():
-                self._unmute_mic()
-
     # ── Download helpers ─────────────────────────────────────────────────
 
     def download_model(
@@ -441,57 +208,7 @@ class TTSService:
         logger.info("Downloading Kokoro voices from %s", _VOICES_URL)
         _download_file(_VOICES_URL, _VOICES_PATH, None, size=_VOICES_BYTES, sha256=_VOICES_SHA256)
 
-    # Backward-compatible aliases
-    def download_piper(
-        self, progress: Callable[[float], None] | None = None
-    ) -> None:
-        """Alias for download_model() — kept for backward compatibility."""
-        self.download_model(progress)
-
-    def download_voice(
-        self,
-        voice_id: str | None = None,
-        progress: Callable[[float], None] | None = None,
-    ) -> None:
-        """No-op — all Kokoro voices are bundled in a single file."""
-        pass  # All voices included in voices-v1.0.bin
-
     # ── Internal ─────────────────────────────────────────────────────────
-
-    def _speak_internal(self, text: str) -> None:
-        """Prepare text and start background playback."""
-        if not self.is_installed():
-            return
-
-        clean = clean_for_speech(text)
-        if not clean.strip():
-            return
-
-        self.stop()
-        self._stop_event.clear()
-        # Mute mic before speaking
-        self._mute_mic()
-        self._record_voice_output(clean)
-        self._playback_thread = threading.Thread(
-            target=self._play, args=(clean,), daemon=True,
-        )
-        self._playback_thread.start()
-
-    def _play(self, text: str) -> None:
-        """Generate audio with Kokoro and play it via sounddevice."""
-        try:
-            import sounddevice as sd
-
-            samples, sample_rate = self._synthesize_samples(text)
-
-            if self._stop_event.is_set():
-                return
-
-            sd.play(samples, samplerate=sample_rate)
-            sd.wait()
-
-        except Exception:
-            logger.warning("TTS playback error", exc_info=True)
 
     def _synthesize_samples(self, text: str, *, voice: str | None = None,
                             speed: float | None = None) -> tuple[np.ndarray, int]:
@@ -527,23 +244,8 @@ class TTSService:
                 else:
                     self._voice = _DEFAULT_VOICE
                 self._speed = data.get("speed", 1.0)
-                self._enabled = data.get("enabled", False)
-                self._auto_speak = data.get("auto_speak", True)
         except Exception:
             logger.warning("Failed to load TTS settings from %s", _SETTINGS_PATH, exc_info=True)
-
-    def _save_settings(self) -> None:
-        try:
-            _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "voice": self._voice,
-                "speed": self._speed,
-                "enabled": self._enabled,
-                "auto_speak": self._auto_speak,
-            }
-            _SETTINGS_PATH.write_text(json.dumps(data, indent=2))
-        except Exception:
-            logger.warning("Failed to save TTS settings", exc_info=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -27,7 +27,11 @@ import {
   MoreHorizontal,
   X,
 } from 'lucide-react';
-import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
+import type {
+  ClientError,
+  TranscriptRow,
+  TranscriptTraceGroup,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import {
@@ -41,11 +45,13 @@ import { useLongPress } from './long-press';
 import { AgentStubs } from './AgentStubs';
 import ApprovalCard from './ApprovalCard';
 import { MediaPreview } from './MediaPreview';
+import ErrorFix from './ErrorFix';
 import {
-  speak,
-  speakableText,
-  stopSpeaking,
-  useLocalSpeechAvailable,
+  noteReadAloud,
+  startReading,
+  stopReading,
+  useReadAloudReadiness,
+  useReading,
 } from './read-aloud';
 import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
@@ -439,15 +445,18 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [readFailure, setReadFailure] = useState<ClientError | null>(null);
   const [editing, setEditing] = useState(false);
   const [forking, setForking] = useState(false);
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
   const speechOwner = `${conversationId}:${row.id}`;
-  // Read aloud stays visible without an on-device voice; pressing it says
-  // what is missing instead of the button silently vanishing (U28).
-  const canSpeak = useLocalSpeechAvailable();
+  // Read aloud speaks with the Voice settings' speech output (Kokoro). It
+  // stays visible while that voice isn't installed, and says so (U28).
+  const reading = useReading(speechOwner);
+  const speaking = reading !== 'idle';
+  const readiness = useReadAloudReadiness(controller);
+  const voiceMissing = readiness === 'kokoro_model_missing';
   const author =
     row.role === 'user'
       ? 'You'
@@ -464,7 +473,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     const timer = window.setTimeout(() => setCopied(false), 1600);
     return () => window.clearTimeout(timer);
   }, [copied]);
-  useEffect(() => () => stopSpeaking(speechOwner), [speechOwner]);
+  useEffect(() => () => stopReading(speechOwner), [speechOwner]);
   async function copy() {
     try {
       const result = await platform.writeClipboard(copyText || text);
@@ -489,13 +498,33 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   }
   function readAloud() {
     if (speaking) {
-      stopSpeaking(speechOwner);
-      setSpeaking(false);
+      stopReading(speechOwner);
       return;
     }
-    if (speak(speechOwner, speakableText(text), () => setSpeaking(false)))
-      setSpeaking(true);
-    else setError('Read aloud needs a voice installed on this device.');
+    setReadFailure(null);
+    const message = row.message_id;
+    if (!conversationId || !message) {
+      setReadFailure(clientError({ code: 'not_found' }));
+      return;
+    }
+    startReading(speechOwner, (part, signal) =>
+      controller.readAloud(conversationId, message, part, signal),
+    ).then(
+      () => noteReadAloud(controller, 'available'),
+      (cause: unknown) => {
+        const failure =
+          cause instanceof Error && cause.message === 'audio_playback_failed'
+            ? {
+                code: cause.message,
+                message: "This browser couldn't play the reply.",
+                recovery: 'retry' as const,
+              }
+            : clientError(cause);
+        if (failure.code === 'kokoro_model_missing')
+          noteReadAloud(controller, failure.code);
+        setReadFailure(failure);
+      },
+    );
   }
   async function more() {
     const identity = conversationId;
@@ -615,7 +644,11 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     ...(row.role === 'assistant'
       ? [
           {
-            label: speaking ? 'Stop reading' : 'Read aloud',
+            label: speaking
+              ? 'Stop reading'
+              : voiceMissing
+                ? 'Read aloud · needs the Kokoro voice'
+                : 'Read aloud',
             icon: speaking ? <VolumeX size={16} /> : <Volume2 size={16} />,
             onSelect: readAloud,
           },
@@ -975,8 +1008,14 @@ export const TranscriptMessage = memo(function TranscriptMessage({
               <IconButton
                 size="sm"
                 label={speaking ? 'Stop reading' : 'Read aloud'}
+                title={
+                  voiceMissing && !speaking
+                    ? 'Read aloud needs the Kokoro voice'
+                    : undefined
+                }
                 pressed={speaking}
-                data-unavailable={canSpeak ? undefined : 'true'}
+                aria-busy={reading === 'loading' || undefined}
+                data-unavailable={voiceMissing ? 'true' : undefined}
                 onClick={readAloud}
               >
                 {speaking ? (
@@ -1081,6 +1120,26 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             {error}
           </p>
         )}
+        {readFailure &&
+          (readFailure.code === 'kokoro_model_missing' ? (
+            // A voice still to install is a setup step, not an error.
+            <p role="status" className="message-fix-line">
+              <span className="status-indicator" data-tone="warning">
+                <span className="status-indicator-dot" aria-hidden />
+                <span>{readFailure.message}</span>
+              </span>
+              {readFailure.action?.kind === 'open_setting' && (
+                <ErrorFix action={readFailure.action} />
+              )}
+            </p>
+          ) : (
+            <p role="alert" className="message-error message-fix-line">
+              <span>{readFailure.message}</span>
+              {readFailure.action?.kind === 'open_setting' && (
+                <ErrorFix action={readFailure.action} />
+              )}
+            </p>
+          ))}
       </div>
     </article>
   );
