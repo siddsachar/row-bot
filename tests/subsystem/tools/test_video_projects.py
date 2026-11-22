@@ -5,6 +5,8 @@ so nothing is spoken, encoded or downloaded.
 """
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401
@@ -58,7 +60,11 @@ def studio(platform, monkeypatch):  # noqa: F811
     monkeypatch.setattr(sound, "speak", speak)
     monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: True)  # Row-Bot's voice is here.
     monkeypatch.setattr(video_edits, "start", start)
-    return {"said": said, "voices": voices, "started": started}
+    yield {"said": said, "voices": voices, "started": started}
+    # A make runs on its own thread; finish it here, so it never writes into the next test's fresh databases.
+    for thread in threading.enumerate():
+        if thread.name.startswith("row-bot-vid-"):
+            thread.join(timeout=10)
 
 
 def _wait(project_id: str, number: int):
