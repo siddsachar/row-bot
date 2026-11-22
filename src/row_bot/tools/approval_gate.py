@@ -190,6 +190,13 @@ def _decided_by(who: str, reason: str = "", rule_id: str = "") -> None:
     _decider_var.set((who, str(reason or ""), str(rule_id or "")))
 
 
+def decided_by() -> str:
+    """Who gave the approval just decided: "person", "reviewer" (Auto), "hands_off", "rule" (the person's standing
+    rule) or "chat_grant" (their allowance for this chat); "" when nobody did."""
+
+    return _decider_var.get()[0]
+
+
 def _asking(payload: dict[str, Any], mode: object, reason: str) -> None:
     """The person is about to be asked: if the call pauses here, its row says "Waiting for you"."""
 

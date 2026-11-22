@@ -186,7 +186,9 @@ def _both_downloads_consent() -> tuple[str, str] | None:
     return "", line
 
 
-def _make(project, number: int | None) -> str:
+def _make(project, number: int | None, approved: list[str] | None = None) -> str:
+    """Make a version's video and wait for it; the result leads with every approval given for it (*approved*:
+    reading footage outside the workspace, so the chat's step shows who allowed it)."""
     from row_bot import video_projects
     from row_bot.tools.approval_gate import with_approval
     from row_bot.tools.video_editing_tool import ffmpeg_consent
@@ -216,6 +218,7 @@ def _make(project, number: int | None) -> str:
     text = video_projects.summary(fresh, version.number)
     if not made:
         text += "\n" + _check_back(fresh, version.number)
+    line = "\n".join(part for part in (*(approved or []), line) if part)
     return with_approval(line, text) if line else text
 
 
@@ -262,8 +265,9 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                           narration=narration or "",
                                           captions=bool(captions), voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
-                                          note=note, voice=voice or "", voice_speed=voice_speed)
-            return _make(found, None)
+                                          note=note, voice=voice or "", voice_speed=voice_speed,
+                                          approvals=(approved := []))
+            return _make(found, None, approved)
         found = video_projects.get(project, conversation)
         if found is None:
             return f"{project or 'That'} isn't a video project in this chat: use action create."
@@ -271,8 +275,9 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             changed = video_projects.change(found, by="row-bot", note=note, scenes=raw if scenes is not None else None,
                                             title=title or None, music=music, music_volume=music_volume, narration=narration,
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
-                                            brand=brand, voice=voice, voice_speed=voice_speed)
-            return _make(found, changed.number)
+                                            brand=brand, voice=voice, voice_speed=voice_speed,
+                                            approvals=(approved := []))
+            return _make(found, changed.number, approved)
         if action == "undo":
             if len(found.versions) < 2:
                 return "There's no earlier version to go back to."

@@ -786,7 +786,7 @@ def test_a_file_elsewhere_is_allowed_for_that_video_only_and_a_new_one_asks_agai
     other.write_bytes(b"\xff\xd8\xff photo")
     asked = footage["asked"]
     project = video_projects.create("conversation-a", "Holiday", [{"source": photo}])
-    assert len(asked) == 1 and project.outside == [str(footage["photo"].resolve())]
+    assert len(asked) == 1 and project.outside == [{"path": str(footage["photo"].resolve()), "by": "person"}]
 
     video_projects.make(project, 1)
     _wait(project.project_id, 1)
@@ -815,3 +815,37 @@ def test_footage_inside_row_bots_data_folder_is_refused_by_its_full_path(footage
     with pytest.raises(video_projects.ProjectError, match="Row-Bot's private data folder"):
         video_projects.create("conversation-a", "Peek", [{"source": str(kept)}])
     assert footage["asked"] == [], "refused before anything is asked"
+
+
+def test_a_file_elsewhere_the_reviewer_allows_on_auto_is_recorded_as_the_reviewers_and_shown_in_the_step(
+        footage, monkeypatch):
+    """The person sees an outside read the reviewer granted: the step's approval line says so, and the project
+    keeps who allowed each file."""
+    import json
+
+    from row_bot import approval_review, ffmpeg_runtime, video_projects
+    from row_bot.tools import approval_gate, video_project_tool
+
+    def reviewer(messages, _runtime):
+        case = json.loads(messages[1]["content"])
+        if case["action"]["tool"] == "video" and "holiday" in case["person_asked"][0]:
+            return '{"decision": "approve", "reason": "You asked for a video of your holiday photos."}'
+        return '{"decision": "ask", "reason": "Not what you asked for."}'
+
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "auto")
+    monkeypatch.setattr(approval_review, "current_request", lambda _runtime=None: approval_review.ReviewRequest(
+        messages=("Make a video of my holiday photos from the camera folder",)))
+    monkeypatch.setattr(approval_review, "_model_ref", lambda _runtime: "model:openai:gpt-test")
+    monkeypatch.setattr(approval_review, "_call_reviewer", reviewer)
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+
+    result = video_project_tool._video(action="create", title="Holiday",
+                                       scenes=[{"source": str(footage["photo"])}])
+
+    assert footage["asked"] == [], "the reviewer allowed it: the person wasn't interrupted"
+    assert result.splitlines()[0] == ("Approval: approved by the reviewer: You asked for a video of your holiday "
+                                      "photos")
+    [project] = video_projects.list_projects("conversation-a")
+    assert project.outside == [{"path": str(footage["photo"].resolve()), "by": "reviewer"}]

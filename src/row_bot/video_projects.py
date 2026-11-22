@@ -22,8 +22,8 @@ saved to the conversation's files like any edit.
 Footage is used where it is: a workspace file, or a file elsewhere on this computer once the
 person allows reading it by the approval level, is read in place when the video is made, never
 copied into the chat, however large or long. The person is asked when such a file joins the
-video; the project remembers that exact file (``Project.outside``), for this project only, and any
-other file elsewhere asks again. Footage moved or deleted later is named by its scene.
+video; the project remembers that exact file and who allowed it (``Project.outside``), for this
+project only, and any other file elsewhere asks again. Footage moved or deleted later is named by its scene.
 """
 
 from __future__ import annotations
@@ -126,8 +126,9 @@ class Project:
     title: str
     created_at: float
     versions: list[Version] = field(default_factory=list)
-    # The files outside the workspace the person allowed this project to read (full paths), each when it joined.
-    outside: list[str] = field(default_factory=list)
+    # The files outside the workspace this project may read, each allowed when it joined: {"path": its full path,
+    # "by": who allowed it, "person", "reviewer" (Auto), "hands_off", or the person's "rule" or "chat_grant"}.
+    outside: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def latest(self) -> Version:
@@ -198,7 +199,8 @@ def _load(path: Path) -> Project | None:
             return None
         return Project(project_id=data["project_id"], conversation_id=str(data["conversation_id"]),
                        title=str(data.get("title") or "Video"), created_at=float(data["created_at"]),
-                       versions=versions, outside=[str(item) for item in data.get("outside") or []])
+                       versions=versions, outside=[{"path": str(item["path"]), "by": str(item.get("by") or "")}
+                                                  for item in data.get("outside") or [] if isinstance(item, dict)])
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
 
@@ -258,10 +260,12 @@ def _number(value: Any, name: str, number: int) -> float | None:
     return round(result, 3)
 
 
-def _kinds(sources: dict[str, int], conversation_id: str, allowed: set[str]) -> dict[str, str]:
+def _kinds(sources: dict[str, int], conversation_id: str, allowed: dict[str, str],
+           approvals: list[str] | None = None) -> dict[str, str]:
     """Each source's kind ("video" or "image"), checked (source -> its first scene's number). Files outside the
     workspace that this project wasn't allowed to read yet are asked about by the approval level, all in one
-    question; once allowed, those exact files join *allowed* (the project's own)."""
+    question; once allowed, those exact files join *allowed* (the project's own: path -> who allowed it), and the
+    approval line joins *approvals* for the tool's result (the chat's step shows who approved)."""
     from row_bot.media_sources import SourceError, outside_path, resolve
 
     asking: list[Path] = []
@@ -275,10 +279,14 @@ def _kinds(sources: dict[str, int], conversation_id: str, allowed: set[str]) -> 
     if asking:
         from row_bot.tools.filesystem_tool import outside_workspace_refusal
 
-        refusal, _line = outside_workspace_refusal("read_file", asking, tool="video")
+        from row_bot.tools.approval_gate import decided_by
+
+        refusal, line = outside_workspace_refusal("read_file", asking, tool="video")
         if refusal:
             raise ProjectError(refusal)
-        allowed.update(str(path) for path in asking)
+        allowed.update({str(path): decided_by() or "person" for path in asking})
+        if line and approvals is not None:
+            approvals.append(line)
     kinds: dict[str, str] = {}
     for value, number in sources.items():
         try:
@@ -291,7 +299,8 @@ def _kinds(sources: dict[str, int], conversation_id: str, allowed: set[str]) -> 
     return kinds
 
 
-def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], allowed: set[str]) -> list[Scene]:
+def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], allowed: dict[str, str],
+                  approvals: list[str] | None = None) -> list[Scene]:
     """The scenes as given, checked; a scene that keeps its id keeps its voice while its line is the same. A file
     outside the workspace the person allows reading joins *allowed*."""
     if not raw:
@@ -307,7 +316,7 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
             named.setdefault(source, number)
     if len(named) > MAX_SOURCES:
         raise ProjectError(f"A video can use at most {MAX_SOURCES} different videos and pictures: join some first.")
-    kinds = _kinds(named, conversation_id, allowed)
+    kinds = _kinds(named, conversation_id, allowed, approvals)
     known = {scene.scene_id: scene for scene in before}
     scenes: list[Scene] = []
     for number, item in enumerate(raw, start=1):
@@ -358,6 +367,10 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
     return scenes
 
 
+def _grants(allowed: dict[str, str]) -> list[dict[str, str]]:
+    return [{"path": path, "by": by} for path, by in sorted(allowed.items())]
+
+
 def _aspect(value: Any) -> str:
     text = str(value or "").strip()
     if text and text not in SHAPES:
@@ -405,16 +418,18 @@ def _add_version(project: Project, version: Version) -> Version:
 
 def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = "", music_volume: float = 0.3,
            narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
-           by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None) -> Project:
-    """A new project with its first version."""
+           by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None,
+           approvals: list[str] | None = None) -> Project:
+    """A new project with its first version; the approval lines of reading files outside the workspace join
+    *approvals*."""
     conversation = str(conversation_id or "").strip()
     if not conversation:
         raise ProjectError("Video projects belong to a conversation.")
     with _LOCK:
-        allowed: set[str] = set()
-        cleaned = _clean_scenes(scenes, conversation, [], allowed)
+        allowed: dict[str, str] = {}
+        cleaned = _clean_scenes(scenes, conversation, [], allowed, approvals)
         project = Project(project_id=f"vid-{uuid.uuid4().hex[:8]}", conversation_id=conversation,
-                          title=_text(title, MAX_TITLE) or "Video", created_at=time.time(), outside=sorted(allowed))
+                          title=_text(title, MAX_TITLE) or "Video", created_at=time.time(), outside=_grants(allowed))
         version = Version(number=1, at=time.time(), by=by, note=_text(note, MAX_NOTE) or "First version",
                           scenes=cleaned, music=_text(music, 200),
                           music_volume=_volume(music_volume), narration=_text(narration, 200), captions=bool(captions),
@@ -456,9 +471,10 @@ def _volume(value: Any) -> float:
 def change(project: Project, *, by: By, note: str = "", base: int | None = None, scenes: list[Any] | None = None,
            title: str | None = None, music: str | None = None, music_volume: float | None = None,
            narration: str | None = None, captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
-           brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None) -> Version:
+           brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None,
+           approvals: list[str] | None = None) -> Version:
     """A new version with these changes; ``base`` is the version they were made on (refused when it isn't the
-    latest, so two editors never overwrite each other)."""
+    latest, so two editors never overwrite each other). Approval lines join *approvals*, as in ``create``."""
     with _LOCK:
         fresh = get(project.project_id, project.conversation_id)
         if fresh is None:
@@ -469,10 +485,11 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
                                "it.", stale=True)
         if title is not None and _text(title, MAX_TITLE):
             fresh.title = _text(title, MAX_TITLE)
-        allowed = set(fresh.outside)
+        allowed = {item["path"]: item["by"] for item in fresh.outside}
         version = Version(
             number=latest.number + 1, at=time.time(), by=by, note=_text(note, MAX_NOTE) or "Changed",
-            scenes=(_clean_scenes(scenes, fresh.conversation_id, latest.scenes, allowed) if scenes is not None
+            scenes=(_clean_scenes(scenes, fresh.conversation_id, latest.scenes, allowed, approvals)
+                    if scenes is not None
                     else [Scene(**asdict(scene)) for scene in latest.scenes]),
             music=latest.music if music is None else _text(music, 200),
             music_volume=latest.music_volume if music_volume is None else _volume(music_volume),
@@ -484,7 +501,7 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
             voice=latest.voice if voice is None else _voice(voice),
             voice_speed=latest.voice_speed if voice_speed is None else _voice_speed(voice_speed),
         )
-        fresh.outside = sorted(allowed)
+        fresh.outside = _grants(allowed)
         _add_version(fresh, version)
         project.title, project.versions, project.outside = fresh.title, fresh.versions, fresh.outside
     return version
@@ -707,7 +724,7 @@ def footage(project: Project, version: Version) -> tuple[dict[str, Any], list[tu
     outside the workspace this project wasn't allowed to read: (scene number, source). Nothing is asked."""
     from row_bot.media_sources import SourceError, outside_path, resolve
 
-    allowed = frozenset(Path(item) for item in project.outside)
+    allowed = frozenset(Path(item["path"]) for item in project.outside)
     found: dict[str, Any] = {}  # source -> its media; None: not found; "": not allowed.
     missing: list[tuple[int, str]] = []
     refused: list[tuple[int, str]] = []
@@ -743,7 +760,7 @@ def missing_words(missing: list[tuple[int, str]]) -> str:
 
 def refused_words(refused: list[tuple[int, str]]) -> str:
     return (f"Footage not allowed: {_scenes_words(refused)}: outside the workspace, and the person hasn't allowed "
-            "this video to read it. Change the video with those scenes again to ask.")
+            "this video to read it. To ask the person, change the video again with those scenes.")
 
 
 def _make(project_id: str, conversation_id: str, number: int, download: bool, shape: str = "") -> None:
