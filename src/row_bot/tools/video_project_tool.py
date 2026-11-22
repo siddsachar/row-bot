@@ -317,8 +317,8 @@ def langchain_tool():
             "here when it's made: never poll status. Read the checks and look at its review sheet: never say it's "
             "done until both are right. undo goes back one version; export makes the same version in another shape "
             "or a GIF; brand saves how every video should look (framing, caption style, music mood, voice). For one "
-            "quick edit use edit_video. A title or end card is a scene without a video: never make background videos or other "
-            "working files in the person's workspace for it."
+            "quick edit use edit_video. A title or end card is a scene without a video: never make background "
+            "videos or other working files in the person's workspace for it."
         ),
         args_schema=_VideoInput,
     )

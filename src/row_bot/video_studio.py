@@ -369,8 +369,9 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
             return ((0.0, scene.focus[0], scene.focus[1], 1.0),)  # Cropped to fill around where the pointer was.
         return ()
 
-    drawn = [scene for scene in footage if needs_pass(keys_of(scene), frame_of(scene),
-                                                      (inputs[scene.input].info.width, inputs[scene.input].info.height))]
+    drawn = [scene for scene in footage
+             if needs_pass(keys_of(scene), frame_of(scene),
+                           (inputs[scene.input].info.width, inputs[scene.input].info.height))]
     if not drawn:
         return inputs, step
     fps = float(round(first.fps or 30.0))
