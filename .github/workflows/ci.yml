@@ -287,11 +287,48 @@ jobs:
       - name: Worker tests (workerd, Railway's API mocked)
         run: python scripts/run_test_matrix.py railway-relay
 
+  # The Org server against a throwaway Postgres cluster the tests start themselves (D14): Postgres 17
+  # and pgvector from the PGDG repository, with no cluster or service of the package's own.
+  org:
+    name: Org server (Postgres)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
+          python-version: ${{ steps.python.outputs.python-path }}
+
+      - name: Install Postgres 17 and pgvector, without starting a cluster
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-17 postgresql-17-pgvector \
+            libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+
+      - name: Install Python packages
+        run: uv sync --locked --all-extras --group test --group org
+
+      - name: Org tests on a throwaway cluster
+        env:
+          ROW_BOT_TEST_PG_BIN: /usr/lib/postgresql/17/bin
+          ROW_BOT_TEST_PG_REQUIRED: "1"  # a missing Postgres fails the job instead of skipping
+        run: uv run python scripts/run_test_matrix.py org
+
   ci-ok:
     name: ci-ok
     if: always()
     # Browser smoke is not required yet; it joins once it has been green for a week.
-    needs: [quality, client, python, platform, install-count, railway-relay]
+    needs: [quality, client, python, platform, install-count, railway-relay, org]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
