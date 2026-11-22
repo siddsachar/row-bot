@@ -12,7 +12,8 @@ from typing import Any
 
 import row_bot.secret_store as secret_store
 
-from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderHealth, TransportMode
+from row_bot.providers.models import (
+    AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderHealth, TransportMode, gpt_generation)
 from row_bot.providers.oauth import DeviceCodePrompt, OAuthToken, expiry_from_seconds
 
 CODEX_PROVIDER_ID = "codex"
@@ -687,7 +688,7 @@ def fallback_codex_model_infos() -> list[ModelInfo]:
         _codex_model_info(
             str(model["id"]),
             display_name=str(model["display_name"]),
-            input_modalities=set(model.get("input_modalities") or ({ModelModality.TEXT.value, ModelModality.IMAGE.value} if str(model["id"]).startswith("gpt-5") else {ModelModality.TEXT.value})),
+            input_modalities=set(model.get("input_modalities") or ({ModelModality.TEXT.value, ModelModality.IMAGE.value} if gpt_generation(str(model["id"])) >= 5 else {ModelModality.TEXT.value})),
             source_confidence=str(model.get("source_confidence") or "documented_chatgpt_codex_model"),
             source="codex_documented_fallback_catalog",
             tool_calling=None,

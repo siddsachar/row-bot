@@ -155,3 +155,14 @@ def test_levels_listed_as_objects_never_become_their_text():
     caps = ReasoningCapabilities.from_json({"supported_efforts": [{"effort": "low"}, "high", {"other": 1}, 3]})
 
     assert caps.supported_efforts == ("low", "high")
+
+
+def test_a_documented_gpt6_model_sees_images_like_the_gpt5_ones(monkeypatch):
+    import row_bot.providers.codex as codex
+
+    monkeypatch.setattr(codex, "FALLBACK_CODEX_MODELS", [
+        {"id": "gpt-6.1-sol", "display_name": "GPT-6.1 Sol"}, {"id": "codex-mini", "display_name": "Codex Mini"}])
+    infos = {info.model_id: info for info in codex.fallback_codex_model_infos()}
+
+    assert "image" in infos["gpt-6.1-sol"].input_modalities and "vision" in infos["gpt-6.1-sol"].capabilities
+    assert "image" not in infos["codex-mini"].input_modalities
