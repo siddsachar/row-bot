@@ -388,6 +388,41 @@ def test_an_empty_list_key_in_the_registry_is_not_set(tmp_path: Path) -> None:
     assert isinstance(policy, OrgPolicy) and policy.settings.models.allowed_providers is None
 
 
+@pytest.mark.parametrize("empty_key", [False, True])
+def test_a_list_marked_as_set_with_no_entries_is_an_empty_list(tmp_path: Path, empty_key: bool) -> None:
+    subkeys = {"allowed": RegistryKey()} if empty_key else {}
+    registry = RegistryKey({"schema_version": (REG_DWORD, 1)},
+                           {"channels": RegistryKey({"allowed_set": (REG_DWORD, 1)}, subkeys)})
+
+    policy = load_policy(fake_system(tmp_path, "windows", registry=registry))
+
+    assert isinstance(policy, OrgPolicy) and policy.settings.channels.allowed == frozenset()
+    assert not policy.allows_channel("slack")
+
+
+def test_a_list_marked_as_set_keeps_its_entries(tmp_path: Path) -> None:
+    registry = RegistryKey({"schema_version": (REG_DWORD, 1)}, {"tools": RegistryKey(
+        {"disabled_set": (REG_DWORD, 1)}, {"disabled": RegistryKey({"1": (REG_SZ, "shell")})})})
+
+    policy = load_policy(fake_system(tmp_path, "windows", registry=registry))
+
+    assert isinstance(policy, OrgPolicy) and policy.settings.tools.disabled == frozenset({"shell"})
+
+
+@pytest.mark.parametrize("values", [{"allowed_set": (REG_DWORD, 0)}, {"allowed_set": (REG_SZ, "1")}])
+def test_a_bad_list_marker_locks_down(tmp_path: Path, values: dict) -> None:
+    registry = RegistryKey({"schema_version": (REG_DWORD, 1)}, {"channels": RegistryKey(values)})
+
+    _lockdown(load_policy(fake_system(tmp_path, "windows", registry=registry)), "invalid")
+
+
+def test_a_marker_for_a_setting_that_is_not_a_list_locks_down(tmp_path: Path) -> None:
+    registry = RegistryKey({"schema_version": (REG_DWORD, 1)},
+                           {"models": RegistryKey({"local_models_set": (REG_DWORD, 1)})})
+
+    _lockdown(load_policy(fake_system(tmp_path, "windows", registry=registry)), "invalid")
+
+
 @pytest.mark.parametrize("platform", ["windows", "macos"])
 def test_a_registry_or_profile_policy_that_requires_a_signature_locks_down(tmp_path: Path, platform: str) -> None:
     document = {"schema_version": 1, "require_signature": True}

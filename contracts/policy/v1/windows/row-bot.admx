@@ -157,6 +157,11 @@
             <decimal value="1" />
           </value>
         </item>
+        <item key="SOFTWARE\Policies\Row-Bot\models" valueName="allowed_providers_set">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
       </enabledList>
       <elements>
         <list id="allowed_providers" key="SOFTWARE\Policies\Row-Bot\models\allowed_providers" valuePrefix="" />
@@ -167,6 +172,11 @@
       <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
       <enabledList>
         <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+        <item key="SOFTWARE\Policies\Row-Bot\models" valueName="allowed_models_set">
           <value>
             <decimal value="1" />
           </value>
@@ -312,6 +322,11 @@
             <decimal value="1" />
           </value>
         </item>
+        <item key="SOFTWARE\Policies\Row-Bot\tools" valueName="allowed_set">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
       </enabledList>
       <elements>
         <list id="allowed" key="SOFTWARE\Policies\Row-Bot\tools\allowed" valuePrefix="" />
@@ -322,6 +337,11 @@
       <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
       <enabledList>
         <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+        <item key="SOFTWARE\Policies\Row-Bot\tools" valueName="disabled_set">
           <value>
             <decimal value="1" />
           </value>
@@ -360,6 +380,11 @@
       <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
       <enabledList>
         <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+        <item key="SOFTWARE\Policies\Row-Bot\channels" valueName="allowed_set">
           <value>
             <decimal value="1" />
           </value>

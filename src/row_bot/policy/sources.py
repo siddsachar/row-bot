@@ -42,6 +42,7 @@ POLICY_FILE_ENV = "ROW_BOT_POLICY_FILE"
 KEYS_FILE = "org-policy-keys.json"
 MAX_BYTES = 256 * 1024
 REG_SZ, REG_DWORD = 1, 4
+LIST_MARKER = "_set"  # ``<list>_set`` = 1: the admin set this list, so no entries means an empty list
 
 Platform = Literal["windows", "macos", "linux"]
 
@@ -278,8 +279,9 @@ def document_from_registry(tree: RegistryKey) -> dict[str, Any]:
 
     Root values ``schema_version`` and ``require_signature`` (REG_DWORD); one subkey per section, holding a
     value per setting (REG_DWORD 0 or 1 for true/false and numbers, REG_SZ for text) and a subkey per list
-    whose REG_SZ values are the entries. Group Policy leaves empty keys behind, so an empty list key is "not
-    set", not an empty list.
+    whose REG_SZ values are the entries. Group Policy leaves empty keys behind, so an empty list key alone is
+    "not set"; the ADMX also writes ``<list>_set`` = 1 beside it when the admin sets the list, and that marker
+    with no entries is the empty list, as ``[]`` is in JSON.
     """
     where = f"HKLM\\{REGISTRY_KEY}"
 
@@ -300,6 +302,12 @@ def document_from_registry(tree: RegistryKey) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for name, (kind, data) in key.values.items():
             path = f"{where}\\{section}\\{name}"
+            listed = section_specs.get(name.removesuffix(LIST_MARKER)) if name.endswith(LIST_MARKER) else None
+            if listed is not None and listed.kind == "list":
+                if kind != REG_DWORD or data != 1:
+                    raise refuse(path, "expected a REG_DWORD 1")
+                values[name.removesuffix(LIST_MARKER)] = []
+                continue
             spec = section_specs.get(name)
             if spec is None or spec.kind == "list":
                 raise refuse(path, "not a policy value here")

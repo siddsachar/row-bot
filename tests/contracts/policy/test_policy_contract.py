@@ -181,6 +181,18 @@ def test_a_policy_set_through_the_admx_loads_back_to_the_example(tmp_path: Path)
     assert policy.settings == parse(example)[0]
 
 
+def test_an_empty_list_set_through_the_admx_is_an_empty_list_as_in_json(tmp_path: Path) -> None:
+    document = {"schema_version": 1, "channels": {"allowed": []}, "tools": {"allowed": [], "disabled": []},
+                "models": {"allowed_providers": [], "allowed_models": []}}
+
+    policy = load_policy(fake_system(tmp_path, "windows", registry=_apply_admx(document)))
+
+    assert isinstance(policy, OrgPolicy)
+    assert policy.settings == parse(document)[0]
+    assert not policy.allows_channel("slack") and not policy.allows_tool("calculator")
+    assert not policy.allows_provider("anthropic")
+
+
 def test_every_admx_string_and_presentation_is_defined_in_the_adml() -> None:
     admx = (CONTRACT / "windows" / "row-bot.admx").read_text(encoding="utf-8")
     adml = ET.parse(CONTRACT / "windows" / "en-US" / "row-bot.adml").getroot()

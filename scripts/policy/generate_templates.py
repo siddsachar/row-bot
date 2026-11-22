@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from row_bot.policy.schema import (  # noqa: E402 -- load checkout source after path bootstrap
     SCHEMA_VERSION, SECTIONS, Spec, json_schema, keys_json_schema, property_schema, specs)
-from row_bot.policy.sources import MAC_DOMAIN, REGISTRY_KEY  # noqa: E402
+from row_bot.policy.sources import LIST_MARKER, MAC_DOMAIN, REGISTRY_KEY  # noqa: E402
 
 DESTINATION = ROOT / "contracts" / "policy" / "v1"
 ADMX_NAMESPACE = "http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
@@ -152,10 +152,16 @@ def admx() -> str:
         if spec.kind == "bool":
             ET.SubElement(ET.SubElement(element, "enabledValue"), "decimal", value="1")
             ET.SubElement(ET.SubElement(element, "disabledValue"), "decimal", value="0")
-        # Whatever the admin sets, the policy says which schema it speaks.
+        # Whatever the admin sets, the policy says which schema it speaks; a list also says it was set, so an
+        # empty one is an empty list rather than the key Group Policy leaves behind.
         for state in ("enabledList", "disabledList") if spec.kind == "bool" else ("enabledList",):
-            item = ET.SubElement(ET.SubElement(element, state), "item", key=REGISTRY_KEY, valueName="schema_version")
+            listed = ET.SubElement(element, state)
+            item = ET.SubElement(listed, "item", key=REGISTRY_KEY, valueName="schema_version")
             ET.SubElement(ET.SubElement(item, "value"), "decimal", value=str(SCHEMA_VERSION))
+            if spec.kind == "list":
+                item = ET.SubElement(listed, "item", key=f"{REGISTRY_KEY}\\{section}",
+                                     valueName=f"{name}{LIST_MARKER}")
+                ET.SubElement(ET.SubElement(item, "value"), "decimal", value="1")
         if spec.kind != "bool":
             elements = ET.SubElement(element, "elements")
             for setting, setting_spec in [(name, spec), *joined]:
