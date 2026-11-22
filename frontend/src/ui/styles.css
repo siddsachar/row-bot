@@ -1487,6 +1487,42 @@ body:has(.pwa-status:not([hidden])) .composer {
 .skeleton.short {
   width: 65%;
 }
+/* A list loading in its rows' shape (ListSkeleton): a library row's height,
+   icon and date by default; a list's own class resizes them. */
+.skeleton-list {
+  display: grid;
+  gap: 1px;
+}
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 40px;
+  padding: 6px 10px 6px 8px;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+.skeleton-row .skeleton {
+  flex: none;
+  height: 10px;
+}
+.skeleton-row .skeleton-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+.skeleton-row .skeleton-line {
+  flex: 1;
+  height: 12px;
+}
+.skeleton-row .skeleton-meta {
+  width: 44px;
+  margin-left: auto;
+}
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
 progress {
   width: 100%;
   height: 8px;

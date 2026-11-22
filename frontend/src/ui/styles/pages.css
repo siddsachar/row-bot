@@ -278,6 +278,16 @@
   padding: 0;
   list-style: none;
 }
+.media-library-loading .skeleton-row {
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: 6px 20px 6px 10px;
+}
+.media-library-loading .skeleton-row .skeleton-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
 .media-library-row {
   display: flex;
   align-items: center;

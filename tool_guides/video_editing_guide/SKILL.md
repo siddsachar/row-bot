@@ -36,10 +36,13 @@ tags: []
   videos should look ("full screen", a voice, a mood), save it with video
   action brand, so the next video starts that way.
 - Captions only when the person asks for them: a narrated video needs none.
-- After make, read the checks and look at the review sheet with
-  analyze_image. Fix what's off (a dull or long stretch: trim or speed it
-  up; a line that doesn't match its picture: rewrite it) and make it again;
-  it's done only when both are right.
+- After make, read the checks: they list what to fix by scene and time, and
+  already include one look at the review sheet, so don't look again with
+  analyze_image. Fix what they list (soft: a sharper clip or less zoom;
+  words over the action: a zoom that shows it higher, or shorter words; a
+  dull or long stretch: trim or speed it up; a line that doesn't match its
+  picture: rewrite it) and make it again; it's ready to share only when the
+  checks pass.
 - edit_video edits videos the person already has: recordings (rec-…),
   earlier edits (edit-…), files in this chat by name, or workspace paths.
   It never generates video (that is generate_video, when it is on).

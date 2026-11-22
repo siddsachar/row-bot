@@ -8,16 +8,18 @@ from PIL import Image
 
 
 def video(path: Path, *, sound: bool | Literal["silence"], codec: str = "libx264",
-          size: tuple[int, int] = (320, 180), rate: int = 10, seconds: int = 3, rotation: int = 0) -> Path:
-    """``seconds`` (three) at ``rate`` frames a second (ten), 320×180 unless another size is given; the right half
-    turns red from the second second. ``sound``: a tone throughout, ``"silence"`` a sound track of nothing, False
-    no sound track at all (a screen recording). ``rotation``: stored turned, as a phone does, with the display
-    rotation (degrees counter-clockwise) that turns it back to ``size`` upright; a key frame every second."""
+          size: tuple[int, int] = (320, 180), colour: tuple[int, int, int] = (240, 240, 240), rate: int = 10,
+          seconds: int = 3, rotation: int = 0) -> Path:
+    """``seconds`` (three) at ``rate`` frames a second (ten), 320×180 unless another size is given, light grey
+    unless another colour is; the right half turns red from the second second. ``sound``: a tone throughout,
+    ``"silence"`` a sound track of nothing, False no sound track at all (a screen recording). ``rotation``: stored
+    turned, as a phone does, with the display rotation (degrees counter-clockwise) that turns it back to ``size``
+    upright; a key frame every second."""
     import av
     import numpy
 
     width, height = size
-    plain = Image.new("RGB", (width, height), (240, 240, 240))
+    plain = Image.new("RGB", (width, height), colour)
     red = plain.copy()
     red.paste((220, 20, 20), (width // 2, 0, width, height))
     stored = [picture.rotate(-rotation, expand=True) for picture in (plain, red)]

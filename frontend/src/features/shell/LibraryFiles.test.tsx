@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ConversationView, MediaItem } from '../../api/types';
@@ -6,7 +6,7 @@ import { takeWaitingPage } from '../pages/open-page';
 import LibraryFiles from './LibraryFiles';
 
 const runtime = vi.hoisted(() => ({
-  readConversationLibrary: vi.fn(),
+  conversationsOfGroup: vi.fn(),
   pages: vi.fn(),
   media: vi.fn(),
   workspaceFor: vi.fn(),
@@ -70,23 +70,33 @@ const voice: MediaItem = {
 };
 
 beforeEach(() => {
-  runtime.readConversationLibrary
+  // Each listing group from the server: the chats with a design, and those
+  // with a code folder (one a Code chat whose folder is gone).
+  runtime.conversationsOfGroup
     .mockReset()
-    .mockResolvedValue([
-      chat(
-        'chat-deck',
-        'Community workshop deck',
-        '2026-11-20T10:00:00Z',
-        'artifact',
-      ),
-      chat(
-        'chat-code',
-        'Release notes cleanup',
-        '2026-11-19T10:00:00Z',
-        'workspace',
-      ),
-      chat('chat-plain', 'Book club questions', '2026-11-20T11:00:00Z'),
-    ]);
+    .mockImplementation(async (group: string) => ({
+      items:
+        group === 'artifact'
+          ? [
+              chat(
+                'chat-deck',
+                'Community workshop deck',
+                '2026-11-20T10:00:00Z',
+                'artifact',
+              ),
+            ]
+          : [
+              chat(
+                'chat-code',
+                'Release notes cleanup',
+                '2026-11-19T10:00:00Z',
+                'workspace',
+              ),
+              chat('chat-unbound', 'Old code chat', '2026-11-20T11:00:00Z'),
+            ],
+      has_more: false,
+      next_cursor: null,
+    }));
   runtime.workspaceFor.mockReset().mockImplementation(async (id: string) => ({
     resources:
       id === 'chat-deck'
@@ -147,7 +157,11 @@ it('lists what Row-Bot made, newest first, each with its chat; chips and search 
     expect.stringMatching(/^voice-line-01\.wavSound · in Launch assets/),
     expect.stringMatching(/^Beta launch planPage · in Beta launch notes/),
   ]);
-  // A chat with nothing bound is not read for resources.
+  // Only the chats with a design or a folder are listed, each in one page,
+  // and one with nothing bound is not read for resources.
+  expect(
+    runtime.conversationsOfGroup.mock.calls.map(([group]) => group),
+  ).toEqual(['artifact', 'workspace']);
   expect(runtime.workspaceFor.mock.calls.map(([id]) => id)).toEqual([
     'chat-deck',
     'chat-code',
@@ -196,9 +210,76 @@ it('opens a page beside its chat', async () => {
 });
 
 it('says when nothing is made yet', async () => {
-  runtime.readConversationLibrary.mockResolvedValue([]);
+  runtime.conversationsOfGroup.mockResolvedValue({
+    items: [],
+    has_more: false,
+    next_cursor: null,
+  });
   runtime.pages.mockResolvedValue({ items: [] });
   runtime.media.mockResolvedValue({ items: [] });
   renderFiles();
   expect(await screen.findByText('Nothing made yet')).toBeVisible();
+});
+
+it('shows pages and media while the designs and folders are still read, then adds them by date', async () => {
+  let release!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const read = runtime.workspaceFor.getMockImplementation()!;
+  runtime.workspaceFor.mockImplementation(async (id: string) => {
+    await opened;
+    return read(id);
+  });
+  renderFiles();
+  const list = await screen.findByRole('list', { name: 'Files' });
+  const names = () =>
+    within(list)
+      .getAllByRole('link')
+      .map((link) => link.textContent);
+  expect(names()).toEqual([
+    expect.stringMatching(/^voice-line-01\.wav/),
+    expect.stringMatching(/^Beta launch plan/),
+  ]);
+  expect(
+    screen.getByRole('status', { name: 'Loading designs and folders' }),
+  ).toBeVisible();
+  await act(async () => release());
+  expect(
+    await within(list).findByRole('link', { name: /^Community Workshop Deck/ }),
+  ).toBeVisible();
+  expect(names()).toEqual([
+    expect.stringMatching(/^Community Workshop Deck/),
+    expect.stringMatching(/^demo-release-notes/),
+    expect.stringMatching(/^voice-line-01\.wav/),
+    expect.stringMatching(/^Beta launch plan/),
+  ]);
+  expect(
+    screen.queryByRole('status', { name: 'Loading designs and folders' }),
+  ).toBeNull();
+});
+
+it('shows loading rows in the list shape until every kind of file is read', async () => {
+  vi.useFakeTimers();
+  try {
+    let release!: (value: { items: MediaItem[] }) => void;
+    runtime.media.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    renderFiles();
+    const loading = screen.getByRole('status', { name: 'Loading files' });
+    expect(loading).toHaveAttribute('aria-busy', 'true');
+    // A quick read shows no placeholder; a slower one shows the rows.
+    expect(loading.querySelectorAll('.skeleton-row')).toHaveLength(0);
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(loading.querySelectorAll('.skeleton-row')).toHaveLength(9);
+    expect(screen.queryByRole('list', { name: 'Files' })).toBeNull();
+    await act(async () => release({ items: [voice] }));
+    expect(screen.getByRole('list', { name: 'Files' })).toBeVisible();
+    expect(screen.queryByRole('status', { name: 'Loading files' })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
