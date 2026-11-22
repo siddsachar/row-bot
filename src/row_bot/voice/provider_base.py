@@ -57,10 +57,14 @@ class SpeechOutputProvider(Protocol):
 
 
 class RealtimeVoiceProvider(Protocol):
-    """A Live voice front: a cloud speech-to-speech model the browser talks to.
+    """A Live voice front: a cloud speech-to-speech model.
 
     ``credential`` names the person's provider key in Providers (never stored
-    here); ``transport`` is the wire name the browser connects with.
+    here, never sent to the browser); ``transport`` names how the session runs.
+    OpenAI Realtime (``openai_realtime``) mints an ephemeral secret the host
+    keeps for the browser call's SDP exchange (``create_client_secret``).
+    A relayed front (``gemini_live``, ``grok_voice``) is opened by the host
+    (``open_relay``), which carries its audio and events over Row-Bot's socket.
     """
 
     provider_id: str
@@ -69,16 +73,6 @@ class RealtimeVoiceProvider(Protocol):
     transport: str
 
     def status(self) -> VoiceProviderStatus:
-        ...
-
-    def create_client_secret(self, *, instructions: str = "",
-                             expires_after_seconds: int = 60) -> dict[str, Any]:
-        """Mint a short-lived credential with the person's key.
-
-        Returns ``value`` (the ephemeral credential), ``expires_at`` (epoch
-        seconds) and, for a browser WebSocket provider, ``setup``: the first
-        message the browser sends, carrying the session's instructions and tools.
-        """
         ...
 
 
