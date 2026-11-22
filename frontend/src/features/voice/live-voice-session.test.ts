@@ -3,6 +3,7 @@ import type {
   RealtimeOptions,
   RealtimeRuntime,
 } from '../../../../src/row_bot/voice/realtime_runtime.js';
+import type { VoiceSocket } from '../../api/types';
 import { LiveVoiceSession, projectEvent } from './live-voice-session';
 import { FakeAudio, FakeSocket, audioFrame } from './voice-test-fakes';
 
@@ -38,7 +39,7 @@ function session(transport: 'openai_realtime' | 'gemini_live') {
     openSocket: () => {
       const socket = new FakeSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket as unknown as VoiceSocket;
     },
     ticket: vi.fn(async () => TICKET),
     stop: vi.fn(async () => undefined),

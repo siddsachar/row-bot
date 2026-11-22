@@ -21,6 +21,7 @@ import {
   type VoiceOrb,
   type VoiceSnapshot,
 } from './voice-session';
+import type { VoiceSocket } from '../../api/types';
 
 const OPEN = 1;
 
@@ -31,7 +32,7 @@ export type LiveVoiceDeps = {
   /** The lease's identity: the socket's events belong to its session and chat. */
   sessionId: number;
   conversationId: string;
-  openSocket(): WebSocket;
+  openSocket(): VoiceSocket;
   /** A fresh single-use ticket (the first comes with the start). */
   ticket(): Promise<string>;
   /** Stop the lease on the host (best effort when the socket is gone). */
@@ -126,7 +127,7 @@ const INITIAL: VoiceSnapshot = {
 export class LiveVoiceSession {
   private snapshot: VoiceSnapshot = INITIAL;
   private listeners = new Set<() => void>();
-  private socket: WebSocket | null = null;
+  private socket: VoiceSocket | null = null;
   private audio: VoiceAudio | null = null;
   private runtime: RealtimeRuntime | null = null;
   private generation = '';
