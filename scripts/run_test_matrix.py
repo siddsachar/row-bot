@@ -271,6 +271,9 @@ COMMANDS: dict[str, CommandSpec] = {
         "client-platform-contracts", "uv", "run", "python", "scripts/generate_client_platform_contracts.py", "--check",
         env=TEST_ENV,
     ),
+    "audit-contracts": _cmd(
+        "audit-contracts", "uv", "run", "python", "scripts/audit/export_schemas.py", "--check", env=TEST_ENV,
+    ),
     "runtime-deps": _cmd(
         "runtime-deps", "uv", "run", "python", "scripts/verify_runtime_dependencies.py", "all", env=TEST_ENV,
     ),
@@ -344,6 +347,7 @@ QUALITY = (
     "dependency-requirements",
     "client-platform-boundaries",
     "client-platform-contracts",
+    "audit-contracts",
 )
 
 TIER_COMMANDS: dict[str, tuple[str, ...]] = {
@@ -364,7 +368,8 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "pr": (*QUALITY, "client-foundation", "runtime-deps", "python", "app-smoke"),
     "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
     "deterministic": ("deterministic",),
-    "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts", "contracts"),
+    "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts",
+             "audit-contracts", "contracts"),
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
     "subsystem": ("subsystem",),
