@@ -4827,9 +4827,64 @@ def _silent_rounds(messages: list) -> int:
     return rounds
 
 
+# The line a model writes in answer to the progress note often comes with no tool call, which would end the turn
+# mid-work (lane E's τ²-bench traces, 19 Nov: 24-30% of turns ended after exactly three tool calls). Such a line
+# is shown as it is, and the turn goes on once (_post_model_hook); the next request ends on this note, never on
+# the assistant's line (no assistant prefill), and it is request-only like PROGRESS_NOTE.
+PROGRESS_LINE_KEY = "row_bot_progress_line"
+PROGRESS_CONTINUE_NOTE = ("Row-Bot note, not from the person: your line was shown to the person. Carry on with "
+                          "the work now. If it's done, or you need the person, say so in a line.")
+
+
+def _text_of(message: Any) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content.strip()
+    return "".join(str(block.get("text") or "") for block in content or []
+                   if isinstance(block, dict) and block.get("type") == "text").strip()
+
+
+def _continues_after_progress_line(state: Mapping[str, Any]) -> AIMessage | None:
+    """The model's reply, marked as a progress line, when the turn should go on after it, else None.
+
+    Only a text-only reply to the progress note itself (so at most once per note) that says what it does next
+    and asks the person nothing: a question, a hand-over or a finished piece of work ends the turn as before."""
+    messages = list(state.get("messages") or [])
+    request = list(state.get("llm_input_messages") or [])
+    if not messages or not request:
+        return None
+    last, sent = messages[-1], request[-1]
+    if not isinstance(last, AIMessage) or getattr(last, "tool_calls", None) or PROGRESS_LINE_KEY in (
+            last.additional_kwargs or {}):
+        return None
+    if not isinstance(sent, HumanMessage) or (sent.additional_kwargs or {}).get("row_bot_note") != "progress":
+        return None
+    text = _text_of(last)
+    from row_bot.application.conversation_followups import stopped_on_next_step
+
+    if not text or not stopped_on_next_step(text):
+        return None
+    return last.model_copy(update={"additional_kwargs": {**(last.additional_kwargs or {}), PROGRESS_LINE_KEY: True}})
+
+
+def _post_model_hook(state: dict, config: dict | None = None) -> Any:
+    """After each model call: charge the turn's budget, then go on after a progress line that ended the reply."""
+    update = post_model_budget_hook(state, config)
+    line = _continues_after_progress_line(state)
+    if line is None:
+        return update
+    from langgraph.types import Command
+
+    return Command(update={**update, "messages": [line]}, goto="pre_model_hook")
+
+
 def _with_progress_note(messages: list, conversation: list) -> list:
     """*messages* (the request) with the progress note at its end when *conversation*'s silent rounds call for
-    one."""
+    one, or with the carry-on note after a progress line the turn went on from."""
+    if conversation and isinstance(conversation[-1], AIMessage) and PROGRESS_LINE_KEY in (
+            conversation[-1].additional_kwargs or {}):
+        return [*messages, HumanMessage(content=PROGRESS_CONTINUE_NOTE,
+                                        additional_kwargs={"ephemeral": True, "row_bot_note": "progress_continue"})]
     rounds = _silent_rounds(conversation)
     if rounds < SILENT_ROUNDS or (rounds - SILENT_ROUNDS) % _SILENT_AGAIN:
         return messages
@@ -7109,7 +7164,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 tools=tool_node if tool_node is not None else [],
                 prompt=None,
                 pre_model_hook=_pre_model_trim,
-                post_model_hook=post_model_budget_hook,
+                post_model_hook=_post_model_hook,
                 checkpointer=checkpointer,
                 name="row_bot_agent",
                 state_schema=RowBotAgentState,
