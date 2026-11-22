@@ -29,7 +29,7 @@ async function openVoice(page: Page) {
   await page.goto('/app-v2/settings/voice');
   // Another spec on the shared fixture may have left Talk on Realtime.
   await page.getByLabel('Listen with', { exact: true }).selectOption('local');
-  const list = page.getByRole('list', { name: 'Streaming speech models' });
+  const list = page.getByRole('list', { name: 'Faster speech models' });
   await expect(list).toBeVisible();
   return list;
 }

@@ -43,7 +43,7 @@ export function speechFailureWords(view: SpeechModelsView): string | null {
     case 'busy':
       return 'Another speech model is downloading. Wait for it, or stop it first.';
     case 'unavailable':
-      return 'Streaming speech models need Row-Bot’s voice components.';
+      return 'Faster speech models need Row-Bot’s voice components.';
     default:
       return 'The download didn’t finish. Press Download to try again.';
   }
@@ -225,7 +225,7 @@ export default function SpeechModels({
 
   return (
     <SettingsItem
-      label="Streaming speech models"
+      label="Faster speech models"
       help={
         recommended
           ? `${recommended.name} is recommended for ${place.name}: ${reasonWords(view.reason)}.`
@@ -239,15 +239,12 @@ export default function SpeechModels({
           <StatusLine tone="danger">{failure}</StatusLine>
         ) : unavailable ? (
           <StatusLine tone="warning">
-            Streaming speech models need Row-Bot’s voice components.
+            Faster speech models need Row-Bot’s voice components.
           </StatusLine>
         ) : undefined
       }
     >
-      <ul
-        className="voice-speech-model-list"
-        aria-label="Streaming speech models"
-      >
+      <ul className="voice-speech-model-list" aria-label="Faster speech models">
         {rows.map((model) => {
           const here = download?.model_id === model.id ? download : null;
           const checking = here?.phase === 'checking';

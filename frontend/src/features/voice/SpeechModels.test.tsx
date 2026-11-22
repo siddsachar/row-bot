@@ -100,7 +100,7 @@ it('recommends the model for this computer first and downloads it only with the 
     ),
   ).toBeVisible();
   const rows = within(
-    screen.getByRole('list', { name: 'Streaming speech models' }),
+    screen.getByRole('list', { name: 'Faster speech models' }),
   ).getAllByRole('listitem');
   expect(rows[0]).toHaveTextContent('Moonshine Base');
   expect(within(rows[0]).getByText('Recommended')).toBeVisible();
@@ -179,9 +179,7 @@ it('says plainly when a download failed or the speech runtime is missing', () =>
 it('offers nothing to download without the speech runtime', () => {
   show(view({ state: 'unavailable' }));
   expect(
-    screen.getByText(
-      'Streaming speech models need Row-Bot’s voice components.',
-    ),
+    screen.getByText('Faster speech models need Row-Bot’s voice components.'),
   ).toBeVisible();
   for (const button of screen.getAllByRole('button', { name: /^Download/ }))
     expect(button).toBeDisabled();

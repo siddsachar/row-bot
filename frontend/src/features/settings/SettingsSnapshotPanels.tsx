@@ -2061,7 +2061,7 @@ export function VoiceSnapshotPanel({
                 mutation={mutation}
                 field="runtime.talk_model"
                 label="Talk listens with"
-                hint="A streaming model shows your words as you speak."
+                hint="A faster speech model shows your words as you speak."
                 value={snapshot.runtime.talk_model}
                 options={talkEngines}
               />

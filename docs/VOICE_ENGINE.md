@@ -181,9 +181,8 @@ was written and was not taken).
   coexists with the locked `onnxruntime` 1.27 that Silero, Smart Turn and
   Kokoro use: the Python package's module is self-contained, each loads its
   own library, and both orders of import were checked running a session in
-  the same process. As with every Windows build of ONNX Runtime, the library
-  contains its ETW TraceLogging provider; that writes only to Windows' local
-  event tracing, the same as the `onnxruntime` already in the lock.
+  the same process. Its telemetry is covered below: it is not built as a
+  telemetry provider.
 - **Licence:** Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime). See `NOTICE`.
 - **Wheels:** CPython 3.13 for Windows x64, macOS arm64 and x86_64
   (`macosx_10_15`, and universal2), Linux x86_64 and aarch64 (the arm64
@@ -206,6 +205,69 @@ was written and was not taken).
   cached decoding) in Python. sherpa-onnx runs Moonshine Base and Tiny (in
   Moonshine v2's runtime format) but not v2's streaming Small and Medium;
   those, and Parakeet (offline in sherpa-onnx), are left for later.
+
+### ONNX Runtime telemetry (reviewed 22 Nov 2026)
+
+Two copies of ONNX Runtime run in a voice session. On macOS and Linux
+neither has telemetry (it is Windows-only TraceLogging; the macOS and Linux
+libraries contain no provider). On Windows:
+
+- **What the source does.** ONNX Runtime's Windows platform layer
+  (`onnxruntime/core/platform/windows/telemetry.cc`, checked in a vendored
+  1.27.1 copy because `github.com/microsoft/onnxruntime` answered 404 on the
+  day of review) defines the TraceLogging provider `Microsoft.ML.ONNXRuntime`
+  `{3a26b1ff-7484-7484-7484-15261f42614d}` with
+  `TraceLoggingOptionMicrosoftTelemetry()`. Its events are on by default
+  (`WindowsTelemetry::enabled_ = true`) and carry
+  `MICROSOFT_KEYWORD_MEASURES` and privacy tags: `ProcessInfo` (runtime
+  version, debugger attached, redistributable or inbox, service names of the
+  process), `SessionCreation` (model producer, version, domain, graph name,
+  graph and weight hashes, model metadata, model file name, execution
+  providers, hardware vendor ids), `RuntimeError`, `RuntimePerf` (run counts
+  and durations), driver and execution-provider events.
+- **When it is telemetry.** In the public source `TraceLoggingConfig.h`
+  defines `TraceLoggingOptionMicrosoftTelemetry()` as an all-zero group:
+  "providers using this configuration file will not join any ETW Provider
+  Groups and will not be given any special treatment by group-sensitive ETW
+  listeners". Microsoft's own release pipeline
+  (`tools/ci_build/github/windows/set_telemetry_var.ps1`) writes a private
+  group GUID into `TraceLoggingConfigPrivate.h` and builds with
+  `--use_telemetry`. A provider group's meaning is decided by the ETW
+  controllers that subscribe to it (Microsoft Learn, TraceLoggingOptionGroup);
+  the Microsoft telemetry group is what Windows' diagnostic data service
+  listens to, so events reach Microsoft only from an official build, and only
+  as far as the person's Windows diagnostic data settings send them.
+- **The PyPI `onnxruntime` 1.27 (Kokoro, faster-whisper's voice filter,
+  Silero VAD, Smart Turn): telemetry built in.** Its `onnxruntime.dll` and
+  `onnxruntime_pybind11_state.pyd` both contain the provider GUID and the
+  group GUID `{4f50731a-89cf-4782-b3e0-dce8c90476ba}` (the same group as in
+  Microsoft's ONNX Runtime inside `moonshine-voice`), plus the event names.
+  **Switched off:** `row_bot/onnxruntime_telemetry.switch_off()` calls
+  `onnxruntime.disable_telemetry_events()` ("Disables platform-specific
+  telemetry collection", ONNX Runtime Python API) once per process, before
+  any session: Kokoro's load (`tts.py`), Whisper's load (`voice/__init__.py`,
+  whose voice filter is an ONNX Runtime session) and Pipecat's analyzers
+  (`pipecat_boundary.prepare`). A PR-lane test checks the order on all three
+  paths. Every event function returns early while `enabled_` is false.
+  **What is left:** ONNX Runtime's ETW enable callback also writes
+  `enabled_` (`ORT_TL_EtwEnableCallback` sets it to whether a controller
+  enables the provider), so if a Windows component enables or re-enables the
+  provider later in the process's life, events can resume. Row-Bot's call
+  comes after the provider registers, so it wins at start; a later re-enable
+  is outside Row-Bot's control. This was not observed with an ETW trace here
+  (that needs an elevated session): a hand check.
+- **sherpa-onnx's bundled ONNX Runtime 1.28.2: not a telemetry build.** It
+  is built by sherpa-onnx's author from the public source
+  (`csukuangfj/onnxruntime-libs`, `.github/workflows/windows-x64.yaml`:
+  `build.py` without `--use_telemetry`). Its `onnxruntime.dll` contains the
+  provider GUID and the event names but **not** the telemetry group GUID, so
+  the provider joins no group and no diagnostic data listener collects it.
+  Its events go only to a local ETW session that names this provider GUID
+  (a developer's trace tool, run by the person). They cannot be switched off:
+  sherpa-onnx's source never calls `DisableTelemetryEvents` on its
+  `Ort::Env` and exposes no way to, and Row-Bot's Python call reaches only the
+  PyPI copy (the two libraries are separate). Linux and macOS copies have no
+  provider at all.
 
 ### Measured on this computer (22 Nov 2026)
 

@@ -90,6 +90,10 @@ class VoiceService:
     def _ensure_whisper(self, *, allow_download: bool = True):
         if self._whisper_model is not None:
             return self._whisper_model
+        from row_bot import onnxruntime_telemetry
+
+        # Before faster-whisper's voice filter (Silero VAD) opens an ONNX Runtime session.
+        onnxruntime_telemetry.switch_off()
         from faster_whisper import WhisperModel
 
         _WHISPER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
