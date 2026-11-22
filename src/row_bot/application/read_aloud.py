@@ -9,10 +9,11 @@ voice service, with its per-session rate limit and concurrency slots.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Callable
 
 from row_bot.application.client_platform import ClientPlatformError
-from row_bot.voice.speech_policy import clean_for_speech, split_sentences
+from row_bot.voice.speech_policy import clean_for_speech, speech_pieces
 
 # The first part is short so the voice starts at once; later parts are a few sentences, ready before the one
 # playing ends, and far fewer requests than the per-minute limit.
@@ -20,6 +21,7 @@ FIRST_PART_CHARS = 160
 PART_CHARS = 600
 # A longer reply is read up to here.
 MAX_READ_CHARS = 60_000
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
 @dataclass(frozen=True)
@@ -31,44 +33,18 @@ class ReadAloudPart:
 
 
 def speech_parts(text: str) -> list[str]:
-    """A reply's speakable words in order: whole sentences, the first part short, the rest up to PART_CHARS."""
-    pieces: list[str] = []
-    for line in clean_for_speech(text).splitlines():
-        for sentence in split_sentences(line):
-            pieces.extend(_wrapped(sentence, PART_CHARS))
-    parts: list[str] = []
-    current = ""
-    for piece in pieces:
-        limit = PART_CHARS if parts else FIRST_PART_CHARS
-        if current and len(current) + 1 + len(piece) > limit:
-            parts.append(current)
-            current = piece
-        else:
-            current = f"{current} {piece}" if current else piece
-    if current:
-        parts.append(current)
-    return parts
+    """A reply's speakable words in order: the first part a sentence or so, the rest up to PART_CHARS each.
 
-
-def _wrapped(sentence: str, limit: int) -> list[str]:
-    """A sentence longer than *limit*, cut between words (a word longer than that is cut where it must be)."""
-    pieces: list[str] = []
-    current = ""
-    for word in sentence.split():
-        while len(word) > limit:
-            if current:
-                pieces.append(current)
-                current = ""
-            pieces.append(word[:limit])
-            word = word[limit:]
-        if current and len(current) + 1 + len(word) > limit:
-            pieces.append(current)
-            current = word
-        else:
-            current = f"{current} {word}" if current else word
-    if current:
-        pieces.append(current)
-    return pieces
+    Joined with spaces, the parts say every word; a sentence is cut between words only when it is longer
+    than a part.
+    """
+    words = " ".join(clean_for_speech(text).split())
+    if not words:
+        return []
+    # A long first sentence stays whole (up to a part's length) rather than stopping mid-sentence.
+    first_sentence = _SENTENCE_END.split(words, maxsplit=1)[0]
+    head = speech_pieces(words, max(FIRST_PART_CHARS, min(len(first_sentence), PART_CHARS)))[0]
+    return [head, *speech_pieces(words[len(head):].strip(), PART_CHARS)]
 
 
 def _reply_text(conversation_id: str, message_id: str) -> str:
