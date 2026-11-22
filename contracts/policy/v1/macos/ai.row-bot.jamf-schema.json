@@ -1,0 +1,383 @@
+{
+  "title": "Row-Bot organisation policy (ai.row-bot)",
+  "description": "An organisation's policy for Row-Bot, schema version 1. Unknown keys are refused: a policy Row-Bot can't fully read locks Row-Bot down. Every setting a policy leaves out takes the value below; lockdown is what an unreadable, invalid or badly signed policy means.\n\n| Setting | Not set in a policy | Lockdown |\n| --- | --- | --- |\n| `organisation.id` | none | none |\n| `organisation.display_name` | none | none |\n| `organisation.server_url` | none | none |\n| `organisation.policy_version` | none | none |\n| `organisation.contact` | none | none |\n| `approvals.max_level` | auto | block |\n| `models.allowed_providers` | any provider | [] |\n| `models.allowed_models` | any model of an allowed provider | [] |\n| `models.gateway_url` | none | none |\n| `models.gateway_shape` | openai_chat | openai_chat |\n| `models.personal_api_keys` | true | false |\n| `models.subscription_sign_ins` | false | false |\n| `models.local_models` | true | false |\n| `tools.disabled` | [] | * |\n| `tools.files_outside_workspace` | true | false |\n| `channels.allowed` | discord, slack, sms, telegram | [] |\n| `extensions.plugins` | any | none |\n| `extensions.allowed_plugins` | [] | [] |\n| `extensions.mcp_servers` | any | none |\n| `extensions.allowed_mcp_servers` | [] | [] |\n| `extensions.skills` | any | none |\n| `extensions.allowed_skills` | [] | [] |\n| `features.learning` | false | false |\n| `features.proactive` | true | false |\n| `features.remote_access` | false | false |\n| `features.data_export` | true | false |\n| `features.install_count` | false | false |\n| `updates.channel` | the person chooses | stable |\n| `updates.deferral_days` | 0 | 0 |\n| `updates.pinned_version` | none | none |\n| `updates.external` | false | true |\n| `line.regulated` | false | true |\n| `audit.sink` | local | local |\n| `audit.redaction` | strict | strict |",
+  "type": "object",
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "title": "Schema version",
+      "description": "Always 1 for this schema.",
+      "enum": [
+        1
+      ],
+      "default": 1
+    },
+    "organisation": {
+      "title": "Organisation",
+      "description": "Who the policy belongs to. Shown in Settings; nothing here changes behaviour on its own.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "title": "Organisation id",
+          "description": "A short, stable id for the organisation. Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(?:[a-z0-9][a-z0-9._-]{0,63})$"
+        },
+        "display_name": {
+          "title": "Organisation name",
+          "description": "The organisation's name as people see it. Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?:[^\\x00-\\x1f\\x7f]*)$"
+        },
+        "server_url": {
+          "title": "Org server URL",
+          "description": "The organisation's Row-Bot Org server. Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^(?:(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?)(?:/[^\\s#@]*)?)$"
+        },
+        "policy_version": {
+          "title": "Policy version",
+          "description": "IT's own version label for this policy, shown in Settings. Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(?:[^\\x00-\\x1f\\x7f]*)$"
+        },
+        "contact": {
+          "title": "IT contact",
+          "description": "Who to contact about this policy, shown when Row-Bot is locked down. Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?:[^\\x00-\\x1f\\x7f]*)$"
+        }
+      }
+    },
+    "approvals": {
+      "title": "Approvals",
+      "description": "How far people may let Row-Bot act without asking.",
+      "type": "object",
+      "properties": {
+        "max_level": {
+          "title": "Highest approval level",
+          "description": "The highest approval level anyone may choose: block, approve (Ask), auto (reviewed) or full (Hands-off). Hands-off is allowed only when this is full. Not set in a policy: auto. Lockdown: block.",
+          "default": "auto",
+          "type": "string",
+          "enum": [
+            "block",
+            "approve",
+            "auto",
+            "full"
+          ]
+        }
+      }
+    },
+    "models": {
+      "title": "Models",
+      "description": "Which models people may use, and how they reach them.",
+      "type": "object",
+      "properties": {
+        "allowed_providers": {
+          "title": "Allowed providers",
+          "description": "Provider ids people may use (for example anthropic, openai, ollama, custom_openai_<endpoint>). Not set in a policy: any provider. Lockdown: [].",
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z0-9][a-z0-9_-]{0,99})$"
+          }
+        },
+        "allowed_models": {
+          "title": "Allowed models",
+          "description": "Provider-qualified model refs people may use (model:<provider>:<model id>). Not set in a policy: any model of an allowed provider. Lockdown: [].",
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:model:[a-z0-9][a-z0-9_-]{0,99}:[^\\s]{1,200})$"
+          }
+        },
+        "gateway_url": {
+          "title": "Organisation gateway URL",
+          "description": "An organisation model gateway Row-Bot offers as a provider. Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^(?:(?:https://[A-Za-z0-9.-]+(?::\\d{1,5})?|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::\\d{1,5})?)(?:/[^\\s#@]*)?)$"
+        },
+        "gateway_shape": {
+          "title": "Organisation gateway API",
+          "description": "The API the gateway speaks. Needs gateway_url. Not set in a policy: openai_chat. Lockdown: openai_chat.",
+          "default": "openai_chat",
+          "type": "string",
+          "enum": [
+            "openai_chat",
+            "openai_responses",
+            "anthropic_messages"
+          ]
+        },
+        "personal_api_keys": {
+          "title": "Allow personal API keys",
+          "description": "Whether people may add their own API keys and custom endpoints. Not set in a policy: true. Lockdown: false.",
+          "default": true,
+          "type": "boolean"
+        },
+        "subscription_sign_ins": {
+          "title": "Allow consumer subscription sign-ins",
+          "description": "Whether people may sign in with a consumer subscription (Claude plan, ChatGPT/Codex, xAI Grok, OpenCode Go). Not set in a policy: false. Lockdown: false.",
+          "default": false,
+          "type": "boolean"
+        },
+        "local_models": {
+          "title": "Allow local models",
+          "description": "Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). Not set in a policy: true. Lockdown: false.",
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    },
+    "tools": {
+      "title": "Tools",
+      "description": "Which of Row-Bot's tools are switched off.",
+      "type": "object",
+      "properties": {
+        "disabled": {
+          "title": "Disabled tools",
+          "description": "Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: *.",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:\\*|[a-z0-9][a-z0-9_]{0,63})$"
+          }
+        },
+        "files_outside_workspace": {
+          "title": "Allow files outside the workspace",
+          "description": "Whether tools may read or change files outside the workspace (each time still asked by the approval level). Not set in a policy: true. Lockdown: false.",
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    },
+    "channels": {
+      "title": "Channels",
+      "description": "Which messaging channels people may connect.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "title": "Allowed channels",
+          "description": "Channel ids people may connect. The WhatsApp bridge (whatsapp) is unofficial, so it is allowed only when named here. Not set in a policy: discord, slack, sms, telegram. Lockdown: [].",
+          "default": [
+            "discord",
+            "slack",
+            "sms",
+            "telegram"
+          ],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z0-9][a-z0-9_-]{0,63})$"
+          }
+        }
+      }
+    },
+    "extensions": {
+      "title": "Extensions",
+      "description": "Which plugins, MCP servers and skills people may add.",
+      "type": "object",
+      "properties": {
+        "plugins": {
+          "title": "Plugins",
+          "description": "none, allow-list (only allowed_plugins) or any. Not set in a policy: any. Lockdown: none.",
+          "default": "any",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_plugins": {
+          "title": "Allowed plugins",
+          "description": "Plugin ids, when plugins is allow-list. Not set in a policy: []. Lockdown: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199})$"
+          }
+        },
+        "mcp_servers": {
+          "title": "MCP servers",
+          "description": "none, allow-list (only allowed_mcp_servers) or any. Not set in a policy: any. Lockdown: none.",
+          "default": "any",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_mcp_servers": {
+          "title": "Allowed MCP servers",
+          "description": "MCP server names, when mcp_servers is allow-list. Not set in a policy: []. Lockdown: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199})$"
+          }
+        },
+        "skills": {
+          "title": "Skills",
+          "description": "none, allow-list (only allowed_skills) or any. Not set in a policy: any. Lockdown: none.",
+          "default": "any",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_skills": {
+          "title": "Allowed skills",
+          "description": "Skill ids, when skills is allow-list. Not set in a policy: []. Lockdown: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199})$"
+          }
+        }
+      }
+    },
+    "features": {
+      "title": "Features",
+      "description": "Features people may turn on. Off means off and locked; on leaves the person's own choice.",
+      "type": "object",
+      "properties": {
+        "learning": {
+          "title": "Allow Learning",
+          "description": "Whether people may turn on Learning. Not set in a policy: false. Lockdown: false.",
+          "default": false,
+          "type": "boolean"
+        },
+        "proactive": {
+          "title": "Allow Proactive Row-Bot",
+          "description": "Whether people may turn on Proactive Row-Bot. Not set in a policy: true. Lockdown: false.",
+          "default": true,
+          "type": "boolean"
+        },
+        "remote_access": {
+          "title": "Allow remote access",
+          "description": "Whether people may reach this Row-Bot from other devices. Not set in a policy: false. Lockdown: false.",
+          "default": false,
+          "type": "boolean"
+        },
+        "data_export": {
+          "title": "Allow data export",
+          "description": "Whether people may export their conversations and data. Not set in a policy: true. Lockdown: false.",
+          "default": true,
+          "type": "boolean"
+        },
+        "install_count": {
+          "title": "Allow the install count",
+          "description": "Whether the anonymous install count may be sent. Not set in a policy: false. Lockdown: false.",
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "updates": {
+      "title": "Updates",
+      "description": "How Row-Bot updates itself.",
+      "type": "object",
+      "properties": {
+        "channel": {
+          "title": "Update channel",
+          "description": "stable or beta. Not set in a policy: the person chooses. Lockdown: stable.",
+          "type": "string",
+          "enum": [
+            "stable",
+            "beta"
+          ]
+        },
+        "deferral_days": {
+          "title": "Defer updates (days)",
+          "description": "Days to wait after a release before offering it. Not set in a policy: 0. Lockdown: 0.",
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365
+        },
+        "pinned_version": {
+          "title": "Pinned version",
+          "description": "Stay on this version (for example 5.4.0). Not set in a policy: none. Lockdown: none.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^(?:\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}(?:[-+][0-9A-Za-z.-]{1,64})?)$"
+        },
+        "external": {
+          "title": "Updates come from IT",
+          "description": "Row-Bot never updates itself; IT deploys new versions. Not set in a policy: false. Lockdown: true.",
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "line": {
+      "title": "Line",
+      "description": "The Line between Personal and Work.",
+      "type": "object",
+      "properties": {
+        "regulated": {
+          "title": "Regulated mode",
+          "description": "Regulated mode for Work. It never changes Personal. Not set in a policy: false. Lockdown: true.",
+          "default": false,
+          "type": "boolean"
+        }
+      }
+    },
+    "audit": {
+      "title": "Audit",
+      "description": "Where audit events go (placeholders; AUD-1 defines them).",
+      "type": "object",
+      "properties": {
+        "sink": {
+          "title": "Audit sink",
+          "description": "local or org_server. Not set in a policy: local. Lockdown: local.",
+          "default": "local",
+          "type": "string",
+          "enum": [
+            "local",
+            "org_server"
+          ]
+        },
+        "redaction": {
+          "title": "Audit redaction",
+          "description": "strict or standard. Not set in a policy: strict. Lockdown: strict.",
+          "default": "strict",
+          "type": "string",
+          "enum": [
+            "strict",
+            "standard"
+          ]
+        }
+      }
+    }
+  }
+}

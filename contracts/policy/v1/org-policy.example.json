@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "require_signature": false,
+  "organisation": {
+    "id": "example-co",
+    "display_name": "Example Co",
+    "server_url": "https://row-bot.example.com",
+    "policy_version": "2027-01",
+    "contact": "IT help desk, it-help@example.com"
+  },
+  "approvals": {
+    "max_level": "auto"
+  },
+  "models": {
+    "allowed_providers": [
+      "anthropic",
+      "custom_openai_example-gateway"
+    ],
+    "allowed_models": [
+      "model:anthropic:claude-sonnet-4-5",
+      "model:custom_openai_example-gateway:gpt-5"
+    ],
+    "gateway_url": "https://ai-gateway.example.com/v1",
+    "gateway_shape": "openai_chat",
+    "personal_api_keys": false,
+    "subscription_sign_ins": false,
+    "local_models": false
+  },
+  "tools": {
+    "disabled": [
+      "computer_use",
+      "shell"
+    ],
+    "files_outside_workspace": false
+  },
+  "channels": {
+    "allowed": [
+      "slack"
+    ]
+  },
+  "extensions": {
+    "plugins": "allow-list",
+    "allowed_plugins": [
+      "example-co-tools"
+    ],
+    "mcp_servers": "allow-list",
+    "allowed_mcp_servers": [
+      "github"
+    ],
+    "skills": "allow-list",
+    "allowed_skills": [
+      "example-co-style-guide"
+    ]
+  },
+  "features": {
+    "learning": false,
+    "proactive": true,
+    "remote_access": false,
+    "data_export": true,
+    "install_count": false
+  },
+  "updates": {
+    "channel": "stable",
+    "deferral_days": 7,
+    "pinned_version": "5.4.0",
+    "external": false
+  },
+  "line": {
+    "regulated": false
+  },
+  "audit": {
+    "sink": "local",
+    "redaction": "strict"
+  }
+}

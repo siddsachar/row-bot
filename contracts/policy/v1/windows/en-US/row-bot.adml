@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions" revision="1.0" schemaVersion="1.0">
+  <displayName>Row-Bot</displayName>
+  <description>Row-Bot organisation policy, schema version 1.</description>
+  <resources>
+    <stringTable>
+      <string id="RowBot">Row-Bot</string>
+      <string id="SUPPORTED_ROW_BOT_POLICY_1">Row-Bot with organisation policy schema 1</string>
+      <string id="RowBot_organisation">Organisation</string>
+      <string id="RowBot_approvals">Approvals</string>
+      <string id="RowBot_models">Models</string>
+      <string id="RowBot_tools">Tools</string>
+      <string id="RowBot_channels">Channels</string>
+      <string id="RowBot_extensions">Extensions</string>
+      <string id="RowBot_features">Features</string>
+      <string id="RowBot_updates">Updates</string>
+      <string id="RowBot_line">Line</string>
+      <string id="RowBot_audit">Audit</string>
+      <string id="organisation_id">Organisation id</string>
+      <string id="organisation_id_Explain">organisation.id: A short, stable id for the organisation. Not set in a policy: none. Lockdown: none.</string>
+      <string id="organisation_display_name">Organisation name</string>
+      <string id="organisation_display_name_Explain">organisation.display_name: The organisation's name as people see it. Not set in a policy: none. Lockdown: none.</string>
+      <string id="organisation_server_url">Org server URL</string>
+      <string id="organisation_server_url_Explain">organisation.server_url: The organisation's Row-Bot Org server. Not set in a policy: none. Lockdown: none.</string>
+      <string id="organisation_policy_version">Policy version</string>
+      <string id="organisation_policy_version_Explain">organisation.policy_version: IT's own version label for this policy, shown in Settings. Not set in a policy: none. Lockdown: none.</string>
+      <string id="organisation_contact">IT contact</string>
+      <string id="organisation_contact_Explain">organisation.contact: Who to contact about this policy, shown when Row-Bot is locked down. Not set in a policy: none. Lockdown: none.</string>
+      <string id="approvals_max_level">Highest approval level</string>
+      <string id="approvals_max_level_Explain">approvals.max_level: The highest approval level anyone may choose: block, approve (Ask), auto (reviewed) or full (Hands-off). Hands-off is allowed only when this is full. Not set in a policy: auto. Lockdown: block.</string>
+      <string id="approvals_max_level_max_level_block">block</string>
+      <string id="approvals_max_level_max_level_approve">approve</string>
+      <string id="approvals_max_level_max_level_auto">auto</string>
+      <string id="approvals_max_level_max_level_full">full</string>
+      <string id="models_allowed_providers">Allowed providers</string>
+      <string id="models_allowed_providers_Explain">models.allowed_providers: Provider ids people may use (for example anthropic, openai, ollama, custom_openai_&lt;endpoint&gt;). Not set in a policy: any provider. Lockdown: [].</string>
+      <string id="models_allowed_models">Allowed models</string>
+      <string id="models_allowed_models_Explain">models.allowed_models: Provider-qualified model refs people may use (model:&lt;provider&gt;:&lt;model id&gt;). Not set in a policy: any model of an allowed provider. Lockdown: [].</string>
+      <string id="models_gateway_url">Organisation gateway URL</string>
+      <string id="models_gateway_url_Explain">models.gateway_url: An organisation model gateway Row-Bot offers as a provider. Not set in a policy: none. Lockdown: none.
+
+models.gateway_shape: The API the gateway speaks. Needs gateway_url. Not set in a policy: openai_chat. Lockdown: openai_chat.</string>
+      <string id="models_gateway_url_gateway_shape_openai_chat">openai_chat</string>
+      <string id="models_gateway_url_gateway_shape_openai_responses">openai_responses</string>
+      <string id="models_gateway_url_gateway_shape_anthropic_messages">anthropic_messages</string>
+      <string id="models_personal_api_keys">Allow personal API keys</string>
+      <string id="models_personal_api_keys_Explain">models.personal_api_keys: Whether people may add their own API keys and custom endpoints. Not set in a policy: true. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="models_subscription_sign_ins">Allow consumer subscription sign-ins</string>
+      <string id="models_subscription_sign_ins_Explain">models.subscription_sign_ins: Whether people may sign in with a consumer subscription (Claude plan, ChatGPT/Codex, xAI Grok, OpenCode Go). Not set in a policy: false. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="models_local_models">Allow local models</string>
+      <string id="models_local_models_Explain">models.local_models: Whether people may run models on this computer (Ollama, llama.cpp, LM Studio). Not set in a policy: true. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="tools_disabled">Disabled tools</string>
+      <string id="tools_disabled_Explain">tools.disabled: Tool names switched off and locked (for example shell, computer_use, browser, developer); * switches off every tool. Not set in a policy: []. Lockdown: *.</string>
+      <string id="tools_files_outside_workspace">Allow files outside the workspace</string>
+      <string id="tools_files_outside_workspace_Explain">tools.files_outside_workspace: Whether tools may read or change files outside the workspace (each time still asked by the approval level). Not set in a policy: true. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="channels_allowed">Allowed channels</string>
+      <string id="channels_allowed_Explain">channels.allowed: Channel ids people may connect. The WhatsApp bridge (whatsapp) is unofficial, so it is allowed only when named here. Not set in a policy: discord, slack, sms, telegram. Lockdown: [].</string>
+      <string id="extensions_plugins">Plugins</string>
+      <string id="extensions_plugins_Explain">extensions.plugins: none, allow-list (only allowed_plugins) or any. Not set in a policy: any. Lockdown: none.
+
+extensions.allowed_plugins: Plugin ids, when plugins is allow-list. Not set in a policy: []. Lockdown: [].</string>
+      <string id="extensions_plugins_plugins_none">none</string>
+      <string id="extensions_plugins_plugins_allow_list">allow-list</string>
+      <string id="extensions_plugins_plugins_any">any</string>
+      <string id="extensions_mcp_servers">MCP servers</string>
+      <string id="extensions_mcp_servers_Explain">extensions.mcp_servers: none, allow-list (only allowed_mcp_servers) or any. Not set in a policy: any. Lockdown: none.
+
+extensions.allowed_mcp_servers: MCP server names, when mcp_servers is allow-list. Not set in a policy: []. Lockdown: [].</string>
+      <string id="extensions_mcp_servers_mcp_servers_none">none</string>
+      <string id="extensions_mcp_servers_mcp_servers_allow_list">allow-list</string>
+      <string id="extensions_mcp_servers_mcp_servers_any">any</string>
+      <string id="extensions_skills">Skills</string>
+      <string id="extensions_skills_Explain">extensions.skills: none, allow-list (only allowed_skills) or any. Not set in a policy: any. Lockdown: none.
+
+extensions.allowed_skills: Skill ids, when skills is allow-list. Not set in a policy: []. Lockdown: [].</string>
+      <string id="extensions_skills_skills_none">none</string>
+      <string id="extensions_skills_skills_allow_list">allow-list</string>
+      <string id="extensions_skills_skills_any">any</string>
+      <string id="features_learning">Allow Learning</string>
+      <string id="features_learning_Explain">features.learning: Whether people may turn on Learning. Not set in a policy: false. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="features_proactive">Allow Proactive Row-Bot</string>
+      <string id="features_proactive_Explain">features.proactive: Whether people may turn on Proactive Row-Bot. Not set in a policy: true. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="features_remote_access">Allow remote access</string>
+      <string id="features_remote_access_Explain">features.remote_access: Whether people may reach this Row-Bot from other devices. Not set in a policy: false. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="features_data_export">Allow data export</string>
+      <string id="features_data_export_Explain">features.data_export: Whether people may export their conversations and data. Not set in a policy: true. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="features_install_count">Allow the install count</string>
+      <string id="features_install_count_Explain">features.install_count: Whether the anonymous install count may be sent. Not set in a policy: false. Lockdown: false.
+
+Enabled: true. Disabled: false.</string>
+      <string id="updates_channel">Update channel</string>
+      <string id="updates_channel_Explain">updates.channel: stable or beta. Not set in a policy: the person chooses. Lockdown: stable.</string>
+      <string id="updates_channel_channel_stable">stable</string>
+      <string id="updates_channel_channel_beta">beta</string>
+      <string id="updates_deferral_days">Defer updates (days)</string>
+      <string id="updates_deferral_days_Explain">updates.deferral_days: Days to wait after a release before offering it. Not set in a policy: 0. Lockdown: 0.</string>
+      <string id="updates_pinned_version">Pinned version</string>
+      <string id="updates_pinned_version_Explain">updates.pinned_version: Stay on this version (for example 5.4.0). Not set in a policy: none. Lockdown: none.</string>
+      <string id="updates_external">Updates come from IT</string>
+      <string id="updates_external_Explain">updates.external: Row-Bot never updates itself; IT deploys new versions. Not set in a policy: false. Lockdown: true.
+
+Enabled: true. Disabled: false.</string>
+      <string id="line_regulated">Regulated mode</string>
+      <string id="line_regulated_Explain">line.regulated: Regulated mode for Work. It never changes Personal. Not set in a policy: false. Lockdown: true.
+
+Enabled: true. Disabled: false.</string>
+      <string id="audit_sink">Audit sink</string>
+      <string id="audit_sink_Explain">audit.sink: local or org_server. Not set in a policy: local. Lockdown: local.</string>
+      <string id="audit_sink_sink_local">local</string>
+      <string id="audit_sink_sink_org_server">org_server</string>
+      <string id="audit_redaction">Audit redaction</string>
+      <string id="audit_redaction_Explain">audit.redaction: strict or standard. Not set in a policy: strict. Lockdown: strict.</string>
+      <string id="audit_redaction_redaction_strict">strict</string>
+      <string id="audit_redaction_redaction_standard">standard</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="organisation_id">
+        <textBox refId="id">
+          <label>Organisation id</label>
+        </textBox>
+      </presentation>
+      <presentation id="organisation_display_name">
+        <textBox refId="display_name">
+          <label>Organisation name</label>
+        </textBox>
+      </presentation>
+      <presentation id="organisation_server_url">
+        <textBox refId="server_url">
+          <label>Org server URL</label>
+        </textBox>
+      </presentation>
+      <presentation id="organisation_policy_version">
+        <textBox refId="policy_version">
+          <label>Policy version</label>
+        </textBox>
+      </presentation>
+      <presentation id="organisation_contact">
+        <textBox refId="contact">
+          <label>IT contact</label>
+        </textBox>
+      </presentation>
+      <presentation id="approvals_max_level">
+        <dropdownList refId="max_level" noSort="true">Highest approval level</dropdownList>
+      </presentation>
+      <presentation id="models_allowed_providers">
+        <listBox refId="allowed_providers">Allowed providers</listBox>
+      </presentation>
+      <presentation id="models_allowed_models">
+        <listBox refId="allowed_models">Allowed models</listBox>
+      </presentation>
+      <presentation id="models_gateway_url">
+        <textBox refId="gateway_url">
+          <label>Organisation gateway URL</label>
+        </textBox>
+        <dropdownList refId="gateway_shape" noSort="true">Organisation gateway API</dropdownList>
+      </presentation>
+      <presentation id="tools_disabled">
+        <listBox refId="disabled">Disabled tools</listBox>
+      </presentation>
+      <presentation id="channels_allowed">
+        <listBox refId="allowed">Allowed channels</listBox>
+      </presentation>
+      <presentation id="extensions_plugins">
+        <dropdownList refId="plugins" noSort="true">Plugins</dropdownList>
+        <listBox refId="allowed_plugins">Allowed plugins</listBox>
+      </presentation>
+      <presentation id="extensions_mcp_servers">
+        <dropdownList refId="mcp_servers" noSort="true">MCP servers</dropdownList>
+        <listBox refId="allowed_mcp_servers">Allowed MCP servers</listBox>
+      </presentation>
+      <presentation id="extensions_skills">
+        <dropdownList refId="skills" noSort="true">Skills</dropdownList>
+        <listBox refId="allowed_skills">Allowed skills</listBox>
+      </presentation>
+      <presentation id="updates_channel">
+        <dropdownList refId="channel" noSort="true">Update channel</dropdownList>
+      </presentation>
+      <presentation id="updates_deferral_days">
+        <decimalTextBox refId="deferral_days" defaultValue="0">Defer updates (days)</decimalTextBox>
+      </presentation>
+      <presentation id="updates_pinned_version">
+        <textBox refId="pinned_version">
+          <label>Pinned version</label>
+        </textBox>
+      </presentation>
+      <presentation id="audit_sink">
+        <dropdownList refId="sink" noSort="true">Audit sink</dropdownList>
+      </presentation>
+      <presentation id="audit_redaction">
+        <dropdownList refId="redaction" noSort="true">Audit redaction</dropdownList>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

@@ -1,0 +1,699 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions" revision="1.0" schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="rowbot" namespace="RowBot.Policies.RowBot" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_ROW_BOT_POLICY_1" displayName="$(string.SUPPORTED_ROW_BOT_POLICY_1)" />
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="RowBot" displayName="$(string.RowBot)" />
+    <category name="RowBot_organisation" displayName="$(string.RowBot_organisation)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_approvals" displayName="$(string.RowBot_approvals)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_models" displayName="$(string.RowBot_models)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_tools" displayName="$(string.RowBot_tools)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_channels" displayName="$(string.RowBot_channels)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_extensions" displayName="$(string.RowBot_extensions)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_features" displayName="$(string.RowBot_features)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_updates" displayName="$(string.RowBot_updates)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_line" displayName="$(string.RowBot_line)">
+      <parentCategory ref="RowBot" />
+    </category>
+    <category name="RowBot_audit" displayName="$(string.RowBot_audit)">
+      <parentCategory ref="RowBot" />
+    </category>
+  </categories>
+  <policies>
+    <policy name="organisation_id" class="Machine" displayName="$(string.organisation_id)" explainText="$(string.organisation_id_Explain)" key="SOFTWARE\Policies\Row-Bot\organisation" presentation="$(presentation.organisation_id)">
+      <parentCategory ref="RowBot_organisation" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="id" valueName="id" required="true" maxLength="64" />
+      </elements>
+    </policy>
+    <policy name="organisation_display_name" class="Machine" displayName="$(string.organisation_display_name)" explainText="$(string.organisation_display_name_Explain)" key="SOFTWARE\Policies\Row-Bot\organisation" presentation="$(presentation.organisation_display_name)">
+      <parentCategory ref="RowBot_organisation" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="display_name" valueName="display_name" required="true" maxLength="200" />
+      </elements>
+    </policy>
+    <policy name="organisation_server_url" class="Machine" displayName="$(string.organisation_server_url)" explainText="$(string.organisation_server_url_Explain)" key="SOFTWARE\Policies\Row-Bot\organisation" presentation="$(presentation.organisation_server_url)">
+      <parentCategory ref="RowBot_organisation" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="server_url" valueName="server_url" required="true" maxLength="2048" />
+      </elements>
+    </policy>
+    <policy name="organisation_policy_version" class="Machine" displayName="$(string.organisation_policy_version)" explainText="$(string.organisation_policy_version_Explain)" key="SOFTWARE\Policies\Row-Bot\organisation" presentation="$(presentation.organisation_policy_version)">
+      <parentCategory ref="RowBot_organisation" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="policy_version" valueName="policy_version" required="true" maxLength="64" />
+      </elements>
+    </policy>
+    <policy name="organisation_contact" class="Machine" displayName="$(string.organisation_contact)" explainText="$(string.organisation_contact_Explain)" key="SOFTWARE\Policies\Row-Bot\organisation" presentation="$(presentation.organisation_contact)">
+      <parentCategory ref="RowBot_organisation" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="contact" valueName="contact" required="true" maxLength="200" />
+      </elements>
+    </policy>
+    <policy name="approvals_max_level" class="Machine" displayName="$(string.approvals_max_level)" explainText="$(string.approvals_max_level_Explain)" key="SOFTWARE\Policies\Row-Bot\approvals" presentation="$(presentation.approvals_max_level)">
+      <parentCategory ref="RowBot_approvals" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="max_level" valueName="max_level" required="true">
+          <item displayName="$(string.approvals_max_level_max_level_block)">
+            <value>
+              <string>block</string>
+            </value>
+          </item>
+          <item displayName="$(string.approvals_max_level_max_level_approve)">
+            <value>
+              <string>approve</string>
+            </value>
+          </item>
+          <item displayName="$(string.approvals_max_level_max_level_auto)">
+            <value>
+              <string>auto</string>
+            </value>
+          </item>
+          <item displayName="$(string.approvals_max_level_max_level_full)">
+            <value>
+              <string>full</string>
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="models_allowed_providers" class="Machine" displayName="$(string.models_allowed_providers)" explainText="$(string.models_allowed_providers_Explain)" key="SOFTWARE\Policies\Row-Bot\models" presentation="$(presentation.models_allowed_providers)">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <list id="allowed_providers" key="SOFTWARE\Policies\Row-Bot\models\allowed_providers" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="models_allowed_models" class="Machine" displayName="$(string.models_allowed_models)" explainText="$(string.models_allowed_models_Explain)" key="SOFTWARE\Policies\Row-Bot\models" presentation="$(presentation.models_allowed_models)">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <list id="allowed_models" key="SOFTWARE\Policies\Row-Bot\models\allowed_models" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="models_gateway_url" class="Machine" displayName="$(string.models_gateway_url)" explainText="$(string.models_gateway_url_Explain)" key="SOFTWARE\Policies\Row-Bot\models" presentation="$(presentation.models_gateway_url)">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="gateway_url" valueName="gateway_url" required="true" maxLength="2048" />
+        <enum id="gateway_shape" valueName="gateway_shape" required="true">
+          <item displayName="$(string.models_gateway_url_gateway_shape_openai_chat)">
+            <value>
+              <string>openai_chat</string>
+            </value>
+          </item>
+          <item displayName="$(string.models_gateway_url_gateway_shape_openai_responses)">
+            <value>
+              <string>openai_responses</string>
+            </value>
+          </item>
+          <item displayName="$(string.models_gateway_url_gateway_shape_anthropic_messages)">
+            <value>
+              <string>anthropic_messages</string>
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="models_personal_api_keys" class="Machine" displayName="$(string.models_personal_api_keys)" explainText="$(string.models_personal_api_keys_Explain)" key="SOFTWARE\Policies\Row-Bot\models" valueName="personal_api_keys">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="models_subscription_sign_ins" class="Machine" displayName="$(string.models_subscription_sign_ins)" explainText="$(string.models_subscription_sign_ins_Explain)" key="SOFTWARE\Policies\Row-Bot\models" valueName="subscription_sign_ins">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="models_local_models" class="Machine" displayName="$(string.models_local_models)" explainText="$(string.models_local_models_Explain)" key="SOFTWARE\Policies\Row-Bot\models" valueName="local_models">
+      <parentCategory ref="RowBot_models" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="tools_disabled" class="Machine" displayName="$(string.tools_disabled)" explainText="$(string.tools_disabled_Explain)" key="SOFTWARE\Policies\Row-Bot\tools" presentation="$(presentation.tools_disabled)">
+      <parentCategory ref="RowBot_tools" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <list id="disabled" key="SOFTWARE\Policies\Row-Bot\tools\disabled" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="tools_files_outside_workspace" class="Machine" displayName="$(string.tools_files_outside_workspace)" explainText="$(string.tools_files_outside_workspace_Explain)" key="SOFTWARE\Policies\Row-Bot\tools" valueName="files_outside_workspace">
+      <parentCategory ref="RowBot_tools" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="channels_allowed" class="Machine" displayName="$(string.channels_allowed)" explainText="$(string.channels_allowed_Explain)" key="SOFTWARE\Policies\Row-Bot\channels" presentation="$(presentation.channels_allowed)">
+      <parentCategory ref="RowBot_channels" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <list id="allowed" key="SOFTWARE\Policies\Row-Bot\channels\allowed" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="extensions_plugins" class="Machine" displayName="$(string.extensions_plugins)" explainText="$(string.extensions_plugins_Explain)" key="SOFTWARE\Policies\Row-Bot\extensions" presentation="$(presentation.extensions_plugins)">
+      <parentCategory ref="RowBot_extensions" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="plugins" valueName="plugins" required="true">
+          <item displayName="$(string.extensions_plugins_plugins_none)">
+            <value>
+              <string>none</string>
+            </value>
+          </item>
+          <item displayName="$(string.extensions_plugins_plugins_allow_list)">
+            <value>
+              <string>allow-list</string>
+            </value>
+          </item>
+          <item displayName="$(string.extensions_plugins_plugins_any)">
+            <value>
+              <string>any</string>
+            </value>
+          </item>
+        </enum>
+        <list id="allowed_plugins" key="SOFTWARE\Policies\Row-Bot\extensions\allowed_plugins" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="extensions_mcp_servers" class="Machine" displayName="$(string.extensions_mcp_servers)" explainText="$(string.extensions_mcp_servers_Explain)" key="SOFTWARE\Policies\Row-Bot\extensions" presentation="$(presentation.extensions_mcp_servers)">
+      <parentCategory ref="RowBot_extensions" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="mcp_servers" valueName="mcp_servers" required="true">
+          <item displayName="$(string.extensions_mcp_servers_mcp_servers_none)">
+            <value>
+              <string>none</string>
+            </value>
+          </item>
+          <item displayName="$(string.extensions_mcp_servers_mcp_servers_allow_list)">
+            <value>
+              <string>allow-list</string>
+            </value>
+          </item>
+          <item displayName="$(string.extensions_mcp_servers_mcp_servers_any)">
+            <value>
+              <string>any</string>
+            </value>
+          </item>
+        </enum>
+        <list id="allowed_mcp_servers" key="SOFTWARE\Policies\Row-Bot\extensions\allowed_mcp_servers" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="extensions_skills" class="Machine" displayName="$(string.extensions_skills)" explainText="$(string.extensions_skills_Explain)" key="SOFTWARE\Policies\Row-Bot\extensions" presentation="$(presentation.extensions_skills)">
+      <parentCategory ref="RowBot_extensions" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="skills" valueName="skills" required="true">
+          <item displayName="$(string.extensions_skills_skills_none)">
+            <value>
+              <string>none</string>
+            </value>
+          </item>
+          <item displayName="$(string.extensions_skills_skills_allow_list)">
+            <value>
+              <string>allow-list</string>
+            </value>
+          </item>
+          <item displayName="$(string.extensions_skills_skills_any)">
+            <value>
+              <string>any</string>
+            </value>
+          </item>
+        </enum>
+        <list id="allowed_skills" key="SOFTWARE\Policies\Row-Bot\extensions\allowed_skills" valuePrefix="" />
+      </elements>
+    </policy>
+    <policy name="features_learning" class="Machine" displayName="$(string.features_learning)" explainText="$(string.features_learning_Explain)" key="SOFTWARE\Policies\Row-Bot\features" valueName="learning">
+      <parentCategory ref="RowBot_features" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="features_proactive" class="Machine" displayName="$(string.features_proactive)" explainText="$(string.features_proactive_Explain)" key="SOFTWARE\Policies\Row-Bot\features" valueName="proactive">
+      <parentCategory ref="RowBot_features" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="features_remote_access" class="Machine" displayName="$(string.features_remote_access)" explainText="$(string.features_remote_access_Explain)" key="SOFTWARE\Policies\Row-Bot\features" valueName="remote_access">
+      <parentCategory ref="RowBot_features" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="features_data_export" class="Machine" displayName="$(string.features_data_export)" explainText="$(string.features_data_export_Explain)" key="SOFTWARE\Policies\Row-Bot\features" valueName="data_export">
+      <parentCategory ref="RowBot_features" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="features_install_count" class="Machine" displayName="$(string.features_install_count)" explainText="$(string.features_install_count_Explain)" key="SOFTWARE\Policies\Row-Bot\features" valueName="install_count">
+      <parentCategory ref="RowBot_features" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="updates_channel" class="Machine" displayName="$(string.updates_channel)" explainText="$(string.updates_channel_Explain)" key="SOFTWARE\Policies\Row-Bot\updates" presentation="$(presentation.updates_channel)">
+      <parentCategory ref="RowBot_updates" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="channel" valueName="channel" required="true">
+          <item displayName="$(string.updates_channel_channel_stable)">
+            <value>
+              <string>stable</string>
+            </value>
+          </item>
+          <item displayName="$(string.updates_channel_channel_beta)">
+            <value>
+              <string>beta</string>
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="updates_deferral_days" class="Machine" displayName="$(string.updates_deferral_days)" explainText="$(string.updates_deferral_days_Explain)" key="SOFTWARE\Policies\Row-Bot\updates" presentation="$(presentation.updates_deferral_days)">
+      <parentCategory ref="RowBot_updates" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <decimal id="deferral_days" valueName="deferral_days" required="true" minValue="0" maxValue="365" />
+      </elements>
+    </policy>
+    <policy name="updates_pinned_version" class="Machine" displayName="$(string.updates_pinned_version)" explainText="$(string.updates_pinned_version_Explain)" key="SOFTWARE\Policies\Row-Bot\updates" presentation="$(presentation.updates_pinned_version)">
+      <parentCategory ref="RowBot_updates" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <text id="pinned_version" valueName="pinned_version" required="true" maxLength="80" />
+      </elements>
+    </policy>
+    <policy name="updates_external" class="Machine" displayName="$(string.updates_external)" explainText="$(string.updates_external_Explain)" key="SOFTWARE\Policies\Row-Bot\updates" valueName="external">
+      <parentCategory ref="RowBot_updates" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="line_regulated" class="Machine" displayName="$(string.line_regulated)" explainText="$(string.line_regulated_Explain)" key="SOFTWARE\Policies\Row-Bot\line" valueName="regulated">
+      <parentCategory ref="RowBot_line" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="audit_sink" class="Machine" displayName="$(string.audit_sink)" explainText="$(string.audit_sink_Explain)" key="SOFTWARE\Policies\Row-Bot\audit" presentation="$(presentation.audit_sink)">
+      <parentCategory ref="RowBot_audit" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="sink" valueName="sink" required="true">
+          <item displayName="$(string.audit_sink_sink_local)">
+            <value>
+              <string>local</string>
+            </value>
+          </item>
+          <item displayName="$(string.audit_sink_sink_org_server)">
+            <value>
+              <string>org_server</string>
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="audit_redaction" class="Machine" displayName="$(string.audit_redaction)" explainText="$(string.audit_redaction_Explain)" key="SOFTWARE\Policies\Row-Bot\audit" presentation="$(presentation.audit_redaction)">
+      <parentCategory ref="RowBot_audit" />
+      <supportedOn ref="SUPPORTED_ROW_BOT_POLICY_1" />
+      <enabledList>
+        <item key="SOFTWARE\Policies\Row-Bot" valueName="schema_version">
+          <value>
+            <decimal value="1" />
+          </value>
+        </item>
+      </enabledList>
+      <elements>
+        <enum id="redaction" valueName="redaction" required="true">
+          <item displayName="$(string.audit_redaction_redaction_strict)">
+            <value>
+              <string>strict</string>
+            </value>
+          </item>
+          <item displayName="$(string.audit_redaction_redaction_standard)">
+            <value>
+              <string>standard</string>
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>
