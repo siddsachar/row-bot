@@ -89,8 +89,8 @@ class PresentTool(BaseTool):
                 description=(
                     "Show the person the finished result, large, in this reply (in a Row-Bot chat; in a chat "
                     "app, send_file delivers): the film, picture, page or file they asked for, and mark it "
-                    "final. Use it once the final is ready: every final must be presented, and a reply that "
-                    "delivers one ends by presenting it. Never present working material for a final (raw "
+                    "final. Use it once the final is ready: every final must be presented, in the reply that "
+                    "delivers it. Never present working material for a final (raw "
                     "recordings you'll cut, frames, contact sheets, review sheets, voice lines for a video, "
                     "test renders): it stays folded in the chat."
                 ),
