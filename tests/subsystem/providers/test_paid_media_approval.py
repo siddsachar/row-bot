@@ -169,7 +169,8 @@ def test_a_paid_edit_with_no_picture_to_edit_says_so_without_asking(media):
 
     result = media.call("edit_image", prompt="make it night", image_source="missing-photo.png")
 
-    assert result.startswith("Could not find image 'missing-photo.png'")
+    assert result == ("Couldn't find missing-photo.png: name a picture in this chat's files, 'last', or a file in "
+                      "the workspace.")
     assert media.asked == [] and media.calls == []
 
 
@@ -184,6 +185,37 @@ def test_a_paid_video_under_ask_asks_and_a_denial_makes_nothing(media):
     assert card["question"] == "Make a video (8 seconds, 720p) on OpenRouter? It costs money on your OpenRouter account."
     assert result.startswith("Approval: asked; denied by you")
     assert media.calls == [] and media.videos == []
+
+
+def test_a_clip_the_model_cant_extend_is_refused_before_the_card(media, monkeypatch):
+    from row_bot.tools import video_gen_tool
+
+    monkeypatch.setattr(video_gen_tool, "_resolve_clip", lambda value: b"\x00\x00\x00\x18ftypmp42clip")
+    media.video = "openrouter/google/veo-3.1"
+
+    result = media.call("generate_video", prompt="the door opens", extend="last")
+
+    assert result.startswith("OpenRouter can't continue a clip with google/veo-3.1.")
+    assert media.asked == [] and media.calls == [] and media.videos == []
+
+
+def test_a_1080p_default_is_on_the_card_with_its_price_and_in_the_result(media, monkeypatch):
+    """The highest resolution is the default, never a silent one: the card asks for it and prices it."""
+    from row_bot.tools import video_gen_tool
+
+    client = SimpleNamespace(
+        interactions=SimpleNamespace(create=lambda **request: SimpleNamespace(
+            output_video=SimpleNamespace(data=base64.b64encode(b"omni-bytes").decode()))))
+    monkeypatch.setattr(video_gen_tool, "_get_google_client", lambda: client)
+    media.video = "google/gemini-omni-1.2-flash"
+
+    result = media.call("generate_video", prompt="waves at dusk", duration_seconds=8)
+
+    [card] = media.asked
+    assert card["question"] == "Make a video (8 seconds, 1080p) on Google? It costs money on your Google account."
+    assert card["price"]["low_usd"] == pytest.approx(0.832)
+    assert "Duration: 8s | Aspect ratio: 16:9 | Resolution: 1080p | Mode: text-to-video | Provider: Google" in result
+    assert media.videos == [b"omni-bytes"]
 
 
 @pytest.fixture

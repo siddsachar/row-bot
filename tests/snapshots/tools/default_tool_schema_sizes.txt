@@ -73,8 +73,8 @@ list_conversations: 280
 list_memories: 453
 make_music: 657
 media_bring: 305
-media_find: 576
-media_tag: 456
+media_find: 690
+media_tag: 590
 page_create: 788
 page_read: 495
 page_update: 612
@@ -133,4 +133,4 @@ workspace_read_file: 626
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (135 tools): 89450
+TOTAL (135 tools): 89698

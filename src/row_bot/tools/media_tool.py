@@ -26,9 +26,26 @@ def _size(size: int) -> str:
     return f"{size / 1_048_576:.1f} MB" if size >= 1_048_576 else f"{max(1, round(size / 1024))} KB"
 
 
-def _media_find(query: str = "", kind: Literal["", "image", "video", "audio"] = "", limit: int = 20) -> str:
+def _looks(kind: str, name: str) -> str:
     from row_bot import media_library
 
+    found = media_library.looks(kind, name)
+    if not found:
+        return (f"No {kind} named {name.strip()!r} is saved." if name.strip() else f"No {kind} is saved yet.") + (
+            f" Save one by tagging a few of its pictures '{kind}: <name>' with media_tag.")
+    lines = [f"{len(found)} {kind}(s), each with its newest pictures:"]
+    for look, pictures in found.items():
+        shown = ", ".join(f"{item['name']} ({item['ref']})" for item in pictures[:media_library.LOOKS[kind]])
+        lines.append(f"- {look}: {len(pictures)} picture(s): {shown}")
+    return "\n".join(lines)
+
+
+def _media_find(query: str = "", kind: Literal["", "image", "video", "audio", "character", "style"] = "",
+                limit: int = 20) -> str:
+    from row_bot import media_library
+
+    if kind in media_library.LOOKS:
+        return _looks(kind, query)
     found = media_library.items(query=query, kind=kind, limit=max(1, min(limit, 50)))
     if not found:
         return "Nothing in the media library matches." if query or kind else "The media library is empty."
@@ -65,8 +82,10 @@ def _media_bring(ref: str) -> str:
 
 
 class _FindInput(BaseModel):
-    query: str = Field(default="", description="Words in the name, a tag or the chat's title; empty lists the newest.")
-    kind: Literal["", "image", "video", "audio"] = Field(default="", description="Only this kind.")
+    query: str = Field(default="", description="Words in the name, a tag or the chat's title (a character's or "
+                                               "style's name); empty lists the newest.")
+    kind: Literal["", "image", "video", "audio", "character", "style"] = Field(
+        default="", description="Only this kind; character or style lists the saved ones and their pictures.")
     limit: int = Field(default=20, description="How many to list (up to 50).")
 
 
@@ -107,7 +126,9 @@ class MediaTool(BaseTool):
                 args_schema=_FindInput),
             StructuredTool.from_function(
                 func=_media_tag, name="media_tag",
-                description="Set an item's tags in the media library, so it's found again (e.g. 'x post', 'demo').",
+                description=("Set an item's tags in the media library, so it's found again (e.g. 'x post', 'demo'). "
+                             "'character: maya' on a few pictures, or 'style: noir' on a still, saves a character "
+                             "or a look the image and video tools take by name."),
                 args_schema=_TagInput),
             StructuredTool.from_function(
                 func=_media_bring, name="media_bring",

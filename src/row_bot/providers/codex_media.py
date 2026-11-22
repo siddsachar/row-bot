@@ -33,8 +33,8 @@ def codex_images_plan_note() -> str:
 
 
 def codex_image(model: str, prompt: str, *, size: str = "auto", quality: str = "auto",
-                source: str = "", http_client: Any | None = None) -> str:
-    """Make (or, with a source data URL, edit) one image; returns its base64."""
+                source: str = "", references: list[str] | None = None, http_client: Any | None = None) -> str:
+    """Make (or, with a source data URL, edit) one image, holding to any reference data URLs; returns its base64."""
     note = codex_images_plan_note()
     if note:
         raise RuntimeError(note)
@@ -47,7 +47,7 @@ def codex_image(model: str, prompt: str, *, size: str = "auto", quality: str = "
         "size": size or "auto",
     }
     if source:
-        body["images"] = [{"image_url": source}]
+        body["images"] = [{"image_url": url} for url in (source, *(references or ()))]
     response = _post("images/edits" if source else "images/generations", body, http_client)
     items = response.json().get("data") or []
     return str(items[0].get("b64_json") or "") if items and isinstance(items[0], dict) else ""
