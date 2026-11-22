@@ -1889,8 +1889,8 @@ def _s5_stream(text: str, config: dict):
                      "send it to your devices instead: use the button below.")
         else:
             args = {"files": ["q3-report.pdf"], "to": "devices"}
-            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop and tap "
-                     "Download; it's there for 7 days.")
+            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop to see it "
+                     "there.")
         steps = [("send_file", args,
                   lambda: (_s4_in_thread(thread, lambda: file_delivery_tool._send_file(**args)), []))]
         yield from _s3_steps(thread, identity, steps)
