@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.providers.minimax import ANTHROPIC_BASE_URL as MINIMAX_ANTHROPIC_BASE_URL
 from row_bot.providers.presets import PRESETS
 
 try:
@@ -29,7 +30,6 @@ REQUESTY_BASE_URL = "https://router.requesty.ai/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 GOOGLE_GENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 XAI_BASE_URL = "https://api.x.ai/v1"
-MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic"
 OLLAMA_CLOUD_BASE_URL = "https://ollama.com"
 ATLASCLOUD_BASE_URL = "https://api.atlascloud.ai/v1"
 
