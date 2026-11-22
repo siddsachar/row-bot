@@ -444,7 +444,8 @@ class ClientPlatformService:
                 provider_factory=realtime_provider_factory or realtime_provider,
                 submit=self.voice_admission.submit, active_generation=self.voice_admission.active,
                 control_generation=self.voice_admission.control,
-                session_context=self.voice_admission.front_context, save_front=self.voice_admission.save_front)
+                session_context=self.voice_admission.front_context, save_front=self.voice_admission.save_front,
+                run_view=self.voice_admission.run_view)
             self._voice_binding = binding
 
     def close_voice(self) -> bool:

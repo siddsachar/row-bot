@@ -2166,11 +2166,11 @@ export function VoiceSnapshotPanel({
         )}
       </SettingsGroup>
       <SettingsAdvanced meta="Live voice, other speech models, diagnostics">
-        {/* Live voice: a cloud speech-to-speech front per provider, chosen in a chat's Talk panel. */}
+        {/* Live voice: a cloud speech-to-speech front per provider, chosen from a chat's Talk menu. */}
         <SettingsGroup
           title="Live voice"
           anchor="live-voice"
-          note="A cloud voice that talks with you and hands real work to Row-Bot. Pick it in a chat's Talk panel."
+          note="A cloud voice that talks with you and hands real work to Row-Bot. Pick it from a chat's Talk menu."
           meta={
             <Link className="settings-link" to="/settings/models#providers-api">
               Open Providers

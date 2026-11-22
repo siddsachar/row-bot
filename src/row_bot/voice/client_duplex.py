@@ -12,9 +12,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-import hmac
-import secrets
-import threading
 import time
 from typing import Any, Literal, Protocol
 
@@ -26,9 +23,8 @@ from row_bot.voice.client_transport import (
     DictationOwner,
 )
 from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderError
+from row_bot.voice.tickets import RedeemedTicket, VoiceTicket, VoiceTickets
 
-TICKET_SECONDS = 30.0
-MAX_TICKETS = 8
 SPEECH_TEST_PHRASE = "Hello! This is your Row-Bot voice test."
 
 
@@ -43,24 +39,10 @@ class TalkSnapshot:
 
 
 @dataclass(frozen=True)
-class VoiceTicket:
-    ticket: str
-    expires_in_ms: int
-
-
-@dataclass(frozen=True)
 class TalkStarted:
     snapshot: TalkSnapshot
     ticket: str
     ticket_expires_in_ms: int
-
-
-@dataclass(frozen=True)
-class RedeemedTicket:
-    owner: DictationOwner
-    handle: DictationHandle
-    # The client session's CSRF token, so the socket can keep checking that session.
-    csrf: str
 
 
 class VoiceEngineFactory(Protocol):
@@ -108,14 +90,6 @@ class LocalVoiceEngine:
                            SileroActivity(), SmartTurn())
 
 
-@dataclass
-class _Ticket:
-    owner: DictationOwner
-    handle: DictationHandle
-    csrf: str
-    expires: float
-
-
 class DuplexTalkTransport:
     def __init__(self, *, dictation: ClientDictationTransport, admission: Any,
                  engine: VoiceEngineFactory, listeners: dict[str, Callable[[tuple, Any], None]],
@@ -125,8 +99,7 @@ class DuplexTalkTransport:
         self.engine = engine
         self._listeners = listeners
         self._clock = clock
-        self._tickets: dict[str, _Ticket] = {}
-        self._tickets_lock = threading.Lock()
+        self._tickets = VoiceTickets(lambda: self._clock())
         self._live: dict[str, Callable[[], None]] = {}
         # How often a live socket checks its sign-in, lease and idle time.
         self.tick_seconds = 5.0
@@ -173,29 +146,14 @@ class DuplexTalkTransport:
         validate()
         with self.coordinator._dictation_lock:
             self._lease(owner, handle)
-        value = secrets.token_urlsafe(32)
-        now = self._clock()
-        with self._tickets_lock:
-            for key, item in list(self._tickets.items()):
-                if item.expires <= now or item.handle != handle and item.owner.client_session_id == owner.client_session_id:
-                    del self._tickets[key]
-            if len(self._tickets) >= MAX_TICKETS:
-                raise DictationError("voice_session_busy")
-            self._tickets[value] = _Ticket(owner, handle, csrf, now + TICKET_SECONDS)
-        return VoiceTicket(value, int(TICKET_SECONDS * 1000))
+        return self._tickets.issue(owner, handle, csrf)
 
     def redeem(self, ticket: str) -> RedeemedTicket:
         """The ticket's session, once: a second use, an expired or unknown ticket is refused."""
-        if not isinstance(ticket, str) or not 20 <= len(ticket) <= 128:
-            raise DictationError("action_denied")
-        with self._tickets_lock:
-            match = next((key for key in self._tickets if hmac.compare_digest(key, ticket)), None)
-            item = self._tickets.pop(match) if match is not None else None
-        if item is None or item.expires <= self._clock():
-            raise DictationError("action_denied")
+        item = self._tickets.redeem(ticket)
         with self.coordinator._dictation_lock:
             self._lease(item.owner, item.handle)
-        return RedeemedTicket(item.owner, item.handle, item.csrf)
+        return item
 
     def stop(self, owner: DictationOwner, handle: DictationHandle, *,
              validate: Callable[[], None]) -> TalkSnapshot:
@@ -206,10 +164,7 @@ class DuplexTalkTransport:
             end = self._live.get(handle.lease_id)
         if end is not None:
             end()
-        with self._tickets_lock:
-            for key, item in list(self._tickets.items()):
-                if item.handle == handle:
-                    del self._tickets[key]
+        self._tickets.drop(handle)
         with self.coordinator._dictation_lock:
             return self._snapshot(lease)
 

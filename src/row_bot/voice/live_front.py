@@ -81,3 +81,32 @@ def consult_output(status: str, answer: str = "") -> str:
     if status == "waiting_approval":
         return json.dumps({"status": "needs_approval", "answer": "It needs your approval in the app."})
     return json.dumps({"status": "failed", "answer": "That didn't work. The details are in the chat."})
+
+
+# What the front is told when Row-Bot asks it to speak.
+RUN_ANSWER = "Say this answer from Row-Bot naturally and faithfully, as your own, without adding to it: "
+RUN_STATUS = "Pass on this status from Row-Bot in a few words: "
+
+
+def live_outputs(view: dict, answered: dict[str, str]) -> list[dict]:
+    """What Row-Bot asks the front to say, from its run's view: progress, then the consult's answer.
+
+    ``answered`` maps a consult call to the output that answered it: a call is
+    answered once, and a later answer (after an approval) is said as Row-Bot's.
+    Each output has an ``id`` that is sent once.
+    """
+    run_id = view.get("run_id")
+    if not run_id:
+        return []
+    outputs = [{"id": f"{run_id}:{cue['id']}", "kind": "status", "text": cue["text"]}
+               for cue in view.get("cues") or []]
+    call_id, result, text = view.get("call_id"), view.get("function_output"), view.get("text")
+    if call_id and result:
+        output_id = f"{run_id}:{view.get('state')}"
+        if answered.get(call_id, output_id) == output_id:
+            outputs.append({"id": output_id, "kind": "function_output", "call_id": call_id, "text": result})
+        elif text:
+            outputs.append({"id": output_id, "kind": "final", "text": text})
+    elif not call_id and view.get("output_id") and text:
+        outputs.append({"id": view["output_id"], "kind": "final", "text": text})
+    return outputs

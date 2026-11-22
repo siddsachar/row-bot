@@ -11405,25 +11405,6 @@ class VoiceTicket(WireModel):
     expires_in_ms: int = Field(ge=0, le=30000)
 
 
-class VoiceCue(WireModel):
-    id: str = Field(max_length=32)
-    text: str = Field(max_length=128)
-
-
-class VoiceRunView(WireModel):
-    handle: DictationHandle
-    run_id: OpaqueId | None
-    state: Literal[
-        "idle", "running", "stopping", "completed", "stopped", "failed", "interrupted", "waiting_approval"
-    ]
-    output_id: OpaqueId | None
-    text: str | None = Field(max_length=4000)
-    # Live voice: the consult call this run answers, its result once the run ends, and progress cues meanwhile.
-    call_id: str | None = Field(default=None, max_length=128)
-    function_output: str | None = Field(default=None, max_length=8192)
-    cues: list[VoiceCue] = Field(default_factory=list, max_length=8)
-
-
 class ReadAloudRequest(WireModel):
     """Which part of a saved reply to speak; the reply's words are read on the server, never sent."""
 
@@ -11442,58 +11423,11 @@ class RealtimeSnapshot(WireModel):
 
 class RealtimeStart(WireModel):
     snapshot: RealtimeSnapshot
-    # Only a WebSocket front's ephemeral credential (Gemini Live, Grok Voice); never a provider key.
-    # OpenAI Realtime's is kept by the host, which exchanges the SDP (exchange_available).
-    client_secret: str | None = Field(max_length=4096)
-    secret_expires_in_ms: int = Field(ge=0, le=60000)
+    # OpenAI Realtime: the host exchanges the call's SDP with an ephemeral secret it keeps.
     exchange_available: bool = False
-    connect_url: str = Field(default="", max_length=512)
-    setup: str = Field(default="", max_length=32768)
-
-
-class RealtimeEvent(WireModel):
-    event_id: UUID
-    type: Literal[
-        "connected",
-        "disconnected",
-        "fatal_error",
-        "speech_started",
-        "speech_stopped",
-        "transcript_final",
-        "assistant_transcript_final",
-        "function_call_ready",
-        "output_started",
-        "output_item_started",
-        "response_done",
-        "response_cancelled",
-        "output_audio_done",
-        "barge_in_cancelled",
-        "provider_response_create_sent",
-    ]
-    generation_id: str = Field(default="", max_length=128)
-    response_id: str = Field(default="", max_length=128)
-    output_item_id: str = Field(default="", max_length=128)
-    item_id: str = Field(default="", max_length=128)
-    call_id: str = Field(default="", max_length=128)
-    name: str = Field(default="", max_length=128)
-    arguments: str = Field(default="", max_length=8192)
-    text: str = Field(default="", max_length=4000)
-    # Who made the response: the front on its own, or Row-Bot asking it to speak.
-    origin: Literal["", "front", "row_bot"] = ""
-
-
-class RealtimeEventRequest(DictationIdentity):
-    event: RealtimeEvent
-
-
-class RealtimeEventResult(WireModel):
-    snapshot: RealtimeSnapshot
-    event_id: UUID
-    accepted: bool
-    caption: str = Field(max_length=4000)
-    call_id: str = Field(max_length=128)
-    function_output: str = Field(max_length=8192)
-    silent: bool
+    # Single use, for the first message on /api/v1/voice/live (events, and a relayed front's audio).
+    ticket: str = Field(min_length=20, max_length=128)
+    ticket_expires_in_ms: int = Field(ge=0, le=60000)
 
 
 class StreamReset(WireModel):

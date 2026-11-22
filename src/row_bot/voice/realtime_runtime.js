@@ -1,13 +1,7 @@
-/* Sole browser realtime response arbiter for the unified client: OpenAI
- * Realtime over WebRTC, and Grok Voice (the same event schema) over a
- * WebSocket the client opens (options.socket). Network and authenticated
- * event delivery are injected by each transport. */
-
-// What the front is told when Row-Bot asks it to speak (model-visible).
-export const RUN_EVENT_INSTRUCTIONS = {
-  answer: 'Say this answer from Row-Bot naturally and faithfully, as your own, without adding to it: ',
-  status: 'Pass on this status from Row-Bot in a few words: '
-};
+/* Sole browser realtime response arbiter for OpenAI Realtime (WebRTC) in the
+ * unified client. The SDP exchange and event delivery are injected: both go
+ * to Row-Bot (its exchange route, its Live voice socket); the host decides
+ * what Row-Bot asks the front to say, including the words of the request. */
 
 export async function startRealtimeRuntime(options) {
   const sessionId = options.sessionId;
@@ -62,9 +56,7 @@ export async function startRealtimeRuntime(options) {
       (existing.stream && existing.stream.getTracks() || []).forEach((track) => track.stop());
     } catch (_) {}
     try {
-      if (existing.audio && existing.audio.stop) {
-        existing.audio.stop();
-      } else if (existing.audio) {
+      if (existing.audio) {
         if (existing.audio.pause) existing.audio.pause();
         existing.audio.srcObject = null;
         existing.audio.remove();
@@ -277,11 +269,9 @@ export async function startRealtimeRuntime(options) {
       const clean = String(text || '').trim();
       if (!clean) return false;
       if (clean.length > 8192) return this.failLimit();
-      const origin = String(meta && meta.origin || '');
-      const answerOrigin = origin === 'final';
-      // A status waits for nothing: it is dropped while the front is speaking.
-      const priority = answerOrigin ? 'normal' : 'low';
-      const instructions = (answerOrigin ? RUN_EVENT_INSTRUCTIONS.answer : RUN_EVENT_INSTRUCTIONS.status) + clean;
+      // The host wrote the whole request; a status waits for nothing (dropped while the front speaks).
+      const priority = String(meta && meta.origin || '') === 'final' ? 'normal' : 'low';
+      const instructions = clean;
       return this.createResponse({
           output_modalities: ['audio'],
           metadata: responseMetadata(meta, {row_bot_origin: 'run_event'}),
@@ -301,9 +291,7 @@ export async function startRealtimeRuntime(options) {
       }
       let sentCancel = false;
       if (this.activeResponseId) sentCancel = this.sendEvent({type: 'response.cancel'});
-      // Over a socket the audio already received plays here: stop it at once.
-      if (this.session && this.session.audio && this.session.audio.flush) this.session.audio.flush();
-      else this.sendEvent({type: 'output_audio_buffer.clear'});
+      this.sendEvent({type: 'output_audio_buffer.clear'});
       emit('barge_in_cancelled', {
         reason: reason || 'user_speech_started',
         response_id: this.activeResponseId,
@@ -363,7 +351,7 @@ export async function startRealtimeRuntime(options) {
     if (responseId && !responseIdentities.has(responseId)) {
       if (responseId.length > 128 || responseIdentities.size >= 200) { runtime.failLimit(); return; }
       const meta = response.metadata || {};
-      // Row-Bot's own responses carry its metadata (OpenAI echoes it); Grok's are known by order.
+      // Row-Bot's own responses carry its metadata (OpenAI echoes it), else are known by order.
       const rowBot = Boolean(meta.row_bot_origin) || runtime.awaitingRowBotResponse;
       runtime.awaitingRowBotResponse = false;
       responseIdentities.set(responseId, {
@@ -389,10 +377,6 @@ export async function startRealtimeRuntime(options) {
         item_id: String(payload.item_id || ''),
         raw: payload
       });
-    } else if (type === 'response.output_audio.delta' || type === 'response.audio.delta') {
-      // Only a socket carries audio as events; WebRTC plays it from the media track.
-      const audio = runtime.session && runtime.session.audio;
-      if (audio && audio.play) audio.play(String(payload.delta || ''));
     } else if (type === 'response.function_call_arguments.done') {
       runtime.emitFunctionCall({type: 'function_call', call_id: payload.call_id, id: payload.item_id,
         name: payload.name, arguments: payload.arguments}, type, responseId);
@@ -511,18 +495,6 @@ export async function startRealtimeRuntime(options) {
 
   try {
     emit('connecting');
-    if (options.socket) {
-      // Grok Voice: the client opens the socket (microphone, player, session.update first).
-      const link = await options.socket();
-      if (!isCurrent()) { await cleanup(link); return runtime; }
-      runtime.session = link;
-      link.dc.addEventListener('message', onMessage);
-      link.dc.addEventListener('close', () => emit('disconnected'));
-      link.dc.addEventListener('error', () => emit('fatal_error', {message: 'Realtime socket error'}));
-      emit('connected');
-      emit('listening');
-      return runtime;
-    }
     const tokenData = await options.bootstrap();
     if (!isCurrent()) return runtime;
     const ephemeralKey = tokenData.value;

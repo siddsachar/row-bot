@@ -82,6 +82,8 @@ export default function VoiceBar(props: {
   phone?: boolean;
   /** Resources spoken requests may change, fixed when voice started. */
   targets?: string[];
+  /** Live voice: the provider talking, named beside the state. */
+  label?: string;
 }) {
   const state = useSyncExternalStore(
     props.session.subscribe,
@@ -136,7 +138,9 @@ export default function VoiceBar(props: {
       </button>
       <div className="voice-bar-body">
         <p className="voice-bar-status" aria-live="polite">
-          <span className="voice-bar-state">{label}</span>
+          <span className="voice-bar-state">
+            {props.label ? `${props.label} · ${label}` : label}
+          </span>
           <LevelMeter level={state.inputLevel} active={orb === 'listening'} />
         </p>
         {showCaptions && (state.you || state.rowBot) && (

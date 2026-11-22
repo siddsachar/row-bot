@@ -1,7 +1,11 @@
-"""Authenticated realtime transport over the existing coordinator/agent bridge.
+"""Live voice sessions over the coordinator's exclusive voice lease.
 
-All transient state lives in the coordinator lease. Provider credentials never
-enter command receipts, diagnostics or saved conversation data. The injected
+Starting one is an authenticated POST: it takes the lease, builds the front's
+context and returns a single-use ticket for the Live voice WebSocket on Row-Bot's
+own origin, which carries the session's events (and, for Gemini Live and Grok
+Voice, its audio: the host relays them to the provider). All transient state
+lives in the lease. Provider keys and credentials never reach the browser, nor
+command receipts, diagnostics or saved conversation data. The injected
 application callbacks keep normal chat admission and cancellation authority.
 """
 from __future__ import annotations
@@ -21,6 +25,7 @@ from row_bot.voice.client_transport import (
     ClientDictationTransport, DictationError, DictationHandle, DictationOperation,
     DictationOwner, REALTIME_LEASE_SECONDS, _CONVERSATION, _uuid,
 )
+from row_bot.voice.tickets import RedeemedTicket, VoiceTicket, VoiceTickets
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +37,8 @@ _EVENTS = frozenset({"connected", "disconnected", "fatal_error", "speech_started
 # Who made a provider response: the front on its own ("front"), or Row-Bot asking it to speak.
 _ORIGINS = frozenset({"", "front", "row_bot"})
 _CONSULT = "row_bot_agent_consult"
-# The WebSocket fronts: the browser connects with the ephemeral credential and sends ``setup`` first.
-_SOCKET_HOSTS = {"gemini_live": "wss://generativelanguage.googleapis.com/", "grok_voice": "wss://api.x.ai/"}
+# The fronts the host relays over its own WebSocket to the provider (audio included).
+RELAYED = frozenset({"gemini_live", "grok_voice"})
 
 
 @dataclass(frozen=True)
@@ -50,11 +55,11 @@ class RealtimeSnapshot:
 @dataclass(frozen=True)
 class RealtimeStart:
     snapshot: RealtimeSnapshot
+    # OpenAI's ephemeral secret, kept by the host for the SDP exchange; never sent to the browser.
     client_secret: str | None = field(repr=False)
     secret_expires_in_ms: int
-    # A WebSocket front's address and first message (its instructions and tools), JSON.
-    connect_url: str = ""
-    setup: str = field(default="", repr=False)
+    ticket: str = field(default="", repr=False)
+    ticket_expires_in_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -100,8 +105,8 @@ class _RealtimeState:
     provider: Any = field(default=None, repr=False)
     exchange_attempted: bool = False
     transport: str = "openai_realtime"
-    connect_url: str = ""
-    setup: str = field(default="", repr=False)
+    # A relayed front's session instructions, for the host's provider socket.
+    instructions: str = field(default="", repr=False)
     # The consult call each admitted run answers, by run id.
     pending_call: str = ""
     run_calls: dict[str, str] = field(default_factory=dict)
@@ -115,7 +120,7 @@ class _RealtimeState:
     def clear_private(self) -> None:
         self.secret = self.transcript = self.transcript_item = self.last_digest = ""
         self.consult_digest = self.consult_run_id = ""
-        self.setup = self.front_user = ""
+        self.instructions = self.front_user = ""
         self.front_text, self.front_turns = {}, []
         self.provider = None
         self.last_result = None
@@ -154,8 +159,15 @@ class ClientRealtimeTransport:
                  control_generation: Callable[[DictationOwner, Any, str, str, str, Callable[[], None]], dict],
                  session_context: Callable[[DictationOwner], str] | None = None,
                  save_front: Callable[[DictationOwner, list[tuple[str, str]], Callable[[], None]], None] | None = None,
+                 run_view: Callable[[DictationOwner, DictationHandle, Callable[[], None]], dict] | None = None,
                  wall_clock: Callable[[], float] = time.time) -> None:
         self._transport = dictation
+        self.run_view = run_view
+        self._tickets = VoiceTickets(lambda: self._transport._clock())
+        self._live: dict[str, Callable[[], None]] = {}
+        # How often a live socket checks its sign-in and lease, and reads its run.
+        self.tick_seconds = 5.0
+        self.poll_seconds = 0.5
         self._provider = provider_factory
         self._submit = submit
         self._active = active_generation
@@ -177,15 +189,16 @@ class ClientRealtimeTransport:
         return lease
 
     def _snapshot(self, lease) -> RealtimeSnapshot:
+        live = lease.handle.lease_id in self._live
         return RealtimeSnapshot(1, lease.handle,
-            ("stopping" if lease.starting or lease.operation else "stopped") if lease.revoked
+            ("stopping" if lease.starting or lease.operation or live else "stopped") if lease.revoked
             else self.coordinator.realtime_state,
-            not lease.starting and lease.operation is None,
+            not lease.starting and lease.operation is None and not live,
             max(0, int((min(lease.expires, lease.started_at + 600) - self._transport._clock()) * 1000)),
             lease.run_id or None, lease.realtime.transport if lease.realtime is not None else "openai_realtime")
 
     def start(self, owner: DictationOwner, *, request_id: str, validate: Callable[[], None],
-              chat_context: dict | None = None, live_provider: str = "openai") -> RealtimeStart:
+              chat_context: dict | None = None, live_provider: str = "openai", csrf: str = "") -> RealtimeStart:
         def prepare(admitted: Callable[[], None]) -> None:
             admitted()
             try:
@@ -199,38 +212,34 @@ class ClientRealtimeTransport:
                 raise DictationError("realtime_key_missing")
             instructions = self._session_context(owner) if self._session_context is not None else ""
             admitted()
-            try:
-                value = provider.create_client_secret(instructions=instructions, expires_after_seconds=60)
-            except DictationError:
-                raise
-            except Exception as exc:
-                # Provider HTTP bodies can contain private request/context data.
-                raise _provider_error(exc) from None
-            admitted()
-            secret = value.get("value") if isinstance(value, dict) else None
-            expiry = value.get("expires_at") if isinstance(value, dict) else None
-            if (not isinstance(secret, str) or not 1 <= len(secret) <= 4096 or
-                    type(expiry) not in {int, float} or not math.isfinite(expiry)):
-                raise DictationError("realtime_credential_unavailable")
             transport = str(getattr(provider, "transport", "openai_realtime"))
-            url, setup = "", ""
-            if transport in _SOCKET_HOSTS:
-                url = value.get("url")
-                setup = json.dumps(value.get("setup"), ensure_ascii=False)
-                if (not isinstance(url, str) or not url.startswith(_SOCKET_HOSTS[transport]) or len(url) > 512
-                        or not isinstance(value.get("setup"), dict) or len(setup.encode("utf-8")) > 32768):
+            secret, remaining = "", 60.0
+            if transport == "openai_realtime":
+                try:
+                    value = provider.create_client_secret(instructions=instructions, expires_after_seconds=60)
+                except DictationError:
+                    raise
+                except Exception as exc:
+                    # Provider HTTP bodies can contain private request/context data.
+                    raise _provider_error(exc) from None
+                admitted()
+                secret = value.get("value") if isinstance(value, dict) else None
+                expiry = value.get("expires_at") if isinstance(value, dict) else None
+                if (not isinstance(secret, str) or not 1 <= len(secret) <= 4096 or
+                        type(expiry) not in {int, float} or not math.isfinite(expiry)):
                     raise DictationError("realtime_credential_unavailable")
-            elif transport != "openai_realtime":
+                remaining = min(60.0, expiry - self._wall_clock())
+                if remaining <= 0:
+                    raise DictationError("realtime_credential_expired")
+            elif transport not in RELAYED:
                 raise DictationError("voice_provider_unavailable")
-            remaining = min(60.0, expiry - self._wall_clock())
-            if remaining <= 0:
-                raise DictationError("realtime_credential_expired")
             generation = self._active(owner)
             admitted()
             with self.coordinator._dictation_lock:
                 lease = self.coordinator._dictation_lease
                 lease.realtime = _RealtimeState(secret, self._transport._clock() + remaining, provider=provider,
-                                                transport=transport, connect_url=url, setup=setup)
+                                                transport=transport,
+                                                instructions=instructions if transport in RELAYED else "")
                 lease.run_id = _generation_id(generation)
                 self.coordinator.mark_realtime_latency("talk_activation")
                 if lease.run_id:
@@ -242,18 +251,63 @@ class ClientRealtimeTransport:
         with self.coordinator._dictation_lock:
             lease = self._lease(owner, snapshot.handle)
             state = lease.realtime
-            return RealtimeStart(self._snapshot(lease), state.secret or None,
-                                 max(0, int((state.secret_expires - self._transport._clock()) * 1000)),
-                                 state.connect_url, state.setup if state.secret else "")
+            started = self._snapshot(lease)
+            secret, expires = state.secret or None, max(0, int((state.secret_expires - self._transport._clock()) * 1000))
+        ticket = self._tickets.issue(owner, started.handle, csrf)
+        return RealtimeStart(started, secret, expires, ticket.ticket, ticket.expires_in_ms)
 
-    def snapshot(self, owner: DictationOwner, handle: DictationHandle, *, validate: Callable[[], None],
-                 heartbeat: bool = False) -> RealtimeSnapshot:
+    # ── the Live voice socket ───────────────────────────────────────────
+
+    def ticket(self, owner: DictationOwner, handle: DictationHandle, *, csrf: str,
+               validate: Callable[[], None]) -> VoiceTicket:
+        """A fresh single-use ticket for the session's socket (a reconnect)."""
         validate()
         with self.coordinator._dictation_lock:
-            lease = self._lease(owner, handle, active=False)
-            if heartbeat and not lease.revoked:
-                lease.expires = min(self._transport._clock() + REALTIME_LEASE_SECONDS, lease.started_at + 600)
-            return self._snapshot(lease)
+            self._lease(owner, handle)
+        return self._tickets.issue(owner, handle, csrf)
+
+    def redeem(self, ticket: object) -> RedeemedTicket:
+        item = self._tickets.redeem(ticket)
+        with self.coordinator._dictation_lock:
+            self._lease(item.owner, item.handle)
+        return item
+
+    def attach(self, redeemed: RedeemedTicket, end: Callable[[], None]) -> tuple[str, Any, str]:
+        """Bind a socket to its lease (``end`` closes it when the lease stops).
+
+        Returns the session's transport, its front and, for a relayed front, its instructions.
+        """
+        with self.coordinator._dictation_lock:
+            lease = self._lease(redeemed.owner, redeemed.handle)
+            if redeemed.handle.lease_id in self._live:
+                raise DictationError("voice_session_busy")
+            self._live[redeemed.handle.lease_id] = end
+            state = lease.realtime
+            return state.transport, state.provider, state.instructions
+
+    def detach(self, redeemed: RedeemedTicket, *, stop: bool) -> None:
+        with self.coordinator._dictation_lock:
+            self._live.pop(redeemed.handle.lease_id, None)
+            lease = self.coordinator._dictation_lease
+            if stop and lease is not None and lease.handle == redeemed.handle:
+                self._transport._invalidate(lease)
+
+    def generation(self, owner: DictationOwner, handle: DictationHandle) -> str:
+        """The run the session's events belong to: the active one, else its last."""
+        with self.coordinator._dictation_lock:
+            lease = self._lease(owner, handle)
+            return _generation_id(self._active(owner)) or lease.run_id
+
+    def keepalive(self, owner: DictationOwner, handle: DictationHandle) -> None:
+        with self.coordinator._dictation_lock:
+            lease = self._lease(owner, handle)
+            lease.expires = min(self._transport._clock() + REALTIME_LEASE_SECONDS, lease.started_at + 600)
+
+    def snapshot(self, owner: DictationOwner, handle: DictationHandle, *,
+                 validate: Callable[[], None]) -> RealtimeSnapshot:
+        validate()
+        with self.coordinator._dictation_lock:
+            return self._snapshot(self._lease(owner, handle, active=False))
 
     def exchange(self, owner: DictationOwner, handle: DictationHandle, *, offer: bytes,
                  validate: Callable[[], None]) -> bytes:
@@ -551,7 +605,11 @@ class ClientRealtimeTransport:
                     and self._active(owner) is None):
                 turns, state.front_turns = state.front_turns, []
             self._transport._invalidate(lease)
-            snapshot = self._snapshot(lease)
+            end = self._live.get(handle.lease_id)
+        if end is not None:
+            end()
+        self._tickets.drop(handle)
         if turns:
             self._save(owner, turns, validate)
-        return snapshot
+        with self.coordinator._dictation_lock:
+            return self._snapshot(lease)

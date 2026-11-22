@@ -103,49 +103,31 @@
   },
   "additionalProperties": false,
   "properties": {
-    "client_secret": {
-      "anyOf": [
-        {
-          "maxLength": 4096,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Client Secret"
-    },
-    "connect_url": {
-      "default": "",
-      "maxLength": 512,
-      "title": "Connect Url",
-      "type": "string"
-    },
     "exchange_available": {
       "default": false,
       "title": "Exchange Available",
       "type": "boolean"
     },
-    "secret_expires_in_ms": {
-      "maximum": 60000,
-      "minimum": 0,
-      "title": "Secret Expires In Ms",
-      "type": "integer"
-    },
-    "setup": {
-      "default": "",
-      "maxLength": 32768,
-      "title": "Setup",
-      "type": "string"
-    },
     "snapshot": {
       "$ref": "#/$defs/RealtimeSnapshot"
+    },
+    "ticket": {
+      "maxLength": 128,
+      "minLength": 20,
+      "title": "Ticket",
+      "type": "string"
+    },
+    "ticket_expires_in_ms": {
+      "maximum": 60000,
+      "minimum": 0,
+      "title": "Ticket Expires In Ms",
+      "type": "integer"
     }
   },
   "required": [
     "snapshot",
-    "client_secret",
-    "secret_expires_in_ms"
+    "ticket",
+    "ticket_expires_in_ms"
   ],
   "title": "RealtimeStart",
   "type": "object"

@@ -2020,20 +2020,25 @@ export class HttpTransport implements ClientTransport {
     socket.binaryType = 'arraybuffer';
     return socket;
   }
-  voiceControl(
-    mode: 'realtime',
-    handle: wire.DictationHandle,
-    action: 'stop' | 'heartbeat',
-    signal?: AbortSignal,
-  ) {
-    return wire.voiceControl(
+  stopRealtime(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.stopRealtime(this.base, this.session(), handle, signal);
+  }
+  realtimeTicket(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.talkTicket(
       this.base,
       this.session(),
-      mode,
       handle,
-      action,
       signal,
+      'realtime',
     );
+  }
+  openLiveSocket() {
+    // Same origin as every other request; the session cookie authenticates it.
+    const url = new URL(`${this.base}/api/v1/voice/live`, window.location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    return socket;
   }
   speechTest(signal?: AbortSignal) {
     return wire.speechTest(this.base, this.session(), signal);
@@ -2053,13 +2058,6 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  realtimeEvent(
-    handle: wire.DictationHandle,
-    event: wire.RealtimeEvent,
-    signal?: AbortSignal,
-  ) {
-    return wire.realtimeEvent(this.base, this.session(), handle, event, signal);
-  }
   realtimeExchange(
     handle: wire.DictationHandle,
     sdp: string,
@@ -2072,13 +2070,6 @@ export class HttpTransport implements ClientTransport {
       sdp,
       signal,
     );
-  }
-  voiceRun(
-    mode: 'realtime',
-    handle: wire.DictationHandle,
-    signal?: AbortSignal,
-  ) {
-    return wire.voiceRun(this.base, this.session(), mode, handle, signal);
   }
   startDictation(
     conversation: string,

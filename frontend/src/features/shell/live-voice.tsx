@@ -1,11 +1,11 @@
 /**
- * Live voice in a chat's Talk panel: the disclosure said before a provider's
- * first use, and what Row-Bot asks the front to say from a run's view.
+ * Live voice in a chat: the mode menu's rows, and the one-time disclosure
+ * said before a provider's first use (or why it can't be used yet).
  */
 import { Link } from 'react-router-dom';
-import type { LiveVoiceProvider, VoiceRunView } from '../../api/types';
-import type { RealtimeOutput } from '../../api/voice_realtime';
-import { Button } from '../../ui/primitives';
+import { X } from 'lucide-react';
+import type { LiveVoiceProvider } from '../../api/types';
+import { Button, IconButton, type MenuAction } from '../../ui/primitives';
 
 export type LiveId = LiveVoiceProvider['id'];
 const ACK_KEY = 'row-bot.live-voice.disclosed.';
@@ -26,7 +26,11 @@ function remember(id: LiveId) {
   }
 }
 
-/** Who hears the audio and what it costs, said before Live voice is first used. */
+function capital(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Everything that goes to the provider, and what it costs, said before Live voice is first used. */
 export function liveVoiceDisclosure(
   provider: LiveVoiceProvider,
   incognito = false,
@@ -35,72 +39,65 @@ export function liveVoiceDisclosure(
   const what = incognito
     ? 'Your voice, this chat’s recent messages and the agent profile’s name go'
     : 'Your voice, this chat’s recent messages, the agent profile’s name and a few related memories go';
-  return `${what} to ${provider.company} while you talk. ${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)}, from ${provider.company}’s published prices (${provider.price_checked}), billed to your ${provider.company} key.`;
+  return `${what} to ${provider.company} while you talk. ${capital(provider.price)}, from ${provider.company}’s published prices (${provider.price_checked}), billed to your ${provider.company} key.`;
 }
 
-/** What the person hears: the consult's answer once its run ends, and its progress cues meanwhile. */
-export function liveOutputs(
-  run: VoiceRunView | null,
-  answered: Map<string, string>,
-): RealtimeOutput[] {
-  if (!run?.run_id) return [];
-  const runId = run.run_id;
-  const outputs: RealtimeOutput[] = (run.cues ?? []).map((cue) => ({
-    id: `${runId}:${cue.id}`,
-    runId,
-    kind: 'cue',
-    text: cue.text,
+/** One mode-menu row per provider: its price, or why it can't be used yet. */
+export function liveVoiceActions(
+  providers: LiveVoiceProvider[],
+  choose: (provider: LiveVoiceProvider) => void,
+  disabled: boolean,
+): MenuAction[] {
+  return providers.map((provider, index) => ({
+    label: `Live voice · ${provider.label}`,
+    description: provider.available
+      ? `${capital(provider.price)} · audio goes to ${provider.company}`
+      : `Needs your ${provider.company} API key`,
+    // A provider without a key still opens, to say where the key goes.
+    disabled: disabled && provider.available,
+    separatorBefore: index === 0,
+    onSelect: () => choose(provider),
   }));
-  if (run.call_id && run.function_output) {
-    // The call is answered once; a later answer (after an approval) is spoken as Row-Bot's.
-    const id = `${runId}:${run.state}`;
-    const answer = answered.get(run.call_id);
-    outputs.push(
-      !answer || answer === id
-        ? {
-            id,
-            runId,
-            kind: 'function_output',
-            callId: run.call_id,
-            text: run.function_output,
-          }
-        : { id, runId, kind: 'final', text: run.text ?? '' },
-    );
-  } else if (!run.call_id && run.output_id && run.text) {
-    outputs.push({ id: run.output_id, runId, kind: 'final', text: run.text });
-  }
-  return outputs.filter((output) => output.text);
 }
 
+/** The panel shown before a provider's first use, or when it has no key. */
 export function LiveVoiceDisclosure(props: {
   provider: LiveVoiceProvider;
   incognito?: boolean;
-  acknowledged: boolean;
-  onAcknowledge(): void;
+  disabled?: boolean;
+  onStart(): void;
+  onClose(): void;
 }) {
   const provider = props.provider;
   return (
-    <div className="voice-live-disclosure" role="note">
-      <p>{liveVoiceDisclosure(provider, props.incognito)}</p>
-      {!provider.available ? (
+    <section
+      aria-label="Live voice"
+      className="surface conversation-voice-surface voice-live-disclosure"
+    >
+      <div className="voice-live-disclosure-head">
+        <strong>Live voice · {provider.label}</strong>
+        <IconButton size="sm" label="Close" onClick={props.onClose}>
+          <X size={16} aria-hidden />
+        </IconButton>
+      </div>
+      <p role="note">{liveVoiceDisclosure(provider, props.incognito)}</p>
+      {provider.available ? (
+        <Button
+          variant="primary"
+          disabled={props.disabled}
+          onClick={() => {
+            remember(provider.id);
+            props.onStart();
+          }}
+        >
+          Start {provider.label}
+        </Button>
+      ) : (
         <p className="voice-state-reason">
           Add your {provider.company} API key in{' '}
           <Link to="/settings/models#providers-api">Providers</Link> to use it.
         </p>
-      ) : (
-        !props.acknowledged &&
-        !liveVoiceDisclosed(provider.id) && (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              remember(provider.id);
-              props.onAcknowledge();
-            }}
-          >
-            Use {provider.label}
-          </Button>
-        )
       )}
-    </div>
+    </section>
   );
 }

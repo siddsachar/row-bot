@@ -78,7 +78,9 @@ def test_passive_adapter_and_exact_secret_replay_no_local_models(runtime):
     first = start(r, request)
     assert first.client_secret == "synthetic-ephemeral" and first.secret_expires_in_ms == 60_000
     assert first.snapshot.state == "connecting" and first.snapshot.quiesced
-    assert start(r, request) == first
+    again = start(r, request)
+    assert (again.snapshot, again.client_secret) == (first.snapshot, first.client_secret)
+    assert first.ticket and again.ticket != first.ticket
     assert r.calls == [("secret", {"instructions": "Synthetic context for A", "expires_after_seconds": 60})]
     with pytest.raises(DictationError, match="idempotency_mismatch"):
         r.transport.start(r.owner, request_id=request, validate=lambda: None)
@@ -459,36 +461,54 @@ def test_front_lines_wait_while_a_run_writes_the_chat(runtime):
     assert r.saved == [("A", [("Are you still there", "Yes, still working on it.")])]
 
 
-def test_a_websocket_front_gets_its_ephemeral_credential_and_setup_never_the_sdp_path(runtime):
+def test_a_relayed_front_mints_nothing_keeps_its_context_on_the_host_and_never_takes_the_sdp_path(runtime):
     r = runtime
-    seen = []
 
-    def secret(**kwargs):
-        seen.append(kwargs)
-        return {"value": "synthetic-socket-token", "expires_at": 1060, "url": "wss://api.x.ai/v1/realtime?model=m",
-                "setup": {"type": "session.update", "session": {"instructions": kwargs["instructions"]}}}
+    def no_credential(**kwargs):
+        pytest.fail("a relayed front's key stays on the host: nothing is minted for the browser")
 
-    socket = SimpleNamespace(create_client_secret=secret, transport="grok_voice",
-                             status=lambda: SimpleNamespace(ready=True))
+    relayed = SimpleNamespace(create_client_secret=no_credential, transport="grok_voice",
+                              status=lambda: SimpleNamespace(ready=True))
     chosen = []
-    r.adapter._provider = lambda option: chosen.append(option) or socket
-    started = r.adapter.start(r.owner, request_id=str(uuid4()), validate=lambda: None, live_provider="grok")
-    assert chosen == ["grok"] and seen[0]["instructions"] == "Synthetic context for A"
-    assert started.snapshot.transport == "grok_voice" and started.client_secret == "synthetic-socket-token"
-    assert started.connect_url.startswith("wss://api.x.ai/")
-    assert json.loads(started.setup)["session"]["instructions"] == "Synthetic context for A"
+    r.adapter._provider = lambda option: chosen.append(option) or relayed
+    started = r.adapter.start(r.owner, request_id=str(uuid4()), validate=lambda: None, live_provider="grok", csrf="c")
+    assert chosen == ["grok"] and started.snapshot.transport == "grok_voice"
+    assert started.client_secret is None and started.ticket
+    redeemed = r.adapter.redeem(started.ticket)
+    kind, provider, instructions = r.adapter.attach(redeemed, lambda: None)
+    assert (kind, provider, instructions) == ("grok_voice", relayed, "Synthetic context for A")
     with pytest.raises(DictationError, match="action_denied"):
         r.adapter.exchange(r.owner, started.snapshot.handle, offer=b"v=0 synthetic", validate=lambda: None)
 
 
-def test_an_unexpected_socket_address_is_refused(runtime):
+def test_a_ticket_opens_one_socket_once_and_stop_closes_it(runtime):
     r = runtime
-    socket = SimpleNamespace(transport="gemini_live", status=lambda: SimpleNamespace(ready=True),
-        create_client_secret=lambda **kwargs: {"value": "t", "expires_at": 1060, "url": "wss://elsewhere.example/",
-                                               "setup": {}})
-    r.adapter._provider = lambda option: socket
-    with pytest.raises(DictationError, match="realtime_credential_unavailable"):
-        r.adapter.start(r.owner, request_id=str(uuid4()), validate=lambda: None, live_provider="gemini")
+    started = start(r)
+    redeemed = r.adapter.redeem(started.ticket)
+    with pytest.raises(DictationError, match="action_denied"):
+        r.adapter.redeem(started.ticket)
+    closed = []
+    r.adapter.attach(redeemed, lambda: closed.append(True))
+    with pytest.raises(DictationError, match="voice_session_busy"):
+        r.adapter.attach(redeemed, lambda: None)
+    snapshot = r.adapter.stop(r.owner, started.snapshot.handle, validate=lambda: None)
+    # Stopping ends the socket; the lease stays until the socket has let go of it.
+    assert closed == [True] and snapshot.state == "stopping" and not snapshot.quiesced
+    r.adapter.detach(redeemed, stop=False)
+    assert r.adapter.snapshot(r.owner, started.snapshot.handle, validate=lambda: None).quiesced
+    # The next session starts at once on the same page.
+    assert start(r).snapshot.state == "connecting"
+
+
+def test_a_session_ended_from_its_socket_frees_the_lease_for_the_next(runtime):
+    r = runtime
+    for _ in range(4):
+        started = start(r)
+        redeemed = r.adapter.redeem(started.ticket)
+        r.adapter.attach(redeemed, lambda: None)
+        r.adapter.keepalive(r.owner, started.snapshot.handle)
+        r.adapter.detach(redeemed, stop=True)
+        assert r.adapter.snapshot(r.owner, started.snapshot.handle, validate=lambda: None).quiesced
 
 
 def test_no_key_refuses_before_any_provider_call(runtime):
