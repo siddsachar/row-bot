@@ -14,8 +14,8 @@ from tests.contracts.audit.examples import example
 pytestmark = pytest.mark.contract
 
 GENESIS = genesis_hash("device:dev-7f3a")
-ACTIONS = [Action.POLICY_LOADED, Action.SESSION_SIGNED_IN, Action.TOOL_CALLED, Action.MODEL_CALLED,
-           Action.LINE_ITEMS_MOVED, Action.SESSION_SIGNED_OUT]
+ACTIONS = [Action.POLICY_CHANGED, Action.SESSION_SIGNED_IN, Action.TOOL_CALLED, Action.MODEL_CALLED,
+           Action.DOCUMENT_UPLOADED, Action.SESSION_SIGNED_OUT]
 
 
 def _chain() -> list[dict]:

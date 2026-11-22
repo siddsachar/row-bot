@@ -1,46 +1,399 @@
 {
   "$defs": {
-    "ArgumentValue": {
-      "anyOf": [
-        {
-          "type": "null"
-        },
-        {
-          "type": "boolean"
-        },
-        {
-          "maximum": 9007199254740991,
-          "minimum": -9007199254740991,
-          "type": "integer"
-        },
-        {
-          "pattern": "^[^\\u0000]*$",
-          "type": "string"
-        },
-        {
-          "items": {
-            "$ref": "#/$defs/ArgumentValue"
-          },
-          "type": "array"
-        },
-        {
-          "additionalProperties": {
-            "$ref": "#/$defs/ArgumentValue"
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "Arguments": {
-      "additionalProperties": {
-        "$ref": "#/$defs/ArgumentValue"
-      },
-      "description": "Tool arguments, masked for secrets: at most 8192 bytes as canonical JSON and 8 levels deep; numbers are integers.",
-      "type": "object"
-    },
     "AuditEvent": {
       "additionalProperties": false,
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "session.signed_in"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "session"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {},
+                "required": [],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "blocked",
+                  "denied",
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "session.signed_out"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "session"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "signed_out",
+                      "expired"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "session.revoked"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "service"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "session"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {},
+                "required": [],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "person"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "device.joined"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "device"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "app_version": {
+                    "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "windows",
+                      "macos",
+                      "linux"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "app_version",
+                  "platform"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "blocked",
+                  "denied",
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "device"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "device.removed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person",
+                      "service"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "device"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "left",
+                      "revoked"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "device"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "model.called"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "person",
+                      "service"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "model"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "cache_read_tokens": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "duration_ms": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "input_tokens": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "model": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,127})$",
+                    "type": "string"
+                  },
+                  "output_tokens": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "provider": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "input_tokens",
+                  "model",
+                  "output_tokens",
+                  "provider"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "blocked",
+                  "denied",
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "type": "null"
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -51,29 +404,6 @@
           },
           "then": {
             "allOf": [
-              {
-                "if": {
-                  "properties": {
-                    "redaction": {
-                      "enum": [
-                        "metadata",
-                        "summaries"
-                      ]
-                    }
-                  }
-                },
-                "then": {
-                  "properties": {
-                    "details": {
-                      "not": {
-                        "required": [
-                          "arguments"
-                        ]
-                      }
-                    }
-                  }
-                }
-              },
               {
                 "if": {
                   "properties": {
@@ -139,9 +469,6 @@
                     ],
                     "type": "string"
                   },
-                  "arguments": {
-                    "$ref": "#/$defs/Arguments"
-                  },
                   "risk": {
                     "enum": [
                       "low",
@@ -183,7 +510,7 @@
               },
               "layer": {
                 "enum": [
-                  "work"
+                  "org"
                 ]
               },
               "outcome": {
@@ -212,168 +539,6 @@
           "if": {
             "properties": {
               "action": {
-                "const": "model.called"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "model"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "cache_read_tokens": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "duration_ms": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "input_tokens": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "model": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,127})$",
-                    "type": "string"
-                  },
-                  "output_tokens": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "provider": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "input_tokens",
-                  "model",
-                  "output_tokens",
-                  "provider"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "policy.loaded"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "device"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "policy"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "digest": {
-                    "pattern": "^(?:[0-9a-f]{64})$",
-                    "type": "string"
-                  },
-                  "policy_version": {
-                    "pattern": "^(?:[^\\x00-\\x1f\\x7f]{1,64})$",
-                    "type": "string"
-                  },
-                  "schema_version": {
-                    "maximum": 1000,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "signer": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  },
-                  "source": {
-                    "enum": [
-                      "registry",
-                      "managed_preferences",
-                      "file",
-                      "env_file",
-                      "org_server"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "digest",
-                  "schema_version",
-                  "source"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
                 "const": "policy.changed"
               }
             }
@@ -384,8 +549,7 @@
                 "properties": {
                   "kind": {
                     "enum": [
-                      "admin",
-                      "device"
+                      "admin"
                     ]
                   }
                 }
@@ -403,8 +567,8 @@
                     "pattern": "^(?:[0-9a-f]{64})$",
                     "type": "string"
                   },
-                  "policy_version": {
-                    "pattern": "^(?:[^\\x00-\\x1f\\x7f]{1,64})$",
+                  "group": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
                     "type": "string"
                   },
                   "previous_digest": {
@@ -415,165 +579,11 @@
                     "maximum": 1000,
                     "minimum": 1,
                     "type": "integer"
-                  },
-                  "signer": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  },
-                  "source": {
-                    "enum": [
-                      "registry",
-                      "managed_preferences",
-                      "file",
-                      "env_file",
-                      "org_server"
-                    ],
-                    "type": "string"
                   }
                 },
                 "required": [
                   "digest",
-                  "schema_version",
-                  "source"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "policy.locked_down"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "device"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "policy"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "digest": {
-                    "pattern": "^(?:[0-9a-f]{64})$",
-                    "type": "string"
-                  },
-                  "reason": {
-                    "enum": [
-                      "unreadable",
-                      "untrusted_location",
-                      "invalid",
-                      "unsupported_schema_version",
-                      "keys_invalid",
-                      "signature_missing",
-                      "signature_invalid",
-                      "signature_key_missing",
-                      "unsigned_source_with_pinned_keys"
-                    ],
-                    "type": "string"
-                  },
-                  "source": {
-                    "enum": [
-                      "registry",
-                      "managed_preferences",
-                      "file",
-                      "env_file",
-                      "org_server"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "reason",
-                  "source"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "session.signed_in"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "session"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "method": {
-                    "enum": [
-                      "oidc",
-                      "device_code",
-                      "refresh"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "method"
+                  "schema_version"
                 ],
                 "type": "object"
               },
@@ -600,7 +610,7 @@
           "if": {
             "properties": {
               "action": {
-                "const": "session.signed_out"
+                "const": "app.approved"
               }
             }
           },
@@ -610,295 +620,13 @@
                 "properties": {
                   "kind": {
                     "enum": [
-                      "admin",
-                      "person",
-                      "service"
+                      "admin"
                     ]
                   }
                 }
               },
               "category": {
-                "const": "session"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "reason": {
-                    "enum": [
-                      "signed_out",
-                      "expired",
-                      "revoked",
-                      "departure"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "reason"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "type": "null"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "device.enrolled"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "device"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "app_version": {
-                    "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
-                    "type": "string"
-                  },
-                  "platform": {
-                    "enum": [
-                      "windows",
-                      "macos",
-                      "linux",
-                      "server"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "app_version",
-                  "platform"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "blocked",
-                  "denied",
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "device"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "device.revoked"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person",
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "device"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "reason": {
-                    "enum": [
-                      "lost",
-                      "replaced",
-                      "departure",
-                      "admin",
-                      "compromised"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "reason"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "device"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "extension.installed"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "extension"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "origin": {
-                    "enum": [
-                      "org_catalog",
-                      "marketplace",
-                      "local"
-                    ],
-                    "type": "string"
-                  },
-                  "version": {
-                    "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
-                    "type": "string"
-                  }
-                },
-                "required": [],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org",
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "blocked",
-                  "denied",
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "mcp_server",
-                      "plugin",
-                      "skill"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "extension.removed"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "extension"
+                "const": "app"
               },
               "decided_by": {
                 "type": "null"
@@ -916,12 +644,13 @@
               },
               "layer": {
                 "enum": [
-                  "org",
-                  "work"
+                  "org"
                 ]
               },
               "outcome": {
                 "enum": [
+                  "blocked",
+                  "denied",
                   "failed",
                   "succeeded"
                 ]
@@ -930,9 +659,10 @@
                 "properties": {
                   "kind": {
                     "enum": [
+                      "channel",
+                      "integration",
                       "mcp_server",
-                      "plugin",
-                      "skill"
+                      "plugin"
                     ]
                   }
                 },
@@ -945,7 +675,270 @@
           "if": {
             "properties": {
               "action": {
-                "const": "promotion.submitted"
+                "const": "app.pushed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "app"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "blocked",
+                  "denied",
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "channel",
+                      "integration",
+                      "mcp_server",
+                      "plugin"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "app.removed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "app"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "org"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "channel",
+                      "integration",
+                      "mcp_server",
+                      "plugin"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "document.uploaded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "document"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "byte_count": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "blocked",
+                  "denied",
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "document"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "document.removed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "document"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "document"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "share.submitted"
               }
             }
           },
@@ -961,7 +954,7 @@
                 }
               },
               "category": {
-                "const": "promotion"
+                "const": "share"
               },
               "decided_by": {
                 "type": "null"
@@ -1007,7 +1000,7 @@
                 "properties": {
                   "kind": {
                     "enum": [
-                      "promotion"
+                      "share"
                     ]
                   }
                 },
@@ -1020,7 +1013,7 @@
           "if": {
             "properties": {
               "action": {
-                "const": "promotion.reviewed"
+                "const": "share.approved"
               }
             }
           },
@@ -1037,7 +1030,7 @@
                 }
               },
               "category": {
-                "const": "promotion"
+                "const": "share"
               },
               "decided_by": {
                 "type": "null"
@@ -1081,7 +1074,7 @@
                 "properties": {
                   "kind": {
                     "enum": [
-                      "promotion"
+                      "share"
                     ]
                   }
                 },
@@ -1094,7 +1087,81 @@
           "if": {
             "properties": {
               "action": {
-                "const": "promotion.published"
+                "const": "share.rejected"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "share"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "item_kind": {
+                    "enum": [
+                      "fact",
+                      "relation",
+                      "skill",
+                      "source"
+                    ],
+                    "type": "string"
+                  },
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "item_kind",
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "share"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "library.published"
               }
             }
           },
@@ -1112,7 +1179,7 @@
                 }
               },
               "category": {
-                "const": "promotion"
+                "const": "library"
               },
               "decided_by": {
                 "type": "null"
@@ -1122,21 +1189,20 @@
                 "properties": {
                   "item_kind": {
                     "enum": [
-                      "fact",
-                      "relation",
                       "skill",
-                      "source"
+                      "agent",
+                      "workflow"
                     ],
                     "type": "string"
                   },
-                  "space_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                  "version": {
+                    "pattern": "^(?:[0-9A-Za-z][0-9A-Za-z.+_-]{0,63})$",
                     "type": "string"
                   }
                 },
                 "required": [
                   "item_kind",
-                  "space_id"
+                  "version"
                 ],
                 "type": "object"
               },
@@ -1144,152 +1210,6 @@
                 "enum": [
                   "company",
                   "team"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "promotion"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "promotion.rejected"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "promotion"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "item_kind": {
-                    "enum": [
-                      "fact",
-                      "relation",
-                      "skill",
-                      "source"
-                    ],
-                    "type": "string"
-                  },
-                  "space_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "item_kind",
-                  "space_id"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "company",
-                  "team"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "promotion"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "export.started"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "person",
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "export"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "scope": {
-                    "enum": [
-                      "work",
-                      "team_space",
-                      "company",
-                      "audit"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "scope"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "company",
-                  "org",
-                  "team",
-                  "work"
                 ]
               },
               "outcome": {
@@ -1304,7 +1224,7 @@
                 "properties": {
                   "kind": {
                     "enum": [
-                      "export"
+                      "library_item"
                     ]
                   }
                 },
@@ -1317,7 +1237,7 @@
           "if": {
             "properties": {
               "action": {
-                "const": "export.completed"
+                "const": "data.exported"
               }
             }
           },
@@ -1335,7 +1255,7 @@
                 }
               },
               "category": {
-                "const": "export"
+                "const": "data"
               },
               "decided_by": {
                 "type": "null"
@@ -1355,8 +1275,8 @@
                   },
                   "scope": {
                     "enum": [
-                      "work",
-                      "team_space",
+                      "person",
+                      "space",
                       "company",
                       "audit"
                     ],
@@ -1372,12 +1292,13 @@
                 "enum": [
                   "company",
                   "org",
-                  "team",
-                  "work"
+                  "team"
                 ]
               },
               "outcome": {
                 "enum": [
+                  "blocked",
+                  "denied",
                   "failed",
                   "succeeded"
                 ]
@@ -1399,7 +1320,7 @@
           "if": {
             "properties": {
               "action": {
-                "const": "escrow.requested"
+                "const": "role.changed"
               }
             }
           },
@@ -1415,7 +1336,7 @@
                 }
               },
               "category": {
-                "const": "escrow"
+                "const": "role"
               },
               "decided_by": {
                 "type": "null"
@@ -1423,41 +1344,37 @@
               "details": {
                 "additionalProperties": false,
                 "properties": {
-                  "reason": {
+                  "change": {
                     "enum": [
-                      "legal_hold",
-                      "departure_handover",
-                      "reseal",
-                      "person_restore"
+                      "granted",
+                      "removed"
                     ],
                     "type": "string"
                   },
-                  "request_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member",
+                      "space_owner"
+                    ],
                     "type": "string"
                   },
-                  "wk_version_first": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "wk_version_last": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
                   }
                 },
                 "required": [
-                  "reason",
-                  "request_id",
-                  "wk_version_first",
-                  "wk_version_last"
+                  "change",
+                  "role"
                 ],
                 "type": "object"
               },
               "layer": {
                 "enum": [
-                  "work"
+                  "company",
+                  "org",
+                  "team"
                 ]
               },
               "outcome": {
@@ -1477,555 +1394,6 @@
                   }
                 },
                 "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "escrow.reviewed"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "escrow"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "request_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "request_id"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "denied",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "escrow.opened"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "escrow"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "kms_key": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  },
-                  "package_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  },
-                  "request_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  },
-                  "wk_version": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "kms_key",
-                  "package_id",
-                  "request_id",
-                  "wk_version"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "escrow.notice_deferred"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "escrow"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "days": {
-                    "maximum": 90,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "request_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "days",
-                  "request_id"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "legal_hold.set"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "legal_hold"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "hold_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "hold_id"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "company",
-                  "team",
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "org",
-                      "person",
-                      "space"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "legal_hold.released"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "legal_hold"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "hold_id": {
-                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "hold_id"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "company",
-                  "team",
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "org",
-                      "person",
-                      "space"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "departure.started"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "departure"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "trigger": {
-                    "enum": [
-                      "scim",
-                      "admin"
-                    ],
-                    "type": "string"
-                  },
-                  "window_days": {
-                    "maximum": 365,
-                    "minimum": 1,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "trigger"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "departure.completed"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "departure"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "handover": {
-                    "enum": [
-                      "released_by_person",
-                      "escrow_drafted",
-                      "none"
-                    ],
-                    "type": "string"
-                  },
-                  "personal_export_made": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "handover",
-                  "personal_export_made"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "line.items_moved"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "person"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "line"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "count": {
-                    "maximum": 9007199254740991,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "direction": {
-                    "enum": [
-                      "to_personal",
-                      "to_work"
-                    ],
-                    "type": "string"
-                  },
-                  "during_departure": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "count",
-                  "direction",
-                  "during_departure"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "work"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "type": "null"
               }
             }
           }
@@ -2086,195 +1454,31 @@
               }
             }
           }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "audit_chain.verified"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "device",
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "audit_chain"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "head": {
-                    "pattern": "^(?:[0-9a-f]{64})$",
-                    "type": "string"
-                  },
-                  "links_checked": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "head",
-                  "links_checked"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "audit_chain"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action": {
-                "const": "audit_chain.broken"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "actor": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "admin",
-                      "device",
-                      "service"
-                    ]
-                  }
-                }
-              },
-              "category": {
-                "const": "audit_chain"
-              },
-              "decided_by": {
-                "type": "null"
-              },
-              "details": {
-                "additionalProperties": false,
-                "properties": {
-                  "broken_at": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "head": {
-                    "pattern": "^(?:[0-9a-f]{64})$",
-                    "type": "string"
-                  },
-                  "links_checked": {
-                    "maximum": 9007199254740991,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "reason": {
-                    "enum": [
-                      "invalid",
-                      "prev_hash",
-                      "seq",
-                      "hash",
-                      "head"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "broken_at",
-                  "head",
-                  "links_checked",
-                  "reason"
-                ],
-                "type": "object"
-              },
-              "layer": {
-                "enum": [
-                  "org"
-                ]
-              },
-              "outcome": {
-                "enum": [
-                  "succeeded"
-                ]
-              },
-              "target": {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "audit_chain"
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
         }
       ],
-      "description": "One Row-Bot org audit event. The layer is never personal; details hold only the keys the action defines at or below the event's redaction level.",
+      "description": "One Row-Bot for Teams audit event: team, company or org layer, never personal; details hold only the keys the action defines at or below the event's redaction level.",
       "properties": {
         "action": {
           "enum": [
-            "audit_chain.broken",
-            "audit_chain.verified",
-            "departure.completed",
-            "departure.started",
-            "device.enrolled",
-            "device.revoked",
-            "escrow.notice_deferred",
-            "escrow.opened",
-            "escrow.requested",
-            "escrow.reviewed",
-            "export.completed",
-            "export.started",
-            "extension.installed",
-            "extension.removed",
-            "legal_hold.released",
-            "legal_hold.set",
-            "line.items_moved",
+            "app.approved",
+            "app.pushed",
+            "app.removed",
+            "data.exported",
+            "device.joined",
+            "device.removed",
+            "document.removed",
+            "document.uploaded",
+            "library.published",
             "model.called",
             "org_settings.changed",
             "policy.changed",
-            "policy.loaded",
-            "policy.locked_down",
-            "promotion.published",
-            "promotion.rejected",
-            "promotion.reviewed",
-            "promotion.submitted",
+            "role.changed",
+            "session.revoked",
             "session.signed_in",
             "session.signed_out",
+            "share.approved",
+            "share.rejected",
+            "share.submitted",
             "tool.called"
           ],
           "type": "string"
@@ -2289,7 +1493,6 @@
             "kind": {
               "enum": [
                 "admin",
-                "device",
                 "person",
                 "service"
               ],
@@ -2304,19 +1507,17 @@
         },
         "category": {
           "enum": [
-            "audit_chain",
-            "departure",
+            "app",
+            "data",
             "device",
-            "escrow",
-            "export",
-            "extension",
-            "legal_hold",
-            "line",
+            "document",
+            "library",
             "model",
             "org_settings",
             "policy",
-            "promotion",
+            "role",
             "session",
+            "share",
             "tool"
           ],
           "type": "string"
@@ -2363,8 +1564,7 @@
           "enum": [
             "company",
             "org",
-            "team",
-            "work"
+            "team"
           ],
           "type": "string"
         },
@@ -2394,7 +1594,6 @@
         },
         "redaction": {
           "enum": [
-            "full",
             "metadata",
             "summaries"
           ],
@@ -2418,17 +1617,17 @@
               "properties": {
                 "kind": {
                   "enum": [
-                    "audit_chain",
+                    "channel",
                     "device",
+                    "document",
                     "export",
+                    "integration",
+                    "library_item",
                     "mcp_server",
-                    "org",
                     "person",
                     "plugin",
-                    "promotion",
                     "setting",
-                    "skill",
-                    "space",
+                    "share",
                     "tool"
                   ],
                   "type": "string"

@@ -4,14 +4,13 @@ The codebase's own redaction helpers (``learning.redaction``, ``evolution.redact
 ``migration.redaction``) import the rest of ``row_bot`` (the secret store, channels, MCP logging), and
 ``row_bot.audit`` must import only the standard library so the Org server can use it without the app. So this is
 a small stdlib copy of their *shape* rules, joined into one list; it can't know the secrets a device holds, which
-is why free text is only recorded at the ``summaries`` and ``full`` levels and identifiers that look like a secret
-are refused outright rather than masked.
+is why free text is only recorded at the ``summaries`` level and identifiers that look like a secret are refused
+outright rather than masked.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 
 MASK = "[redacted]"
 
@@ -37,12 +36,6 @@ _QUOTED = (  # A quoted value under a credential-like name: JSON, or a Python di
     re.compile(r"(?i)('[^'\\\n]{0,64}?(?:api[_-]?key|secret|password|passwd|authorization|token|private[_-]?key"
                r"|credential|cookie)[^'\\\n]{0,64}?'\s*:\s*)'(?:[^'\\\n]|\\.)+'"),
 )
-# An argument name whose string value is a credential (``max_tokens: 500`` is a number, so it is kept).
-_CREDENTIAL_KEY = re.compile(
-    r"(?i)(?:api_?key|access_?key|secret|token|password|passwd|bearer|authorization|private_?key|session_?key"
-    r"|credential|cookie)")
-# Argument names whose every text value is a secret.
-_SECRET_CONTAINERS = frozenset({"env", "headers", "cookies", "cookie"})
 
 
 def looks_like_secret(text: str) -> bool:
@@ -57,17 +50,3 @@ def mask_text(text: str) -> str:
     for pattern in _QUOTED:
         text = pattern.sub(lambda match: f'{match.group(1)}"{MASK}"', text)
     return text
-
-
-def mask_json(value: object, *, secret: bool = False) -> object:
-    """A JSON value (tool arguments) with secrets masked: text under a credential-like name, and all text inside
-    ``env``, ``headers`` and ``cookies``, becomes ``[redacted]``; other text goes through ``mask_text``."""
-    if isinstance(value, str):
-        return MASK if secret and value else mask_text(value)
-    if isinstance(value, Mapping):
-        return {mask_text(str(key)): mask_json(item, secret=secret or str(key).lower() in _SECRET_CONTAINERS
-                                               or (isinstance(item, str) and bool(_CREDENTIAL_KEY.search(str(key)))))
-                for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [mask_json(item, secret=secret) for item in value]
-    return value

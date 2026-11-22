@@ -2,8 +2,7 @@
 under ``contracts/audit/v1/``.
 
 They refuse what ``from_dict`` refuses, except what JSON Schema can't say: secret-shaped text (identifiers that
-look like a secret, unmasked summaries or arguments), a ``device_id`` that must equal a device actor's id,
-whether a time is a real calendar time, and the arguments' canonical size and depth. ``from_dict`` is the
+look like a secret, unmasked summaries) and whether a time is a real calendar time. ``from_dict`` is the
 authority; the schemas are for other languages and for reviewers.
 """
 
@@ -13,9 +12,8 @@ from typing import Any
 
 from .jcs import MAX_SAFE_INTEGER
 from .vocabulary import (
-    ARGUMENTS_MAX_BYTES, ARGUMENTS_MAX_DEPTH, EVENT_ID_PATTERN, ID_PATTERN, LEVEL_RANK, ORG_ID_PATTERN, PATTERNS,
-    SPECS, SUMMARY_MAX, TIME_PATTERN, Action, ActorKind, AuditLayer, DecidedBy, Detail, Outcome, RedactionLevel,
-    TargetKind, category_of,
+    EVENT_ID_PATTERN, ID_PATTERN, LEVEL_RANK, ORG_ID_PATTERN, PATTERNS, SPECS, SUMMARY_MAX, TIME_PATTERN, Action,
+    ActorKind, AuditLayer, DecidedBy, Detail, Outcome, RedactionLevel, TargetKind, category_of,
 )
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -44,30 +42,8 @@ def _detail(spec: Detail) -> dict[str, Any]:
         return {"type": "string", "enum": list(spec.choices)}
     if spec.kind == "int":
         return {"type": "integer", "minimum": spec.minimum, "maximum": spec.maximum}
-    if spec.kind == "bool":
-        return {"type": "boolean"}
-    if spec.kind == "text":
-        return {"type": "string", "minLength": 1, "maxLength": SUMMARY_MAX, "pattern": "^[^\\u0000]*$"}
-    return {"$ref": "#/$defs/Arguments"}
-
-
-def _arguments() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "description": (f"Tool arguments, masked for secrets: at most {ARGUMENTS_MAX_BYTES} bytes as canonical JSON "
-                        f"and {ARGUMENTS_MAX_DEPTH} levels deep; numbers are integers."),
-        "additionalProperties": {"$ref": "#/$defs/ArgumentValue"},
-    }
-
-
-def _argument_value() -> dict[str, Any]:
-    return {"anyOf": [
-        {"type": "null"}, {"type": "boolean"},
-        {"type": "integer", "minimum": -MAX_SAFE_INTEGER, "maximum": MAX_SAFE_INTEGER},
-        {"type": "string", "pattern": "^[^\\u0000]*$"},
-        {"type": "array", "items": {"$ref": "#/$defs/ArgumentValue"}},
-        {"type": "object", "additionalProperties": {"$ref": "#/$defs/ArgumentValue"}},
-    ]}
+    # text: a short summary.
+    return {"type": "string", "minLength": 1, "maxLength": SUMMARY_MAX, "pattern": "^[^\\u0000]*$"}
 
 
 def _action_rule(action: Action) -> dict[str, Any]:
@@ -126,17 +102,13 @@ def _event_schema() -> dict[str, Any]:
     }
     return {
         "type": "object",
-        "description": ("One Row-Bot org audit event. The layer is never personal; details hold only the keys "
-                        "the action defines at or below the event's redaction level."),
+        "description": ("One Row-Bot for Teams audit event: team, company or org layer, never personal; details "
+                        "hold only the keys the action defines at or below the event's redaction level."),
         "additionalProperties": False,
         "required": sorted(properties),
         "properties": properties,
         "allOf": [_action_rule(action) for action in Action],
     }
-
-
-def _defs() -> dict[str, Any]:
-    return {"Arguments": _arguments(), "ArgumentValue": _argument_value()}
 
 
 def json_schemas() -> dict[str, dict[str, Any]]:
@@ -150,9 +122,9 @@ def json_schemas() -> dict[str, dict[str, Any]]:
         "type": "object", "additionalProperties": False, "required": ["event", "hash", "prev_hash", "seq"],
         "properties": {"seq": {"type": "integer", "minimum": 0, "maximum": MAX_SAFE_INTEGER},
                        "prev_hash": digest, "hash": digest, "event": {"$ref": "#/$defs/AuditEvent"}},
-        "$defs": {"AuditEvent": event, **_defs()},
+        "$defs": {"AuditEvent": event},
     }
     return {
-        "AuditEvent": {"$schema": SCHEMA_DIALECT, "title": "AuditEvent", **event, "$defs": _defs()},
+        "AuditEvent": {"$schema": SCHEMA_DIALECT, "title": "AuditEvent", **event},
         "ChainLink": link,
     }

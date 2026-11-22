@@ -11,24 +11,28 @@ pytestmark = pytest.mark.contract
 
 _TOOL_METADATA = {"approval_level", "surface", "risk", "app", "rule_id"}
 
-# What survives at each level. Only Work tool actions hold anything above metadata.
+# What survives at each level. Only tool actions hold anything above metadata.
 TABLE = {
     RedactionLevel.METADATA: _TOOL_METADATA,
     RedactionLevel.SUMMARIES: _TOOL_METADATA | {"summary"},
-    RedactionLevel.FULL: _TOOL_METADATA | {"summary", "arguments"},
 }
 
 
-@pytest.mark.parametrize("level", list(RedactionLevel), ids=lambda level: level.value)
-def test_the_redaction_table_for_work_tool_actions(level):
-    full = example(Action.TOOL_CALLED)
+def test_there_are_two_levels_and_metadata_is_the_default():
+    assert [level.value for level in RedactionLevel] == ["metadata", "summaries"]
+    assert example(Action.MODEL_CALLED).redaction is RedactionLevel.METADATA
 
-    redacted = redact(full, level)
+
+@pytest.mark.parametrize("level", list(RedactionLevel), ids=lambda level: level.value)
+def test_the_redaction_table_for_tool_actions(level):
+    summaries = example(Action.TOOL_CALLED)
+
+    redacted = redact(summaries, level)
 
     assert set(redacted.details) == TABLE[level]
     assert redacted.redaction is level
     assert from_dict(to_dict(redacted)) == redacted
-    assert set(full.details) == TABLE[RedactionLevel.FULL]  # Pure: the original is unchanged.
+    assert set(summaries.details) == TABLE[RedactionLevel.SUMMARIES]  # Pure: the original is unchanged.
 
 
 @pytest.mark.parametrize("action", [action for action in Action if action is not Action.TOOL_CALLED],
@@ -38,23 +42,19 @@ def test_every_other_action_is_metadata_only(action):
 
     assert redact(event, RedactionLevel.METADATA) == event
     with pytest.raises(InvalidAuditEvent):  # And a free-text detail can't be smuggled in.
-        example(action, redaction=RedactionLevel.FULL, details={**event.details, "summary": "free text"})
+        example(action, redaction=RedactionLevel.SUMMARIES, details={**event.details, "summary": "free text"})
 
 
 def test_redaction_only_removes():
     metadata = redact(example(Action.TOOL_CALLED), "metadata")
 
-    assert redact(metadata, RedactionLevel.FULL) is metadata
-    assert redact(redact(example(Action.TOOL_CALLED), "summaries"), "summaries").details.keys() == TABLE[
-        RedactionLevel.SUMMARIES]
+    assert redact(metadata, RedactionLevel.SUMMARIES) is metadata
+    assert redact(example(Action.TOOL_CALLED), "summaries").details.keys() == TABLE[RedactionLevel.SUMMARIES]
 
 
 def test_free_text_is_refused_unless_the_level_allows_it():
     details = dict(example(Action.TOOL_CALLED).details)
 
-    with pytest.raises(InvalidAuditEvent, match="arguments: needs redaction level full"):
-        example(Action.TOOL_CALLED, redaction="summaries", details=details)
-    del details["arguments"]
     with pytest.raises(InvalidAuditEvent, match="summary: needs redaction level summaries"):
         example(Action.TOOL_CALLED, redaction="metadata", details=details)
     assert example(Action.TOOL_CALLED, redaction="summaries", details=details).details["summary"]
@@ -89,27 +89,6 @@ def test_secret_shaped_text_is_always_masked(secret):
     assert mask_text(summary) == summary  # Masking is stable, so a masked event re-checks and re-hashes alike.
     assert from_dict(to_dict(event)) == event
     assert redact(event, "summaries").details["summary"] == summary
-
-
-def test_tool_arguments_are_masked_by_name_and_by_shape():
-    arguments = {
-        "api_key": "short",
-        "headers": {"Authorization": "anything", "Accept": "text/plain"},
-        "env": {"HOME": "/home/priya-work"},
-        "max_tokens": 500,
-        "note": "use ghp_abcdefghijklmnopqrstuvwxyz0123 for this",
-        "nested": [{"token": "t0k3n"}, {"query": "refunds"}],
-    }
-    event = example(Action.TOOL_CALLED, details={**example(Action.TOOL_CALLED).details, "arguments": arguments})
-
-    assert to_dict(event)["details"]["arguments"] == {
-        "api_key": MASK,
-        "headers": {"Authorization": MASK, "Accept": MASK},
-        "env": {"HOME": MASK},
-        "max_tokens": 500,
-        "note": f"use {MASK} for this",
-        "nested": [{"token": MASK}, {"query": "refunds"}],
-    }
 
 
 def test_text_that_merely_mentions_secrets_is_kept():

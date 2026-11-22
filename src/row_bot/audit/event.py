@@ -1,9 +1,9 @@
 """The audit record: ``AuditEvent``, its strict JSON mapping, and ``redact``.
 
-An event checks itself when it is built and again whenever it is written out (``to_dict``, which hashing, the
-schemas and OCSF all go through), so no code path can serialise one that breaks the vocabulary: an unknown
-action, a ``personal`` layer, a detail key the action doesn't define, or a key its redaction level doesn't allow
-are refused, not filtered. Free text is masked for secrets when the event is built; an identifier that looks like
+An event checks itself when it is built and again whenever it is written out (``to_dict``, which hashing and
+redaction go through), so no code path can serialise one that breaks the vocabulary: an unknown action, a layer
+outside ``team | company | org``, a detail key the action doesn't define, or a key its redaction level doesn't
+allow are refused, not filtered. Free text is masked for secrets when the event is built; an identifier that looks like
 a secret is refused.
 """
 
@@ -18,12 +18,11 @@ from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Any
 
-from .jcs import MAX_SAFE_INTEGER, canonical_json
-from .masking import looks_like_secret, mask_json, mask_text
+from .jcs import canonical_json
+from .masking import looks_like_secret, mask_text
 from .vocabulary import (
-    ARGUMENTS_MAX_BYTES, ARGUMENTS_MAX_DEPTH, EVENT_ID_PATTERN, ID_PATTERN, LEVEL_RANK, ORG_ID_PATTERN, PATTERNS,
-    SPECS, SUMMARY_MAX, TIME_PATTERN, Action, ActorKind, AuditLayer, Category, DecidedBy, Detail, Outcome,
-    RedactionLevel, TargetKind, category_of,
+    EVENT_ID_PATTERN, ID_PATTERN, LEVEL_RANK, ORG_ID_PATTERN, PATTERNS, SPECS, SUMMARY_MAX, TIME_PATTERN, Action,
+    ActorKind, AuditLayer, Category, DecidedBy, Detail, Outcome, RedactionLevel, TargetKind, category_of,
 )
 
 
@@ -117,37 +116,8 @@ class Target:
         _identifier(self.ref, _ID, "target.ref")
 
 
-def _json_value(value: object, depth: int, path: str) -> object:
-    if depth > ARGUMENTS_MAX_DEPTH:
-        raise InvalidAuditEvent(f"{path}: nested too deeply")
-    if value is None or isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        if not -MAX_SAFE_INTEGER <= value <= MAX_SAFE_INTEGER:
-            raise InvalidAuditEvent(f"{path}: integer out of range")
-        return value
-    if isinstance(value, float):
-        raise InvalidAuditEvent(f"{path}: numbers must be integers (write other numbers as text)")
-    if isinstance(value, str):
-        return _unicode(value, path)
-    if isinstance(value, (list, tuple)):
-        return tuple(_json_value(item, depth + 1, f"{path}[{index}]") for index, item in enumerate(value))
-    if isinstance(value, Mapping):
-        out = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise InvalidAuditEvent(f"{path}: keys must be text")
-            out[_unicode(key, path)] = _json_value(item, depth + 1, f"{path}.{key}")
-        return MappingProxyType(out)
-    raise InvalidAuditEvent(f"{path}: must be JSON")
-
-
-def _thaw(value: object) -> object:
-    if isinstance(value, tuple):
-        return [_thaw(item) for item in value]
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    return value
+def _plain(value: object) -> object:
+    return dict(value) if isinstance(value, Mapping) else value
 
 
 def _detail(spec: Detail, value: object, path: str) -> object:
@@ -158,27 +128,16 @@ def _detail(spec: Detail, value: object, path: str) -> object:
         if value not in spec.choices:
             raise InvalidAuditEvent(f"{path}: must be one of {', '.join(spec.choices)}")
         return value
-    if kind == "bool":
-        if not isinstance(value, bool):
-            raise InvalidAuditEvent(f"{path}: must be true or false")
-        return value
     if kind == "int":
         if isinstance(value, bool) or not isinstance(value, int):
             raise InvalidAuditEvent(f"{path}: must be an integer")
         if not spec.minimum <= value <= spec.maximum:
             raise InvalidAuditEvent(f"{path}: must be from {spec.minimum} to {spec.maximum}")
         return value
-    if kind == "text":
-        if not isinstance(value, str) or not 1 <= len(value) <= SUMMARY_MAX:
-            raise InvalidAuditEvent(f"{path}: must be 1 to {SUMMARY_MAX} characters")
-        return mask_text(_unicode(value, path))
-    # json: a JSON object, masked, then bounded in its canonical size.
-    if not isinstance(value, Mapping):
-        raise InvalidAuditEvent(f"{path}: must be a JSON object")
-    frozen = _json_value(mask_json(_thaw(_json_value(value, 1, path))), 1, path)
-    if len(canonical_json(_thaw(frozen))) > ARGUMENTS_MAX_BYTES:
-        raise InvalidAuditEvent(f"{path}: at most {ARGUMENTS_MAX_BYTES} bytes as canonical JSON")
-    return frozen
+    # text: a short summary, masked for secrets.
+    if not isinstance(value, str) or not 1 <= len(value) <= SUMMARY_MAX:
+        raise InvalidAuditEvent(f"{path}: must be 1 to {SUMMARY_MAX} characters")
+    return mask_text(_unicode(value, path))
 
 
 def _details(action: Action, level: RedactionLevel, details: object) -> MappingProxyType[str, object]:
@@ -201,7 +160,7 @@ def _details(action: Action, level: RedactionLevel, details: object) -> MappingP
 @dataclass(frozen=True)
 class AuditEvent:
     """One org audit event. ``category`` follows from ``action``; ``decided_by`` is set exactly for approvals
-    (``tool.called``); ``device_id`` is required when a device is the actor; ``details`` holds only the keys the
+    (``tool.called``); ``device_id`` names the Row-Bot the actor used, if any; ``details`` holds only the keys the
     action defines at or below ``redaction``. ``occurred_at`` is when it happened (the acting party's clock),
     ``recorded_at`` when the recording party wrote it."""
 
@@ -274,14 +233,12 @@ def _check(event: AuditEvent, *, build: bool) -> None:
     elif event.decided_by is not None:
         raise InvalidAuditEvent(f"decided_by: only approvals record who decided, not {action.value}")
     put("device_id", _optional_id(event.device_id, "device_id"))
-    if event.actor.kind is ActorKind.DEVICE and event.device_id != event.actor.id:
-        raise InvalidAuditEvent("device_id: a device actor's events carry its device id")
     put("turn_id", _optional_id(event.turn_id, "turn_id"))
     put("request_id", _optional_id(event.request_id, "request_id"))
-    details = _details(action, event.redaction, _thaw(event.details) if not build else event.details)
+    details = _details(action, event.redaction, _plain(event.details) if not build else event.details)
     if build:
         object.__setattr__(event, "details", details)
-    elif _thaw(details) != _thaw(event.details):
+    elif dict(details) != _plain(event.details):
         raise InvalidAuditEvent("details: changed after it was built")
 
 
@@ -310,7 +267,7 @@ def to_dict(event: AuditEvent) -> dict[str, Any]:
         "turn_id": event.turn_id,
         "request_id": event.request_id,
         "redaction": event.redaction.value,
-        "details": _thaw(event.details),
+        "details": dict(event.details),
     }
 
 

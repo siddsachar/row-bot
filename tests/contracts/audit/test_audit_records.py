@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from row_bot.audit import (
     Action, Actor, ActorKind, AuditLayer, InvalidAuditEvent, chain_hash, from_dict, genesis_hash, make_link,
-    new_event_id, redact, to_dict, to_ocsf,
+    new_event_id, redact, to_dict,
 )
 from tests.contracts.audit.examples import START, example
 
@@ -57,16 +57,18 @@ REFUSED = {
     "unknown field": _with(Action.TOOL_CALLED, lambda d: d.update(extra=1)),
     "missing field": _with(Action.TOOL_CALLED, lambda d: d.pop("recorded_at")),
     "personal layer": _with(Action.TOOL_CALLED, lambda d: d.update(layer="personal")),
-    "personal layer on a line move": _with(Action.LINE_ITEMS_MOVED, lambda d: d.update(layer="personal")),
+    "personal layer on a model call": _with(Action.MODEL_CALLED, lambda d: d.update(layer="personal")),
+    "the old work layer": _with(Action.TOOL_CALLED, lambda d: d.update(layer="work")),
     "layer the action doesn't use": _with(Action.TOOL_CALLED, lambda d: d.update(layer="company")),
     "unknown action": _with(Action.TOOL_CALLED, lambda d: d.update(action="tool.deleted")),
     "category of another action": _with(Action.TOOL_CALLED, lambda d: d.update(category="model")),
     "actor who can't act": _with(Action.TOOL_CALLED, lambda d: d["actor"].update(kind="admin")),
     "unknown actor kind": _with(Action.TOOL_CALLED, lambda d: d["actor"].update(kind="robot")),
+    "a device as the actor": _with(Action.SESSION_SIGNED_IN, lambda d: d["actor"].update(kind="device")),
     "extra actor field": _with(Action.TOOL_CALLED, lambda d: d["actor"].update(name="Priya")),
-    "outcome the action can't have": _with(Action.MODEL_CALLED, lambda d: d.update(outcome="denied")),
+    "outcome the action can't have": _with(Action.MODEL_CALLED, lambda d: d.update(outcome="changed")),
     "target of the wrong kind": _with(Action.TOOL_CALLED, lambda d: d["target"].update(kind="person")),
-    "missing target": _with(Action.DEVICE_REVOKED, lambda d: d.update(target=None)),
+    "missing target": _with(Action.DEVICE_REMOVED, lambda d: d.update(target=None)),
     "target where none belongs": _with(Action.MODEL_CALLED, lambda d: d.update(target={"kind": "tool", "ref": "x"})),
     "target ref that is a path": _with(Action.TOOL_CALLED, lambda d: d["target"].update(ref="C:/Users/priya/notes")),
     "decided_by on a non-approval": _with(Action.POLICY_CHANGED, lambda d: d.update(decided_by="person")),
@@ -74,7 +76,8 @@ REFUSED = {
     "unknown detail": _with(Action.MODEL_CALLED, lambda d: d["details"].update(prompt="hello")),
     "missing required detail": _with(Action.MODEL_CALLED, lambda d: d["details"].pop("input_tokens")),
     "summary at metadata": _with(Action.TOOL_CALLED, lambda d: d.update(redaction="metadata")),
-    "arguments at summaries": _with(Action.TOOL_CALLED, lambda d: d.update(redaction="summaries")),
+    "tool arguments": _with(Action.TOOL_CALLED, lambda d: d["details"].update(arguments={"path": "notes.md"})),
+    "the removed full level": _with(Action.TOOL_CALLED, lambda d: d.update(redaction="full")),
     "unknown redaction level": _with(Action.TOOL_CALLED, lambda d: d.update(redaction="strict")),
     "time with an offset": _with(Action.TOOL_CALLED, lambda d: d.update(occurred_at="2026-11-02T09:30:00.123456+00:00")),
     "time without microseconds": _with(Action.TOOL_CALLED, lambda d: d.update(occurred_at="2026-11-02T09:30:00Z")),
@@ -86,19 +89,16 @@ REFUSED = {
     "NUL in a summary": _with(Action.TOOL_CALLED, lambda d: d["details"].update(summary="a\x00b")),
     "summary too long": _with(Action.TOOL_CALLED, lambda d: d["details"].update(summary="x" * 301)),
     "empty summary": _with(Action.TOOL_CALLED, lambda d: d["details"].update(summary="")),
-    "float in arguments": _with(Action.TOOL_CALLED, lambda d: d["details"]["arguments"].update(scale=0.5)),
-    "huge integer in arguments": _with(Action.TOOL_CALLED, lambda d: d["details"]["arguments"].update(n=2**53)),
-    "arguments not an object": _with(Action.TOOL_CALLED, lambda d: d["details"].update(arguments=["a"])),
+    "float for a count": _with(Action.MODEL_CALLED, lambda d: d["details"].update(input_tokens=1.5)),
     "bool for a count": _with(Action.MODEL_CALLED, lambda d: d["details"].update(input_tokens=True)),
     "negative count": _with(Action.MODEL_CALLED, lambda d: d["details"].update(output_tokens=-1)),
     "count beyond the safe range": _with(Action.MODEL_CALLED, lambda d: d["details"].update(output_tokens=2**53)),
-    "zero items moved": _with(Action.LINE_ITEMS_MOVED, lambda d: d["details"].update(count=0)),
-    "notice deferred beyond 90 days": _with(Action.ESCROW_NOTICE_DEFERRED, lambda d: d["details"].update(days=91)),
+    "schema version zero": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(schema_version=0)),
     "unknown enum value": _with(Action.TOOL_CALLED, lambda d: d["details"].update(surface="email")),
-    "personal export scope": _with(Action.EXPORT_STARTED, lambda d: d["details"].update(scope="personal")),
-    "short hash": _with(Action.POLICY_LOADED, lambda d: d["details"].update(digest="ab" * 31)),
-    "uppercase hash": _with(Action.POLICY_LOADED, lambda d: d["details"].update(digest="AB" * 32)),
-    "label with a newline": _with(Action.POLICY_LOADED, lambda d: d["details"].update(policy_version="a\nb")),
+    "personal export scope": _with(Action.DATA_EXPORTED, lambda d: d["details"].update(scope="personal")),
+    "short hash": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(digest="ab" * 31)),
+    "uppercase hash": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(digest="AB" * 32)),
+    "unknown role": _with(Action.ROLE_CHANGED, lambda d: d["details"].update(role="owner")),
     "details not an object": _with(Action.MODEL_CALLED, lambda d: d.update(details=[])),
 }
 
@@ -120,9 +120,6 @@ def test_what_the_schema_cannot_say_from_dict_still_refuses():
     data = _tool()
     data["details"]["summary"] = "Used token=abcdefgh12345678"  # Unmasked secret text, as from another writer.
     bad.append(data)
-    data = to_dict(example(Action.POLICY_LOADED))
-    data["device_id"] = "dev-other"  # A device reporting as another device.
-    bad.append(data)
     data = _tool()
     data["occurred_at"] = "2026-02-30T09:30:00.000000Z"  # Not a real day.
     bad.append(data)
@@ -136,14 +133,14 @@ def test_what_the_schema_cannot_say_from_dict_still_refuses():
 def test_a_personal_event_cannot_be_built_or_written_out():
     assert "personal" not in {layer.value for layer in AuditLayer}
     with pytest.raises(InvalidAuditEvent):
-        example(Action.LINE_ITEMS_MOVED, layer="personal")
-    event = example(Action.LINE_ITEMS_MOVED)
+        example(Action.MODEL_CALLED, layer="personal")
+    event = example(Action.MODEL_CALLED)
     with pytest.raises(InvalidAuditEvent):
         dataclasses.replace(event, layer="personal")
 
     object.__setattr__(event, "layer", "personal")  # Forced past the frozen dataclass.
 
-    for write_out in (to_dict, to_ocsf, lambda forced: chain_hash(genesis_hash("org:acme"), forced),
+    for write_out in (to_dict, lambda forced: chain_hash(genesis_hash("org:acme"), forced),
                       lambda forced: redact(forced, "metadata")):
         with pytest.raises(InvalidAuditEvent):
             write_out(event)
@@ -159,7 +156,7 @@ def test_a_detail_added_after_building_cannot_be_written_out():
 
 def test_records_refuse_bad_values_when_built():
     with pytest.raises(InvalidAuditEvent):
-        example(Action.POLICY_LOADED, device_id=None)  # A device acting names itself.
+        example(Action.TOOL_CALLED, device_id="C:/Users/priya")  # A path where an id belongs.
     with pytest.raises(InvalidAuditEvent):
         example(Action.TOOL_CALLED, occurred_at=datetime(2026, 11, 2, 9, 30))  # Naive.
     with pytest.raises(InvalidAuditEvent):
@@ -168,10 +165,10 @@ def test_records_refuse_bad_values_when_built():
         Actor(ActorKind.PERSON, "")
     with pytest.raises(InvalidAuditEvent):
         example(Action.TOOL_CALLED, device_id="ghp_abcdefghijklmnopqrstuvwxyz0123")  # Secret-shaped id.
-    details = example(Action.TOOL_CALLED).details
-    for bad in ({"summary": "half a pair \ud800"}, {"arguments": {"key\x00": 1}}, {"arguments": {"n": 1.0}}):
+    for action, bad in ((Action.TOOL_CALLED, {"summary": "half a pair \ud800"}),
+                        (Action.MODEL_CALLED, {"input_tokens": 1.0}), (Action.MODEL_CALLED, {"output_tokens": 2**53})):
         with pytest.raises(InvalidAuditEvent):  # Nothing that can't be hashed as RFC 8785 JSON gets in.
-            example(Action.TOOL_CALLED, details={**details, **bad})
+            example(action, details={**example(action).details, **bad})
 
 
 def test_event_ids_are_random_version_4_uuids():

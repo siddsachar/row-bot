@@ -14,81 +14,58 @@ DEVICE = "dev-7f3a"
 DIGEST = "ab" * 32
 OTHER_DIGEST = "cd" * 32
 PERSON = Actor(ActorKind.PERSON, "priya")
+OWNER = Actor(ActorKind.PERSON, "sam")
 ADMIN = Actor(ActorKind.ADMIN, "it-lee")
-SERVICE = Actor(ActorKind.SERVICE, "recovery-worker")
-DEVICE_ACTOR = Actor(ActorKind.DEVICE, DEVICE)
+SERVICE = Actor(ActorKind.SERVICE, "gateway")
 
 
 def event_id(number: int) -> str:
     return str(uuid.UUID(int=number, version=4))
 
 
-_POLICY = {"source": "registry", "schema_version": 1, "digest": DIGEST, "policy_version": "2026-11 baseline",
-           "signer": "it-key-1"}
-_PROMOTION = {"item_kind": "skill", "space_id": "team-payments"}
+_SHARE = {"item_kind": "skill", "space_id": "team-payments"}
+_ON_DEVICE = {"device_id": DEVICE}
 
 # action: (actor, layer, target, outcome, extra fields, details)
 _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], dict[str, Any]]] = {
-    Action.TOOL_CALLED: (PERSON, "work", Target(TargetKind.TOOL, "workspace_write_file"), "succeeded",
-                         {"decided_by": "person", "device_id": DEVICE, "turn_id": "turn-41", "request_id": "req-9",
-                          "redaction": "full"},
-                         {"approval_level": "approve", "surface": "chat", "risk": "medium", "app": "files",
-                          "rule_id": "rule-3", "summary": "Wrote notes.md in the Q4 plan folder",
-                          "arguments": {"path": "notes.md", "lines": 12, "append": False, "tags": ["q4", None]}}),
-    Action.MODEL_CALLED: (PERSON, "work", None, "succeeded", {"device_id": DEVICE, "turn_id": "turn-41"},
+    Action.SESSION_SIGNED_IN: (PERSON, "org", None, "succeeded", _ON_DEVICE, {}),
+    Action.SESSION_SIGNED_OUT: (PERSON, "org", None, "succeeded", _ON_DEVICE, {"reason": "expired"}),
+    Action.SESSION_REVOKED: (ADMIN, "org", Target(TargetKind.PERSON, "priya"), "succeeded", {}, {}),
+    Action.DEVICE_JOINED: (PERSON, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", _ON_DEVICE,
+                           {"platform": "windows", "app_version": "5.4.0"}),
+    Action.DEVICE_REMOVED: (ADMIN, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", {}, {"reason": "revoked"}),
+    Action.MODEL_CALLED: (PERSON, "org", None, "succeeded", {**_ON_DEVICE, "turn_id": "turn-41"},
                           {"provider": "azure_openai", "model": "deployments/gpt-5", "input_tokens": 1200,
                            "output_tokens": 300, "cache_read_tokens": 800, "duration_ms": 2100}),
-    Action.POLICY_LOADED: (DEVICE_ACTOR, "org", None, "succeeded", {"device_id": DEVICE}, dict(_POLICY)),
-    Action.POLICY_CHANGED: (ADMIN, "org", None, "succeeded", {}, {**_POLICY, "previous_digest": OTHER_DIGEST}),
-    Action.POLICY_LOCKED_DOWN: (DEVICE_ACTOR, "org", None, "succeeded", {"device_id": DEVICE},
-                                {"source": "file", "reason": "signature_invalid", "digest": DIGEST}),
-    Action.SESSION_SIGNED_IN: (PERSON, "org", None, "succeeded", {"device_id": DEVICE}, {"method": "oidc"}),
-    Action.SESSION_SIGNED_OUT: (PERSON, "org", None, "succeeded", {"device_id": DEVICE}, {"reason": "expired"}),
-    Action.DEVICE_ENROLLED: (PERSON, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", {"device_id": DEVICE},
-                             {"platform": "windows", "app_version": "5.4.0"}),
-    Action.DEVICE_REVOKED: (ADMIN, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", {}, {"reason": "lost"}),
-    Action.EXTENSION_INSTALLED: (ADMIN, "org", Target(TargetKind.MCP_SERVER, "jira"), "succeeded", {},
-                                 {"version": "1.4.2", "origin": "org_catalog"}),
-    Action.EXTENSION_REMOVED: (PERSON, "work", Target(TargetKind.PLUGIN, "pdf-tools"), "succeeded",
-                               {"device_id": DEVICE}, {"version": "0.9.0"}),
-    Action.PROMOTION_SUBMITTED: (PERSON, "team", Target(TargetKind.PROMOTION, "prom-17"), "succeeded",
-                                 {"device_id": DEVICE}, dict(_PROMOTION)),
-    Action.PROMOTION_REVIEWED: (Actor(ActorKind.PERSON, "sam"), "team", Target(TargetKind.PROMOTION, "prom-17"),
-                                "succeeded", {}, dict(_PROMOTION)),
-    Action.PROMOTION_PUBLISHED: (SERVICE, "team", Target(TargetKind.PROMOTION, "prom-17"), "succeeded", {},
-                                 dict(_PROMOTION)),
-    Action.PROMOTION_REJECTED: (ADMIN, "company", Target(TargetKind.PROMOTION, "prom-18"), "succeeded", {},
-                                {"item_kind": "fact", "space_id": "acme"}),
-    Action.EXPORT_STARTED: (ADMIN, "company", Target(TargetKind.EXPORT, "exp-2"), "succeeded", {},
-                            {"scope": "company"}),
-    Action.EXPORT_COMPLETED: (SERVICE, "company", Target(TargetKind.EXPORT, "exp-2"), "succeeded", {},
-                              {"scope": "company", "item_count": 5400, "byte_count": 73_000_000}),
-    Action.ESCROW_REQUESTED: (ADMIN, "work", Target(TargetKind.PERSON, "priya"), "succeeded", {},
-                              {"request_id": "esc-4", "reason": "legal_hold", "wk_version_first": 3,
-                               "wk_version_last": 5}),
-    Action.ESCROW_REVIEWED: (Actor(ActorKind.ADMIN, "approver-kim"), "work", Target(TargetKind.PERSON, "priya"),
-                             "denied", {}, {"request_id": "esc-4"}),
-    Action.ESCROW_OPENED: (SERVICE, "work", Target(TargetKind.PERSON, "priya"), "succeeded", {"request_id": "esc-4"},
-                           {"request_id": "esc-4", "wk_version": 4, "package_id": "pkg-priya-4",
-                            "kms_key": "oek-2026"}),
-    Action.ESCROW_NOTICE_DEFERRED: (Actor(ActorKind.ADMIN, "legal-ana"), "work", Target(TargetKind.PERSON, "priya"),
-                                    "succeeded", {}, {"request_id": "esc-4", "days": 30}),
-    Action.LEGAL_HOLD_SET: (Actor(ActorKind.ADMIN, "legal-ana"), "work", Target(TargetKind.PERSON, "priya"),
-                            "succeeded", {}, {"hold_id": "hold-1"}),
-    Action.LEGAL_HOLD_RELEASED: (Actor(ActorKind.ADMIN, "legal-ana"), "team", Target(TargetKind.SPACE, "team-payments"),
-                                 "succeeded", {}, {"hold_id": "hold-1"}),
-    Action.DEPARTURE_STARTED: (Actor(ActorKind.SERVICE, "scim"), "org", Target(TargetKind.PERSON, "priya"),
-                               "succeeded", {}, {"trigger": "scim", "window_days": 10}),
-    Action.DEPARTURE_COMPLETED: (ADMIN, "org", Target(TargetKind.PERSON, "priya"), "succeeded", {},
-                                 {"personal_export_made": True, "handover": "released_by_person"}),
-    Action.LINE_ITEMS_MOVED: (PERSON, "work", None, "succeeded", {"device_id": DEVICE},
-                              {"direction": "to_personal", "count": 3, "during_departure": True}),
-    Action.ORG_SETTINGS_CHANGED: (ADMIN, "org", Target(TargetKind.SETTING, "approvals.max_level"), "succeeded", {},
+    Action.TOOL_CALLED: (PERSON, "org", Target(TargetKind.TOOL, "workspace_write_file"), "succeeded",
+                         {"decided_by": "person", **_ON_DEVICE, "turn_id": "turn-41", "request_id": "req-9",
+                          "redaction": "summaries"},
+                         {"approval_level": "approve", "surface": "chat", "risk": "medium", "app": "files",
+                          "rule_id": "rule-3", "summary": "Wrote notes.md in the Q4 plan folder"}),
+    Action.POLICY_CHANGED: (ADMIN, "org", None, "succeeded", {},
+                            {"digest": DIGEST, "previous_digest": OTHER_DIGEST, "schema_version": 1,
+                             "group": "engineering"}),
+    Action.APP_APPROVED: (ADMIN, "org", Target(TargetKind.INTEGRATION, "github"), "succeeded", {},
+                          {"version": "2.1.0"}),
+    Action.APP_PUSHED: (ADMIN, "org", Target(TargetKind.MCP_SERVER, "jira"), "succeeded", {}, {"version": "1.4.2"}),
+    Action.APP_REMOVED: (ADMIN, "org", Target(TargetKind.PLUGIN, "pdf-tools"), "succeeded", {}, {"version": "0.9.0"}),
+    Action.DOCUMENT_UPLOADED: (ADMIN, "company", Target(TargetKind.DOCUMENT, "doc-88"), "succeeded", {},
+                               {"space_id": "acme", "byte_count": 48_000}),
+    Action.DOCUMENT_REMOVED: (OWNER, "team", Target(TargetKind.DOCUMENT, "doc-12"), "succeeded", {},
+                              {"space_id": "team-payments"}),
+    Action.SHARE_SUBMITTED: (PERSON, "team", Target(TargetKind.SHARE, "share-17"), "succeeded", _ON_DEVICE,
+                             dict(_SHARE)),
+    Action.SHARE_APPROVED: (OWNER, "team", Target(TargetKind.SHARE, "share-17"), "succeeded", {}, dict(_SHARE)),
+    Action.SHARE_REJECTED: (ADMIN, "company", Target(TargetKind.SHARE, "share-18"), "succeeded", {},
+                            {"item_kind": "fact", "space_id": "acme"}),
+    Action.LIBRARY_PUBLISHED: (OWNER, "team", Target(TargetKind.LIBRARY_ITEM, "skill-refunds"), "succeeded", {},
+                               {"item_kind": "skill", "version": "3"}),
+    Action.DATA_EXPORTED: (ADMIN, "org", Target(TargetKind.EXPORT, "exp-2"), "succeeded", {},
+                           {"scope": "audit", "item_count": 5400, "byte_count": 73_000_000}),
+    Action.ROLE_CHANGED: (ADMIN, "team", Target(TargetKind.PERSON, "sam"), "succeeded", {},
+                          {"role": "space_owner", "change": "granted", "space_id": "team-payments"}),
+    Action.ORG_SETTINGS_CHANGED: (ADMIN, "org", Target(TargetKind.SETTING, "models.budget.monthly"), "succeeded", {},
                                   {}),
-    Action.AUDIT_CHAIN_VERIFIED: (SERVICE, "org", Target(TargetKind.AUDIT_CHAIN, "org:acme"), "succeeded", {},
-                                  {"links_checked": 1200, "head": DIGEST}),
-    Action.AUDIT_CHAIN_BROKEN: (SERVICE, "org", Target(TargetKind.AUDIT_CHAIN, "device:dev-7f3a"), "succeeded", {},
-                                {"links_checked": 41, "head": DIGEST, "broken_at": 41, "reason": "prev_hash"}),
 }
 
 
