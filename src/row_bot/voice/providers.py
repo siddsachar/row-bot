@@ -97,6 +97,13 @@ def speech_to_text_provider(
             provider_id, model = LOCAL_PROVIDER, ""
     if provider_id != LOCAL_PROVIDER:
         raise VoiceProviderError("voice_provider_unavailable")
+    from row_bot.voice import speech_models
+
+    streaming = speech_models.by_engine(model)
+    if streaming is not None:
+        from row_bot.voice.engine.sherpa_speech import LocalStreamingSpeechProvider
+
+        return LocalStreamingSpeechProvider(streaming)
     voice_service.sync_saved_models()
     if model == SENSEVOICE_MODEL:
         return voice_service.sensevoice_provider()  # SenseVoice always detects the language

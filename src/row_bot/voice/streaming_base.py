@@ -22,7 +22,7 @@ class TranscriptUpdate:
 
     text: str
     final: bool
-    # Reserved for automatic language detection (a later package); None today.
+    # The language heard (a BCP 47 tag): the model's own, or what it detected; None when unknown.
     language: str | None = None
 
 
@@ -48,6 +48,9 @@ class SpeechToTextStream(Protocol):
 
 class StreamingSpeechToText(Protocol):
     provider_id: str
+    # True when ``partial`` is cheap (the model decodes as audio arrives): the engine then reads
+    # partials as the person speaks, for live captions and to hear words during a barge-in.
+    live_partials: bool
 
     def warm(self) -> None:
         """Load the model now, so the first turn does not pay for it."""

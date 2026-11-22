@@ -65,6 +65,7 @@ import { usePlace, type PlaceWords } from '../../api/place';
 import { useSmallServer } from '../../api/server-memory';
 import { webPage } from '../shell/hosted-links';
 import { RuntimeContext } from '../../runtime';
+import SpeechModels, { useSpeechModels } from '../voice/SpeechModels';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -1909,9 +1910,30 @@ export function VoiceSnapshotPanel({
       ? [{ value: SENSEVOICE_ENGINE, label: 'SenseVoice' }]
       : []),
   ];
+  // The streaming speech models (VD3): a download finishing chooses it for Talk, so Settings reads again.
+  const controller = useContext(RuntimeContext)?.controller;
+  const readSettings = () => {
+    void mutation.refreshSnapshot?.().then(mutation.onSnapshot, () => {});
+  };
+  const speech = useSpeechModels(controller, readSettings);
+  const talkEngines = [
+    ...speechEngines,
+    ...(speech.view?.models ?? [])
+      .filter((model) => model.installed)
+      .map((model) => ({ value: model.engine_id, label: model.name })),
+  ];
   // Listening on this computer needs the speech model: until it is downloaded, the header says so.
+  // Talk listening with a downloaded streaming model needs no Whisper; Dictation still does.
+  const streamingTalk = Boolean(
+    speech.view?.models.some(
+      (model) =>
+        model.installed && model.engine_id === snapshot.runtime.talk_model,
+    ),
+  );
   const missingSpeech =
-    (!realtime || localDictation) && !snapshot.local.whisper_installed;
+    ((!realtime && !streamingTalk) || localDictation) &&
+    !snapshot.local.whisper_installed;
+  const talkOnly = !realtime && streamingTalk && missingSpeech;
   // Elsewhere the person talks on their own device; only the speech model runs where Row-Bot runs (U7).
   const here = place.kind === 'this_computer';
   // A server too small for local speech-to-text (U8): its size ("2 GB"); '' with room or no limit.
@@ -1937,29 +1959,34 @@ export function VoiceSnapshotPanel({
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
-        tone={missingSpeech ? 'warning' : 'success'}
+        tone={missingSpeech && !talkOnly ? 'warning' : 'success'}
         more={[
           realtime && localDictation
             ? here
               ? 'dictation on this computer'
               : `dictation transcribed on ${place.name}`
             : '',
+          talkOnly ? 'dictation needs Whisper' : '',
           snapshot.tts.installed ? '' : 'read aloud needs Kokoro',
         ]}
       >
-        {missingSpeech
+        {talkOnly
           ? here
-            ? 'Download the speech model to talk on this computer'
-            : `Download the speech model to ${place.name} to talk`
-          : realtime
-            ? 'Realtime Talk online'
-            : localDictation
-              ? here
-                ? 'Talk and dictation on this computer'
-                : `Talk and dictation transcribed on ${place.name}`
-              : here
-                ? 'Talk on this computer'
-                : `Talk transcribed on ${place.name}`}
+            ? 'Talk on this computer'
+            : `Talk transcribed on ${place.name}`
+          : missingSpeech
+            ? here
+              ? 'Download the speech model to talk on this computer'
+              : `Download the speech model to ${place.name} to talk`
+            : realtime
+              ? 'Realtime Talk online'
+              : localDictation
+                ? here
+                  ? 'Talk and dictation on this computer'
+                  : `Talk and dictation transcribed on ${place.name}`
+                : here
+                  ? 'Talk on this computer'
+                  : `Talk transcribed on ${place.name}`}
       </SettingsStatus>
       <SettingsGroup
         title="Talk"
@@ -2029,6 +2056,26 @@ export function VoiceSnapshotPanel({
               hint="Row-Bot listens only while you hold the talk button in the voice bar."
               value={snapshot.runtime.push_to_talk ?? false}
             />
+            {talkEngines.length > 1 && (
+              <SelectSetting
+                mutation={mutation}
+                field="runtime.talk_model"
+                label="Talk listens with"
+                hint="A streaming model shows your words as you speak."
+                value={snapshot.runtime.talk_model}
+                options={talkEngines}
+              />
+            )}
+            {controller && speech.view && (
+              <SpeechModels
+                controller={controller}
+                place={place}
+                view={speech.view}
+                speed={speech.speed}
+                update={speech.update}
+                onTalkChanged={readSettings}
+              />
+            )}
           </>
         )}
         <SettingsItem
@@ -2218,29 +2265,18 @@ export function VoiceSnapshotPanel({
             />
           </SettingsGroup>
         )}
-        {/* Whisper or SenseVoice, for listening on this computer: a choice
-            only once SenseVoice is installed. Read aloud always uses
-            Kokoro, so it has no choice here. */}
-        {speechEngines.length > 1 && (!realtime || localDictation) && (
+        {/* Whisper or SenseVoice for Dictation: a choice only once SenseVoice
+            is installed (Talk's speech model is chosen under Talk). Read aloud
+            always uses Kokoro, so it has no choice here. */}
+        {speechEngines.length > 1 && localDictation && (
           <SettingsGroup title="Speech engine">
-            {!realtime && (
-              <SelectSetting
-                mutation={mutation}
-                field="runtime.talk_model"
-                label="Talk listens with"
-                value={snapshot.runtime.talk_model}
-                options={speechEngines}
-              />
-            )}
-            {localDictation && (
-              <SelectSetting
-                mutation={mutation}
-                field="runtime.dictation_model"
-                label="Dictation listens with"
-                value={snapshot.runtime.dictation_model}
-                options={speechEngines}
-              />
-            )}
+            <SelectSetting
+              mutation={mutation}
+              field="runtime.dictation_model"
+              label="Dictation listens with"
+              value={snapshot.runtime.dictation_model}
+              options={speechEngines}
+            />
           </SettingsGroup>
         )}
         <SettingsGroup

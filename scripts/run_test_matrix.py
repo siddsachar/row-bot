@@ -170,6 +170,9 @@ BROWSER_SMOKE_SPECS = (
     # Live voice (V4): the Talk menu's providers, the disclosure before first use, a relayed session in the
     # voice bar, several starts on one page; desktop and phone, light and dark. Appended likewise.
     "live-voice",
+    # Streaming speech models (V1b): Settings › Voice's pick for this computer, Download, progress, Remove, at
+    # desktop and phone width, light and dark. Appended likewise.
+    "voice-speech-models",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

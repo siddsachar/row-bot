@@ -5488,6 +5488,54 @@ button.settings-mcp-server-name:hover {
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+/* Settings › Voice › Talk: streaming speech models (VD3). */
+.voice-speech-model-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.voice-speech-model-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.voice-speech-model-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.voice-speech-model-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.voice-speech-model-text small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.voice-speech-model-progress {
+  display: grid;
+  gap: 4px;
+}
+.voice-speech-model-progress progress {
+  width: 100%;
+  max-width: 280px;
+  height: 6px;
+}
+.voice-speech-model-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
 .local-model-settings-add {
   margin-top: 12px;
   padding: 14px;

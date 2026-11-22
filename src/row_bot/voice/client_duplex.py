@@ -89,8 +89,9 @@ class LocalVoiceEngine:
         from row_bot.voice.engine.speech import ProviderSentenceSpeech, SegmentedSpeechToText
 
         listen, speak = self._providers()
-        return EngineParts(SegmentedSpeechToText(listen), ProviderSentenceSpeech(speak),
-                           SileroActivity(), SmartTurn())
+        # A streaming model decodes as the person speaks; Whisper and SenseVoice are segmented.
+        stt = listen.streaming() if hasattr(listen, "streaming") else SegmentedSpeechToText(listen)
+        return EngineParts(stt, ProviderSentenceSpeech(speak), SileroActivity(), SmartTurn())
 
 
 class DuplexTalkTransport:

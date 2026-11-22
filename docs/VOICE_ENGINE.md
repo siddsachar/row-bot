@@ -23,11 +23,14 @@ person-facing docs are in `docs-site/docs/voice-and-buddy/`.
    and asks Smart Turn v3 at each 200 ms pause whether the thought is complete;
    the eagerness setting (When you pause) sets Smart Turn's threshold and the
    silence that ends a turn anyway.
-4. The selected speech-to-text engine (faster-whisper or SenseVoice, behind
-   the `StreamingSpeechToText` seam in `voice/streaming_base.py`) writes the
-   turn down. The transcript goes through `ClientVoiceAdmission`: a new turn
-   when nothing runs, otherwise the active-run control (steer, follow-up,
-   stop or status).
+4. The selected speech-to-text engine (a downloaded streaming model, or
+   faster-whisper or SenseVoice, behind the `StreamingSpeechToText` seam in
+   `voice/streaming_base.py`) writes the turn down. A streaming model's words
+   so far are read every 100 ms of audio while the person speaks and sent as
+   the bar's live caption; over Row-Bot's own voice they are evidence for a
+   barge-in instead, never a caption. The transcript goes through
+   `ClientVoiceAdmission`: a new turn when nothing runs, otherwise the
+   active-run control (steer, follow-up, stop or status).
 5. The run's token events reach the session through
    `ClientPlatformService.voice_listeners`. A sentence aggregator speaks the
    first clause early, never speaks code, and never caps the answer. Each
@@ -128,6 +131,109 @@ session starts, so app start-up never loads it.
 - **Licences.** pipecat-ai and pipecat-resampler are BSD-2-Clause; num2words
   is LGPL-2.1, pure Python, installed as its own package and used
   unmodified. See `NOTICE`.
+
+## Streaming speech-to-text, picked for the computer (V1b, VD3)
+
+Settings › Voice › Talk lists a small pinned catalog
+(`voice/speech_models.py`) and recommends one for this computer from what
+`local_runtime/hardware.py` reads (no network): **Nemotron Speech Streaming**
+on an NVIDIA card the speech runtime can use, **Moonshine Base** everywhere
+else, a Mac included. Whisper stays a choice, and Dictate keeps using it.
+
+| Model | Download | On disk | Language | Licence | Runs as |
+|---|---|---|---|---|---|
+| Moonshine Base (`moonshine-base-en`) | 111.3 MB | 141.3 MB | English | MIT (Useful Sensors) | whole stretches, re-read for each partial; committed at the quietest 100 ms after 20 s |
+| Nemotron Speech Streaming 0.6B, 160 ms chunks, int8 (`nemotron-streaming-en`) | 463.9 MB | 661.9 MB | English | NVIDIA Open Model License | a streaming transducer: decoded as the person speaks |
+
+Each is one archive from sherpa-onnx's official GitHub releases
+(`github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/...`) with its
+exact size and SHA-256 (GitHub's own asset digest, checked again on download
+here). **Nothing downloads until the person presses Download**: the button
+names the size and the request carries it; a different size now is refused.
+The archive goes into `<data>/models/speech/downloads/` through Row-Bot's one
+safe download path (`local_runtime/fetch.py`: https, reviewed hosts, resume
+after Stop), is checked against its pin, and only the model's listed files are
+copied out (no other entry, no link, no path outside) into a staging folder
+that becomes `<data>/models/speech/<id>/` after `model.json` is written last.
+The archive is then deleted. A finished download becomes what Talk listens
+with (`talk_model`), unless Talk is set to Realtime. Remove deletes the folder
+and puts Talk back on Whisper if it used it. The language reported with each
+transcript is the model's own (`TranscriptUpdate.language`); a model that
+detects languages would report what it heard (V8 adds language settings).
+
+### Runtime review: sherpa-onnx 2.0.1
+
+One runtime for every family, rather than one per model:
+`sherpa-onnx>=2.0.1,<2.1` (and `sherpa-onnx-core`, its shared libraries) in
+the `voice` extra, locked at 2.0.1 (26 Oct 2026; 2.0.3 came out the day this
+was written and was not taken).
+
+- **Telemetry and network: none.** The wheels for Windows, macOS arm64 and
+  Linux x86_64 were unzipped and scanned without importing them. Every URL in
+  the Python files and native libraries is documentation or an error message
+  (model pages, export scripts, papers). The Windows libraries import no
+  networking API (no WinHTTP, WinINet, sockets or curl); the Linux wheel's
+  only socket strings are in its bundled ALSA library (local sound devices,
+  which Row-Bot never opens). sherpa-onnx has no model downloader: it reads
+  the paths it is given.
+- **Bundled ONNX Runtime 1.28.2.** The core wheel ships its own ONNX Runtime
+  library (Windows also copies it into the environment's `Scripts/`). It
+  coexists with the locked `onnxruntime` 1.27 that Silero, Smart Turn and
+  Kokoro use: the Python package's module is self-contained, each loads its
+  own library, and both orders of import were checked running a session in
+  the same process. As with every Windows build of ONNX Runtime, the library
+  contains its ETW TraceLogging provider; that writes only to Windows' local
+  event tracing, the same as the `onnxruntime` already in the lock.
+- **Licence:** Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime). See `NOTICE`.
+- **Wheels:** CPython 3.13 for Windows x64, macOS arm64 and x86_64
+  (`macosx_10_15`, and universal2), Linux x86_64 and aarch64 (the arm64
+  container). Size: about 2.2 MB plus 9.5-16.7 MB for the core libraries per
+  platform (about 25-45 MB installed).
+- **Lock fit:** no dependencies beyond its own core; `uv lock` added the two
+  packages and moved nothing else; `verify_runtime_dependencies.py all`
+  imports it.
+- **Graphics cards:** the PyPI build is processor-only (CUDA builds are on
+  the project's own index, not in the lock). So on an NVIDIA computer the
+  recommendation is Moonshine, with that reason shown; Nemotron is still
+  offered and runs on the processor. `speech_models.cuda_runtime()` detects a
+  CUDA build if one is ever installed, and Nemotron then runs on the card.
+- **Compared:** Moonshine's own package (`moonshine-voice` 0.1.6, MIT) has the
+  newer streaming Moonshine v2 Small and Medium, but brings PortAudio
+  (`sounddevice`), its own downloader (`download.moonshine.ai`, `requests`), a
+  second bundled ONNX Runtime, and wheels only for macOS 15+ on arm64 (no
+  Intel Mac). Driving these models on the locked `onnxruntime` directly would
+  mean re-implementing each family's decoder (transducer search, Moonshine's
+  cached decoding) in Python. sherpa-onnx runs Moonshine Base and Tiny (in
+  Moonshine v2's runtime format) but not v2's streaming Small and Medium;
+  those, and Parakeet (offline in sherpa-onnx), are left for later.
+
+### Measured on this computer (22 Nov 2026)
+
+Intel Core Ultra 9 285K, 64 GB, RTX 5090 (busy with another job, and the
+processor at 100% from a concurrent research run throughout). The real engine
+(Silero VAD, Smart Turn, each speech model) fed 16 real speech turns of 2 to
+6.6 s in real time, 20 ms frames, with an agent and a voice that answer at
+once, so the numbers are the engine's own; models in a scratch profile.
+
+Transcription is the engine's own mark from the turn's end to the final
+transcript; the rest of voice-to-voice (endpointing, the agent, speech) does
+not depend on the speech model. Three runs:
+
+| Model | Transcription p50 / p90 | First live caption | Memory loaded | Warm-up (first session) |
+|---|---|---|---|---|
+| Whisper base (segmented) | 432 / 448 ms, 602 / 848 ms (third run void: the machine stalled, 4.7 s) | none | (V1) | 4.7-8.7 s |
+| Moonshine Base | 160 / 176 ms, then 0 / 1 ms and 1 / 132 ms once the final reuses the last partial | about 0.65 s after speech starts | +187 MiB | 0.6-0.9 s |
+| Nemotron Speech Streaming (processor) | 252 / 315, 475 / 5544, 169 / 391 ms | about 1.1 s after speech starts | +746 MiB | 2.2-5.4 s |
+
+Moonshine Base takes transcription from about half a second to almost
+nothing: with V1's measured voice-to-voice of 1.29 s p50 (Whisper base,
+587 ms transcription) that is about 0.7-0.85 s. Nemotron on the processor
+keeps up only while the processor has room (one run's p90 of 5.5 s came from
+falling behind under the 100% load); on a graphics card it would not compete
+for the processor, which is why the pick needs a runtime that uses the card.
+Raw decode speed, outside the engine: Nemotron RTF 0.24 with 4 threads (0.36
+with 2), final 120 ms after the last word; Moonshine Base reads 4 s of speech
+in 55-77 ms and 8 s in 120-164 ms.
 
 ## Transport: why a WebSocket, not WebRTC
 

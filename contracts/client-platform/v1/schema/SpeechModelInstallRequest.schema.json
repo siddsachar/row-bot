@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "download_bytes": {
+      "minimum": 0,
+      "title": "Download Bytes",
+      "type": "integer"
+    },
+    "model_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$",
+      "title": "Model Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model_id",
+    "download_bytes"
+  ],
+  "title": "SpeechModelInstallRequest",
+  "type": "object"
+}
