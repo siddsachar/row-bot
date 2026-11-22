@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "ItemKind": {
+      "description": "The kinds of item a brain holds.",
+      "enum": [
+        "fact",
+        "relation",
+        "skill",
+        "source"
+      ],
+      "type": "string"
+    },
+    "Layer": {
+      "description": "Where an item lives: the person's own layers, or a team's or the company's shared one.",
+      "enum": [
+        "personal",
+        "work",
+        "team",
+        "company"
+      ],
+      "type": "string"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "description": "Who is asking: an authenticated person (or service) and the groups their identity provider gives.",
+      "properties": {
+        "groups": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "groups",
+        "id"
+      ],
+      "type": "object"
+    },
+    "Space": {
+      "additionalProperties": false,
+      "description": "A brain space: a person's personal or work space (``space_id`` is the person's id), or a team's or the company's (``space_id`` is the team or company id).",
+      "properties": {
+        "layer": {
+          "$ref": "#/$defs/Layer"
+        },
+        "space_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]*)$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "layer",
+        "space_id"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A recall: words to look for, who asks, optional space and kind filters, and time travel. ``as_of`` shows what the brain held and was true then; ``include_superseded`` adds history (superseded or no longer valid).",
+  "properties": {
+    "as_of": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|\\+00:00)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "include_superseded": {
+      "type": "boolean"
+    },
+    "kinds": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ItemKind"
+          },
+          "maxItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "principal": {
+      "$ref": "#/$defs/Principal"
+    },
+    "spaces": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/Space"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "text": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "as_of",
+    "include_superseded",
+    "kinds",
+    "limit",
+    "principal",
+    "spaces",
+    "text"
+  ],
+  "title": "RecallQuery",
+  "type": "object"
+}
