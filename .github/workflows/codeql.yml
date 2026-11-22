@@ -1,0 +1,48 @@
+name: CodeQL
+
+# Static security analysis of Row-Bot's own Python and JavaScript/TypeScript
+# with the security-extended queries. Neither language needs a build. What is
+# not Row-Bot's code (vendored packages, built assets, the built docs site,
+# tests) is left out in .github/codeql/codeql-config.yml. Findings go to the
+# repository's code scanning alerts; this is its own check, outside `ci-ok`.
+
+on:
+  pull_request:
+    branches: [main, feat/org]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "37 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

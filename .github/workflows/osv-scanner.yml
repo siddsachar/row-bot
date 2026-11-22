@@ -1,14 +1,11 @@
 name: OSV Scanner
 
+# Every pull request to main and feat/org, so the scan is a check each one
+# reports (a path filter would leave a required check waiting), and weekly for
+# advisories published since.
 on:
   pull_request:
-    paths:
-      - "uv.lock"
-      - "docs-site/package-lock.json"
-      - "frontend/package-lock.json"
-      - "src/row_bot/channels/whatsapp_bridge/package-lock.json"
-      - ".github/workflows/osv-scanner.yml"
-      - "osv-scanner.toml"
+    branches: [main, feat/org]
   schedule:
     - cron: "24 4 * * 1"
   workflow_dispatch:
