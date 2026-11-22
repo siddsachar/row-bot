@@ -616,7 +616,7 @@ def test_a_video_that_takes_longer_checks_back_by_itself_when_it_is_made(studio,
 
     result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES)
 
-    assert "Row-Bot checks back here when it's made" in result and "don't call status meanwhile" in result
+    assert "Row-Bot checks back here when it's made" in result and "Don't call status meanwhile" in result
     project_id = result.split()[2].rstrip(":")
     edit = video_edits.get(_wait(project_id, 1).edit_id)
     [record] = waits.waiting("conversation-a")

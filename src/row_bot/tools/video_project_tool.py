@@ -39,8 +39,9 @@ class _Scene(BaseModel):
     card: str = Field(default="", description="A title laid over its first 3 seconds.")
     line: str = Field(default="", description="The words said over it (voiced when the video is made).")
     voice: str = Field(default="", description="A voice file made with speak for this line (empty: voiced for you).")
-    fit: bool | None = Field(default=None, description="Its whole picture inset on the brand colour (default: "
-                                                       "it fills the frame, cropped around the action).")
+    fit: bool | None = Field(default=None, description="true: its whole picture inset on the brand colour; false: "
+                                                       "it fills the frame, cropped around the action; leave it out "
+                                                       "for the brand's framing (full by default).")
 
 
 class _VideoInput(BaseModel):
@@ -127,8 +128,8 @@ def _check_back(project, number: int, shape: str = "") -> str:
             waits.create(project.conversation_id, "video", f"“{project.title}” version {number}"
                          f"{' in ' + shape if shape else ''} is made", spec=spec, hours=6)
         except waits.WaitError as error:
-            return (f"Still being made in the background, and Row-Bot can't check back for it: {error} Look with "
-                    "action status in a few minutes.")
+            return (f"Still being made in the background, and Row-Bot can't check back for it: {error} Tell the "
+                    "person it's still being made; look with action status in a later turn, or when they ask.")
     fresh = video_projects.get(project.project_id, project.conversation_id) or project
     version = fresh.version(number)
     edit = video_projects.render_of(version, shape)[0] if version is not None else None
@@ -136,7 +137,8 @@ def _check_back(project, number: int, shape: str = "") -> str:
     minutes = max(1, round(edit.elapsed() * (1 - fraction) / fraction / 60)) if fraction and fraction >= 0.05 else 0
     left = f", about {minutes} more minute{'s' if minutes != 1 else ''}" if minutes else ""
     return (f"Still being made in the background{left}. Row-Bot checks back here when it's made, with its status "
-            "and checks: end this turn now, and don't call status meanwhile.")
+            "and checks. Don't call status meanwhile: tell the person in a line, finish anything else they asked "
+            "for, and end the turn.")
 
 
 def _both_downloads_consent() -> tuple[str, str] | None:

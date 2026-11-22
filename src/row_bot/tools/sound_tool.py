@@ -53,9 +53,9 @@ class _SpeakInput(BaseModel):
                                                 "fill time: write more words or cut the video shorter.")
     pronunciations: dict[str, str] = Field(
         default_factory=dict, description='How to say words, e.g. {"Qwen": "Kwen"}: only the voice hears them; '
-                                          'write the real words.')
-    remember: bool = Field(default=False, description="Keep them for every later voice file and video line (an "
-                                                      "empty one forgets the word).")
+                                          'the text keeps the real spelling.')
+    remember: bool = Field(default=False, description="Keep them for every later voice file and video line (a word "
+                                                      "given an empty pronunciation is forgotten).")
 
 
 def voice_consent(tool: str, purpose: str) -> tuple[str, str]:

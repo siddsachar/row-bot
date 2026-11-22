@@ -354,10 +354,10 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     size = CARD_SIZES[shape] if shape else (first.width // 2 * 2, first.height // 2 * 2)
     fill = Frame(size, look.framing if shape == "16:9" else "full", look.colour,
                  captions=CAPTION_ROOM if step.style == "caption" else 0.0)
-    inset = replace(fill, framing="framed")
+    chosen = {True: replace(fill, framing="framed"), False: replace(fill, framing="full")}
 
     def frame_of(scene: Any) -> Frame:
-        return inset if scene.fit else fill
+        return chosen.get(scene.fit, fill)
 
     def keys_of(scene: Any) -> tuple[Key, ...]:
         if scene.zoom:

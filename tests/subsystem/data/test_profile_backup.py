@@ -146,6 +146,25 @@ def test_a_backup_holds_the_profile_without_secrets_caches_or_logs(tmp_path):
     assert WEBHOOK in json.dumps(_rows(data / "tasks.db", "SELECT trigger FROM tasks"))
 
 
+def test_a_backup_holds_the_persons_saved_pronunciations_and_a_restore_brings_them_back(tmp_path, monkeypatch):
+    """M9 (22 Nov): the names someone taught the voice are theirs, kept with the rest of the profile."""
+    from row_bot import sound
+
+    data = _profile(tmp_path)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    archive = Path(backup.create_backup(data, tmp_path / "Backups", now=datetime(2026, 11, 22, 9, 0))["path"])
+    with zipfile.ZipFile(archive) as bundle:
+        assert json.loads(bundle.read(sound.PRONUNCIATIONS_FILE)) == {"Qwen": "Kwen"}
+
+    target = tmp_path / "other"
+    target.mkdir()
+    backup.stage_restore(archive, target, source_name=archive.name)
+    assert profile_restore.apply_pending(target)["status"] == "applied"
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(target))
+    assert sound.saved_pronunciations() == {"Qwen": "Kwen"}
+
+
 def _zip(path: Path, members: dict[str, str]) -> Path:
     with zipfile.ZipFile(path, "w") as bundle:
         for name, text in members.items():

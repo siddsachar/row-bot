@@ -168,8 +168,8 @@ class SceneCut:
     # Where the action is when there's no zoom (the recording's pointer, 0–1 across): a picture of another shape is
     # cropped to fill around it, so what's being used stays in frame.
     focus: tuple[float, float] | None = None
-    # Its whole picture inset on the brand colour instead of filling the frame.
-    fit: bool = False
+    # True: its whole picture inset on the brand colour; False: filling the frame; None: the brand kit's framing.
+    fit: bool | None = None
     # How long its voice line lasts: the scene is made at least that long (``fit_to_lines``).
     voice_seconds: float = 0.0
     # Stretches of its recording (seconds on the input) where nothing was clicked, typed or scrolled.

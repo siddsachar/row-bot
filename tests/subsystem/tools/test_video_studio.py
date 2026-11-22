@@ -171,10 +171,11 @@ def test_clips_of_other_shapes_fill_the_frame_by_default_and_are_inset_only_when
     for picture in (frames[0], frames[-1]):  # A 4:3 clip, then a 9:16 one.
         assert all(min(pixel) > 200 for pixel in _edges(picture)), "the clip to every edge: no bars, no backdrop"
 
-    _inputs, framed = _drawn(tmp_path / "framed", sources,
-                             Step(op="scenes", aspect="16:9", look=Look(framing="framed"), scenes=scenes))
+    _inputs, framed = _drawn(tmp_path / "framed", sources, Step(op="scenes", aspect="16:9", look=Look(
+        framing="framed"), scenes=[scenes[0], replace(scenes[1], fit=False)]))
     assert all(max(pixel) < 150 for pixel in _edges(framed[0])) and min(framed[0].getpixel((960, 540))) > 200, \
         "the brand kit's framed look: the clip inset on the backdrop"
+    assert all(min(pixel) > 200 for pixel in _edges(framed[-1])), "a scene's fit false fills the frame anyway"
     _inputs, fitted = _drawn(tmp_path / "fit", sources,
                              Step(op="scenes", aspect="16:9", scenes=[replace(scenes[0], fit=True), scenes[1]]))
     assert all(max(pixel) < 150 for pixel in _edges(fitted[0])), "a scene's fit: its whole picture, inset"

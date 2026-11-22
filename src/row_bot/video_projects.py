@@ -75,8 +75,9 @@ class Scene:
     voiced: str = ""
     # Who said it: the voice and speed Row-Bot voiced it in ("af_heart@1"), or "given" for a file made for it.
     voiced_as: str = ""
-    # Its whole picture inset on the brand colour; by default a picture of another shape fills the frame, cropped.
-    fit: bool = False
+    # True: its whole picture inset on the brand colour; False: it fills the frame, cropped around the action; None:
+    # the brand kit's framing (full by default).
+    fit: bool | None = None
 
 
 @dataclass
@@ -154,7 +155,7 @@ def _scene_from(data: dict[str, Any]) -> Scene:
         end=None if data.get("end") is None else float(data["end"]), speed=float(data.get("speed") or 1),
         zoom=[float(value) for value in zoom][:4] if zoom else None, card=str(data.get("card") or ""),
         line=str(data.get("line") or ""), voice=str(data.get("voice") or ""), voiced=str(data.get("voiced") or ""),
-        voiced_as=str(data.get("voiced_as") or ""), fit=bool(data.get("fit")),
+        voiced_as=str(data.get("voiced_as") or ""), fit=None if data.get("fit") is None else bool(data["fit"]),
     )
 
 
@@ -306,12 +307,12 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene]) -> 
             voice, voiced, voiced_as = old.voice, old.voiced, old.voiced_as
         else:
             voice, voiced, voiced_as = "", "", ""
-        # The Video panel doesn't send fit: a scene it edits keeps its own.
-        fit = bool(data["fit"]) if data.get("fit") is not None else bool(old is not None and old.fit)
+        # The Video panel doesn't send fit, so a scene it edits keeps its own; the video tool always sends it.
+        fit = (None if data["fit"] is None else bool(data["fit"])) if "fit" in data else old.fit if old else None
         scenes.append(Scene(scene_id=scene_id, source=source, start=start, end=end,
                             speed=round(speed, 3) if source else 1.0,
                             zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
-                            voiced=voiced, voiced_as=voiced_as, fit=fit and bool(source)))
+                            voiced=voiced, voiced_as=voiced_as, fit=fit if source else None))
     if len({scene.source for scene in scenes if scene.source}) > MAX_INPUTS:
         raise ProjectError(f"A video can use at most {MAX_INPUTS} different sources: join some first.")
     return scenes
@@ -860,8 +861,9 @@ def summary(project: Project, number: int | None = None) -> str:
     fits = [scene.fit for scene in shown.scenes] if shown is not None else []
     for index, scene in enumerate(data["scenes"], start=1):
         span = f"{scene['start']:g}–{'end' if scene['end'] is None else format(scene['end'], 'g')} s"
+        fit = fits[index - 1] if index <= len(fits) else None
         extras = [f"{scene['speed']:g}×" if scene["speed"] != 1 else "", "zoom" if scene["zoom"] else "",
-                  "fit" if index <= len(fits) and fits[index - 1] else "",
+                  {True: "fit", False: "fill"}.get(fit, ""),
                   f"card \"{scene['card']}\"" if scene["card"] else ""]
         extra = ", ".join(item for item in extras if item)
         line = f" — \"{scene['line']}\"" if scene["line"] else ""
