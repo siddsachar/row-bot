@@ -471,10 +471,9 @@ def _schedule_local_embedding_prewarm():
 
 # The process's one voice owner: React Talk and Dictation share the
 # microphone through it (bound to the client platform below).
-from row_bot.voice import get_voice_service
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 
-_voice_coordinator = VoiceSessionCoordinator(get_voice_service())
+_voice_coordinator = VoiceSessionCoordinator()
 
 
 # ═════════════════════════════════════════════════════════════════════════════

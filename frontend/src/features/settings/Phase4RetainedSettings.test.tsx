@@ -81,11 +81,8 @@ const snapshot = {
       dictation_model: 'base',
       speech_output_provider: 'local',
       speech_output_model: 'kokoro',
-      speech_output_voice: 'af_heart',
       realtime_voice: 'alloy',
       captions_enabled: true,
-      talk_auto_start: false,
-      realtime_fallback_to_local: true,
     },
     local: {
       whisper_model: 'base',
@@ -94,10 +91,8 @@ const snapshot = {
     },
     tts: {
       installed: true,
-      enabled: true,
       voice: 'af_heart',
       speed: 1,
-      auto_speak: false,
     },
     openai_realtime_credential: {
       configured: true,
@@ -508,7 +503,16 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
   expect(screen.queryByLabelText('Start automatically')).toBeNull();
   expect(screen.queryByLabelText('Provider voice')).toBeNull();
-  expect(screen.getByLabelText('Read replies aloud')).toBeChecked();
+  // Read aloud says what speaks it; there is no switch that does nothing.
+  expect(
+    screen.getByText(
+      'Replies you read aloud and Talk’s answers speak with Kokoro, on this computer.',
+    ),
+  ).toBeVisible();
+  expect(screen.getByLabelText('Voice')).toHaveValue('af_heart');
+  expect(screen.getByLabelText('Speech speed')).toHaveValue(1);
+  expect(screen.queryByLabelText('Read replies aloud')).toBeNull();
+  expect(screen.queryByLabelText('Auto-speak voice responses')).toBeNull();
   fireEvent.click(screen.getByText('Advanced'));
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
@@ -524,7 +528,7 @@ it('renders real voice controls without probing a device or provider', async () 
     target: { value: 'openai_realtime' },
   });
   expect(screen.getByLabelText('Realtime voice')).toBeVisible();
-  expect(screen.getByLabelText('Fall back to this computer')).toBeVisible();
+  expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
   // A choice saves at once (decision 19); nothing probes a device.
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -563,10 +567,9 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
   expect(screen.getByLabelText('Realtime voice')).toHaveValue('alloy');
   // Which realtime model Talk uses stays a choice (the saved talk model names it).
   expect(screen.getByLabelText('Realtime model')).toHaveValue('gpt-realtime-2');
-  expect(screen.getByLabelText('Fall back to this computer')).toBeChecked();
   // Kokoro's install is a text action in the Read aloud row's status line.
   expect(screen.getByText('Kokoro isn’t installed yet')).toBeVisible();
-  expect(screen.queryByLabelText('Read replies aloud')).toBeNull();
+  expect(screen.getByText('Kokoro voice')).toBeVisible();
   expect(screen.queryByLabelText('Speech speed')).toBeNull();
   const install = screen.getByRole('button', { name: 'Install Kokoro TTS' });
   expect(install).toHaveTextContent('Install');
@@ -2557,13 +2560,8 @@ function showVoice(
 it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks before it is chosen (U8)', async () => {
   setMemoryLimit(2 * GB);
   showVoice('openai_realtime');
-  // Dictation listens with Whisper here, and Realtime falls back to it: their quiet pills.
-  // Listen with is in the cloud: none.
-  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
-  const fallback = document.querySelector<HTMLElement>(
-    '[data-setting-anchor="runtime.realtime_fallback_to_local"]',
-  )!;
-  expect(within(fallback).getByText('Needs a 4 GB server')).toBeVisible();
+  // Dictation listens with Whisper here: its quiet pill. Listen with is in the cloud: none.
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(1);
 
   const listen = screen.getByLabelText('Listen with');
   fireEvent.change(listen, { target: { value: 'local' } });

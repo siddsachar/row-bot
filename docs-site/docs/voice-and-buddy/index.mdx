@@ -1,6 +1,6 @@
 ---
 title: "Voice And Buddy"
-description: "Configure Dictate, Talk, local voice, realtime voice, read-aloud, devices, and Buddy."
+description: "Configure Dictate, Talk, Read aloud, local and realtime voice, and Buddy."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -9,13 +9,13 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Voice and Buddy make Row-Bot feel less like a text box and more like a desktop companion. Voice handles speech input and optional spoken output. Buddy is a living character that reacts to what Row-Bot is doing and, in the native Windows and macOS apps, can be dragged from the sidebar onto the desktop as a pet that sits on your windows.
 
-<Screenshot id="settings-voice" alt="Row-Bot Voice settings." caption="Voice settings control Dictate, Talk, read-aloud, voice models, devices, and diagnostics." />
+<Screenshot id="settings-voice" alt="Row-Bot Voice settings." caption="Voice settings control Talk, Dictate, Read aloud and the speech models." />
 
 ## Voice Modes
 
 - **Dictate** turns speech into composer text so you can review it before sending.
 - **Talk** submits spoken input more directly for conversation.
-- **Read-aloud** speaks assistant responses when enabled.
+- **Read aloud**, a button on each reply, speaks that reply with Kokoro on the computer running Row-Bot, in the voice chosen in Settings › Voice. Talk's spoken answers use the same voice.
 - **Local voice** uses Whisper by default, or the optional SenseVoice Small engine after you install it explicitly.
 - **Realtime voice** uses a compatible provider for lower-latency spoken conversation.
 
@@ -27,9 +27,9 @@ Use Dictate when accuracy and review matter. Use Talk when you want a faster han
 
 Open Settings -> Voice, find **SenseVoice** under **Voice models**, and choose **Install SenseVoice Small**. Then choose it under **Speech engine** (**Talk listens with** or **Dictation listens with**). Installation is an explicit approximately 940 MB download from ModelScope. Row-Bot verifies the contained snapshot before saving it under the active data directory, and normal transcription then uses that local snapshot with update checks disabled. Startup, readiness checks, and ordinary transcription never download or repair the model automatically.
 
-## Devices And Diagnostics
+## Microphone And Speakers
 
-Select the microphone and output device in Settings -> Voice. Run diagnostics when audio is silent, delayed, or routed to the wrong device.
+Row-Bot records and plays voice in your browser, through the microphone and speakers it uses; choose them in the browser or your operating system's sound settings. The browser asks before Row-Bot may use the microphone.
 
 <Screenshot id="settings-buddy" alt="Row-Bot Buddy settings." caption="Buddy settings control visibility, look, personality, bubbles, motion, and new looks." />
 
@@ -60,7 +60,8 @@ Voice input can become chat text. Realtime voice and provider-backed speech may 
 
 ## Troubleshooting
 
-- If Dictate records nothing, check microphone selection and permissions.
+- If Dictate records nothing, check that the browser may use the microphone, and which microphone it uses.
+- If Read aloud says it needs the Kokoro voice, install Kokoro under **Read aloud** in Settings › Voice.
 - If Talk sends too quickly, use Dictate instead.
 - If SenseVoice reports missing packages, install the `voice` extra for a source checkout or repair the packaged app. If its snapshot is missing or incomplete, reinstall it from Voice settings.
 - If SenseVoice is unavailable on Intel macOS, select local Whisper instead.

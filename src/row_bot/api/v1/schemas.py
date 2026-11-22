@@ -818,11 +818,8 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     dictation_model: str = Field(max_length=128)
     speech_output_provider: str = Field(max_length=64)
     speech_output_model: str = Field(max_length=128)
-    speech_output_voice: str = Field(max_length=64)
     realtime_voice: str = Field(max_length=32)
     captions_enabled: bool
-    talk_auto_start: bool
-    realtime_fallback_to_local: bool
 
 
 class VoiceLocalSettingsSnapshot(WireModel):
@@ -833,11 +830,11 @@ class VoiceLocalSettingsSnapshot(WireModel):
 
 
 class VoiceTtsSettingsSnapshot(WireModel):
+    """Kokoro, the voice that speaks Read aloud and Talk's replies: its voice and speed."""
+
     installed: bool
-    enabled: bool
     voice: str = Field(max_length=32)
     speed: float = Field(ge=0.5, le=2.0)
-    auto_speak: bool
 
 
 class VoiceSettingsSnapshot(WireModel):
@@ -11309,6 +11306,8 @@ class DictationCapability(WireModel):
     realtime_available: bool = False
     talk_reason: str = Field(default="host_unavailable", max_length=128)
     realtime_reason: str = Field(default="host_unavailable", max_length=128)
+    # Read aloud on a reply: "available", or the code saying what it needs (kokoro_model_missing).
+    read_aloud_reason: str = Field(default="host_unavailable", max_length=128)
 
 
 class DictationStart(WireModel):
@@ -11392,6 +11391,12 @@ class VoiceRunView(WireModel):
 class TalkOutputRequest(DictationIdentity):
     run_id: OpaqueId
     output_id: OpaqueId
+
+
+class ReadAloudRequest(WireModel):
+    """Which part of a saved reply to speak; the reply's words are read on the server, never sent."""
+
+    part: int = Field(ge=0, le=9999)
 
 
 class RealtimeSnapshot(WireModel):

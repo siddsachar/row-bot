@@ -1,168 +1,71 @@
 from __future__ import annotations
 
-from queue import SimpleQueue
+from types import SimpleNamespace
+from uuid import uuid4
 
+import pytest
+
+from row_bot.voice.client_realtime import ClientRealtimeTransport
+from row_bot.voice.client_transport import ClientDictationTransport, DictationOwner
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 
 
-class FakeVoiceService:
-    def __init__(self) -> None:
-        self.state = "stopped"
-        self.results = SimpleQueue()
-        self.started = 0
-        self.stopped = 0
-        self.muted = 0
-        self.unmuted = 0
+@pytest.fixture
+def realtime():
+    """A coordinator whose realtime sessions start and stop the way the browser starts them."""
+    coordinator = VoiceSessionCoordinator()
+    provider = SimpleNamespace(
+        create_client_secret=lambda **_: {"value": "synthetic-ephemeral", "expires_at": 1060})
+    dictation = ClientDictationTransport(
+        coordinator=coordinator, clock=lambda: 0.0,
+        browser_service=lambda: pytest.fail("realtime must not load local speech models"))
+    adapter = ClientRealtimeTransport(
+        dictation=dictation, provider_factory=lambda: provider,
+        submit=lambda *args: pytest.fail("no turn is submitted here"),
+        active_generation=lambda owner: None,
+        control_generation=lambda *args: pytest.fail("no turn is controlled here"),
+        wall_clock=lambda: 1000.0)
+    owner = DictationOwner(str(uuid4()), "local:synthetic", "A", "epoch")
+    handles = []
 
-    @property
-    def is_running(self) -> bool:
-        return self.state != "stopped"
+    def start() -> int:
+        handle = adapter.start(owner, request_id=str(uuid4()), validate=lambda: None).snapshot.handle
+        handles.append(handle)
+        return handle.voice_session_id
 
-    def start(self) -> None:
-        self.started += 1
-        self.state = "listening"
+    def stop() -> None:
+        adapter.stop(owner, handles[-1], validate=lambda: None)
 
-    def stop(self) -> None:
-        self.stopped += 1
-        self.state = "stopped"
-
-    def mute(self) -> None:
-        self.muted += 1
-        self.state = "muted"
-
-    def unmute(self) -> None:
-        self.unmuted += 1
-        self.state = "listening"
-
-    def get_status(self) -> str | None:
-        return self.state
-
-    def get_transcription(self) -> str | None:
-        if self.results.empty():
-            return None
-        return self.results.get_nowait()
+    return SimpleNamespace(coordinator=coordinator, start=start, stop=stop)
 
 
-def test_coordinator_starts_only_one_voice_mode_at_a_time():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
+def test_coordinator_drops_phantom_realtime_transcripts(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
+    coordinator.record_realtime_speech_started(session_id=session_id)
+    coordinator.record_realtime_speech_stopped(session_id=session_id)
 
-    talk_session = coordinator.start_talk()
-    dictation_session = coordinator.start_dictation()
-
-    assert talk_session != dictation_session
-    assert coordinator.mode == "dictate"
-    assert service.stopped == 1
-    assert service.started == 2
+    assert coordinator.record_realtime_transcript("Thanks for watching", session_id=session_id,
+                                                  item_id="item-1") is None
 
 
-def test_coordinator_applies_selected_local_stt_model(monkeypatch):
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-    monkeypatch.setattr(
-        "row_bot.voice.runtime.load_voice_runtime_settings",
-        lambda: type(
-            "Settings",
-            (),
-            {
-                "talk_model": "local-whisper-small",
-                "dictation_model": "local-funasr-sensevoice",
-            },
-        )(),
-    )
-
-    coordinator.start_dictation()
-
-    assert service.stt_model == "local-funasr-sensevoice"
-
-
-def test_coordinator_applies_selected_local_stt_model_to_talk(monkeypatch):
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-    monkeypatch.setattr(
-        "row_bot.voice.runtime.load_voice_runtime_settings",
-        lambda: type(
-            "Settings",
-            (),
-            {
-                "talk_model": "local-funasr-sensevoice",
-                "dictation_model": "local-whisper-small",
-            },
-        )(),
-    )
-
-    coordinator.start_talk()
-
-    assert service.stt_model == "local-funasr-sensevoice"
-
-
-def test_coordinator_ignores_stale_stop_and_stale_unmute_after_stop():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    old_session = coordinator.start_talk()
-    new_session = coordinator.start_dictation()
-    coordinator.stop(session_id=old_session)
-
-    assert coordinator.accepts(old_session) is False
-    assert coordinator.accepts(new_session) is True
-    assert service.is_running is True
-
-    coordinator.stop()
-    coordinator.unmute()
-
-    assert service.is_running is False
-    assert service.unmuted == 0
-
-
-def test_coordinator_drops_transcripts_when_stopped():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    coordinator.start_talk()
-    service.results.put("hello")
-    assert coordinator.get_transcription() == "hello"
-
-    coordinator.stop()
-    service.results.put("stale")
-    assert coordinator.get_transcription() is None
-
-
-def test_coordinator_drops_phantom_and_echo_transcripts():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    coordinator.start_talk()
-    service.results.put("Thanks for watching")
-    assert coordinator.get_transcription() is None
-
-    coordinator.record_assistant_output("The answer is visible in the app.")
-    coordinator.mute()
-    service.results.put("answer is visible")
-    assert coordinator.get_transcription() is None
-
-
-def test_coordinator_no_speech_timeout_only_while_listening():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
+def test_coordinator_no_speech_timeout_only_while_listening(realtime):
+    coordinator = realtime.coordinator
     coordinator.no_speech_timeout_seconds = 10
-
-    coordinator.start_talk()
+    session_id = realtime.start()
+    coordinator.set_realtime_state("listening", session_id=session_id)
     assert coordinator.no_speech_timed_out(now=coordinator._last_activity_at + 11) is True
 
-    coordinator.mute()
+    coordinator.record_realtime_output_started(response_id="resp", output_item_id="out", session_id=session_id)
     assert coordinator.no_speech_timed_out(now=coordinator._last_activity_at + 99) is False
 
 
-def test_coordinator_realtime_lifecycle_and_stale_events():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_realtime_lifecycle_and_stale_events(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
 
     assert coordinator.transport == "realtime"
     assert coordinator.state == "connecting"
-    assert service.started == 0
 
     coordinator.set_realtime_state("listening", session_id=session_id)
     assert coordinator.state == "listening"
@@ -177,15 +80,13 @@ def test_coordinator_realtime_lifecycle_and_stale_events():
     assert coordinator.record_realtime_transcript("hello there", session_id=session_id, item_id="item-1") == "hello there"
     assert coordinator.record_realtime_transcript("stale", session_id=session_id - 1) is None
 
-    coordinator.stop()
+    realtime.stop()
     assert coordinator.state == "stopped"
 
 
-def test_coordinator_exposes_realtime_diagnostic_snapshot():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_exposes_realtime_diagnostic_snapshot(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.set_realtime_state("thinking", session_id=session_id)
 
     snapshot = coordinator.diagnostic_snapshot()
@@ -199,11 +100,9 @@ def test_coordinator_exposes_realtime_diagnostic_snapshot():
     assert snapshot["playback_active"] is False
 
 
-def test_coordinator_tracks_realtime_tool_output_and_barge_in_lifecycle():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_tracks_realtime_tool_output_and_barge_in_lifecycle(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.queue_realtime_tool_call({"call_id": "call_1", "name": "row_bot_agent_consult", "request": "do work"})
     assert coordinator.consume_realtime_tool_call() == {
         "call_id": "call_1",
@@ -227,17 +126,16 @@ def test_coordinator_tracks_realtime_tool_output_and_barge_in_lifecycle():
     assert coordinator.diagnostic_snapshot()["barge_in_reason"] == ""
 
 
-def test_coordinator_resets_realtime_runtime_state_between_sessions():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    first_session = coordinator.start_realtime_talk()
+def test_coordinator_resets_realtime_runtime_state_between_sessions(realtime):
+    coordinator = realtime.coordinator
+    first_session = realtime.start()
     coordinator.queue_realtime_tool_call({"call_id": "call_1", "name": "row_bot_agent_consult", "request": "do work"})
     coordinator.set_active_row_bot_generation("gen_1")
     coordinator.record_realtime_output_started(response_id="resp_1", output_item_id="item_1", session_id=first_session)
     coordinator.record_barge_in(reason="user_speech_started", session_id=first_session)
+    realtime.stop()
 
-    second_session = coordinator.start_realtime_talk()
+    second_session = realtime.start()
     snapshot = coordinator.diagnostic_snapshot()
 
     assert second_session != first_session
@@ -250,11 +148,9 @@ def test_coordinator_resets_realtime_runtime_state_between_sessions():
     assert coordinator.consume_realtime_tool_call() is None
 
 
-def test_coordinator_ignores_realtime_barge_in_without_active_output():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_ignores_realtime_barge_in_without_active_output(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.set_realtime_state("listening", session_id=session_id)
 
     accepted = coordinator.record_barge_in(reason="connect_time_cancel", session_id=session_id)
@@ -265,11 +161,9 @@ def test_coordinator_ignores_realtime_barge_in_without_active_output():
     assert any(event.name == "realtime_barge_in_ignored" for event in coordinator.drain_events())
 
 
-def test_coordinator_clears_active_generation_when_final_response_completes():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_clears_active_generation_when_final_response_completes(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.set_active_row_bot_generation("gen_1")
     coordinator.record_realtime_output_started(response_id="resp_1", output_item_id="item_1", session_id=session_id)
 
@@ -282,32 +176,21 @@ def test_coordinator_clears_active_generation_when_final_response_completes():
     assert snapshot["state"] == "listening"
 
 
-def test_coordinator_records_realtime_latency_per_session():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    first_session = coordinator.start_realtime_talk()
+def test_coordinator_records_realtime_latency_per_session(realtime):
+    coordinator = realtime.coordinator
     coordinator.mark_realtime_latency("mic_permission", now=101.0)
     coordinator.mark_realtime_latency("connected", now=102.0)
-    first_breakdown = coordinator.diagnostic_snapshot()["realtime_latency_ms"]
 
-    assert isinstance(first_breakdown, dict)
-    assert "talk_activation" in first_breakdown
-    assert first_breakdown["mic_permission"] >= 0
-    assert first_breakdown["connected"] >= first_breakdown["mic_permission"]
+    assert coordinator.diagnostic_snapshot()["realtime_latency_ms"] == {"mic_permission": 0, "connected": 1000}
 
-    second_session = coordinator.start_realtime_talk()
-    second_breakdown = coordinator.diagnostic_snapshot()["realtime_latency_ms"]
-
-    assert second_session != first_session
-    assert set(second_breakdown) == {"talk_activation"}
+    # A new session starts its own marks.
+    realtime.start()
+    breakdown = coordinator.diagnostic_snapshot()["realtime_latency_ms"]
+    assert "mic_permission" not in breakdown and "connected" not in breakdown
 
 
-def test_coordinator_summarizes_realtime_turn_latency():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    coordinator.start_realtime_talk()
+def test_coordinator_summarizes_realtime_turn_latency(realtime):
+    coordinator = realtime.coordinator
     coordinator.mark_realtime_latency("speech_stopped", now=100.0)
     coordinator.mark_realtime_latency("thinking_ui", now=100.01)
     coordinator.mark_realtime_latency("transcript_final", now=100.25)
@@ -340,11 +223,9 @@ def test_coordinator_summarizes_realtime_turn_latency():
     assert coordinator.diagnostic_snapshot()["realtime_latency_summary_ms"] == summary
 
 
-def test_coordinator_drops_realtime_transcript_without_speech_window():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_drops_realtime_transcript_without_speech_window(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
 
     assert coordinator.record_realtime_transcript("please inspect the repo", session_id=session_id, item_id="item-1") is None
     assert any(
@@ -353,11 +234,9 @@ def test_coordinator_drops_realtime_transcript_without_speech_window():
     )
 
 
-def test_coordinator_keeps_realtime_listening_after_idle_speech_stop():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_keeps_realtime_listening_after_idle_speech_stop(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.set_realtime_state("listening", session_id=session_id)
     coordinator.record_realtime_speech_started(session_id=session_id)
     coordinator.record_realtime_speech_stopped(session_id=session_id)
@@ -369,11 +248,9 @@ def test_coordinator_keeps_realtime_listening_after_idle_speech_stop():
     )
 
 
-def test_coordinator_drops_duplicate_realtime_transcript_item_ids():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_drops_duplicate_realtime_transcript_item_ids(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.record_realtime_speech_started(session_id=session_id)
     coordinator.record_realtime_speech_stopped(session_id=session_id)
 
@@ -383,11 +260,9 @@ def test_coordinator_drops_duplicate_realtime_transcript_item_ids():
     assert coordinator.record_realtime_transcript("please inspect the repo", session_id=session_id, item_id="item-1") is None
 
 
-def test_coordinator_drops_realtime_assistant_echo_and_short_fragments():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_drops_realtime_assistant_echo_and_short_fragments(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.record_assistant_output("The answer is visible in the app.")
     coordinator.record_realtime_output_started(response_id="resp", output_item_id="out", session_id=session_id)
     coordinator.record_realtime_speech_started(session_id=session_id)
@@ -400,11 +275,9 @@ def test_coordinator_drops_realtime_assistant_echo_and_short_fragments():
     assert coordinator.record_realtime_transcript("ok", session_id=session_id, item_id="item-2") is None
 
 
-def test_coordinator_accepts_realtime_question_fragment_after_speech_window():
-    service = FakeVoiceService()
-    coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
-
-    session_id = coordinator.start_realtime_talk()
+def test_coordinator_accepts_realtime_question_fragment_after_speech_window(realtime):
+    coordinator = realtime.coordinator
+    session_id = realtime.start()
     coordinator.record_realtime_speech_started(session_id=session_id)
     coordinator.record_realtime_speech_stopped(session_id=session_id)
 

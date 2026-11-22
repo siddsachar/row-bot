@@ -23,11 +23,8 @@ class VoiceRuntimeSettings:
     dictation_model: str = "local-whisper"
     speech_output_provider: str = "local"
     speech_output_model: str = "local-kokoro"
-    speech_output_voice: str = "af_heart"
     realtime_voice: str = DEFAULT_REALTIME_VOICE
     captions_enabled: bool = True
-    talk_auto_start: bool = False
-    realtime_fallback_to_local: bool = True
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -56,11 +53,8 @@ def load_voice_runtime_settings() -> VoiceRuntimeSettings:
                     dictation_model=str(data.get("dictation_model") or "local-whisper"),
                     speech_output_provider=str(data.get("speech_output_provider") or "local"),
                     speech_output_model=str(data.get("speech_output_model") or "local-kokoro"),
-                    speech_output_voice=str(data.get("speech_output_voice") or "af_heart"),
                     realtime_voice=_coerce_realtime_voice(data.get("realtime_voice")),
                     captions_enabled=_coerce_bool(data.get("captions_enabled"), True),
-                    talk_auto_start=_coerce_bool(data.get("talk_auto_start"), False),
-                    realtime_fallback_to_local=_coerce_bool(data.get("realtime_fallback_to_local"), True),
                 )
     except Exception:
         pass

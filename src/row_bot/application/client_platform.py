@@ -1703,7 +1703,7 @@ class ClientPlatformService:
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
             for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
-                          "device_time_zone"):
+                          "device_time_zone", "voice_mode"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
