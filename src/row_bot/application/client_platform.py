@@ -533,6 +533,10 @@ class ClientPlatformService:
                 # them with their structured list. Its note keeps it from counting as the person's request when
                 # the Auto reviewer decides an approval: a page's decision never approves a tool call.
                 public_metadata = {"platform_public_content": shown["text"], "platform_note": shown["note"]}
+            elif configurable.get("voice_still") in {"camera", "screen"} and attachments:
+                # A spoken turn carrying a live still of the camera or screen (V6): marked for Learning, which
+                # keeps the words and the description but not the picture. Metadata only: never sent to a model.
+                public_metadata = {**public_metadata, "voice_still": configurable["voice_still"]}
             elif tapped_choice:
                 # A reply button's tap (F3): the person's own message, its words the button's; this only says which
                 # reply offered it. Never a note: the turn stays the person's request.
@@ -1710,7 +1714,7 @@ class ClientPlatformService:
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
             for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
-                          "device_time_zone", "voice_mode"):
+                          "device_time_zone", "voice_mode", "voice_still"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         if not resume and followup is None and self.voice_live(conversation_id):

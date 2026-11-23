@@ -5,7 +5,8 @@ transport ``duplex``), freezes the conversation's model and approval policy
 exactly as typed messages do, and returns a short-lived, single-use ticket.
 The browser opens the voice WebSocket and presents that ticket in its first
 message; the socket is then bound to that client session, conversation and
-lease. Audio lives only in memory for the turn it belongs to.
+lease. Audio lives only in memory for the turn it belongs to, and so does a
+still of a shared camera or screen until it is attached to its turn.
 """
 from __future__ import annotations
 
@@ -234,7 +235,7 @@ class ConversationVoiceHost:
         with self._transport.coordinator._dictation_lock:
             self._transport._lease(self._owner, self._handle)
 
-    def take_turn(self, text: str, utterance_id: str) -> Any:
+    def take_turn(self, text: str, utterance_id: str, still: Any = None) -> Any:
         from row_bot.voice.engine.session import TurnOutcome
 
         admission = self._transport._admission
@@ -242,10 +243,10 @@ class ConversationVoiceHost:
             self._admitted()
             running = admission.active(self._owner)
             if running is None:
-                admission.submit(self._owner, text, utterance_id, self._admitted)
+                admission.submit(self._owner, text, utterance_id, self._admitted, still=still)
                 outcome = TurnOutcome("submitted")
             else:
-                # The person spoke while a run works: steer it, stop it or ask how it is going.
+                # The person spoke while a run works: steer it, stop it or ask how it is going (words only).
                 result = admission.control(self._owner, running, "input", text, utterance_id, self._admitted)
                 outcome = TurnOutcome("control", speakable=str(result.get("speakable") or ""),
                                       control=str(result.get("control") or ""))
@@ -266,6 +267,9 @@ class ConversationVoiceHost:
         except Exception as exc:  # Refused or already answered: the card is the way now.
             _LOG.info("A spoken approval answer was not taken: %s", str(getattr(exc, "code", "") or type(exc).__name__))
             return "gone"
+
+    def sees_images(self) -> bool:
+        return self._transport._admission.sees_images(self._owner)
 
     def drops(self, text: str) -> bool:
         with self._transport.coordinator._dictation_lock:
@@ -333,7 +337,7 @@ async def run_socket_session(transport: DuplexTalkTransport, redeemed: RedeemedT
                 ended.set()
                 return
             if isinstance(message, bytes):
-                await session.audio(message)
+                await session.binary(message)
             elif not await session.control(message):
                 stop_requested = True
                 ended.set()

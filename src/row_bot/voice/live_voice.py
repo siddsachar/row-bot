@@ -21,13 +21,16 @@ class LiveVoiceOption:
     credential: str
     transport: str
     price: str
+    # The front sees what the person shares on camera or screen.
+    shares: bool = False
 
 
 LIVE_VOICE_OPTIONS: tuple[LiveVoiceOption, ...] = (
     # gpt-realtime-2: $32 / $64 per 1M audio tokens in / out.
     LiveVoiceOption("openai", "OpenAI Realtime", "OpenAI", "openai", "openai_realtime", "about $0.10 a minute"),
     # gemini-3.8-live: $0.005 a minute in, $0.018 a minute out.
-    LiveVoiceOption("gemini", "Gemini Live", "Google", "google", "gemini_live", "about $0.02 a minute"),
+    LiveVoiceOption("gemini", "Gemini Live", "Google", "google", "gemini_live", "about $0.02 a minute",
+                    shares=True),
     # grok-voice-3.0: $0.08 a minute.
     LiveVoiceOption("grok", "Grok Voice", "xAI", "xai", "grok_voice", "about $0.08 a minute"),
 )
@@ -60,7 +63,7 @@ def live_voice_provider(option_id: str) -> Any:
 def live_voice_rows(configured: dict[str, bool]) -> list[dict[str, Any]]:
     """One row per option for the client: availability is the saved key (no provider call)."""
     return [{"id": option.id, "label": option.label, "company": option.company,
-             "price": option.price, "price_checked": PRICES_CHECKED,
+             "price": option.price, "price_checked": PRICES_CHECKED, "shares": option.shares,
              "available": bool(configured.get(option.id)),
              "reason": "available" if configured.get(option.id) else "realtime_key_missing"}
             for option in LIVE_VOICE_OPTIONS]

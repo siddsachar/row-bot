@@ -51,7 +51,11 @@ const live = (
 });
 const liveProviders = [
   live('openai', 'OpenAI Realtime', 'OpenAI', 'about $0.10 a minute', true),
-  live('gemini', 'Gemini Live', 'Google', 'about $0.02 a minute', true),
+  // Gemini Live sees what the person shares on camera or screen.
+  {
+    ...live('gemini', 'Gemini Live', 'Google', 'about $0.02 a minute', true),
+    shares: true,
+  },
   live('grok', 'Grok Voice', 'xAI', 'about $0.08 a minute', false),
 ];
 
@@ -233,7 +237,7 @@ it('says everything that leaves the device before first use, then Live voice run
   fireEvent.click((await openMenu())[2]);
   expect(
     screen.getByText(
-      'Your voice, this chat’s recent messages, the agent profile’s name and a few related memories go to Google while you talk. About $0.02 a minute, from Google’s published prices (22 Nov 2026), billed to your Google key.',
+      'Your voice, this chat’s recent messages, the agent profile’s name, a few related memories and what you share on camera or screen go to Google while you talk. About $0.02 a minute, from Google’s published prices (22 Nov 2026), billed to your Google key.',
     ),
   ).toBeVisible();
   expect(controller.startRealtime).not.toHaveBeenCalled();

@@ -38,6 +38,7 @@ class FakeRelay:
     def __init__(self, instructions: str) -> None:
         self.instructions = instructions
         self.audio: list[bytes] = []
+        self.images: list = []
         self.outputs: list = []
         self.said = threading.Event()
         self.events: queue.Queue = queue.Queue()
@@ -45,6 +46,9 @@ class FakeRelay:
 
     async def send_audio(self, pcm16: bytes) -> None:
         self.audio.append(pcm16)
+
+    async def send_image(self, still) -> None:
+        self.images.append(still)
 
     async def send_output(self, output) -> bool:
         self.outputs.append(output)
@@ -306,3 +310,52 @@ def test_capability_is_unavailable_without_a_key_and_names_each_front(live, monk
     keys["google"] = ""
     value = live.client.get("/api/v1/voice/dictation/capability", headers=live.headers).json()
     assert value["realtime_available"] is False and value["realtime_reason"] == "realtime_key_missing"
+
+
+def _jpeg() -> bytes:
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (80, 60), (200, 80, 40)).save(out, "JPEG")
+    return out.getvalue()
+
+
+def test_a_front_that_sees_images_is_shown_stills_at_a_low_rate_while_sharing(live, monkeypatch):
+    from row_bot.voice import live_relay
+
+    monkeypatch.setattr(live_relay, "STILL_INTERVAL_SECONDS", 3600.0)  # A second still comes too soon.
+    still = _jpeg()
+    started = start(live, "gemini")
+    with live.client.websocket_connect(LIVE, headers=ORIGIN) as socket:
+        assert hello(socket, started)["sees_images"] is True
+        relay = live.relays[0]
+
+        def show(data):
+            socket.send_text(json.dumps({"type": "still", "bytes": len(data)}))
+            socket.send_bytes(data)
+
+        show(still)  # Not sharing yet: dropped.
+        socket.send_text(json.dumps({"type": "share", "source": "camera"}))
+        assert until(socket, "sharing")["source"] == "camera"
+        show(b"GIF89a" + b"\0" * 32)
+        assert until(socket, "error")["code"] == "voice_still_refused"
+        show(still)
+        show(still)
+        socket.send_text(json.dumps({"type": "share", "source": None}))
+        assert until(socket, "sharing")["source"] is None
+        show(still)
+        socket.send_bytes(b"\x01\x00" * 160)  # Microphone audio still reaches the front.
+        socket.send_text(json.dumps({"type": "end"}))
+    assert [(image.source, image.data) for image in relay.images] == [("camera", still)]
+    assert relay.audio == [b"\x01\x00" * 160]
+
+
+def test_a_front_that_cannot_take_images_is_never_shown_one(live):
+    started = start(live)
+    with live.client.websocket_connect(LIVE, headers=ORIGIN) as socket:
+        assert hello(socket, started)["sees_images"] is False
+        socket.send_text(json.dumps({"type": "share", "source": "screen"}))
+        assert until(socket, "error")["code"] == "voice_share_unavailable"
+        socket.send_text(json.dumps({"type": "end"}))

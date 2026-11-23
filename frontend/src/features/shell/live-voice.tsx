@@ -36,9 +36,15 @@ export function liveVoiceDisclosure(
   incognito = false,
 ): string {
   // An incognito chat sends no memories (the host builds the context without them).
-  const what = incognito
-    ? 'Your voice, this chat’s recent messages and the agent profile’s name go'
-    : 'Your voice, this chat’s recent messages, the agent profile’s name and a few related memories go';
+  const sent = [
+    'Your voice',
+    'this chat’s recent messages',
+    'the agent profile’s name',
+    ...(incognito ? [] : ['a few related memories']),
+    // A front that sees images is shown the camera or screen while it is shared.
+    ...(provider.shares ? ['what you share on camera or screen'] : []),
+  ];
+  const what = `${sent.slice(0, -1).join(', ')} and ${sent[sent.length - 1]} go`;
   return `${what} to ${provider.company} while you talk. ${capital(provider.price)}, from ${provider.company}’s published prices (${provider.price_checked}), billed to your ${provider.company} key.`;
 }
 
