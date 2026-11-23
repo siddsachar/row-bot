@@ -992,7 +992,7 @@ def _install_voice_engine_fixture() -> None:
         def warm(self) -> None:
             pass
 
-        def synthesize(self, text: str):
+        def synthesize(self, text: str, *, language=None):
             _voice_fixture["syntheses"] += 1
             samples = np.arange(int(24_000 * min(4.0, 0.06 * len(text))))
             tone = (np.sin(samples * 2 * np.pi * 220 / 24_000) * 1200).astype("<i2")
@@ -5811,6 +5811,36 @@ def v1b_speech_models(state: str, x_fixture_token: str = Header(default="")) -> 
     else:
         raise HTTPException(status_code=422, detail="Unknown speech-models state")
     return _v1b_view()
+
+
+# ── V8: languages ───────────────────────────────────────────────────────────
+@app.post("/__v8_fixture/kokoro/{state}")
+def v8_kokoro(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """installed: placeholder Kokoro files, so Settings shows the voices for other languages (nothing loads
+    them: the fixture's voice engine is synthetic); fresh: none, and the language back on Detect automatically."""
+    predecessor._authorize(x_fixture_token)
+    import json
+
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.integrations.safe import write_atomic
+
+    root = get_row_bot_data_dir()
+    files = [root / "kokoro" / "kokoro-v1.0.fp16.onnx", root / "kokoro" / "voices-v1.0.bin"]
+    if state == "installed":
+        for path in files:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"placeholder")
+    elif state == "fresh":
+        for path in files:
+            path.unlink(missing_ok=True)
+        for name, key in (("voice_runtime_settings.json", "speech_language"), ("tts_settings.json", "language_voices")):
+            path = root / name
+            saved = json.loads(path.read_text("utf-8")) if path.exists() else {}
+            saved.pop(key, None)
+            write_atomic(path, json.dumps(saved, indent=2))
+    else:
+        raise HTTPException(status_code=422, detail="Unknown Kokoro state")
+    return {"installed": state == "installed"}
 
 
 # ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────

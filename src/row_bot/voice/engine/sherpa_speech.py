@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 
 from row_bot.voice import speech_models
-from row_bot.voice.provider_base import VoiceProviderError, VoiceProviderStatus
+from row_bot.voice.provider_base import Heard, VoiceProviderError, VoiceProviderStatus
 from row_bot.voice.speech_models import SpeechModel
 from row_bot.voice.streaming_base import INPUT_SAMPLE_RATE, TranscriptUpdate
 
@@ -328,10 +328,14 @@ class LocalStreamingSpeechProvider:
         return self._engine
 
     def transcribe_bytes(self, audio_bytes: bytes) -> str:
-        stream = self._engine.open()
+        return self.transcribe_heard(audio_bytes, language=None).text
+
+    def transcribe_heard(self, audio_bytes: bytes, *, language: str | None) -> Heard:
+        stream = self._engine.open(language=language)
         for offset in range(0, len(audio_bytes), 32_000):
             stream.push(audio_bytes[offset:offset + 32_000])
-        return stream.finish().text
+        heard = stream.finish()
+        return Heard(heard.text, heard.language)
 
 
 __all__ = ["LocalStreamingSpeechProvider", "MoonshineSpeech", "TransducerSpeech", "default_threads",

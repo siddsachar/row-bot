@@ -77,7 +77,7 @@ class _Voice:
     def sync_saved_models(self) -> None:
         return None
 
-    def sensevoice_provider(self) -> _Recognizer:
+    def sensevoice_provider(self, *, language: str | None = None) -> _Recognizer:
         return self.sensevoice
 
     def whisper_model_available(self) -> bool:
@@ -236,7 +236,7 @@ class _Kokoro:
     def status(self) -> VoiceProviderStatus:
         return VoiceProviderStatus(self.provider_id, self.display_name, self.ready, local=True)
 
-    def synthesize(self, text: str) -> SynthesizedSpeech:
+    def synthesize(self, text: str, *, language: str | None = None) -> SynthesizedSpeech:
         self.said.append(text)
         if self.fails:
             raise RuntimeError("synthetic synthesis failure")

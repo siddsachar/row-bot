@@ -173,6 +173,9 @@ BROWSER_SMOKE_SPECS = (
     # Streaming speech models (V1b): Settings › Voice's pick for this computer, Download, progress, Remove, at
     # desktop and phone width, light and dark. Appended likewise.
     "voice-speech-models",
+    # Languages (V8): Settings › Voice › Language, the English-only notice and the voices per language; the bar's
+    # captions in French and Arabic (right to left); desktop and phone, light and dark. Appended likewise.
+    "voice-languages",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

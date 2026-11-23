@@ -333,7 +333,7 @@ def test_the_persons_words_show_as_live_captions_while_they_speak_then_the_final
         captions = [event for event in link.of("caption") if event["role"] == "user"]
         # No blank placeholder between the live words and the final ones.
         assert captions[-1] == {"type": "caption", "role": "user", "text": "Turn on the kitchen lights.",
-                                "final": True}
+                                "final": True, "language": None}
         assert not any(event["text"] == "" for event in captions)
         assert host.turns == ["Turn on the kitchen lights."]
         await session.close()

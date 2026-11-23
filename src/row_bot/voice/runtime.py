@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.voice import languages
 from row_bot.voice.openai_realtime import (
     DEFAULT_REALTIME_VOICE,
     REALTIME_VOICE_OPTIONS,
@@ -28,6 +29,8 @@ class VoiceRuntimeSettings:
     # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.
     turn_eagerness: str = "normal"
     push_to_talk: bool = False
+    # What the person speaks (Talk, Dictate, chat-app voice notes): a language code, or "auto" to detect it.
+    speech_language: str = "auto"
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -82,6 +85,7 @@ def load_voice_runtime_settings() -> VoiceRuntimeSettings:
                     captions_enabled=_coerce_bool(data.get("captions_enabled"), True),
                     turn_eagerness=_coerce_eagerness(data.get("turn_eagerness")),
                     push_to_talk=_coerce_bool(data.get("push_to_talk"), False),
+                    speech_language=languages.setting(data.get("speech_language")),
                 )
     except Exception:
         pass

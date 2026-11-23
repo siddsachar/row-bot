@@ -831,6 +831,8 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.
     turn_eagerness: Literal["relaxed", "normal", "eager"] = "normal"
     push_to_talk: bool = False
+    # What the person speaks: a language code, or "auto" (detect it).
+    speech_language: str = Field(default="auto", min_length=2, max_length=8)
 
 
 class VoiceLocalSettingsSnapshot(WireModel):
@@ -840,12 +842,51 @@ class VoiceLocalSettingsSnapshot(WireModel):
     runtime_state: Literal["cached_unknown"]
 
 
+class KokoroLanguageVoices(WireModel):
+    es: str = Field(max_length=32)
+    fr: str = Field(max_length=32)
+    hi: str = Field(max_length=32)
+    it: str = Field(max_length=32)
+    pt: str = Field(max_length=32)
+
+
+class VoiceLanguageVoiceOptions(WireModel):
+    language: str = Field(min_length=2, max_length=8)
+    label: str = Field(max_length=64)
+    options: list[SettingsChoice] = Field(max_length=16)
+
+
+class VoiceLanguageNotice(WireModel):
+    """An engine in use that can't understand the language chosen, or the one it keeps hearing."""
+
+    use: Literal["talk", "dictation"]
+    engine: str = Field(max_length=64)
+    understands: list[str] = Field(max_length=8)
+    language: str = Field(min_length=2, max_length=8)
+    language_label: str = Field(max_length=64)
+    # True: the language was heard often with Detect automatically; False: it is the one chosen.
+    heard: bool
+    alternatives: list[str] = Field(max_length=4)
+    switch_field: Literal["runtime.talk_model", "runtime.dictation_model"]
+    switch_value: str = Field(max_length=128)
+
+
+class VoiceLanguageSnapshot(WireModel):
+    options: list[SettingsChoice] = Field(max_length=64)
+    # The languages the voice (Kokoro) speaks.
+    spoken: list[str] = Field(max_length=16)
+    voice_options: list[VoiceLanguageVoiceOptions] = Field(max_length=16)
+    notices: list[VoiceLanguageNotice] = Field(max_length=4)
+
+
 class VoiceTtsSettingsSnapshot(WireModel):
     """Kokoro, the voice that speaks Read aloud and Talk's replies: its voice and speed."""
 
     installed: bool
     voice: str = Field(max_length=32)
     speed: float = Field(ge=0.5, le=2.0)
+    # The voice for each other language Kokoro speaks (picked, or its preset).
+    language_voices: KokoroLanguageVoices
 
 
 LiveVoiceId = Literal["openai", "gemini", "grok"]
@@ -878,6 +919,7 @@ class VoiceSettingsSnapshot(WireModel):
     whisper_options: list[SettingsChoice] = Field(max_length=8)
     realtime_voice_options: list[SettingsChoice] = Field(max_length=16)
     tts_voice_options: list[SettingsChoice] = Field(max_length=32)
+    language: VoiceLanguageSnapshot
 
 
 class SettingsWorkspaceSnapshot(WireModel):
