@@ -1,8 +1,10 @@
 """The real ``row-bot run`` command, in its own process, against a scripted model endpoint on loopback.
 
 Each run is watched (``tests/helpers/headless_guard.py``): any connection or name lookup that isn't loopback
-is refused and recorded, and so is any start of the install count or the updater. The process gets a home
-folder of its own whose Row-Bot profile, and the ``ROW_BOT_DATA_DIR`` it inherits, must come out untouched.
+is refused and recorded, and so is any start of the install count or the updater, and any file it opens in
+the Row-Bot profile. The process gets a home folder of its own whose Row-Bot profile, the ``ROW_BOT_DATA_DIR``
+it inherits, must come out untouched. (The rest of that home isn't Row-Bot's: on Windows, the PowerShell a
+run starts keeps its own startup cache under ``AppData``, as it does for the app.)
 """
 
 from __future__ import annotations
@@ -48,14 +50,14 @@ class Run:
         self.temp.mkdir()
         self.out = tmp_path / "out"
         self.record = tmp_path / "guard.jsonl"
-        self.before = _snapshot(self.home)
+        self.before = _snapshot(self.profile)
 
     def __call__(self, *args: str) -> subprocess.CompletedProcess[str]:
         env = {name: value for name, value in os.environ.items()
                if name not in {"ROW_BOT_TEST_MODE", "ROW_BOT_INSTALL_COUNT"} and not name.startswith("ROW_BOT_RUN_")}
         env.update(HOME=str(self.home), USERPROFILE=str(self.home), ROW_BOT_DATA_DIR=str(self.profile),
                    TMP=str(self.temp), TEMP=str(self.temp), TMPDIR=str(self.temp), BENCH_KEY=KEY,
-                   PYTHONIOENCODING="utf-8")
+                   PYTHONIOENCODING="utf-8", HEADLESS_GUARD_PROTECTED=str(self.profile))
         return subprocess.run(
             [sys.executable, "-m", "tests.helpers.headless_guard", str(self.record), "run",
              "--workspace", str(self.workspace), "--output-dir", str(self.out), *args],
@@ -98,7 +100,7 @@ def test_a_headless_run_does_the_task_on_a_throwaway_folder_and_leaves_a_valid_t
     # Nothing but the endpoint was reached, nothing was counted or checked for updates, and the profile it
     # inherited and the one in its home are as they were. The throwaway folder is gone.
     assert run.guarded() == []
-    assert _snapshot(run.home) == run.before
+    assert _snapshot(run.profile) == run.before
     assert list(run.temp.iterdir()) == []
 
 
@@ -133,4 +135,4 @@ def test_each_way_a_headless_run_ends_has_its_exit_code(tmp_path, case, code):
         assert refusal == NO_PERSON_REFUSAL
         assert trajectory["agent"]["extra"]["harness_text"] == summary["harness_text"]
     assert run.guarded() == []
-    assert _snapshot(run.home) == run.before
+    assert _snapshot(run.profile) == run.before

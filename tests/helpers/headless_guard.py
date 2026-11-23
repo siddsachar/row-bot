@@ -1,16 +1,19 @@
 """``python -m tests.helpers.headless_guard RECORD ARGS...``: Row-Bot's own command line, watched.
 
 Runs ``row_bot.launcher.main(ARGS)`` in this process after refusing every connection and name lookup that
-isn't loopback, and wrapping the install count's scheduler and the updater's check and scheduler, so a
-test of ``row-bot run`` can read in RECORD (JSON lines) whatever tried to leave the machine or start.
+isn't loopback, wrapping the install count's scheduler and the updater's check and scheduler, and watching
+every file it opens under the Row-Bot profiles named in ``HEADLESS_GUARD_PROTECTED``, so a test of
+``row-bot run`` can read in RECORD (JSON lines) whatever tried to leave the machine, start, or open a profile.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import socket
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +52,24 @@ def main() -> None:
 
     socket.socket.connect = guarded_connect  # type: ignore[method-assign]
     socket.getaddrinfo = guarded_lookup
+
+    # Row-Bot profiles the run must never open (HEADLESS_GUARD_PROTECTED, separated by os.pathsep): any file
+    # this process opens or connects to under one is recorded, with where it was opened from.
+    protected = [os.path.normcase(os.path.abspath(folder))
+                 for folder in os.environ.get("HEADLESS_GUARD_PROTECTED", "").split(os.pathsep) if folder]
+
+    def audit(event: str, args: tuple[Any, ...]) -> None:
+        if event not in {"open", "sqlite3.connect"} or not args or not isinstance(args[0], (str, bytes, os.PathLike)):
+            return
+        try:
+            path = os.path.normcase(os.path.abspath(os.fsdecode(args[0])))
+        except (TypeError, ValueError):
+            return
+        if any(path == folder or path.startswith(folder + os.sep) for folder in protected):
+            note("opened", f"{event} {path}\n{''.join(traceback.format_stack(limit=12)[:-1])}")
+
+    if protected:
+        sys.addaudithook(audit)
 
     from row_bot import install_count, updater
 
