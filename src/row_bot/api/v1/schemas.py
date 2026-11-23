@@ -6354,6 +6354,7 @@ class VideoEditPage(WireModel):
 
 VideoProjectId = Annotated[str, StringConstraints(pattern=r"^vid-[0-9a-f]{8}$")]
 VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
+VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
 
 
 class VideoScene(WireModel):
@@ -6377,6 +6378,15 @@ class VideoScene(WireModel):
     # What the live preview plays: its video and its voice line, by reference (None when there's none to play).
     source_ref: str | None = Field(default=None, max_length=512)
     voice_ref: str | None = Field(default=None, max_length=512)
+    # Its storyboard card (C1): its footage type (with no source, footage still to make, unless a card), what it
+    # shows, its music cue, whether the person approved it, whether it has a frame to show (its frame route), and
+    # how the made video got it: drawn now ("new"), unchanged from before ("reused"), or "" (a card, or not made).
+    footage: VideoFootage = "clip"
+    shows: str = Field(default="", max_length=200)
+    cue: str = Field(default="", max_length=80)
+    approved: bool = False
+    has_frame: bool = False
+    made: Literal["", "new", "reused"] = ""
 
 
 class VideoSceneWrite(WireModel):
@@ -6389,6 +6399,11 @@ class VideoSceneWrite(WireModel):
     zoom: list[float] | None = Field(default=None, min_length=4, max_length=4)
     card: str = Field(default="", max_length=120)
     line: str = Field(default="", max_length=300)
+    # Its storyboard card: left out, a scene keeps its own.
+    footage: VideoFootage | None = None
+    shows: str | None = Field(default=None, max_length=200)
+    frame: str | None = Field(default=None, max_length=512)
+    cue: str | None = Field(default=None, max_length=80)
 
 
 class VideoVersionView(WireModel):
@@ -6436,16 +6451,18 @@ class VideoProjectView(WireModel):
     # Every kept version, newest first.
     versions: list[VideoVersionView] = Field(max_length=50)
     number: int = Field(ge=1)
-    scenes: list[VideoScene] = Field(max_length=60)
+    # The storyboard's one line: what the video is ("" none).
+    logline: str = Field(default="", max_length=160)
+    scenes: list[VideoScene] = Field(max_length=200)
     # The scenes this version added or changed against the one before it.
-    changed: list[VideoSceneId] = Field(max_length=60)
+    changed: list[VideoSceneId] = Field(max_length=200)
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
     # One voice file said over the whole video ("" none): its scenes' lines then aren't said one by one.
     narration: str = Field(default="", max_length=200)
     captions: bool
     voice_lines: bool
-    # draft (not made yet), voicing, rendering, made, failed or stopped.
+    # draft (a storyboard: not made yet), voicing, rendering, made, failed or stopped.
     status: Literal["draft", "voicing", "rendering", "made", "failed", "stopped"]
     problem: str = Field(max_length=400)
     # The edit that makes (or made) this version's video.
@@ -6468,13 +6485,20 @@ class VideoProjectView(WireModel):
 class VideoProjectChange(WireModel):
     """The person's change in the Video panel, made on version ``base``: a new version, then its video."""
     base: int = Field(ge=1)
-    scenes: list[VideoSceneWrite] = Field(min_length=1, max_length=60)
+    scenes: list[VideoSceneWrite] = Field(min_length=1, max_length=200)
     title: str = Field(default="", max_length=80)
     music_volume: float | None = Field(default=None, ge=0, le=1)
     captions: bool | None = None
     brand: bool | None = None
     voice: str | None = Field(default=None, max_length=64)
     note: str = Field(default="", max_length=200)
+
+
+class VideoSceneApproval(WireModel):
+    """The person approves storyboard scenes of version ``base`` as they are, or takes that back (C1)."""
+    base: int = Field(ge=1)
+    scene_ids: list[VideoSceneId] = Field(min_length=1, max_length=200)
+    approved: bool
 
 
 class VideoProjectRestore(WireModel):

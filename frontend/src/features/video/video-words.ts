@@ -1,5 +1,6 @@
 import type {
   VideoProjectView,
+  VideoScene,
   VideoSceneWrite,
   VideoVersionView,
 } from '../../api/types';
@@ -22,6 +23,42 @@ export function shapeHint(
   const whole = Math.round(item.limit);
   const limit = `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
   return `${item.fits} · longer than ${item.shape === '9:16' ? 'Shorts allow' : 'X allows'} (${limit})`;
+}
+
+/** What a scene's footage is, as its storyboard card names it (C1). */
+export const FOOTAGE = {
+  clip: 'Clip',
+  picture: 'Picture',
+  ai: 'AI shot',
+  card: 'Title card',
+  screen: 'Screen recording',
+} as const;
+export type Footage = keyof typeof FOOTAGE;
+
+export function footageOf(scene: VideoScene | undefined): Footage {
+  return scene?.footage ?? (scene?.source ? 'clip' : 'card');
+}
+
+/** A scene whose footage is still to make (an AI shot planned on the storyboard): Row-Bot makes it. */
+export function isPlanned(scene: VideoScene): boolean {
+  return !scene.source && footageOf(scene) !== 'card';
+}
+
+/** How long a scene lasts, when its storyboard says: as made, else its own length, else null. */
+export function sceneSeconds(
+  scene: VideoSceneWrite,
+  made?: VideoScene,
+): number | null {
+  if (made?.length !== null && made?.length !== undefined) return made.length;
+  if (scene.end === null || scene.end === undefined)
+    return scene.source ? null : made && isPlanned(made) ? null : 3;
+  return Math.max(0, (scene.end - (scene.start ?? 0)) / (scene.speed ?? 1));
+}
+
+/** "0:24": a whole video's length. */
+export function clockWords(seconds: number): string {
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
 /** The speeds a scene offers; 2× and up show a badge on the video. */
@@ -116,8 +153,8 @@ export function statusWords(view: VideoProjectView): {
       };
     default:
       return {
-        label: 'Not made yet',
-        detail: 'Save a change, or ask Row-Bot, to make this version.',
+        label: 'Storyboard',
+        detail: 'Nothing is made yet.',
         tone: 'neutral',
       };
   }

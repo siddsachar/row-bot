@@ -13,11 +13,18 @@ version can be exported in the other shapes, each scene reframed on its zoom, or
 scene fills the frame: a video of another shape is cropped around where the action is, never shown
 with bars. A scene's ``fit`` (or the brand kit's framed look) sets its picture inset instead.
 
+A new video of several scenes starts as a storyboard (C1): a logline, then each scene's footage type
+(a clip, a picture, an AI shot, a card or a screen recording), what it shows, its frame, length, line and
+music cue, with nothing made. A scene can be planned before its footage exists (an AI shot still to make);
+the person approves, changes or comments on each scene, and making it renders the storyboard. Making a
+version draws again only the scenes whose inputs changed: each scene's drawn footage is kept, keyed by a
+hash of what it was drawn from (``video_studio.prepare``), and an unchanged scene is reused.
+
 Every change is a new version, by the person or by Row-Bot with a note of what changed. Going
-back is a new version too, so nothing is lost. Making a version's video voices each line whose
-voice is missing or says other words, then renders the whole version as one video edit that
-also gives it the finished check (``video_check``) for the review card. The video is
-saved to the conversation's files like any edit.
+back is a new version too, so nothing is lost; approving a scene marks it on its version and makes
+none. Making a version's video voices each line whose voice is missing or says other words, then
+renders the whole version as one video edit that also gives it the finished check (``video_check``)
+for the review card. The video is saved to the conversation's files like any edit.
 
 Footage is used where it is: a workspace file, or a file elsewhere on this computer once the
 person allows reading it by the approval level, is read in place when the video is made, never
@@ -54,6 +61,13 @@ MAX_TITLE = 80
 MAX_CARD = 120
 MAX_LINE = 300
 MAX_NOTE = 200
+MAX_SHOWS = 200
+MAX_CUE = 80
+MAX_LOGLINE = 160
+# A scene's footage: the person's own clip, a picture, an AI shot, a title card or a screen recording.
+FOOTAGE = ("clip", "picture", "ai", "card", "screen")
+FOOTAGE_WORDS = {"clip": "clip", "picture": "picture", "ai": "AI shot", "card": "title card",
+                 "screen": "screen recording"}
 SPEEDS = (0.25, 4.0)
 SHAPES = ("16:9", "1:1", "9:16")
 EXPORTS = SHAPES + ("gif",)
@@ -87,6 +101,13 @@ class Scene:
     # True: its whole picture inset on the brand colour; False: it fills the frame, cropped around the action; None:
     # the brand kit's framing (full by default).
     fit: bool | None = None
+    # The storyboard (C1): its footage type (``FOOTAGE``), what it shows, a still for its card (a picture; empty:
+    # a frame of its footage), its music cue, and whether the person approved it as it is.
+    footage: str = ""
+    shows: str = ""
+    frame: str = ""
+    cue: str = ""
+    approved: bool = False
 
 
 @dataclass
@@ -117,6 +138,8 @@ class Version:
     status: str = ""
     edit_id: str = ""
     problem: str = ""
+    # The storyboard's one line: what the video is.
+    logline: str = ""
 
 
 @dataclass
@@ -168,6 +191,9 @@ def _scene_from(data: dict[str, Any]) -> Scene:
         zoom=[float(value) for value in zoom][:4] if zoom else None, card=str(data.get("card") or ""),
         line=str(data.get("line") or ""), voice=str(data.get("voice") or ""), voiced=str(data.get("voiced") or ""),
         voiced_as=str(data.get("voiced_as") or ""), fit=None if data.get("fit") is None else bool(data["fit"]),
+        footage=str(data.get("footage") or "") if data.get("footage") in FOOTAGE else "",
+        shows=str(data.get("shows") or ""), frame=str(data.get("frame") or ""), cue=str(data.get("cue") or ""),
+        approved=bool(data.get("approved")),
     )
 
 
@@ -194,6 +220,7 @@ def _load(path: Path) -> Project | None:
                 export_problems={str(key): str(value)[:300]
                                  for key, value in (item.get("export_problems") or {}).items() if key in EXPORTS},
                 edit_id=str(item.get("edit_id") or ""), problem=str(item.get("problem") or ""),
+                logline=str(item.get("logline") or ""),
             ))
         if not versions:
             return None
@@ -301,7 +328,8 @@ def _kinds(sources: dict[str, int], conversation_id: str, allowed: dict[str, str
 
 def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], allowed: dict[str, str],
                   approvals: list[str] | None = None) -> list[Scene]:
-    """The scenes as given, checked; a scene that keeps its id keeps its voice while its line is the same. A file
+    """The scenes as given, checked; a scene that keeps its id keeps its voice while its line is the same, and its
+    approval while nothing in it changed. A storyboard field left out (``None``) keeps the scene's own. A file
     outside the workspace the person allows reading joins *allowed*."""
     if not raw:
         raise ProjectError("A video needs at least one scene.")
@@ -311,9 +339,10 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
 
     named: dict[str, int] = {}
     for number, item in enumerate(raw, start=1):
-        source = _text((item if isinstance(item, dict) else dict(item)).get("source"), 512)
-        if source:
-            named.setdefault(source, number)
+        data = item if isinstance(item, dict) else dict(item)
+        for value in (_text(data.get("source"), 512), _text(data.get("frame"), 512)):
+            if value:
+                named.setdefault(value, number)
     if len(named) > MAX_SOURCES:
         raise ProjectError(f"A video can use at most {MAX_SOURCES} different videos and pictures: join some first.")
     kinds = _kinds(named, conversation_id, allowed, approvals)
@@ -326,15 +355,34 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
             scene_id = f"s{uuid.uuid4().hex[:6]}"
         source = _text(data.get("source"), 512)
         card = _text(data.get("card"), MAX_CARD)
-        if not source and not card:
+        old = known.get(scene_id)
+
+        def kept(key: str, limit: int) -> str:
+            return _text(data[key], limit) if data.get(key) is not None else getattr(old, key) if old else ""
+
+        shows, cue, frame = kept("shows", MAX_SHOWS), kept("cue", MAX_CUE), kept("frame", 512)
+        given = kept("footage", 16)
+        if given and given not in FOOTAGE:
+            raise ProjectError(f"Scene {number}: its footage is {', '.join(FOOTAGE)}.")
+        if frame and kinds.get(frame, "image") != "image":
+            raise ProjectError(f"Scene {number}: its frame is a picture, not {frame}.")
+        picture = kinds.get(source) == "image"
+        if source:
+            footage = ("picture" if picture else given if given in ("clip", "ai", "screen")
+                       else "screen" if source.startswith("rec-") else "clip")
+        else:  # A title card, or footage still to make (planned on a storyboard).
+            footage = given or "card"
+        if not source and footage == "card" and not card:
             raise ProjectError(f"Scene {number}: name its footage (a video or picture: a recording rec-…, an edit "
-                               "edit-…, a file in this chat, a workspace path or a full path), or give it a card to "
-                               "make it a title card.")
+                               "edit-…, a file in this chat, a workspace path or a full path), give it a card to "
+                               "make it a title card, or plan it: its footage type and what it shows.")
         start = _number(data.get("start"), "start", number) or 0.0
         end = _number(data.get("end"), "end", number)
-        picture = kinds.get(source) == "image"
-        if not source:  # A title card: its card on the brand's colour, end seconds long.
-            start, end = 0.0, CARD_SECONDS if end is None else end
+        line = _text(data.get("line"), MAX_LINE)
+        if not source and footage != "card" and not (shows or line):
+            raise ProjectError(f"Scene {number}: say what it shows, so its {FOOTAGE_WORDS[footage]} can be made.")
+        if not source:  # A title card (its card on the brand's colour, end seconds long), or planned footage.
+            start, end = 0.0, CARD_SECONDS if end is None and footage == "card" else end
         elif picture:  # A picture: held end seconds (by default its line's length), pushed in slowly.
             start = 0.0
         if end is not None and end - start < 0.1:
@@ -349,9 +397,7 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
             except (TypeError, ValueError):
                 raise ProjectError(f"Scene {number}: zoom is [x, y, width, height], each 0 to 1.") from None
             zoom = None if width >= 0.999 and height >= 0.999 else [x, y, max(width, 0.05), max(height, 0.05)]
-        line = _text(data.get("line"), MAX_LINE)
         voice = _text(data.get("voice"), 200)
-        old = known.get(scene_id)
         if voice and (old is None or voice != old.voice):
             voiced, voiced_as = line, "given"  # A voice file made for this line with speak.
         elif old is not None and old.voice and old.voiced == line:
@@ -360,11 +406,22 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
             voice, voiced, voiced_as = "", "", ""
         # The Video panel doesn't send fit, so a scene it edits keeps its own; the video tool always sends it.
         fit = (None if data["fit"] is None else bool(data["fit"])) if "fit" in data else old.fit if old else None
-        scenes.append(Scene(scene_id=scene_id, source=source, start=start, end=end,
-                            speed=round(speed, 3) if source else 1.0,
-                            zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
-                            voiced=voiced, voiced_as=voiced_as, fit=fit if source else None))
+        scene = Scene(scene_id=scene_id, source=source, start=start, end=end,
+                      speed=round(speed, 3) if source else 1.0,
+                      zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
+                      voiced=voiced, voiced_as=voiced_as, fit=fit if source else None, footage=footage,
+                      shows=shows, frame=frame, cue=cue)
+        scene.approved = old is not None and old.approved and _same(scene, old)
+        scenes.append(scene)
     return scenes
+
+
+# What a scene is: a change to any of these is a change to the scene (its approval goes, and the panel marks it).
+CONTENT = ("source", "start", "end", "speed", "zoom", "card", "line", "fit", "footage", "shows", "frame", "cue")
+
+
+def _same(scene: Scene, other: Scene) -> bool:
+    return all(getattr(scene, key) == getattr(other, key) for key in CONTENT)
 
 
 def _grants(allowed: dict[str, str]) -> list[dict[str, str]]:
@@ -419,7 +476,7 @@ def _add_version(project: Project, version: Version) -> Version:
 def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = "", music_volume: float = 0.3,
            narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
            by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None,
-           approvals: list[str] | None = None) -> Project:
+           logline: str = "", approvals: list[str] | None = None) -> Project:
     """A new project with its first version; the approval lines of reading files outside the workspace join
     *approvals*."""
     conversation = str(conversation_id or "").strip()
@@ -434,7 +491,8 @@ def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = 
                           scenes=cleaned, music=_text(music, 200),
                           music_volume=_volume(music_volume), narration=_text(narration, 200), captions=bool(captions),
                           voice_lines=bool(voice_lines), aspect=_aspect(aspect), brand=bool(brand),
-                          voice=_voice(voice), voice_speed=_voice_speed(voice_speed))
+                          voice=_voice(voice), voice_speed=_voice_speed(voice_speed),
+                          logline=_text(logline, MAX_LOGLINE))
         _add_version(project, version)
     logger.info("Video project created (%d scenes)", len(version.scenes))
     return project
@@ -472,7 +530,7 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
            title: str | None = None, music: str | None = None, music_volume: float | None = None,
            narration: str | None = None, captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
            brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None,
-           approvals: list[str] | None = None) -> Version:
+           logline: str | None = None, approvals: list[str] | None = None) -> Version:
     """A new version with these changes; ``base`` is the version they were made on (refused when it isn't the
     latest, so two editors never overwrite each other). Approval lines join *approvals*, as in ``create``."""
     with _LOCK:
@@ -500,6 +558,7 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
             brand=latest.brand if brand is None else bool(brand),
             voice=latest.voice if voice is None else _voice(voice),
             voice_speed=latest.voice_speed if voice_speed is None else _voice_speed(voice_speed),
+            logline=latest.logline if logline is None else _text(logline, MAX_LOGLINE),
         )
         fresh.outside = _grants(allowed)
         _add_version(fresh, version)
@@ -519,7 +578,7 @@ def restore(project: Project, number: int, *, by: By) -> Version:
                           music_volume=old.music_volume, narration=old.narration, captions=old.captions,
                           voice_lines=old.voice_lines,
                           aspect=old.aspect, exports=dict(old.exports), brand=old.brand, voice=old.voice,
-                          voice_speed=old.voice_speed,
+                          voice_speed=old.voice_speed, logline=old.logline,
                           status="rendering" if old.edit_id else "", edit_id=old.edit_id)
         _add_version(fresh, version)
         project.versions = fresh.versions
@@ -532,10 +591,49 @@ def changed_scenes(project: Project, version: Version) -> list[str]:
     if before is None:
         return []
     old = {scene.scene_id: scene for scene in before.scenes}
-    keys = ("source", "start", "end", "speed", "zoom", "card", "line", "fit")
     return [scene.scene_id for scene in version.scenes
-            if scene.scene_id not in old or any(getattr(scene, key) != getattr(old[scene.scene_id], key)
-                                                for key in keys)]
+            if scene.scene_id not in old or not _same(scene, old[scene.scene_id])]
+
+
+def storyboard(version: Version) -> bool:
+    """A version not made, nor being made: a storyboard (C1). A new video of several scenes starts as one."""
+    return not version.status and not version.edit_id
+
+
+def approve(project: Project, scene_ids: list[str], approved: bool, *, base: int) -> Version:
+    """The person approves scenes of the latest version as they are (or takes it back): marked on that version,
+    which stays the same version (nothing in the video changed). Refused when it isn't the latest."""
+    with _LOCK:
+        fresh = get(project.project_id, project.conversation_id)
+        if fresh is None:
+            raise ProjectError("This video project is no longer here.")
+        latest = fresh.latest
+        if base != latest.number:
+            raise ProjectError(f"The video changed meanwhile (now version {latest.number}): look again.", stale=True)
+        chosen = set(scene_ids)
+        if not chosen <= {scene.scene_id for scene in latest.scenes}:
+            raise ProjectError("Those scenes aren't in this version.")
+        for scene in latest.scenes:
+            if scene.scene_id in chosen:
+                scene.approved = bool(approved)
+        _save(fresh)
+        project.versions = fresh.versions
+    return latest
+
+
+def planned(version: Version) -> list[tuple[int, Scene]]:
+    """The scenes whose footage is still to make (an AI shot, a picture, a clip or a recording planned on the
+    storyboard): (scene number, scene)."""
+    return [(number, scene) for number, scene in enumerate(version.scenes, start=1)
+            if not scene.source and scene.footage not in ("", "card")]
+
+
+def planned_words(missing: list[tuple[int, Scene]]) -> str:
+    shown = ", ".join(f"scene {number} ({FOOTAGE_WORDS[scene.footage]}: {scene.shows or scene.line})"
+                      for number, scene in missing[:5])
+    more = f" and {len(missing) - 5} more" if len(missing) > 5 else ""
+    return (f"No footage yet: {shown}{more}. Make it first (generate_video, generate_image, browser_record, or the "
+            "person's own file), then change those scenes with its source.")
 
 
 # ── Making the video ────────────────────────────────────────────────────────
@@ -634,6 +732,9 @@ def make(project: Project, number: int | None = None, *, download: bool = False)
     version = project.version(number)
     if version is None:
         raise ProjectError("That version isn't kept any more.")
+    missing = planned(version)
+    if missing:
+        raise ProjectError(planned_words(missing))
     _update(project, version.number, status="voicing" if needs_voice(version) else "rendering", edit_id="",
             problem="")
     thread = threading.Thread(target=_make, args=(project.project_id, project.conversation_id, version.number,
@@ -839,7 +940,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             output_name=_file_name(project.title, ".mp4", shape.replace(":", "x")),
             download=download, sounds=sounds, check=True,
             footage=[known.get(scene.source, Footage()) for scene in version.scenes],
-            role="draft", output_id=project.project_id, version=number,
+            role="draft", output_id=project.project_id, version=number, scene_cache=scene_cache(project),
         ))
         if shape:
             fresh = get(project_id, conversation_id)
@@ -853,6 +954,11 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
     except Exception:
         logger.warning("A video project's video couldn't be made", exc_info=True)
         _record_failure(project_id, conversation_id, number, shape, "Something went wrong while making the video.")
+
+
+def scene_cache(project: Project) -> Path:
+    """Where a project keeps its scenes' drawn clips (with its conversation's projects, so they go with it)."""
+    return _path(project.conversation_id, project.project_id).with_name(f"{project.project_id}-scenes")
 
 
 def _record_failure(project_id: str, conversation_id: str, number: int, shape: str, words: str) -> None:
@@ -915,6 +1021,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
     version = project.version(number) or project.latest
     edit = video_edits.get(version.edit_id) if version.edit_id else None
     marks = list(edit.marks) if edit is not None and len(edit.marks) == len(version.scenes) + 1 else []
+    makes = list(edit.scene_makes) if edit is not None and len(edit.scene_makes) == len(version.scenes) else []
     refs = _Refs(project.conversation_id)
     return {
         "project_id": project.project_id,
@@ -924,13 +1031,18 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "versions": [{"number": item.number, "at": _iso(item.at), "by": item.by if item.by in {"you", "row-bot"}
                       else "row-bot", "note": item.note} for item in reversed(project.versions)],
         "number": version.number,
+        "logline": version.logline,
         "scenes": [{"scene_id": scene.scene_id, "source": scene.source, "start": scene.start, "end": scene.end,
                     "speed": scene.speed, "zoom": scene.zoom, "card": scene.card, "line": scene.line,
                     "voiced": bool(scene.voice) and scene.voiced == scene.line,
                     "at": marks[index] if marks else None,
                     "length": round(marks[index + 1] - marks[index], 3) if marks else None,
                     "source_ref": refs.source(scene.source) if scene.source else None,
-                    "voice_ref": refs.voice(scene.voice) if scene.voice and scene.voiced == scene.line else None}
+                    "voice_ref": refs.voice(scene.voice) if scene.voice and scene.voiced == scene.line else None,
+                    "footage": scene.footage or ("card" if not scene.source else "clip"), "shows": scene.shows,
+                    "cue": scene.cue, "approved": scene.approved,
+                    "has_frame": bool(scene.frame or scene.source),
+                    "made": makes[index] if makes else ""}
                    for index, scene in enumerate(version.scenes)],
         "changed": changed_scenes(project, version),
         "music": version.music,
@@ -953,6 +1065,51 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
     }
 
 
+def scene_frame(project: Project, scene_id: str, number: int | None = None) -> bytes | None:
+    """A storyboard card's frame (``video_studio.card_frame``): the scene's own still when it has one, else its
+    picture, else its video half a second into the scene. None for a title card, footage still to make, or footage
+    that can't be read here. A frame is read once, then kept with the project."""
+    import hashlib
+
+    from row_bot.media_sources import SourceError, resolve
+    from row_bot.video_studio import card_frame
+
+    version = project.version(number)
+    scene = next((item for item in version.scenes if item.scene_id == scene_id), None) if version else None
+    target = (scene.frame or scene.source) if scene is not None else ""
+    if not target:
+        return None
+    try:
+        found = resolve(target, project.conversation_id,
+                        allowed=frozenset(Path(item["path"]) for item in project.outside))
+        if len(found) != 1:
+            return None
+        media = found[0]
+        picture = media.kind == "image"
+        at = 0.0 if picture else scene.start + min(0.5, ((scene.end or scene.start + 1) - scene.start) / 2)
+        if media.ref:
+            identity = media.ref
+        else:
+            stat = media.path.stat()
+            identity = f"{media.path}:{stat.st_size}:{stat.st_mtime_ns}"
+        kept = scene_cache(project).with_name(f"{project.project_id}-frames") / (
+            hashlib.sha256(f"{identity}|{at:.3f}".encode()).hexdigest()[:32] + ".jpg")
+        if kept.is_file():
+            return kept.read_bytes()
+        frame = card_frame(media.path if media.path and not media.ref else media.read_bytes(1 << 31),
+                           picture=picture, at=at)
+    except ImportError:  # No PyAV (the media extra): the card shows its footage type instead.
+        return None
+    except (SourceError, OSError, ValueError):  # Footage that doesn't decode: the same.
+        logger.debug("A storyboard frame couldn't be read", exc_info=True)
+        return None
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    partial = kept.with_name(f"{kept.name}.{uuid.uuid4().hex[:6]}.part")
+    partial.write_bytes(frame)
+    os.replace(partial, kept)
+    return frame
+
+
 def _status(version: Version, edit: Any) -> str:
     if version.status in {"voicing", "failed"}:
         return version.status
@@ -971,9 +1128,10 @@ REVIEW = ("Review sheet: {sheet} (frames of each scene, for the person to open).
 
 
 def summary(project: Project, number: int | None = None) -> str:
-    """The tool result's first line, ``Video project vid-…: …`` (the chat's card follows it), then the scenes."""
+    """The tool result's first line, ``Video project vid-…: Output "…" v… (…)`` (the chat's card follows it; history
+    masking keeps it), then the scenes."""
     data = view(project, number)
-    words = {"draft": "not made yet", "voicing": "voicing the lines", "rendering": "making the video",
+    words = {"draft": "nothing made yet", "voicing": "voicing the lines", "rendering": "making the video",
              "made": "made", "failed": "not made", "stopped": "stopped"}[data["status"]]
     made = data["edit"] if data["status"] == "made" and data["edit"] else None
     from row_bot.media_sources import identity, identity_of
@@ -981,10 +1139,12 @@ def summary(project: Project, number: int | None = None) -> str:
     # A made version leads with its output (W4): history masking keeps a result's first line.
     named = (identity_of(str(made.get("media_ref") or ""))
              or identity({"name": made["output_name"], "role": "draft", "version": data["number"]})) if made else ""
+    role = "storyboard" if data["status"] == "draft" else "draft"
+    named = named or f'Output "{project.title}" v{data["number"]} ({role})'
     lines = [f"Video project {project.project_id}: {named}; version {data['number']} of {data['latest']}, "
-             f"{len(data['scenes'])} scenes, made." if named else
-             f"Video project {project.project_id}: \"{project.title}\", version {data['number']} of "
-             f"{data['latest']}, {len(data['scenes'])} scenes, {words}."]
+             f"{len(data['scenes'])} scenes, {words}."]
+    if data["logline"]:
+        lines.append(f"Logline: {data['logline']}")
     if data["problem"]:
         lines.append(f"Why: {data['problem']}")
     shown = project.version(data["number"])
@@ -999,13 +1159,30 @@ def summary(project: Project, number: int | None = None) -> str:
             span = (f"picture, {scene['end']:g} s" if scene["end"] is not None
                     else "picture, as long as its line (else 3.5 s)")
         fit = fits[index - 1] if index <= len(fits) else None
-        extras = [f"{scene['speed']:g}×" if scene["speed"] != 1 else "", "zoom" if scene["zoom"] else "",
+        what = scene["source"] or "title card"
+        if not scene["source"] and scene["footage"] != "card":  # Planned: its footage is still to make.
+            what = f"{FOOTAGE_WORDS[scene['footage']]} to make,"
+            span = f"{scene['end']:g} s" if scene["end"] is not None else "as long as its line"
+        extras = ["AI shot" if scene["source"] and scene["footage"] == "ai" else "",
+                  f"{scene['speed']:g}×" if scene["speed"] != 1 else "", "zoom" if scene["zoom"] else "",
                   {True: "fit", False: "fill"}.get(fit, ""),
-                  f"card \"{scene['card']}\"" if scene["card"] else ""]
+                  f"card \"{scene['card']}\"" if scene["card"] else "",
+                  f"shows \"{scene['shows']}\"" if scene["shows"] else "",
+                  f"music \"{scene['cue']}\"" if scene["cue"] else "", "approved" if scene["approved"] else ""]
         extra = ", ".join(item for item in extras if item)
         line = f" — \"{scene['line']}\"" if scene["line"] else ""
-        what = scene["source"] or "title card"
         lines.append(f"{index}. [{scene['scene_id']}] {what} {span}{', ' + extra if extra else ''}{line}")
+    if data["status"] == "draft" and shown is not None:
+        lines.append("Storyboard, nothing made yet: show it to the person (the Video panel shows each scene as a "
+                     "card to approve, change or comment on). Make it with action make once they approve, or now if "
+                     "they asked for the video without a look first.")
+        if planned(shown):
+            lines.append(planned_words(planned(shown)))
+    makes = [scene["made"] for scene in data["scenes"]]
+    if made and "reused" in makes:
+        drawn = makes.count("new")
+        lines.append(f"Drew {drawn} changed scene{'s' if drawn != 1 else ''} again and reused "
+                     f"{makes.count('reused')} unchanged.")
     if data["narration"]:
         lines.append(f"Narration: {data['narration']}, said over the whole video (the lines above aren't said "
                      "one by one).")

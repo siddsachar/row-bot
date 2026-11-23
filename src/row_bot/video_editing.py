@@ -119,6 +119,13 @@ def input_arguments(path: Path | str, seek: tuple[float, float] | None = None) -
     return [*window, "-protocol_whitelist", "file", "-format_whitelist", INPUT_FORMATS, "-i", file_argument(path)]
 
 
+def concat_input_arguments(path: Path | str) -> list[str]:
+    """Open a project's drawn scenes (``video_studio.prepare``): the list Row-Bot wrote of its scenes' clips, each a
+    Matroska file it drew, read one after another as one video."""
+    return ["-protocol_whitelist", "file", "-f", "concat", "-safe", "0", "-format_whitelist", "concat,matroska",
+            "-i", file_argument(path)]
+
+
 def sound_input_arguments(path: Path | str) -> list[str]:
     """Open a voice line or music file: local files only, as an audio or video container."""
     return ["-protocol_whitelist", "file", "-format_whitelist", SOUND_FORMATS, "-i", file_argument(path)]
@@ -711,6 +718,11 @@ class InputVideo:
     label: str = ""
     # Only (from, seconds) of the file is read (``input_arguments``); ``info.duration`` is then that window's.
     seek: tuple[float, float] | None = None
+    # Which file it is, as it is now (a chat file's reference, else its path, size and change time): a scene drawn
+    # from it before is drawn again only when this changes.
+    identity: str = ""
+    # A list of clips read one after another (``concat_input_arguments``): a project's drawn scenes.
+    concat: bool = False
 
 
 def _slide_show(scenes: list[SceneCut], marks: list[float]) -> list[str]:
@@ -1341,7 +1353,7 @@ def build_plan(
     builder.video = video
     args = ["-hide_banner", "-nostdin", "-y"]
     for item in inputs:
-        args += input_arguments(item.path, item.seek)
+        args += concat_input_arguments(item.path) if item.concat else input_arguments(item.path, item.seek)
     for name in sources:
         args += sound_input_arguments(sounds[name])
     if builder.voice_cues:

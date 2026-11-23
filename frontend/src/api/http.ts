@@ -585,6 +585,29 @@ export class HttpTransport implements ClientTransport {
   makeVideoProject(projectId: string) {
     return wire.makeVideoProject(this.base, this.session(), projectId);
   }
+  approveVideoScenes(projectId: string, approval: wire.VideoSceneApproval) {
+    return wire.approveVideoScenes(
+      this.base,
+      this.session(),
+      projectId,
+      approval,
+    );
+  }
+  videoSceneFrame(
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.readVideoSceneFrame(
+      this.base,
+      this.session(),
+      projectId,
+      sceneId,
+      version,
+      signal,
+    );
+  }
   waits(signal?: AbortSignal) {
     return wire.getWaits(this.base, this.session(), signal);
   }

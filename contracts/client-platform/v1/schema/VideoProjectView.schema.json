@@ -260,6 +260,11 @@
       "additionalProperties": false,
       "description": "One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line.",
       "properties": {
+        "approved": {
+          "default": false,
+          "title": "Approved",
+          "type": "boolean"
+        },
         "at": {
           "anyOf": [
             {
@@ -277,6 +282,12 @@
           "title": "Card",
           "type": "string"
         },
+        "cue": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Cue",
+          "type": "string"
+        },
         "end": {
           "anyOf": [
             {
@@ -288,6 +299,23 @@
             }
           ],
           "title": "End"
+        },
+        "footage": {
+          "default": "clip",
+          "enum": [
+            "clip",
+            "picture",
+            "ai",
+            "card",
+            "screen"
+          ],
+          "title": "Footage",
+          "type": "string"
+        },
+        "has_frame": {
+          "default": false,
+          "title": "Has Frame",
+          "type": "boolean"
         },
         "length": {
           "anyOf": [
@@ -306,9 +334,25 @@
           "title": "Line",
           "type": "string"
         },
+        "made": {
+          "default": "",
+          "enum": [
+            "",
+            "new",
+            "reused"
+          ],
+          "title": "Made",
+          "type": "string"
+        },
         "scene_id": {
           "pattern": "^s[0-9a-f]{6}$",
           "title": "Scene Id",
+          "type": "string"
+        },
+        "shows": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Shows",
           "type": "string"
         },
         "source": {
@@ -453,7 +497,7 @@
         "pattern": "^s[0-9a-f]{6}$",
         "type": "string"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "title": "Changed",
       "type": "array"
     },
@@ -505,6 +549,12 @@
       "title": "Latest",
       "type": "integer"
     },
+    "logline": {
+      "default": "",
+      "maxLength": 160,
+      "title": "Logline",
+      "type": "string"
+    },
     "music": {
       "maxLength": 200,
       "title": "Music",
@@ -547,7 +597,7 @@
       "items": {
         "$ref": "#/$defs/VideoScene"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "title": "Scenes",
       "type": "array"
     },

@@ -2788,6 +2788,174 @@ def _b3_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+# ── C1: the storyboard ─────────────────────────────────────────────────────
+# A new video of several scenes is a storyboard first, with mixed footage (a title card, an AI shot still to make,
+# a picture and a clip). Make asks Row-Bot, which makes the AI shot and the video; a comment on a card changes that
+# scene, and making again draws only it. The renders are scripted (no ffmpeg); the frames are read for real.
+_STORYBOARD_TITLE = "First snow"
+
+
+def _storyboard_picture(size, sky, ground, sun=None, shape=None):
+    """A small picture: a sky over the ground, a sun, and a shape on the ground (a fox, a boat)."""
+    from PIL import Image, ImageDraw
+
+    width, height = size
+    picture = Image.new("RGB", size, sky)
+    draw = ImageDraw.Draw(picture)
+    for row in range(height // 2):  # The sky fades to the horizon.
+        mix = row / max(1, height // 2)
+        draw.line([(0, row), (width, row)], fill=tuple(round(a + (b - a) * mix) for a, b in zip(sky, ground)))
+    draw.rectangle([0, height * 0.62, width, height], fill=ground)
+    if sun:
+        x, y, colour = sun
+        draw.ellipse([x - 26, y - 26, x + 26, y + 26], fill=colour)
+    if shape:
+        x, y, colour = shape
+        draw.ellipse([x - 34, y - 14, x + 34, y + 14], fill=colour)
+        draw.polygon([(x + 30, y - 4), (x + 62, y - 22), (x + 52, y + 6)], fill=colour)
+    return picture
+
+
+def _storyboard_clip(sky, ground, mover, *, seconds=3, rate=12):
+    """A short H.264 clip of that picture with its sun or shape moving across."""
+    from io import BytesIO
+
+    import av
+
+    out = BytesIO()
+    with av.open(out, mode="w", format="mp4") as container:
+        stream = container.add_stream("libx264", rate=rate)
+        stream.width, stream.height, stream.pix_fmt = 640, 360, "yuv420p"
+        for index in range(seconds * rate):
+            x = 120 + index * 400 // (seconds * rate)
+            frame = av.VideoFrame.from_image(_storyboard_picture(
+                (640, 360), sky, ground, **{mover: (x, 120 if mover == "sun" else 250,
+                                                    (255, 214, 120) if mover == "sun" else (214, 96, 40))}))
+            frame.pts = index
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+    return out.getvalue()
+
+
+def _storyboard_png(picture, kind="PNG"):
+    from io import BytesIO
+
+    out = BytesIO()
+    picture.convert("RGB").save(out, format=kind)
+    return out.getvalue()
+
+
+def _storyboard_create(thread: str) -> str:
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(thread, "town-morning.mp4", _storyboard_clip((250, 196, 150), (236, 240, 246), "sun"))
+    register_attachment(thread, "harbour.jpg", _storyboard_png(_storyboard_picture(
+        (960, 540), (120, 150, 190), (40, 70, 110), shape=(520, 380, (236, 240, 246))), "JPEG"))
+    register_attachment(thread, "fox-still.png", _storyboard_png(_storyboard_picture(
+        (960, 540), (170, 190, 220), (240, 244, 250), sun=(760, 140, (255, 220, 170)), shape=(420, 390, (214, 96, 40)))))
+    project = video_projects.create(thread, _STORYBOARD_TITLE, [
+        {"card": "First snow", "line": "Winter came early that year.", "cue": "soft piano"},
+        {"footage": "ai", "shows": "a fox crossing deep snow at dawn, slow push-in", "frame": "fox-still.png",
+         "end": 4, "line": "The fox knew first.", "cue": "strings swell"},
+        {"source": "harbour.jpg", "shows": "the harbour under fresh snow", "end": 3.5,
+         "line": "Then the harbour went quiet."},
+        {"source": "town-morning.mp4", "end": 2.5, "shows": "the town waking up",
+         "line": "And the town woke to white streets.", "cue": "piano returns"},
+    ], note="First version", logline="A fox, a harbour and a small town wake to the first snow of the year.")
+    return video_projects.summary(project)
+
+
+def _storyboard_made(thread: str, project, number: int, makes: list[str]) -> None:
+    """The version made, as the renderer would leave it: its video, its marks and checks, and how each scene was
+    made (drawn now, or reused from the last make)."""
+    import time as clock
+
+    from row_bot import video_edits, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    version = video_projects.get(project.project_id).version(number)
+    clip = _storyboard_clip((140, 160, 200), (236, 240, 246), "shape", seconds=4)
+    saved = register_attachment(thread, f"{_STORYBOARD_TITLE}.mp4", clip, role="draft",
+                                output_id=project.project_id, version=number)
+    lengths = [3.0, 4.0, 3.5, 2.5]
+    edit = video_edits.VideoEdit(
+        edit_id="edit-" + fixture_id(f"storyboard:{thread}:{number}")[:8], conversation_id=thread, kind="video",
+        summary="Joined 4 scenes", output_name=str(saved["name"]), started_at=clock.time() - 3, status="saved",
+        expected_seconds=sum(lengths), ended_at=clock.time(), media_ref=str(saved["attachment_ref"]),
+        mime_type="video/mp4", size_bytes=len(clip), marks=[sum(lengths[:index]) for index in range(5)],
+        checks_passed=True, scene_makes=makes,
+        checks=["Length 0:13, 1920×1080.", "Sound: present (average -16.1 dB, peak -1.6 dB).", "Black: none.",
+                "Still: none."])
+    video_edits._ensure_loaded()
+    video_edits._RECORDS[edit.edit_id] = edit
+    video_edits._save(edit)
+    for scene in version.scenes:
+        scene.voice, scene.voiced, scene.voiced_as = f"{scene.scene_id}.wav", scene.line, "given"
+    video_projects._update(project, number, scenes=version.scenes, status="rendering", edit_id=edit.edit_id)
+
+
+def _storyboard_make(thread: str) -> str:
+    """Make the AI shot the storyboard planned, then the video: every scene drawn."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(thread, "fox-dawn.mp4", _storyboard_clip((170, 190, 220), (240, 244, 250), "shape"),
+                        role="final")
+    [project] = video_projects.list_projects(thread)
+    scenes = [{"scene_id": scene.scene_id, "source": scene.source, "end": scene.end, "card": scene.card,
+               "line": scene.line} for scene in project.latest.scenes]
+    scenes[1]["source"] = "fox-dawn.mp4"
+    version = video_projects.change(project, by="row-bot", note="The fox's AI shot is made", scenes=scenes)
+    _storyboard_made(thread, project, version.number, ["", "new", "new", "new"])
+    return video_projects.summary(video_projects.get(project.project_id))
+
+
+def _storyboard_moodier(thread: str) -> str:
+    """The comment on scene 2: a moodier shot and cue, made again; only that scene is drawn."""
+    from row_bot import video_projects
+
+    [project] = video_projects.list_projects(thread)
+    scenes = [{"scene_id": scene.scene_id, "source": scene.source, "end": scene.end, "card": scene.card,
+               "line": scene.line} for scene in project.latest.scenes]
+    scenes[1].update(shows="a fox crossing deep snow in a cold blue dusk, slow push-in", cue="low cello",
+                     line="The fox knew first, and kept moving.")
+    version = video_projects.change(project, by="row-bot", note="Scene 2 moodier", scenes=scenes)
+    _storyboard_made(thread, project, version.number, ["", "new", "reused", "reused"])
+    return video_projects.summary(video_projects.get(project.project_id))
+
+
+def _storyboard_stream(text: str, config: dict):
+    call = predecessor._record("submit", config, "storyboard")
+    thread = call["conversation_id"]
+    identity = f"storyboard:{call['generation_id']}"
+    try:
+        if text.strip() == "c1 storyboard fixture":
+            args = {"action": "create", "title": _STORYBOARD_TITLE}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_storyboard_create(thread), []))])
+            final = ("Here's the storyboard for “First snow”: a title card, the fox's AI shot (still to make), the "
+                     "harbour and the town. Approve or comment on any card, then press Make.")
+        elif text.startswith("Make the video"):
+            from row_bot import video_projects
+
+            [project] = video_projects.list_projects(thread)
+            args = {"action": "make", "project": project.project_id}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_storyboard_make(thread), []))])
+            final = "Made “First snow”: I made the fox's shot first. Its checks passed."
+        else:
+            from row_bot import video_projects
+
+            [project] = video_projects.list_projects(thread)
+            args = {"action": "change", "project": project.project_id, "note": "Scene 2 moodier"}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_storyboard_moodier(thread), []))])
+            final = "Scene 2 is moodier now: a cold blue dusk and a low cello. Only that scene was made again."
+        yield from _natural_final(call, thread, final, "storyboard")
+    finally:
+        call["quiesced"] = True
+
+
 def _n5_stream(text: str, config: dict):
     call = predecessor._record("submit", config, "n5-page")
     thread = call["conversation_id"]
@@ -3096,6 +3264,11 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.startswith("n10 ") and text.rstrip().endswith("fixture"):
         # Outlook's own cards (N10): an email to send, or an event that invites people.
         yield from _n10_stream(text, config)
+        return
+    if text.strip() == "c1 storyboard fixture" or (text.startswith(("Make the video", "Scene 2 ["))
+                                                    and '"First snow"' in text):
+        # A storyboard first (C1): its cards, Make through Row-Bot, a comment on one card made again alone.
+        yield from _storyboard_stream(text, config)
         return
     if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.

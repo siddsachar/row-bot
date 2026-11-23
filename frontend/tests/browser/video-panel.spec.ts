@@ -44,7 +44,7 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   const panel = page.getByRole('region', { name: 'Launch demo video' });
   const player = panel.getByLabel('Launch demo, version 2');
   await expect(player).toHaveAttribute('src', /^blob:/);
-  const scenes = panel.getByRole('list', { name: 'Scenes' });
+  const scenes = panel.getByRole('list', { name: 'Storyboard' });
   await expect(scenes.getByRole('listitem')).toHaveCount(2);
   // Row-Bot's last change cut the intro: the panel marks that scene.
   await expect(scenes.getByRole('listitem').first()).toHaveAttribute(
@@ -139,7 +139,7 @@ test('a title card scene needs no video: it says how long it shows, with no spee
   await card.getByRole('button', { name: 'Open' }).click();
 
   const panel = page.getByRole('region', { name: 'Teaser video' });
-  const scenes = panel.getByRole('list', { name: 'Scenes' });
+  const scenes = panel.getByRole('list', { name: 'Storyboard' });
   await expect(scenes.getByRole('listitem')).toHaveCount(2);
   await expect(panel.getByLabel('Scene 1 lasts, in seconds')).toHaveValue('3');
   await expect(panel.getByLabel('Scene 1 speed')).toHaveCount(0);
@@ -149,4 +149,104 @@ test('a title card scene needs no video: it says how long it shows, with no spee
   await views(page, info, 'video-panel-title-card', scenes);
   await page.setViewportSize(PHONE);
   await views(page, info, 'video-panel-title-card-phone', scenes);
+});
+
+test('a new video is a storyboard first: cards to approve and comment on, made on approval, then made again only where it changed', async ({
+  page,
+}, info) => {
+  // Light and dark at desktop and phone width for each step: longer than the default minute.
+  test.setTimeout(180_000);
+  await page.setViewportSize(DESKTOP);
+  await newConversation(page);
+  await composer(page).fill('c1 storyboard fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const log = page.getByRole('log', { name: 'Conversation' });
+  const card = log.getByRole('group', { name: 'First snow · video' }).last();
+  await expect(card).toContainText('Storyboard');
+  await card.getByRole('button', { name: 'Open' }).click();
+
+  const panel = page.getByRole('region', { name: 'First snow video' });
+  const bar = panel.getByRole('region', { name: 'Storyboard' });
+  await expect(bar).toContainText('4 scenes · about 0:13 · 0 of 4 approved');
+  await expect(bar).toContainText('1 scene needs its footage');
+  await expect(panel).toContainText('A fox, a harbour and a small town wake');
+  const cards = panel
+    .getByRole('list', { name: 'Storyboard' })
+    .getByRole('listitem');
+  await expect(cards).toHaveCount(4);
+  // Mixed footage, each card with its type; the frames are read from the footage as the cards show.
+  for (const [index, kind] of [
+    [0, 'Title card'],
+    [1, 'AI shot'],
+    [2, 'Picture'],
+    [3, 'Clip'],
+  ] as const)
+    await expect(
+      cards
+        .nth(index)
+        .getByRole('img', { name: `Scene ${index + 1}: ${kind}` }),
+    ).toBeVisible();
+  // Each frame loads as its card comes near the screen.
+  for (const index of [1, 2, 3]) {
+    await cards.nth(index).scrollIntoViewIfNeeded();
+    await expect(cards.nth(index).locator('img')).toHaveAttribute(
+      'src',
+      /^blob:/,
+    );
+  }
+  await expect(cards.nth(1)).toContainText('AI shot to make');
+  await expect(cards.nth(1)).toContainText('strings swell');
+  // A picture is held for its seconds: no speed or trim.
+  await expect(panel.getByLabel('Scene 3 lasts, in seconds')).toHaveValue(
+    '3.5',
+  );
+  await expect(panel.getByLabel('Scene 3 speed')).toHaveCount(0);
+
+  await cards.nth(0).getByRole('button', { name: 'Approve scene 1' }).click();
+  await expect(cards.nth(0)).toHaveAttribute('data-approved', 'true');
+  await expect(bar).toContainText('1 of 4 approved');
+  await views(page, info, 'c1-storyboard', bar);
+  await page.setViewportSize(PHONE);
+  await expect(panel).toBeVisible();
+  await views(page, info, 'c1-storyboard-phone', cards.nth(1));
+  await page.setViewportSize(DESKTOP);
+
+  // Make: the AI shot is Row-Bot's to make, so the panel asks in the chat, and follows the video it makes.
+  await bar.getByRole('button', { name: 'Make video' }).click();
+  await expect(log).toContainText('Make the video "First snow" (vid-');
+  await expect(panel.getByLabel(/^First snow, version 2$/)).toHaveAttribute(
+    'src',
+    /^blob:/,
+  );
+  await expect(panel.getByRole('region', { name: 'Review' })).toContainText(
+    'Ready to share',
+  );
+
+  // A comment on one card reaches Row-Bot as the person's words; only that scene is made again.
+  await cards
+    .nth(1)
+    .getByRole('button', { name: 'Comment on scene 2' })
+    .click();
+  const comment = cards.nth(1).getByLabel('What to change in scene 2');
+  await comment.fill('make this one moodier');
+  await views(page, info, 'c1-storyboard-comment', cards.nth(1));
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c1-storyboard-comment-phone', cards.nth(1));
+  await page.setViewportSize(DESKTOP);
+  await comment.press('Enter');
+  await expect(log).toContainText('make this one moodier');
+  await expect(panel).toContainText(
+    'Made again: 1 changed scene drawn, 2 reused.',
+  );
+  await expect(cards.nth(1)).toContainText('Made again');
+  await expect(cards.nth(2)).toContainText('Reused');
+  await expect(cards.nth(1)).toContainText('cold blue dusk');
+  await views(
+    page,
+    info,
+    'c1-storyboard-partial-make',
+    panel.getByText('Made again: 1 changed scene drawn, 2 reused.'),
+  );
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c1-storyboard-partial-make-phone', cards.nth(1));
 });
