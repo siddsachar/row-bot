@@ -2779,6 +2779,8 @@ class LocalModelOption(WireModel):
     model_ref: str = Field(min_length=1, max_length=256)
     size_bytes: int = Field(ge=0)
     fit: LocalModelFit
+    # The window it is served at on this computer (tokens): what it reads.
+    context_tokens: int = Field(ge=0)
     # Good for everyday chat; long tasks want a larger model or a provider.
     everyday: bool
     # "4-bit", "3-bit", "2-bit": the build of the model that fits.

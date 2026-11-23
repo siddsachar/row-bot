@@ -3301,7 +3301,7 @@ it('the wake word shows in the app on this computer, off until turned on, with i
   );
 });
 
-it('the wake word is absent where it cannot listen: another device, or a phone', async () => {
+it('the wake word is absent where it cannot listen: another device, a hosted server, or a phone', async () => {
   const other = showVoiceOn('not_this_computer');
   await waitFor(() =>
     expect(screen.getByLabelText('Live captions')).toBeVisible(),
@@ -3309,6 +3309,22 @@ it('the wake word is absent where it cannot listen: another device, or a phone',
   await Promise.resolve();
   expect(screen.queryByLabelText('Hey Row-Bot')).toBeNull();
   other.unmount();
+
+  for (const place of [
+    { kind: 'hosted', host_name: 'PikaPods' },
+    { kind: 'server' },
+  ] as const) {
+    setPlace(place);
+    const away = showVoiceOn('available');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Live captions')).toBeVisible(),
+    );
+    await Promise.resolve();
+    expect(screen.queryByLabelText('Hey Row-Bot')).toBeNull();
+    expect(screen.queryByText(/this computer/)).toBeNull();
+    away.unmount();
+  }
+  setPlace(null);
 
   phoneWidth(true);
   try {

@@ -395,6 +395,10 @@ def endpoint_configuration_revision(endpoint: dict) -> str:
     value.pop("model_probes", None)
     if value.get("managed"):
         value.pop("base_url", None)  # the server's address now, which its owner gives at each request
+    if value.get("managed") == "local":
+        # Run on this computer sizes each model's window to this computer (its models list carries them), so a
+        # new window, or the endpoint-wide one it used to save, keeps the same models' probe evidence.
+        value.pop("manual_capabilities", None)
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -1334,6 +1338,23 @@ def store_managed_endpoint_models(endpoint_id: str, models: list[tuple[str, str,
     _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(endpoint, payload))
 
 
+def declare_endpoint_model(endpoint_id: str, model_id: str) -> None:
+    """A model its owner states can chat and call tools, kept with no probe (``row-bot run``: the endpoint and
+    the model are named on its command line). The first call shows whether it can; streamed tool calls are not
+    assumed, so tool requests take the non-streamed path."""
+
+    endpoint = get_custom_endpoint(endpoint_id)
+    if endpoint is None:
+        raise ValueError("not_found")
+    _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(
+        endpoint, {"data": [{"id": model_id}]}))
+    declared = {"model_id": model_id, "chat_ok": True, "streaming_ok": True, "tool_calling": True,
+                "tool_round_trip": True, "streaming_tool_calling": False, "declared": True,
+                "profile": endpoint.get("profile"), "transport": endpoint.get("transport"), "errors": []}
+    _classify_probe_result(declared)
+    _store_custom_endpoint_probe(endpoint_id, declared)
+
+
 def remove_managed_endpoint(endpoint_id: str) -> bool:
     """Remove a managed endpoint its owner no longer runs (its models were removed). True when it was saved."""
 
@@ -1444,7 +1465,7 @@ def model_infos_from_openai_compatible_catalog(
         # saves each endpoint at the context its model was trained for).
         context_window = (
             _positive_int(manual.get("context_window")) if isinstance(manual, dict) else 0
-        ) or _metadata_context_window(metadata)
+        ) or _managed_model_context(normalized, model_id) or _metadata_context_window(metadata)
         if context_window:
             metadata["context_window"] = context_window
         results.append(model_info_from_metadata(
@@ -1468,6 +1489,17 @@ def _managed_model_name(endpoint: dict[str, Any], model_id: str) -> str | None:
     from row_bot import local_runtime
 
     return local_runtime.model_label(model_id)
+
+
+def _managed_model_context(endpoint: dict[str, Any], model_id: str) -> int:
+    """The window Run on this computer serves its model at (its presets say so); llama.cpp's router reports
+    nothing for a model it hasn't loaded."""
+
+    if endpoint.get("managed") != "local":
+        return 0
+    from row_bot import local_runtime
+
+    return local_runtime.model_context(model_id) or 0
 
 
 def _catalog_model_items(payload: dict[str, Any]) -> list[Any]:

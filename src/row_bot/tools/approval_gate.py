@@ -67,6 +67,30 @@ INCOGNITO_MEMORY_REASON = "This chat is incognito: only you can save from it to 
 # A reply Proactive Row-Bot drafted in the background: its words weren't the person's, so only they send it,
 # under every level (Hands-off included).
 BACKGROUND_DRAFT_REASON = "Row-Bot wrote this reply on its own, so only you can send it."
+# A headless run (``row-bot run``) has nobody to ask: what the person would have been asked about is refused, and
+# the action's whole result says so (Learning reviewed, 23 Nov). The app's own lines never change.
+NO_PERSON_REFUSAL = "Approval: needed; no person is available to approve it in this run — did not run"
+_nobody_to_ask = False
+
+
+@contextlib.contextmanager
+def nobody_to_ask() -> Iterator[None]:
+    """While a headless run answers every approval with no: each refused action's result is
+    :data:`NO_PERSON_REFUSAL` (``refused_for_nobody``)."""
+
+    global _nobody_to_ask
+    earlier, _nobody_to_ask = _nobody_to_ask, True
+    try:
+        yield
+    finally:
+        _nobody_to_ask = earlier
+
+
+def refused_for_nobody(notes: Iterable[dict[str, Any]]) -> bool:
+    """Whether one tool call's decisions (``collect_activity``) refused what nobody was there to approve."""
+
+    return _nobody_to_ask and any(note.get("stage") == "decided" and note.get("by") == "person"
+                                  and note.get("outcome") in {"deny", "changed"} for note in notes)
 
 
 

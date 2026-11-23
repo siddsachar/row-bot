@@ -16,6 +16,7 @@ from pydantic import Field, model_validator
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_provider_usage
+from row_bot.providers import sampling_presets
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
 from row_bot.providers.model_visibility import is_personal_model_endpoint
 from row_bot.providers.reasoning import built_in_model_thinks
@@ -84,6 +85,8 @@ class ChatOpenAICompatible(BaseChatModel):
     reasoning_plan: Any | None = None
     context_captured: bool = False
     captured_context_size: int | None = None
+    # The longest reply, unless a call asks for its own (``runtime.with_reply_limit``).
+    max_tokens: int | None = None
 
     @model_validator(mode="after")
     def _personal_models_as_trained(self) -> ChatOpenAICompatible:
@@ -452,11 +455,14 @@ class ChatOpenAICompatible(BaseChatModel):
         for key in ("temperature", "top_p", "max_tokens", "presence_penalty", "frequency_penalty"):
             if key in kwargs and kwargs[key] is not None:
                 body[key] = kwargs[key]
+        if self.max_tokens:
+            body.setdefault("max_tokens", self.max_tokens)
         if str(self.endpoint.get("profile") or "").lower() == "llama_cpp":
             body.setdefault("max_tokens", LLAMA_CPP_REPLY_TOKEN_LIMIT)
         if stream and _endpoint_stream_usage_supported(self.endpoint):
             body.setdefault("stream_options", {"include_usage": True})
         _apply_dynamic_reasoning_plan(body, self.reasoning_plan)
+        sampling_presets.apply_to_openai_compatible(body, self.endpoint, self.model_name)
         if self.endpoint.get("drop_unsupported_params", True):
             _drop_empty_or_unsupported(body, accepts_tools=accepts_tools)
         if self._requests_auto_cache(messages):
