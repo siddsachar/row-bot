@@ -28,6 +28,9 @@ API_STYLES = {"chat": "openai_chat", "responses": "openai_responses", "anthropic
 #: ``--approval``: Row-Bot's approval levels. Hands-off is only ever the person's explicit choice.
 APPROVALS = {"ask": "approve", "auto": "auto", "hands-off": "full"}
 ENV_PREFIX = "ROW_BOT_RUN_"
+#: Learning's settings file in a data folder (``row_bot.learning.SETTINGS_FILE``; not imported here, before the
+#: data folder is chosen).
+LEARNING_SETTINGS_FILE = "learning_config.json"
 _EPILOG = """\
 exit codes:
   0  done
@@ -184,19 +187,20 @@ def options_from_args(args: argparse.Namespace) -> RunOptions:
 def prepare_process(options: RunOptions) -> tuple[Path, bool]:
     """Set this process up for the run, before Row-Bot loads: (the data folder, whether it is throwaway).
 
-    The data folder, the workspace, the install count off (no server starts anyway) and Learning's preview
-    flag unset, so Learning never exists in a headless run and records nothing."""
+    The data folder, the workspace and the install count off (no server starts anyway). A throwaway folder
+    starts with Learning switched off in its own settings (``learning_config.json``, Learning's documented off
+    switch), whatever Learning's default, so Learning records nothing; a named folder with Learning on is
+    refused when the run starts."""
 
     if options.data_dir is not None:
         data_dir, throwaway = options.data_dir, False
         data_dir.mkdir(parents=True, exist_ok=True)
     else:
         data_dir, throwaway = Path(tempfile.mkdtemp(prefix="row-bot-run-")), True
+        (data_dir / LEARNING_SETTINGS_FILE).write_bytes(b'{"enabled": false}\n')
     os.environ["ROW_BOT_DATA_DIR"] = str(data_dir)
     os.environ["ROW_BOT_WORKSPACE"] = str(options.workspace)
     os.environ["ROW_BOT_INSTALL_COUNT"] = "0"
-    for name in ("ROW_BOT_LEARNING_PREVIEW", "ROW_BOT_LEARNING"):
-        os.environ.pop(name, None)
     return data_dir, throwaway
 
 

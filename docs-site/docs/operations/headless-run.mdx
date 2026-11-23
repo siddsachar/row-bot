@@ -23,7 +23,7 @@ row-bot run --task-file task.txt --workspace /app \
 - **No server.** No web app, tray, window or remote access starts.
 - **No model download.** The first run downloads nothing. If the local embedding model isn't already on the machine, memory search falls back to matching words.
 - **No network beyond the model.** With `--base-url`, Row-Bot calls only that endpoint. With a configured provider, it calls only that provider, which also lists its models. The agent's own tools reach the network only when the task asks for it: a shell command, or web search where it's on.
-- **No Learning.** Learning never records a headless run.
+- **No Learning.** Learning never records a headless run. A throwaway folder starts with Learning switched off. A `--data-dir` folder where Learning is on is refused.
 
 ## Choosing The Model
 
@@ -56,13 +56,24 @@ Nobody is there to approve an action, so `--approval` decides what happens:
 
 | `--approval` | An action that needs approval |
 | --- | --- |
-| `ask` (the default) | Refused, as if the person said no. It doesn't run, and the agent carries on without it. The run exits 3. |
+| `ask` (the default) | Refused. It doesn't run, and the agent is told that no person is available to approve it, then carries on without it. The run exits 3. |
 | `auto` | Row-Bot's reviewer approves what clearly matches the task. Anything it would ask the person about is refused. |
 | `hands-off` | Allowed, and recorded. Used only when you pass it: it can't come from an environment variable. |
 
-Shell command checks, the sandbox and MCP safety work as in the app. Some actions only the person can approve, whatever the level, so a headless run always refuses them. If the agent asks the person a question, it's answered the way an unattended workflow's question is when nobody replies: the agent goes on with the option it recommended.
+Shell command checks, the sandbox and MCP safety work as in the app. Some actions only the person can approve, whatever the level, so a headless run always refuses them. If the agent asks the person a question, it's told that no person is available to answer, and it goes on with the option it recommended.
 
 The trajectory and `summary.json` list each refused action.
+
+### The text a run adds
+
+The model reads Row-Bot's normal prompts. A headless run changes only four lines, the ones that would otherwise send it to a person:
+
+- the result of a refused action;
+- the answer to a question;
+- the wrap-up at the `--max-rounds` ceiling;
+- Row-Bot's own follow-up when a reply stopped on its next step.
+
+`summary.json` and the trajectory's `agent.extra` record these lines as `harness_text`, with their SHA-256. A published result can then say exactly which harness text it ran with.
 
 ## Flags
 
@@ -93,7 +104,7 @@ With `--output-dir`, the folder gets:
 
 - **`trajectory.json`**: the conversation as an [ATIF](https://harborframework.com/docs/trajectory-format) trajectory, Harbor's Agent Trajectory Interchange Format. It has the task, each model reply with its reasoning and tool calls, each tool result tied to its call, and per-reply token counts. `final_metrics` totals every model call in the run, background ones included: prompt, completion and cached tokens, and the cost where the provider reports one.
 - **`answer.md`**: the final answer.
-- **`summary.json`**: the status, exit code and reason, the model and settings, refused actions, the token and cost totals by purpose, and timings.
+- **`summary.json`**: the status, exit code and reason, the model and settings, refused actions, the token and cost totals by purpose, the harness text, and timings.
 - **`row-bot.log`**: the run's log.
 
 ## Exit Codes

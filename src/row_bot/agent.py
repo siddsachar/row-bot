@@ -8028,7 +8028,7 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         handle.external_outcome = "uncertain"
     _note_media_tool_call(request.tool_call or {})
     from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY, collect_quoted_conversations
-    from row_bot.tools.approval_gate import collect_activity
+    from row_bot.tools.approval_gate import NO_PERSON_REFUSAL, collect_activity, refused_for_nobody
     with tool_attachment_scope() as caches, collect_activity() as decisions, collect_quoted_conversations() as quoted:
         try:
             result = execute(request)
@@ -8042,6 +8042,9 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
             handle.external_outcome = "sent"
         if not isinstance(result, ToolMessage):
             return result
+        if refused_for_nobody(decisions):
+            # A headless run: nobody was there to ask, and the result says so in place of the person's no.
+            result = result.model_copy(update={"content": NO_PERSON_REFUSAL})
         # Bounded once, when created (D1); the stamp below is computed on the capped text, and the
         # fence is rendered around it per request, so the tags are never cut.
         from row_bot.tool_outputs import cap_tool_message
@@ -9569,9 +9572,15 @@ def _learning_finalization_call(messages: list, answer: str, reasoning: str, sta
                          latency_ms=(time.perf_counter() - started) * 1000)
 
 
+# A headless run's wrap-up at the round ceiling (Learning reviewed, 23 Nov); the app's own stays as it is.
+HEADLESS_WRAP_UP = "Summarize useful partial results and say what is left undone; nobody can reply in this run."
+
+
 def _terminal_surface(config: dict) -> str:
     configurable = dict(config.get("configurable") or {})
     surface = str(configurable.get("runtime_surface") or "interactive").lower()
+    if configurable.get("headless"):
+        return "headless"  # ``row-bot run``: nobody can send Continue
     # A workflow's run is a chat turn in its own conversation (F31): Continue works there too.
     if configurable.get("agent_run_id") or "child" in surface:
         return "child"
@@ -9627,6 +9636,7 @@ def _handle_agent_terminal(
             "child": "Provide a parent-safe partial summary and state that the child run is incomplete.",
             "interactive": "Summarize useful partial results, then ask whether to keep going: the user may "
                            "send Continue.",
+            "headless": HEADLESS_WRAP_UP,
         }[surface]
         try:
             model_label, _ = _selected_model_label_from_config(config)

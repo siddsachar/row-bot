@@ -106,11 +106,10 @@ def _process_environment(monkeypatch):
     """prepare_process sets this process's environment: put it back afterwards."""
     for name in ("ROW_BOT_DATA_DIR", "ROW_BOT_WORKSPACE", "ROW_BOT_INSTALL_COUNT"):
         monkeypatch.setenv(name, os.environ.get(name, ""))
-    monkeypatch.setenv("ROW_BOT_LEARNING_PREVIEW", "1")
     monkeypatch.setenv("ROW_BOT_INSTALL_COUNT", "1")
 
 
-def test_each_run_gets_a_fresh_empty_throwaway_data_folder_with_learning_and_counting_off(tmp_path, _process_environment):
+def test_each_run_gets_a_fresh_throwaway_data_folder_with_counting_off(tmp_path, _process_environment):
     profile = os.environ["ROW_BOT_DATA_DIR"]
     options = _options("--task", "Hi", "--model", "m", "--workspace", str(tmp_path))
     first, first_throwaway = prepare_process(options)
@@ -118,14 +117,33 @@ def test_each_run_gets_a_fresh_empty_throwaway_data_folder_with_learning_and_cou
     try:
         assert first_throwaway and second_throwaway
         assert first != second and str(first) != profile and str(second) != profile
-        assert list(first.iterdir()) == [] and list(second.iterdir()) == []
         assert os.environ["ROW_BOT_DATA_DIR"] == str(second)
         assert os.environ["ROW_BOT_WORKSPACE"] == str(tmp_path.resolve())
         assert os.environ["ROW_BOT_INSTALL_COUNT"] == "0"
-        assert "ROW_BOT_LEARNING_PREVIEW" not in os.environ
     finally:
         shutil.rmtree(first, ignore_errors=True)
         shutil.rmtree(second, ignore_errors=True)
+
+
+def test_learning_is_off_in_a_throwaway_data_folder_whatever_its_default(tmp_path, monkeypatch, _process_environment):
+    from dataclasses import replace
+
+    from row_bot import learning
+
+    # As in a build where Learning exists and is on by default (the 5.4 cut): a fresh folder of its own reads as on.
+    monkeypatch.setattr(learning, "_PREVIEW", True, raising=False)
+    monkeypatch.setattr(learning, "DEFAULTS", replace(learning.DEFAULTS, enabled=True))
+    learning.invalidate()
+    (tmp_path / "fresh").mkdir()
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "fresh"))
+    assert learning.is_enabled()
+
+    data_dir, throwaway = prepare_process(_options("--task", "Hi", "--model", "m", "--workspace", str(tmp_path)))
+    try:
+        assert throwaway and not learning.is_enabled()
+    finally:
+        learning.invalidate()
+        shutil.rmtree(data_dir, ignore_errors=True)
 
 
 def test_a_named_data_folder_is_used_and_kept(tmp_path, _process_environment):

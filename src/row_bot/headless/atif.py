@@ -22,7 +22,8 @@ AGENT_NAME = "row-bot"
 
 
 def trajectory(messages: Iterable[Any], *, session_id: str, agent_version: str, model_name: str,
-               prompts: list[str], usage: Mapping[str, Any], extra: Mapping[str, Any] | None = None) -> dict[str, Any]:
+               prompts: list[str], usage: Mapping[str, Any], extra: Mapping[str, Any] | None = None,
+               agent_extra: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The ATIF document for *messages* (LangChain messages); *prompts* are the messages the run sent, the
     task first, and *usage* the run's ledger totals."""
 
@@ -63,7 +64,8 @@ def trajectory(messages: Iterable[Any], *, session_id: str, agent_version: str, 
     document: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "session_id": session_id,
-        "agent": {"name": AGENT_NAME, "version": agent_version, "model_name": model_name},
+        "agent": {"name": AGENT_NAME, "version": agent_version, "model_name": model_name,
+                  **({"extra": dict(agent_extra)} if agent_extra else {})},
         "steps": [{"step_id": number, **step} for number, step in enumerate(steps, start=1)],
         "final_metrics": final,
     }

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from row_bot.headless.cli import EXIT_BUDGET, EXIT_DONE, EXIT_PROVIDER, EXIT_REFUSED
+from row_bot.tools.approval_gate import NO_PERSON_REFUSAL
 from tests.helpers.atif_schema import problems
 from tests.helpers.fake_chat_endpoint import MODEL, calls, fake_chat_endpoint, text
 
@@ -126,5 +127,10 @@ def test_each_way_a_headless_run_ends_has_its_exit_code(tmp_path, case, code):
     assert (run.workspace / "doomed.txt").exists()
     if case == "refused":
         assert [item["tool"] for item in summary["refused_actions"]] == ["run_command"]
+        trajectory = json.loads(run.output("trajectory.json"))
+        [refusal] = [result["content"] for step in trajectory["steps"]
+                     for result in (step.get("observation") or {}).get("results", [])]
+        assert refusal == NO_PERSON_REFUSAL
+        assert trajectory["agent"]["extra"]["harness_text"] == summary["harness_text"]
     assert run.guarded() == []
     assert _snapshot(run.home) == run.before

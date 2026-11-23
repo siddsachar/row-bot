@@ -6,13 +6,16 @@ profile has on), and the one follow-up the app would start after it runs too (it
 stopped on its next step, or checks files the reply says it saved). Nobody is there to answer what stops for a
 person, so:
 
-- an action that needs approval is refused, as when the person says no ("did not run"), and the run goes on;
-  under ``auto`` the reviewer decides first and only what it would ask the person about is refused;
-- a question to the person (``ask_person``) gets the answer an unattended workflow's question gets when nobody
-  answers in time: go on with the recommended option.
+- an action that needs approval is refused, as when the person says no, and the run goes on; its result says
+  no person is available to approve it (``approval_gate.NO_PERSON_REFUSAL``). Under ``auto`` the reviewer
+  decides first and only what it would ask the person about is refused;
+- a question to the person (``ask_person``) is answered that no person is there to answer, so the agent goes
+  on with its recommended option;
+- the round ceiling's wrap-up and the app's carry-on follow-up use their headless lines.
 
-Nothing here weakens a check: shell classification, the sandbox, MCP safety and the approval levels decide as
-in the app.
+Those four lines (:func:`harness_text`, reviewed by Learning) are the only model-visible text a run adds, and
+the output files carry them with their hash. Nothing here weakens a check: shell classification, the sandbox,
+MCP safety and the approval levels decide as in the app.
 """
 
 from __future__ import annotations
@@ -250,6 +253,7 @@ def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult
     import row_bot.agent as agent
     from row_bot.application.conversation_followups import followup_after
     from row_bot.tools import registry
+    from row_bot.tools.approval_gate import nobody_to_ask
 
     tools = [tool.name for tool in registry.get_enabled_tools()]
     stop = threading.Event()
@@ -261,28 +265,29 @@ def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult
     result.status = "running"
     prompt: str | None = options.task
     try:
-        while prompt is not None and result.status == "running":
-            result.turns += 1
-            result.prompts.append(prompt)
-            config = {"configurable": {
-                "thread_id": thread_id, "model_override": model_ref, "runtime_mode": "agent",
-                "runtime_surface": "normal_chat", "approval_mode": options.approval_mode,
-                "generation_id": uuid.uuid4().hex,
-            }}
-            events: Iterable[tuple[str, Any]] = agent.stream_agent(prompt, tools, config, stop_event=stop)
-            for _ in range(MAX_ANSWERS):
-                waiting = _consume(events, result)
-                if not waiting or result.status != "running" or stop.is_set():
+        with nobody_to_ask():
+            while prompt is not None and result.status == "running":
+                result.turns += 1
+                result.prompts.append(prompt)
+                config = {"configurable": {
+                    "thread_id": thread_id, "model_override": model_ref, "runtime_mode": "agent",
+                    "runtime_surface": "normal_chat", "approval_mode": options.approval_mode,
+                    "generation_id": uuid.uuid4().hex, "headless": True,
+                }}
+                events: Iterable[tuple[str, Any]] = agent.stream_agent(prompt, tools, config, stop_event=stop)
+                for _ in range(MAX_ANSWERS):
+                    waiting = _consume(events, result)
+                    if not waiting or result.status != "running" or stop.is_set():
+                        break
+                    events = _answer(agent, tools, config, waiting, result)
+                else:
+                    result.stop("refused", f"the turn still waited for a person after {MAX_ANSWERS} answers")
+                if stop.is_set():
+                    result.stop("budget", f"the run's --timeout of {options.timeout:g} seconds ran out")
+                if result.status != "running" or result.turns > 1:
                     break
-                events = _answer(agent, tools, config, waiting, result)
-            else:
-                result.stop("refused", f"the turn still waited for a person after {MAX_ANSWERS} answers")
-            if stop.is_set():
-                result.stop("budget", f"the run's --timeout of {options.timeout:g} seconds ran out")
-            if result.status != "running" or result.turns > 1:
-                break
-            followup = followup_after(thread_id, result.answer, model_ref)
-            prompt = followup.prompt if followup is not None else None
+                followup = followup_after(thread_id, result.answer, model_ref, headless=True)
+                prompt = followup.prompt if followup is not None else None
     finally:
         if timer is not None:
             timer.cancel()
@@ -320,13 +325,13 @@ def _answer(agent: Any, tools: list[str], config: dict[str, Any], waiting: list[
 
     from row_bot import questions
 
-    # What the model reads here is the app's own wording, unchanged: a refusal reads as the person's no, a
-    # question as nobody answering in time. Wording that says no person is available in a headless run waits
-    # on Learning's review of model-visible text; none is added until then.
+    # The model reads the headless lines Learning reviewed (harness_text): a refusal says no person is available
+    # to approve it, a question that no person is there to answer. A headless line in the turn context was
+    # turned down; any such line needs its own A/B first.
     if any(questions.is_question(item) for item in waiting):
         result.unanswered_questions += 1
         return agent.resume_stream_agent(tools, config, False,
-                                         resume_values=questions.resume_values(waiting, questions.timed_out()))
+                                         resume_values=questions.resume_values(waiting, questions.no_person()))
     for item in waiting:
         result.refused_actions.append({"tool": str(item.get("tool") or item.get("tool_name") or ""),
                                        "what": str(item.get("description") or item.get("summary") or "")[:300]})
@@ -346,6 +351,23 @@ def _file_log(output_dir: Path | None) -> logging.Handler | None:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logging.getLogger().addHandler(handler)
     return handler
+
+
+def harness_text() -> dict[str, Any]:
+    """The headless lines the model may read in a run (Learning reviewed them), with their SHA-256, so a published
+    result says which harness text it used."""
+
+    import hashlib
+
+    from row_bot import questions
+    from row_bot.agent import HEADLESS_WRAP_UP
+    from row_bot.application.conversation_followups import HEADLESS_CARRY_ON_PROMPT
+    from row_bot.tools.approval_gate import NO_PERSON_REFUSAL
+
+    lines = {"refused_action": NO_PERSON_REFUSAL, "unanswered_question": questions.NO_PERSON_ANSWER,
+             "round_ceiling_wrap_up": HEADLESS_WRAP_UP, "carry_on": HEADLESS_CARRY_ON_PROMPT}
+    digest = hashlib.sha256(json.dumps(lines, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {"sha256": digest, "lines": lines}
 
 
 def _usage(started: float) -> dict[str, Any]:
@@ -374,6 +396,7 @@ def _write_outputs(options: RunOptions, result: RunResult, thread_id: str, start
     folder = options.output_dir
     assert folder is not None
     usage = _usage(started)
+    text = harness_text()
     messages: list[Any] = []
     if thread_id:
         from row_bot import threads
@@ -399,13 +422,14 @@ def _write_outputs(options: RunOptions, result: RunResult, thread_id: str, start
         "refused_actions": result.refused_actions,
         "unanswered_questions": result.unanswered_questions,
         "usage": usage,
+        "harness_text": text,
         "started_at": _iso(started),
         "finished_at": _iso(finished),
         "seconds": round(finished - started, 3),
     }
     trajectory = atif.trajectory(
         messages, session_id=thread_id or "row-bot-run", agent_version=__version__, model_name=result.model,
-        prompts=result.prompts, usage=usage,
+        prompts=result.prompts, usage=usage, agent_extra={"harness_text": text},
         extra={"status": result.status, "exit_code": result.exit_code, "reason": result.reason,
                "approval": options.approval, "refused_actions": result.refused_actions},
     )
