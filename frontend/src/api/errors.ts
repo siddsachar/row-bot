@@ -1968,7 +1968,7 @@ const CATALOG: Record<string, Entry> = {
   ],
   sent_file_unavailable: ['That file is no longer here to download.', 'none'],
   sent_file_expired: [
-    'This download has ended: sent files stay for 7 days. Ask Row-Bot to send it again.',
+    'This download has ended: sent files can be downloaded for 7 days. Ask Row-Bot to send it again.',
     'none',
   ],
   sent_files_gone: [
