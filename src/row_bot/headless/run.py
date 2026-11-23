@@ -224,10 +224,14 @@ def _set_context_window(model_ref: str, tokens: int) -> None:
     provider, model = parse_model_ref(model_ref) or ("", "")
     try:
         if provider == "ollama":
-            models.set_local_model_settings(model, context=tokens)
+            # Only the window: the model's other settings (Thinking, reply limit, sampling) stay as saved.
+            models.save_person_local_model_context("ollama", model, tokens)
         else:
             models.set_cloud_context_size(tokens)
     except ValueError as exc:
+        if str(exc) == "learning_model":
+            raise UsageError("--context-window: Learning's personal models read the window they were trained "
+                             "at") from None
         raise UsageError(f"--context-window: {exc}") from None
 
 

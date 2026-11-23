@@ -1519,6 +1519,14 @@ def save_person_local_model_settings(provider_id: str, model_id: str, *, context
     return dict(entry)
 
 
+def save_person_local_model_context(provider_id: str, model_id: str, context: int | None) -> dict:
+    """Set only the window of a local model's settings (``row-bot run --context-window``), keeping the person's
+    Thinking, reply limit and sampling. Refuses a model Learning serves, as the sheet does."""
+    saved = person_local_model_settings(provider_id, model_id)
+    return save_person_local_model_settings(provider_id, model_id, context=context, reasoning=saved.get("reasoning"),
+                                            reply_limit=saved.get("reply_limit"), sampling=saved.get("sampling"))
+
+
 def local_reply_limit(provider_id: str, model_id: str) -> int | None:
     """The person's reply limit for a local model, or None for Automatic."""
     value = person_local_model_settings(provider_id, model_id).get("reply_limit")

@@ -107,6 +107,22 @@ def test_the_catalog_marks_the_models_that_have_a_settings_sheet(ollama, store):
     assert {row.selection_ref: row.local_settings for row in rows}[REF] is True
 
 
+def test_setting_only_the_window_keeps_the_models_other_settings(store):
+    """``row-bot run --context-window`` changes the window alone: Thinking, reply length and sampling survive."""
+    own = {"temperature": 0.4, "top_k": 30}
+    store.save_person_local_model_settings("ollama", MODEL, context=65_536, reasoning="off", reply_limit=8_192,
+                                           sampling=own)
+
+    store.save_person_local_model_context("ollama", MODEL, 32_768)
+
+    assert store.local_model_settings(MODEL) == {"context": 32_768, "reasoning": "off", "reply_limit": 8_192,
+                                                 "sampling": own}
+    store.set_local_model_settings("my-arm:latest", context=16_384, reasoning="off", owner="learning")
+    with pytest.raises(ValueError, match="learning_model"):
+        store.save_person_local_model_context("ollama", "my-arm:latest", 32_768)
+    assert store.local_model_settings("my-arm:latest")["context"] == 16_384  # Learning's entry untouched
+
+
 def test_automatic_again_removes_the_models_entry(store):
     store.save_person_local_model_settings("ollama", MODEL, context=32_768)
     store.save_person_local_model_settings("ollama", MODEL)
