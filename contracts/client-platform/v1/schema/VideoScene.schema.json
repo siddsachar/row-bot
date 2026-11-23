@@ -30,6 +30,14 @@
       "title": "Cue",
       "type": "string"
     },
+    "effects": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Effects",
+      "type": "array"
+    },
     "end": {
       "anyOf": [
         {
@@ -114,6 +122,12 @@
       ],
       "default": null,
       "title": "Source Ref"
+    },
+    "speaker": {
+      "default": "",
+      "maxLength": 40,
+      "title": "Speaker",
+      "type": "string"
     },
     "speed": {
       "maximum": 4,

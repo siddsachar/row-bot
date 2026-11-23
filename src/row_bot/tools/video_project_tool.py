@@ -57,6 +57,11 @@ class _Scene(BaseModel):
     shows: str | None = Field(default=None, description="What it shows, in a few words.")
     frame: str | None = Field(default=None, description="A picture you made for its card (empty: a frame of it).")
     cue: str | None = Field(default=None, description="Its music cue.")
+    speaker: str | None = Field(default=None, description="Who says its line: a character's name (said in that "
+                                                          "character's voice), or empty for the narrator.")
+    effects: list[str] | None = Field(default=None, description="Its sound effects and ambience: whoosh, hit, click "
+                                                                "(as it starts); rain, wind, crowd, waves, footsteps "
+                                                                "(under it); or a sound file in this chat.")
 
 
 class _VideoInput(BaseModel):
@@ -68,7 +73,9 @@ class _VideoInput(BaseModel):
                                                    "(rec-…), each with its title and line: live as it is, work "
                                                    "sped up, cut left out.")
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
-    music: str | None = Field(default=None, description="A music file (make_music) under the whole video; '' none.")
+    music: str | None = Field(default=None, description="Music under the whole video: 'fit' (made to the video's "
+                                                         "length when it's made, its sections changing where the "
+                                                         "music cue does), or a music file; '' none.")
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")
     narration: str | None = Field(default=None, description="One voice file (speak a whole script) said over the "
                                                            "whole video instead of each scene's line; '' none.")
@@ -81,6 +88,12 @@ class _VideoInput(BaseModel):
     voice: str | None = Field(default=None, description="create, change: this video's voice for its lines "
                                                         "('' the brand kit's).")
     voice_speed: float | None = Field(default=None, description="create, change: its speed, 0.9-1.25 (0 the kit's).")
+    cast: dict[str, str] | None = Field(default=None, description='create, change: a voice for each character who '
+                                                                  'speaks, e.g. {"Maya": "bf_emma"}, kept with a '
+                                                                  'saved character for every video (left out: its '
+                                                                  'saved voice, else one picked for it).')
+    on_beat: bool | None = Field(default=None, description="create, change: cut each scene on the music's beat "
+                                                           "(a montage).")
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
@@ -90,7 +103,10 @@ class _VideoInput(BaseModel):
     caption_style: Literal["box", "bold", "title"] | None = Field(
         default=None, description="brand: how captions look when a video has them.")
     music_mood: Literal["calm", "upbeat", "focused", "warm"] | None = Field(
-        default=None, description="brand: the mood of music made for a video.")
+        default=None, description="create, change: the mood of music made to fit ('fit'; default the brand kit's); "
+                                  "brand: the mood of music made for a video.")
+    loudness: float | None = Field(default=None, description="brand: every video's loudness in LUFS (-14 for social "
+                                                             "video, the default; -16 podcasts; -23 broadcast).")
     note: str = Field(default="", description="create, change: what you changed, in a few words.")
     version: int | None = Field(default=None, description="make, status: a version (default the latest).")
 
@@ -263,13 +279,14 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            captions: bool | None = None, voice_lines: bool | None = None, note: str = "", version: int | None = None, aspect: str | None = None,
            shape: str | None = None, brand: bool | None = None, voice: str | None = None,
            voice_speed: float | None = None, framing: str | None = None, caption_style: str | None = None,
-           music_mood: str | None = None, logline: str | None = None) -> str:
+           music_mood: str | None = None, logline: str | None = None, cast: dict | None = None,
+           on_beat: bool | None = None, loudness: float | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
     if action == "brand":
         return _brand(framing=framing, captions=caption_style, music_mood=music_mood, voice=voice,
-                      voice_speed=voice_speed)
+                      voice_speed=voice_speed, loudness=loudness)
     conversation = _conversation()
     if not conversation:
         return "Video projects need a conversation."
@@ -286,10 +303,11 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                           captions=bool(captions), voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
                                           note=note, voice=voice or "", voice_speed=voice_speed,
-                                          logline=logline or "", approvals=(approved := []))
+                                          logline=logline or "", approvals=(approved := []), cast=cast,
+                                          music_mood=music_mood or "", on_beat=bool(on_beat), kept=(kept := []))
             if len(found.latest.scenes) > 1:  # A new video of several scenes: its storyboard first (G6).
-                return _with(approved, video_projects.summary(found))
-            return _make(found, None, approved)
+                return _with(approved, video_projects.summary(found) + _kept(kept))
+            return _make(found, None, approved) + _kept(kept)
         found = video_projects.get(project, conversation)
         if found is None:
             return f"{project or 'That'} isn't a video project in this chat: use action create."
@@ -299,10 +317,11 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                             title=title or None, music=music, music_volume=music_volume, narration=narration,
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
                                             brand=brand, voice=voice, voice_speed=voice_speed, logline=logline,
-                                            approvals=(approved := []))
+                                            approvals=(approved := []), cast=cast, music_mood=music_mood,
+                                            on_beat=on_beat, kept=(kept := []))
             if storyboard:  # A storyboard stays one until it's made.
-                return _with(approved, video_projects.summary(found, changed.number))
-            return _make(found, changed.number, approved)
+                return _with(approved, video_projects.summary(found, changed.number) + _kept(kept))
+            return _make(found, changed.number, approved) + _kept(kept)
         if action == "undo":
             if len(found.versions) < 2:
                 return "There's no earlier version to go back to."
@@ -326,6 +345,12 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
     return "Use action create, change, make, status, undo, export or brand."
 
 
+def _kept(names: list[str]) -> str:
+    """The result's line for voices kept with saved characters ("" none)."""
+    return (f"\nKept each voice with {', '.join(names)} in Library › Media: their lines in every video use it."
+            if names else "")
+
+
 def _brand(**changes: object) -> str:
     """Save how every video should look, as the person said it (R3): the kit the Video settings show."""
     from dataclasses import asdict
@@ -337,7 +362,7 @@ def _brand(**changes: object) -> str:
     except video_brand.BrandError as error:
         return str(error)
     shown = {key: value for key, value in asdict(kit).items() if key in {"framing", "captions", "music_mood",
-                                                                      "voice", "voice_speed"}}
+                                                                      "voice", "voice_speed", "loudness"}}
     return ("Saved in the brand kit (the Video panel’s Brand kit); every new video starts this way: "
             + ", ".join(f"{key} {value or 'default'}" for key, value in shown.items()) + ".")
 
@@ -359,7 +384,7 @@ def langchain_tool():
             "video comes with its checks, by scene and time: fix what they list and make it again; it's ready to "
             "share only when they pass (no analyze_image passes of your own). undo goes back one version; export "
             "makes the same version in another shape or a GIF; brand saves how every video should look (framing, "
-            "caption style, music mood, voice). For one quick edit use edit_video. A title or end card is a scene "
+            "caption style, music mood, voice, loudness). For one quick edit use edit_video. A title or end card is a scene "
             "without a video: never make background videos or other working files in the person's workspace for it."
         ),
         args_schema=_VideoInput,

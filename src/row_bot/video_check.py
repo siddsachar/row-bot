@@ -532,7 +532,7 @@ def _sound(info: VideoInfo, measures: Measures) -> Finding | None:
         return Finding("Sound: none. Add a voice or music if this video should have sound.")
     if loudness < QUIETEST:
         level = "silent" if loudness == float("-inf") or loudness <= -70 else f"{loudness:.1f} LUFS"
-        return Finding(f"Sound: too quiet ({level}; keep it between {QUIETEST:g} and {LOUDEST:g} LUFS, -16 suits "
+        return Finding(f"Sound: too quiet ({level}; keep it between {QUIETEST:g} and {LOUDEST:g} LUFS, -14 suits "
                        "most videos). Turn the voice or music up.")
     if loudness > LOUDEST:
         return Finding(f"Sound: too loud ({loudness:.1f} LUFS; keep it between {QUIETEST:g} and {LOUDEST:g} LUFS). "

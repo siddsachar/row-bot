@@ -72,7 +72,7 @@ def test_a_quiet_mix_a_loud_one_and_peaks_that_clip_need_fixing():
         return [line for line in result.lines if line.startswith("Sound")] + [str(result.passed)]
 
     assert sound("-16.0", "-1.6") == ["Sound: -16.0 LUFS, peaks -1.6 dBTP.", "True"]
-    assert sound("-28.4", "-12.0") == ["Sound: too quiet (-28.4 LUFS; keep it between -23 and -9 LUFS, -16 suits "
+    assert sound("-28.4", "-12.0") == ["Sound: too quiet (-28.4 LUFS; keep it between -23 and -9 LUFS, -14 suits "
                                        "most videos). Turn the voice or music up.", "False"]
     assert sound("-6.5", "-0.4")[0].startswith("Sound: too loud (-6.5 LUFS") and sound("-6.5", "-0.4")[1] == "False"
     assert sound("-14.0", "-0.3")[0].startswith("Sound: its peaks reach -0.3 dBTP, enough to crackle on phones")

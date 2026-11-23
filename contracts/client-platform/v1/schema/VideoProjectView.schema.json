@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "VideoCastMember": {
+      "additionalProperties": false,
+      "description": "A character who speaks in a video, and the voice its lines are said in (C6).",
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "voice": {
+          "maxLength": 64,
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "voice"
+      ],
+      "title": "VideoCastMember",
+      "type": "object"
+    },
     "VideoEditView": {
       "additionalProperties": false,
       "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
@@ -288,6 +311,14 @@
           "title": "Cue",
           "type": "string"
         },
+        "effects": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Effects",
+          "type": "array"
+        },
         "end": {
           "anyOf": [
             {
@@ -372,6 +403,12 @@
           ],
           "default": null,
           "title": "Source Ref"
+        },
+        "speaker": {
+          "default": "",
+          "maxLength": 40,
+          "title": "Speaker",
+          "type": "string"
         },
         "speed": {
           "maximum": 4,
@@ -492,6 +529,14 @@
       "title": "Captions",
       "type": "boolean"
     },
+    "cast": {
+      "items": {
+        "$ref": "#/$defs/VideoCastMember"
+      },
+      "maxItems": 200,
+      "title": "Cast",
+      "type": "array"
+    },
     "changed": {
       "items": {
         "pattern": "^s[0-9a-f]{6}$",
@@ -560,6 +605,18 @@
       "title": "Music",
       "type": "string"
     },
+    "music_mood": {
+      "default": "",
+      "enum": [
+        "",
+        "calm",
+        "upbeat",
+        "focused",
+        "warm"
+      ],
+      "title": "Music Mood",
+      "type": "string"
+    },
     "music_volume": {
       "maximum": 1,
       "minimum": 0,
@@ -576,6 +633,11 @@
       "minimum": 1,
       "title": "Number",
       "type": "integer"
+    },
+    "on_beat": {
+      "default": false,
+      "title": "On Beat",
+      "type": "boolean"
     },
     "problem": {
       "maxLength": 400,

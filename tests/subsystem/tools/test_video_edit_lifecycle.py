@@ -126,3 +126,30 @@ def test_a_real_tiny_encode(studio, tmp_path):
     assert (info.width, info.height, info.has_audio) == (320, 180, True)
     assert abs(info.duration - 2.0) < 0.2
     assert Path(output).stat().st_size > 1000
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_video_given_music_is_its_picture_then_its_mix_at_minus_14(studio, tmp_path):
+    """C6: the picture's run, the mix, then the sound laid beside the picture copied as it was made."""
+    from row_bot import ffmpeg_runtime, music
+    from row_bot.application.attachments import read_attachment
+    from row_bot.tools import video_editing_tool as video_tool
+
+    real = ffmpeg_runtime.find()
+    clip = tmp_path / "clip.mp4"
+    subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "testsrc2=size=320x180:rate=15:duration=4", "-f", "lavfi", "-i", "sine=duration=4",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(clip)], check=True)
+    studio["register"](studio["chat"], "clip.mp4", clip.read_bytes())
+    studio["register"](studio["chat"], "music.wav", music.wav_bytes(music.compose(4.0, mood="upbeat")))
+
+    result = video_tool._edit_video(inputs=["clip.mp4"], name="scored", steps=[
+        {"op": "trim", "start": 0.5, "end": 3.5}, {"op": "sound", "source": "music.wav", "role": "music"}])
+
+    assert "\nSaved 0:03 of video" in result, result
+    edit = studio["edits"].get(result.split(":", 1)[0].removeprefix("Video edit "))
+    output = tmp_path / "out.mp4"
+    output.write_bytes(read_attachment(edit.media_ref)[1])
+    info, measures = studio["edits"].measure_file(real, output, tmp_path)
+    assert info.has_audio and abs(info.duration - 3.0) < 0.2
+    assert -15.5 < measures.loudness < -12.5 and measures.peak < -1.0, (measures.loudness, measures.peak)
