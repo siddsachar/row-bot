@@ -29794,5 +29794,15 @@
         }
       }
     }
-  }
+  },
+  "x-websockets": [
+    {
+      "path": "/api/v1/voice/stream",
+      "summary": "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down."
+    },
+    {
+      "path": "/api/v1/voice/live",
+      "summary": "Live voice: the ticket first, then the session's events both ways and a relayed front's audio."
+    }
+  ]
 }

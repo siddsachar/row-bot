@@ -246,6 +246,19 @@
       "maxItems": 500,
       "title": "Items",
       "type": "array"
+    },
+    "next": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next"
     }
   },
   "required": [

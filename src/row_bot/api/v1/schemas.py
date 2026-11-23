@@ -3536,7 +3536,7 @@ class ChannelSource(WireModel):
 class ChannelFieldStatus(WireModel):
     key: OpaqueId
     label: str = Field(max_length=160)
-    field_type: Literal["text", "password", "number", "slider"]
+    field_type: Literal["text", "password", "number", "slider", "toggle"]
     storage: Literal["env", "config"]
     help_text: str = Field(max_length=512)
     configured: bool | None
@@ -3544,6 +3544,8 @@ class ChannelFieldStatus(WireModel):
     fingerprint: str = Field(max_length=128)
     externally_managed: bool
     writable: bool
+    # A switch's current value (field_type "toggle" only); other fields never show theirs.
+    value: bool | None = None
 
 
 class PairedChannelIdentity(WireModel):
@@ -3605,7 +3607,7 @@ class ChannelActionRequest(WireModel):
     revision: KnowledgeRevision
     operation: ChannelOperation
     field_key: OpaqueId | None
-    value: str | int | float | None
+    value: bool | str | int | float | None
     identity_id: KnowledgeRevision | None
 
 

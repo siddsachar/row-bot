@@ -26,6 +26,7 @@ Each channel is an app in **Settings › Apps**, under the **Communication** cat
 - **Get pairing code for _channel_** shows a code that approves the account that sends it; it expires after one hour. Some channels approve people their own way and say so.
 - **Paired accounts** lists who is approved, with **Revoke** for each.
 - **Reset session** (WhatsApp) unlinks your phone and shows a new code to scan.
+- **Reply to voice notes with a voice note** (Telegram and WhatsApp, on until you turn it off): when you send a voice note, Row-Bot answers for listening and sends its reply as a voice note too, right after the text, so code, links and tables still arrive as text. It uses Row-Bot's voice, Kokoro, from **Settings › Voice**; until Kokoro is installed, the reply is text only. A reply too long for one voice note (about an hour of speech on WhatsApp) goes as text only.
 - **More settings** holds the channel's other fields.
 - **`/reasoning`** shows or changes the reasoning choice for that channel conversation's active model. Run it without an argument to see the exact valid choices.
 - **`/new`** starts a fresh conversation; see [Conversations](#conversations).
@@ -40,7 +41,7 @@ Every chat with Row-Bot on a channel is also a conversation in Row-Bot, with its
 - **Direct messages, Telegram, WhatsApp and SMS.** Each direct message or chat keeps one conversation going.
 - **Starting fresh.** Send `/new` to start a new conversation, on any channel (Telegram also accepts `/newthread`). In a Slack or Discord thread, the thread continues in the new conversation. Earlier conversations stay in Row-Bot. An approval the earlier conversation was waiting for no longer holds up the chat; answer it in Row-Bot.
 - **Names.** A Slack thread's conversation is named from its first message and a Discord thread's from the thread's name. A name you give a conversation in Row-Bot is kept.
-- **Several attachments.** Send several photos, voice notes or files in one message, or as an album, and Row-Bot answers them together in one reply. It reads each photo with your Vision model and transcribes each voice note first. On WhatsApp, Row-Bot waits about a second for the rest of an album.
+- **Several attachments.** Send several photos, voice notes or files in one message, or as an album, and Row-Bot answers them together in one reply. It reads each photo with your Vision model and transcribes each voice note first, with the speech model chosen for Dictation in **Settings › Voice** (Whisper or SenseVoice), which detects the language spoken. Nothing downloads for a voice note: without a speech model installed, Row-Bot replies that voice notes need one. On WhatsApp, Row-Bot waits about a second for the rest of an album.
 - **Files from Row-Bot.** Ask Row-Bot to send you a file on Telegram, Discord, Slack or WhatsApp and it sends it to your own chat there, or to the chat the conversation came from, after asking (see [Sending Files](/docs/chat/tools-approvals-and-terminal#sending-files)).
 - **A stuck conversation.** If a conversation gets stuck on a tool call that can't finish, Row-Bot starts a fresh one and asks you to resend your message.
 

@@ -64,7 +64,7 @@ class _Voice:
     def sensevoice_provider(self) -> _SenseVoice:
         return self.sensevoice
 
-    def transcribe_pcm16(self, pcm: bytes, *, allow_download: bool) -> str:
+    def transcribe_pcm16(self, pcm: bytes, *, allow_download: bool, language: str | None = "en") -> str:
         self.calls.append((pcm, allow_download))
         return "hello browser"
 
