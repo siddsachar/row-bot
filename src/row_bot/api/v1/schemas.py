@@ -907,12 +907,40 @@ class LiveVoiceProvider(WireModel):
     shares: bool = False
 
 
+CloudSpeechId = Literal["deepgram", "assemblyai", "openai_transcribe", "gemini_transcribe", "elevenlabs", "cartesia",
+                        "gemini_tts"]
+
+
+class CloudSpeechOption(WireModel):
+    """A cloud listening or speaking option for Row-Bot Voice: who gets the audio (listen) or the
+    text (speak), its approximate price, and whether its key is saved (never the key)."""
+
+    id: CloudSpeechId
+    part: Literal["listen", "speak"]
+    label: str = Field(max_length=64)
+    company: str = Field(max_length=64)
+    price: str = Field(max_length=96)
+    price_checked: str = Field(max_length=32)
+    key_saved: bool
+    # The Voice setting that holds its key ("deepgram.credential"); None when its key is in Providers.
+    key_field: str | None = Field(default=None, max_length=64)
+    key: SettingsCredentialState | None = None
+    # Speaking: its voices and the chosen one; how a voice can be described ("style" or "design").
+    voices: list[SettingsChoice] = Field(default_factory=list, max_length=16)
+    voice: str = Field(default="", max_length=64)
+    describe: Literal["", "style", "design"] = ""
+    description: str = Field(default="", max_length=300)
+    # ElevenLabs: a voice was made from the description.
+    designed: bool = False
+
+
 class VoiceSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     runtime: VoiceRuntimeSettingsSnapshot
     local: VoiceLocalSettingsSnapshot
     tts: VoiceTtsSettingsSnapshot
     live_providers: list[LiveVoiceProvider] = Field(max_length=8)
+    cloud_speech: list[CloudSpeechOption] = Field(default_factory=list, max_length=16)
     talk_providers: list[SettingsChoice] = Field(max_length=8)
     dictation_providers: list[SettingsChoice] = Field(max_length=8)
     speech_output_providers: list[SettingsChoice] = Field(max_length=8)

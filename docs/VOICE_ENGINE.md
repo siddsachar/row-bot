@@ -345,6 +345,64 @@ hard-codes English any more.
 - No multilingual streaming model is offered: sherpa-onnx's streaming models
   are each one language (or Chinese with English). Qwen3-TTS is a follow-up.
 
+## Cloud speech parts (V5)
+
+Optional, off by default, with the person's own keys (`voice/cloud_speech.py` holds the
+options, their published prices with the date checked, and where each key lives). Each runs
+behind the same seams as the local engines, connected from the host with plain `websockets`
+and `httpx`; no vendor SDK, so there is no new dependency and no third-party telemetry.
+
+| Listen with | Protocol | Price (23 Nov 2026) |
+|---|---|---|
+| Deepgram Nova-3 | `wss://api.deepgram.com/v1/listen`, `Authorization: Token`, binary PCM, `Finalize` | $0.0048/min ($0.0058 multilingual), promotional |
+| AssemblyAI STT 3.7 Realtime | `wss://streaming.assemblyai.com/v3/ws`, `Authorization`, binary PCM, `Terminate` | $0.30 per session hour |
+| OpenAI `gpt-live-transcribe` | `wss://api.openai.com/v1/realtime?intent=transcription`, a `transcription` session, 24 kHz PCM, commit | $0.017/min |
+| Gemini `gemini-3.5-transcribe-live` | the Live API socket, `x-goog-api-key`, manual activity start and end | about $0.009/min |
+
+| Speak with | Request | Price (23 Nov 2026) |
+|---|---|---|
+| ElevenLabs `eleven_flash_v2_5` | `POST /v1/text-to-speech/{voice}/stream?output_format=pcm_24000`, `xi-api-key` | $0.04 per 1,000 characters |
+| Cartesia `sonic-3.6` | `POST /tts/bytes`, raw `pcm_s16le` 24 kHz, `Cartesia-Version: 2026-08-14` | about $0.05 per 1,000 characters |
+| Gemini `gemini-3.8-flash-tts` | `POST /v1beta/interactions`, streamed, voice in `speech_config`, style annotation | $9 per 1M audio tokens out (25 a second), $18 from 1 Jan 2027 |
+
+- **Listening.** One utterance is one socket (`cloud_stt.py`): it opens when the person starts
+  speaking, carries only that utterance's audio in 100 ms pieces from a thread, and closes when
+  the final transcript arrives, or at once when the turn is dropped (a barge-in that was not a
+  turn, mute). Partials are what the provider has said so far, so `live_partials` is true and
+  the bar's captions are live. A session that is open but quiet sends nothing and costs
+  nothing. A failure reaches the bar as `cloud_speech_failed`; only the exception's type is
+  logged. `open(language=...)` passes a language (a code, or None to detect) to each provider.
+- **Speaking.** Each sentence or clause is one HTTP request on a kept-alive client
+  (`cloud_tts.py`). The pieces stream back as they are made: `SentenceSpeech.stream` lets the
+  engine send the first piece before the sentence is finished, and closing the iterator at a
+  barge-in closes the request. Saved pronunciations (`sound.respelled`) apply. Read aloud and
+  voice-note replies use the same chosen output, as a WAV.
+- **Voices (VD11).** Presets per provider (Kokoro's stay the default). "Describe a voice":
+  Gemini's style annotation from the person's description, sent with each sentence; ElevenLabs'
+  voice design (`/v1/text-to-voice/design`, then `/v1/text-to-voice` with the first preview),
+  a reviewed Settings action that saves the new voice in the person's account. Only words are
+  sent: no recording, and no route takes one.
+- **Keys.** OpenAI and Google use their keys in Providers. Deepgram, AssemblyAI, ElevenLabs and
+  Cartesia keys are Voice settings stored in Row-Bot's key store like the other keys, written
+  only, never returned, kept out of programs Row-Bot starts. Readiness is whether a key is
+  saved, with no network call.
+- **Languages (V8).** The saved language reaches each listener (`open(language=...)`; None detects,
+  and the language a provider reports comes back with the transcript, so `transcribe_heard` reports
+  it too). A cloud voice gets the language hint per sentence: the text's own language when clear,
+  else the one last heard. It is passed to ElevenLabs (`language_code`) and Cartesia (`language`);
+  Gemini tells it itself. A language the voice's model does not list (ElevenLabs Flash v2.5's 32,
+  Sonic 3.6's 44, Gemini 3.8 Flash TTS's 130-plus) is `unspoken`, exactly as for Kokoro, and
+  Settings › Voice › Language lists the chosen voice's languages.
+- **No silent switching.** A chosen cloud part without its key is replaced by the local part
+  (Whisper or the downloaded model; Kokoro), never by another company: Settings says
+  "Needs your … key", and the session's `ready` event carries `fallbacks`, which the bar says.
+- **OpenAI text-to-speech is not offered.** OpenAI shuts down `tts-1`, `tts-1-hd` and
+  `gpt-4o-mini-tts` on 6 Jan 2027; its named replacement is a speech-to-speech model on the
+  Realtime API, not a speech endpoint.
+- **Latency with fakes.** With a provider that answers at once, the engine adds nothing beyond
+  the provider's own time: the first piece of a sentence is sent the moment it arrives, before
+  the rest is made. Real first-audio times need real keys (a hand check).
+
 ## Transport: why a WebSocket, not WebRTC
 
 aiortc never offers loopback candidates (it uses LAN, virtual or link-local

@@ -3307,6 +3307,21 @@ const CATALOG: Record<string, Entry> = {
     'review',
     PROVIDERS,
   ],
+  cloud_key_missing: [
+    'That speech service needs your API key. Add it in Voice settings.',
+    'review',
+    VOICE,
+  ],
+  cloud_voice_failed: [
+    "The voice service didn't answer. Check your key in Voice settings, or try again.",
+    'retry',
+    VOICE,
+  ],
+  cloud_speech_failed: [
+    "The speech service didn't answer. Check your key in Voice settings, or try again.",
+    'retry',
+    VOICE,
+  ],
   speech_model_missing: [
     (place) =>
       `The speech model Talk listens with isn't downloaded ${place.on}. Download it in Voice settings, or choose Whisper.`,

@@ -558,7 +558,7 @@ it('renders real voice controls without probing a device or provider', async () 
   // Read aloud says what speaks it; there is no switch that does nothing.
   expect(
     screen.getByText(
-      'Replies you read aloud and Talk’s answers speak with Kokoro, on this computer.',
+      'Replies you read aloud, Talk’s answers and voice-note replies speak with Kokoro, on this computer.',
     ),
   ).toBeVisible();
   expect(screen.getByLabelText('Voice')).toHaveValue('af_heart');
@@ -2974,4 +2974,183 @@ it('Devices on a phone puts Connect a phone or computer first under Advanced, ho
     within(hosted).getByRole('region', { name: 'Connect a phone or computer' }),
   ).toBeInTheDocument();
   expect(within(hosted).queryByText('Network')).toBeNull();
+});
+
+type Cloud = NonNullable<SettingsSnapshot['voice']['cloud_speech']>[number];
+const deepgram: Cloud = {
+  id: 'deepgram',
+  part: 'listen',
+  label: 'Deepgram Nova-3',
+  company: 'Deepgram',
+  price: 'about $0.005 a minute',
+  price_checked: '23 Nov 2026',
+  key_saved: false,
+  key_field: 'deepgram.credential',
+  key: { configured: false, source: 'none', fingerprint: '' },
+  describe: '',
+};
+const geminiListen: Cloud = {
+  ...deepgram,
+  id: 'gemini_transcribe',
+  label: 'Gemini Transcribe Live',
+  company: 'Google',
+  price: 'about $0.009 a minute',
+  key_saved: true,
+  key_field: null,
+  key: null,
+};
+const elevenlabs: Cloud = {
+  id: 'elevenlabs',
+  part: 'speak',
+  label: 'ElevenLabs Flash',
+  company: 'ElevenLabs',
+  price: 'about $0.04 a minute of speech',
+  price_checked: '23 Nov 2026',
+  key_saved: true,
+  key_field: 'elevenlabs.credential',
+  key: { configured: true, source: 'keyring', fingerprint: '****9f2a' },
+  voices: [
+    { value: 'EXAVITQu4vr4xnSDxMaL', label: 'Sarah' },
+    { value: 'JBFqnCBsd6RMkjVDRZzb', label: 'George' },
+  ],
+  voice: 'EXAVITQu4vr4xnSDxMaL',
+  describe: 'design',
+  description: 'A calm, warm voice with a slight smile.',
+  designed: false,
+};
+const geminiSpeak: Cloud = {
+  ...elevenlabs,
+  id: 'gemini_tts',
+  label: 'Gemini Flash TTS',
+  company: 'Google',
+  key_saved: false,
+  key_field: null,
+  key: null,
+  voices: [{ value: 'Kore', label: 'Kore (firm)' }],
+  voice: 'Kore',
+  describe: 'style',
+  description: '',
+};
+
+function showCloudVoice(talk: string, speak: string) {
+  mutation.page = 'voice';
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{
+            ...snapshot.voice,
+            runtime: {
+              ...snapshot.voice.runtime,
+              talk_provider: talk,
+              speech_output_provider: speak,
+            },
+            local: { ...snapshot.voice.local, whisper_installed: true },
+            cloud_speech: [deepgram, geminiListen, elevenlabs, geminiSpeak],
+            talk_providers: [
+              { value: 'local', label: 'Local' },
+              { value: 'deepgram', label: 'Deepgram Nova-3' },
+              { value: 'gemini_transcribe', label: 'Gemini Transcribe Live' },
+            ],
+            speech_output_providers: [
+              { value: 'local', label: 'Local' },
+              { value: 'elevenlabs', label: 'ElevenLabs Flash' },
+              { value: 'gemini_tts', label: 'Gemini Flash TTS' },
+            ],
+          }}
+          conversationId="conversation-a"
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+}
+
+it('lists local listening and speaking first, then cloud ones with their price and key (V5)', () => {
+  showCloudVoice('local', 'local');
+  const listen = screen.getByLabelText('Listen with');
+  expect(
+    within(listen)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual([
+    'Whisper · on this computer',
+    'Deepgram Nova-3 · ~$0.005/min · needs your key',
+    'Gemini Transcribe Live · ~$0.009/min',
+  ]);
+  const speak = screen.getByLabelText('Speak with');
+  expect(speak).toHaveValue('local');
+  expect(within(speak).getAllByRole('option')[0]).toHaveTextContent(
+    'Kokoro · on this computer',
+  );
+  // Locally, nothing leaves: no company is named, and Kokoro's voices are shown.
+  expect(screen.queryByText(/goes to/)).toBeNull();
+  expect(screen.getByLabelText('Voice')).toHaveValue('af_heart');
+});
+
+it('says whose servers hear the voice, what it costs and that it needs a key until one is added', () => {
+  showCloudVoice('deepgram', 'local');
+  expect(
+    screen.getByText(
+      'Your voice goes to Deepgram while you talk. About $0.005 a minute (Deepgram’s prices, 23 Nov 2026).',
+    ),
+  ).toBeVisible();
+  expect(screen.getByText('Needs your Deepgram key')).toBeVisible();
+  expect(
+    screen.getByText('Until you add it, Talk listens on this computer.'),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Add Deepgram API key' }),
+  ).toBeVisible();
+});
+
+it('a Google key lives in Providers, and Speak with names who reads the text, voice notes included', () => {
+  showCloudVoice('gemini_transcribe', 'gemini_tts');
+  expect(screen.getByText('Talk listens with Google')).toBeVisible();
+  expect(
+    screen.getByText(
+      'Text goes to Google to be spoken. About $0.04 a minute of speech (Google’s prices, 23 Nov 2026).',
+    ),
+  ).toBeVisible();
+  // No key yet: Kokoro speaks, and the note says so; the key is added in Providers.
+  expect(
+    screen.getByText(/voice-note replies speak with Kokoro/),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: 'Add it in Providers' }),
+  ).toHaveAttribute('href', '/settings/models#providers-api');
+  expect(screen.getByLabelText('Voice')).toHaveValue('Kore');
+  expect(screen.getByLabelText('Describe the voice')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Make this voice' })).toBeNull();
+});
+
+it('picks a cloud voice and makes one from a description only, after a review (VD11)', async () => {
+  showCloudVoice('local', 'elevenlabs');
+  expect(
+    screen.getByText(
+      /voice-note replies in chat apps are spoken by ElevenLabs: their text goes to ElevenLabs/,
+    ),
+  ).toBeVisible();
+  const voice = screen.getByLabelText('Voice');
+  expect(
+    within(voice)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['Sarah', 'George']);
+  expect(
+    screen.getByText(/no recordings, no copies of real people/),
+  ).toBeVisible();
+  // Nothing here takes a recording of a voice.
+  expect(document.querySelector('input[type="file"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Make this voice' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'voice',
+        field: 'elevenlabs.design_voice',
+        value: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
 });

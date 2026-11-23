@@ -475,13 +475,37 @@ def _voice_language(runtime: Mapping[str, Any], local: Mapping[str, Any], chosen
         "options": [{"value": languages.AUTO, "label": "Detect automatically"},
                     *sorted(({"value": code, "label": label} for code, label in languages.LANGUAGES.items()),
                             key=lambda row: row["label"])],
-        "spoken": sorted(languages.KOKORO_LANGUAGES),
+        # What the chosen voice speaks: a cloud voice with its key saved, else Kokoro.
+        "spoken": sorted(_spoken_languages(runtime)),
         "voice_options": [
             {"language": language, "label": languages.name(language), "options": _choice_rows(voices)}
             for language, voices in languages.KOKORO_VOICES.items()
         ],
         "notices": notices,
     }
+
+
+def _spoken_languages(runtime: Mapping[str, Any]) -> frozenset[str]:
+    from row_bot.voice import cloud_speech, languages
+
+    found = cloud_speech.option(str(runtime.get("speech_output_provider") or ""), "speak")
+    if found is not None and cloud_speech.key_saved(found):
+        return found.speaks
+    return languages.KOKORO_LANGUAGES
+
+
+def _cloud_labels(part: str) -> dict[str, str]:
+    from row_bot.voice import cloud_speech
+
+    return {option.id: option.label for option in cloud_speech.OPTIONS if option.part == part}
+
+
+def _cloud_speech(runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Each cloud speech option, its price and whether its key is saved (never the key)."""
+    from row_bot.voice import cloud_speech
+    from row_bot.voice.runtime import VoiceRuntimeSettings, cloud_voice_settings
+
+    return cloud_speech.rows(VoiceRuntimeSettings(**cloud_voice_settings(dict(runtime))), _credential_status)
 
 
 def _voice(root: Path) -> dict[str, Any]:
@@ -551,11 +575,12 @@ def _voice(root: Path) -> dict[str, Any]:
         },
         "language": _voice_language(runtime, local, speech_language),
         "live_providers": _live_providers(),
+        "cloud_speech": _cloud_speech(runtime),
         "talk_providers": _choice_rows(
-            {"local": "Local", "openai_realtime": "OpenAI Realtime"}
+            {"local": "Local", "openai_realtime": "OpenAI Realtime", **_cloud_labels("listen")}
         ),
         "dictation_providers": _choice_rows({"local": "Local"}),
-        "speech_output_providers": _choice_rows({"local": "Local"}),
+        "speech_output_providers": _choice_rows({"local": "Local", **_cloud_labels("speak")}),
         "whisper_options": _choice_rows(_WHISPER_OPTIONS),
         "realtime_voice_options": _choice_rows(_REALTIME_VOICE_OPTIONS),
         "tts_voice_options": _choice_rows(_TTS_VOICE_OPTIONS),

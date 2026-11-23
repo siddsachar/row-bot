@@ -12,7 +12,7 @@ import wave
 
 from row_bot.tts import TTSService
 from row_bot.voice import SAMPLE_RATE, VoiceService, get_voice_service
-from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
+from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderError, VoiceProviderStatus
 from row_bot.voice.providers import (
     SpeechMode,
     speech_output_provider,
@@ -168,7 +168,10 @@ class BrowserLocalVoiceService:
             for piece in pieces:
                 if validate is not None:
                     validate()
-                speech = provider.synthesize(piece)
+                try:
+                    speech = provider.synthesize(piece)
+                except VoiceProviderError as error:  # A cloud voice that failed or lost its key.
+                    raise BrowserVoiceError(error.code, status_code=503) from None
                 if validate is not None:
                     validate()
                 if not isinstance(speech, SynthesizedSpeech) or not isinstance(speech.audio, bytes):

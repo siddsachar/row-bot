@@ -88,7 +88,12 @@ export type VoiceSnapshot = {
    * voice provider that takes no images).
    */
   canShare: 'yes' | 'blind' | 'no';
+  /** Cloud speech parts the person chose that run locally for now: their key is missing. */
+  fallbacks: VoiceFallback[];
 };
+
+/** A chosen cloud service standing in for: "listen" (speech to text) or "speak" (its voice). */
+export type VoiceFallback = { part: 'listen' | 'speak'; company: string };
 
 export type VoiceSessionDeps = {
   openSocket(): VoiceSocket;
@@ -114,6 +119,12 @@ const ERRORS: Record<string, string> = {
   voice_share_unavailable:
     'This chat’s model can’t see images, so nothing can be shared.',
   voice_still_refused: 'A still of what you share couldn’t be sent.',
+  cloud_speech_failed:
+    'The speech service didn’t answer, so that wasn’t heard. Check your key in Settings › Voice.',
+  cloud_voice_failed:
+    'The voice service didn’t answer, so that stays on screen. Check your key in Settings › Voice.',
+  cloud_key_missing:
+    'A speech service key is missing. Add it in Settings › Voice.',
 };
 
 /** Why the microphone could not start, as one of the codes above. */
@@ -124,6 +135,17 @@ export function microphoneError(error: unknown) {
   if (name === 'NotFoundError' || name === 'OverconstrainedError')
     return 'no_microphone';
   return 'microphone_failed';
+}
+
+function fallbacksOf(value: unknown): VoiceFallback[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const row = (item ?? {}) as { part?: unknown; company?: unknown };
+    return (row.part === 'listen' || row.part === 'speak') &&
+      typeof row.company === 'string'
+      ? [{ part: row.part, company: row.company }]
+      : [];
+  });
 }
 
 export function voiceError(code: string) {
@@ -146,6 +168,7 @@ const INITIAL: VoiceSnapshot = {
   unspoken: null,
   share: null,
   canShare: 'no',
+  fallbacks: [],
 };
 
 export class VoiceSession {
@@ -252,6 +275,7 @@ export class VoiceSession {
           pushToTalk: Boolean(event.push_to_talk),
           captionsDefault: event.captions !== false,
           canShare: event.sees_images === false ? 'blind' : 'yes',
+          fallbacks: fallbacksOf(event.fallbacks),
         });
         if (event.sees_images === false) this.share.stop('', false);
         // A reconnected socket is a new host session: it hears the sharing again.

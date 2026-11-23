@@ -1066,6 +1066,15 @@
 .settings-secret-input-row .input {
   flex: 1 1 220px;
 }
+/* A key among a group's rows sits like one of them. */
+.settings-group-surface > .settings-secret-control {
+  margin-top: -1px;
+  border-top: 1px solid var(--border-hairline);
+  padding: 2px 16px;
+}
+.settings-group-surface > .settings-secret-control .settings-secret-input-row {
+  padding-bottom: 12px;
+}
 .settings-saved-control:has(.settings-folder-row) > .field > legend {
   position: absolute;
   width: 1px;
