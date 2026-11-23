@@ -1,6 +1,7 @@
 """The gateway's routes.
 
-For connected Row-Bots (any signed-in principal):
+For connected Row-Bots (any signed-in principal, with a browser session or a device's bearer token; a bearer's
+device is named on its calls' ``model.called``):
 
 - ``GET /api/models``: the models this person may use;
 - ``POST /api/gateway/openai/v1/chat/completions`` and ``.../embeddings``: OpenAI wire format;
@@ -129,6 +130,7 @@ class GatewayService:
                 with conn.transaction():
                     audit.emit(conn, Action.MODEL_CALLED, actor=audit.person(principal.principal_id),
                                outcome=Outcome.SUCCEEDED if outcome == "ok" else Outcome.FAILED,
+                               device_id=principal.device_id,
                                details={"provider": route.api, "model": route.model,
                                         "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
                                         "duration_ms": duration_ms,

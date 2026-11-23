@@ -92,6 +92,65 @@ def revoke_sessions(conn: psycopg.Connection, principal_id: str) -> int:
         (principal_id,)).rowcount
 
 
+# -- device credentials (migration 0007) ----------------------------------------------------------
+
+@dataclass(frozen=True)
+class DevicePrincipal:
+    device_id: str
+    principal_id: str
+    groups: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Lifetimes:
+    access: timedelta
+    refresh_idle: timedelta
+    refresh: timedelta
+
+
+def issue_device_code(conn: psycopg.Connection, *, device_id: str, verifier: bytes, code_challenge: str,
+                      redirect_uri: str) -> None:
+    """A one-time code for one of the current principal's own devices (``conn`` is inside its
+    principal_transaction); it lasts 60 seconds."""
+    conn.execute("INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri)"
+                 " VALUES (%s, %s, %s, %s)", (device_id, verifier, code_challenge, redirect_uri))
+
+
+def redeem_device_code(pool: ConnectionPool, *, code: bytes, challenge: str, redirect_uri: str, access: bytes,
+                       refresh: bytes, lifetimes: Lifetimes) -> str | None:
+    """Trade a code for the two tokens' verifiers: the device's id, or None (and a reused code revokes)."""
+    with pool.connection() as conn:
+        row = conn.execute("SELECT device_id FROM row_bot_org.redeem_device_code(%s, %s, %s, %s, %s, %s, %s, %s)",
+                           (code, challenge, redirect_uri, access, refresh, lifetimes.access,
+                            lifetimes.refresh_idle, lifetimes.refresh)).fetchone()
+    return None if row is None else str(row[0])
+
+
+def refresh_device_token(pool: ConnectionPool, *, refresh: bytes, access: bytes, new_refresh: bytes,
+                         lifetimes: Lifetimes) -> str | None:
+    """Rotate a refresh token: the device's id, or None (and a reused token revokes the device's tokens)."""
+    with pool.connection() as conn:
+        row = conn.execute("SELECT device_id FROM row_bot_org.refresh_device_token(%s, %s, %s, %s, %s)",
+                           (refresh, access, new_refresh, lifetimes.access, lifetimes.refresh_idle)).fetchone()
+    return None if row is None else str(row[0])
+
+
+def resume_device_token(pool: ConnectionPool, verifier: bytes) -> DevicePrincipal | None:
+    with pool.connection() as conn:
+        row = conn.execute("SELECT device_id, principal_id, groups FROM row_bot_org.resume_device_token(%s)",
+                           (verifier,)).fetchone()
+    return None if row is None else DevicePrincipal(str(row[0]), str(row[1]), tuple(row[2]))
+
+
+def leave_device(conn: psycopg.Connection, device_id: str) -> bool:
+    """Revoke one of the current principal's devices and its tokens. Whether the device was live."""
+    left = conn.execute("UPDATE row_bot_org.devices SET revoked_at = now() WHERE id = %s AND revoked_at IS NULL",
+                        (device_id,)).rowcount
+    conn.execute("UPDATE row_bot_org.device_tokens SET revoked_at = now() WHERE device_id = %s"
+                 " AND revoked_at IS NULL", (device_id,))
+    return left == 1
+
+
 # -- people (admins and operators) ----------------------------------------------------------------
 
 _PERSON = ("SELECT p.id, p.display_name, p.email, p.role, p.status, p.last_sign_in_at,"
@@ -160,6 +219,8 @@ def set_status(conn: psycopg.Connection, principal_id: str, status: str) -> str 
     return row[0]
 
 
-__all__ = ["SIGN_IN_LIFETIME", "Person", "SessionPrincipal", "SignInAttempt", "begin_sign_in", "current_principal",
-           "find_people", "get_person", "list_people", "resume_session", "revoke_session", "revoke_sessions",
-           "set_role", "set_status", "sign_in", "active_admins", "take_sign_in"]
+__all__ = ["SIGN_IN_LIFETIME", "DevicePrincipal", "Lifetimes", "Person", "SessionPrincipal", "SignInAttempt",
+           "active_admins", "begin_sign_in", "current_principal", "find_people", "get_person", "issue_device_code",
+           "leave_device", "list_people", "redeem_device_code", "refresh_device_token", "resume_device_token",
+           "resume_session", "revoke_session", "revoke_sessions", "set_role", "set_status", "sign_in",
+           "take_sign_in"]

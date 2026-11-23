@@ -30,11 +30,16 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
+# The device sign-in's two pages (identity.device): its own stylesheet, and a form that posts here and is then
+# redirected to the app's loopback address (form-action governs a form's redirects too). No script at all.
+DEVICE_PAGES = frozenset({"/auth/device", "/auth/device/confirm", "/auth/device.css"})
+DEVICE_CSP = ("default-src 'none'; style-src 'self'; form-action 'self' http://127.0.0.1:* http://[::1]:*; "
+              "base-uri 'none'; frame-ancestors 'none'")
 
 
 class _SecurityHeaders:
     """Adds ``SECURITY_HEADERS`` to every HTTP response, errors and 404s included (with the console's own CSP
-    on the console's paths, when it is served)."""
+    on the console's paths, when it is served, and ``DEVICE_CSP`` on the device sign-in's pages)."""
 
     def __init__(self, app: ASGIApp, *, console: bool = False) -> None:
         self.app = app
@@ -46,6 +51,7 @@ class _SecurityHeaders:
             return
 
         console = self.console and is_console_path(scope["path"])
+        device = scope["path"] in DEVICE_PAGES
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -54,6 +60,8 @@ class _SecurityHeaders:
                     headers[name] = value
                 if console:
                     headers["Content-Security-Policy"] = CONSOLE_CSP
+                elif device:
+                    headers["Content-Security-Policy"] = DEVICE_CSP
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
@@ -87,7 +95,8 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
     and ``settings.idp`` it serves sign-in (``row_bot_org.identity``), the policy routes
     (``row_bot_org.policy``), people (``row_bot_org.identity.people``), the audit log (``row_bot_org.audit.web``)
-    and devices (``row_bot_org.devices``), with ``settings.gateway_key``
+    and devices (``row_bot_org.devices``) with their sign-in and bearer tokens (``row_bot_org.identity.device``),
+    with ``settings.gateway_key``
     too the model catalog and gateway (``row_bot_org.gateway``), and with ``settings.console_dir`` the admin
     console (``row_bot_org.console``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
@@ -95,11 +104,13 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     ``X-Forwarded-For`` and ``X-Forwarded-Proto`` count only from ``settings.trusted_proxies`` (uvicorn's
     own proxy-header handling is off in ``serve``); from any other peer they are ignored.
     """
-    service = None
+    service = device = None
     if pool is not None and settings.idp:
+        from row_bot_org.identity.device import DeviceService
         from row_bot_org.identity.web import IdentityService
 
         service = IdentityService(settings, pool)
+        device = DeviceService(service)
     gateway = None
     if service is not None and settings.gateway_key is not None:
         from row_bot_org.gateway.web import GatewayService
@@ -140,6 +151,7 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     if service is not None:
         from row_bot_org.audit.web import audit_router
         from row_bot_org.devices import devices_router
+        from row_bot_org.identity.device import device_router
         from row_bot_org.identity.people import people_router
         from row_bot_org.identity.roles import AdminRequired
         from row_bot_org.identity.web import identity_router
@@ -147,7 +159,8 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
         app.state.identity = service
         app.add_exception_handler(AdminRequired, _admin_required)
-        routers += [identity_router(service), people_router(), policy_router(), audit_router(), devices_router()]
+        routers += [identity_router(service), people_router(), policy_router(), audit_router(), devices_router(),
+                    device_router(device)]
     if gateway is not None:
         from row_bot_org.gateway.web import gateway_router
 
@@ -164,7 +177,8 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     # included), then the gate. The log matches the routers' own routes: the app's are wrapped.
     app.add_middleware(Gate, open_paths=open_paths, origin=settings.public_url,
                        resolve=service.resolve if service is not None else None,
-                       pages=_console_page if console else None)
+                       pages=_console_page if console else None,
+                       resolve_bearer=device.resolve if device is not None else None)
     app.add_middleware(AccessLog, routes=[route for router in routers for route in router.routes])
     app.add_middleware(_SecurityHeaders, console=console)
     if settings.trusted_proxies:
@@ -173,4 +187,4 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     return app
 
 
-__all__ = ["SECURITY_HEADERS", "create_app"]
+__all__ = ["DEVICE_CSP", "DEVICE_PAGES", "SECURITY_HEADERS", "create_app"]

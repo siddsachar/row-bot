@@ -352,3 +352,25 @@ A connected Row-Bot registers itself (`POST /api/devices`) and reports in (`POST
 Admins list devices (`GET /api/admin/devices?person=&revoked=`) and revoke one
 (`POST /api/admin/devices/{id}/revoke`): a revoked device is refused from then on. To stop a person
 altogether, suspend them (People and admins).
+
+**How a Row-Bot joins.** In Row-Bot's settings the person enters the server's address. Row-Bot opens the system
+browser at `/auth/device`; the person signs in with the company's identity provider as usual and sees "Connect
+Row-Bot on <device> to <server>?". Connect registers the device (`device.joined`) and hands Row-Bot, through its
+own loopback address on the person's computer (`http://127.0.0.1:<port>/...`, nothing else is accepted), a
+one-time code that it trades for its own credential (OAuth's native-app flow with PKCE, RFC 8252). The browser
+session plays no further part: Row-Bot's calls to the person's API, the models and audit carry the device's
+bearer token. A device's token never opens an admin route or the console: administration stays in a browser.
+
+**What stops a device.** Every request with a device's token checks that the device isn't revoked and its person
+is active, so each takes effect on the device's next request:
+- an admin revokes the device (above): it's done for good; the person joins again to get a new device;
+- an admin suspends the person: all their devices stop, and start working again if they're resumed (a device
+  whose refresh token lapsed meanwhile joins again);
+- the person leaves in Row-Bot (`POST /api/device/leave`): the device is revoked with its tokens
+  (`device.removed`, reason `left`).
+
+**Token lifetimes** (fixed in this version): an access token lasts 1 hour; Row-Bot then rotates its refresh
+token, which ends after 30 days unused and 180 days after the device joined at the latest, after which the person
+signs in again in the browser. A refresh token presented a second time (a copy) revokes every token of its device.
+The server keeps only HMAC verifiers of codes and tokens. `/auth/device` and `/api/device/token` are limited per
+client address like sign-in: `ROW_BOT_ORG_SIGN_IN_RATE_LIMIT` requests a minute, counted apart from sign-in's.

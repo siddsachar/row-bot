@@ -84,6 +84,48 @@ def test_a_same_origin_request_gets_past_the_origin_rule_to_the_session_rule(cli
     assert client.post("/auth/logout", headers=headers).status_code == 401
 
 
+BEARER = {"Authorization": "Bearer rboa_" + "A" * 43}
+
+
+@pytest.mark.parametrize("authorization", ["Bearer rboa_" + "A" * 43, "Bearer", "Basic dXNlcjpwYXNz",
+                                           "Bearer two tokens"])
+def test_a_bearer_that_isnt_live_is_refused_with_a_challenge(client: TestClient, authorization: str) -> None:
+    response = client.get("/api/me", headers={"Authorization": authorization})
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "invalid_token"}
+    assert response.headers["www-authenticate"] == 'Bearer error="invalid_token"'
+
+
+def test_a_bearer_request_is_outside_the_same_origin_rule(client: TestClient) -> None:
+    # No Origin, no Sec-Fetch-Site: refused for the token, never for the origin.
+    response = client.post("/api/audit/events", headers=BEARER, json={"events": []})
+    assert (response.status_code, response.json()) == (401, {"error": "invalid_token"})
+    # Without a bearer, the same request is refused for its origin first.
+    assert client.post("/api/audit/events", json={"events": []}).json() == {"error": "same_origin_required"}
+
+
+def test_a_session_cookie_and_a_bearer_together_are_refused(client: TestClient) -> None:
+    client.cookies.set("__Host-row_bot_org_session", "rbos_" + "A" * 43)
+    response = client.get("/api/me", headers=BEARER)
+
+    assert (response.status_code, response.json()) == (400, {"error": "invalid_request"})
+
+
+@pytest.mark.parametrize(("method", "path"), [("GET", "/api/admin/people"), ("POST", "/api/admin/devices/x/revoke"),
+                                              ("GET", "/console/"), ("GET", "/admin/"), ("POST", "/auth/logout"),
+                                              ("POST", "/auth/device/confirm"), ("GET", "/no/such/route")])
+def test_a_bearer_is_never_taken_outside_the_persons_api(client: TestClient, method: str, path: str) -> None:
+    response = client.request(method, path, headers=BEARER)
+
+    assert (response.status_code, response.json()) == (403, {"error": "browser_session_required"})
+
+
+def test_the_device_token_endpoint_is_open_and_outside_the_same_origin_rule(client: TestClient) -> None:
+    # Sign-in isn't configured here, so there is no such route: past the gate, a plain 404.
+    assert client.post("/api/device/token", json={"grant_type": "refresh_token"}).status_code == 404
+
+
 def test_without_a_public_url_nothing_may_change_state() -> None:
     with TestClient(create_app(load_settings({})), base_url=PUBLIC_URL) as client:
         assert client.post("/auth/logout", headers={"Origin": PUBLIC_URL}).status_code == 403

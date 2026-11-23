@@ -9,6 +9,8 @@
 - ``web``: the ``/auth/*``, ``/api/me`` and ``/admin/`` landing routes; ``gate``: the gate every route passes (a session, and the same
   origin for anything that changes state), the access log and ``request_principal``, the dependency
   every later router uses.
+- ``device``: a desktop Row-Bot's sign-in (``/auth/device``, loopback redirect and PKCE), its token endpoint
+  (``/api/device/token``), the bearer lookup the gate uses, and ``/api/device/leave`` (migration 0007).
 
 Needs the ``org`` dependency group (joserfc, psycopg) except for ``config``, ``limits`` and ``gate``.
 """
