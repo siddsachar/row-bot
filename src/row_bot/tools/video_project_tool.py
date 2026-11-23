@@ -57,11 +57,10 @@ class _Scene(BaseModel):
     shows: str | None = Field(default=None, description="What it shows, in a few words.")
     frame: str | None = Field(default=None, description="A picture you made for its card (empty: a frame of it).")
     cue: str | None = Field(default=None, description="Its music cue.")
-    speaker: str | None = Field(default=None, description="Who says its line: a character's name (said in that "
-                                                          "character's voice), or empty for the narrator.")
-    effects: list[str] | None = Field(default=None, description="Its sound effects and ambience: whoosh, hit, click "
-                                                                "(as it starts); rain, wind, crowd, waves, footsteps "
-                                                                "(under it); or a sound file in this chat.")
+    speaker: str | None = Field(default=None, description="Who says its line: a character (in its own voice); "
+                                                          "empty: the narrator.")
+    effects: list[str] | None = Field(default=None, description="whoosh, hit, click (as it starts); rain, wind, "
+                                                                "crowd, waves, footsteps (under it); or a sound file.")
 
 
 class _VideoInput(BaseModel):
@@ -73,9 +72,8 @@ class _VideoInput(BaseModel):
                                                    "(rec-…), each with its title and line: live as it is, work "
                                                    "sped up, cut left out.")
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
-    music: str | None = Field(default=None, description="Music under the whole video: 'fit' (made to the video's "
-                                                         "length when it's made, its sections changing where the "
-                                                         "music cue does), or a music file; '' none.")
+    music: str | None = Field(default=None, description="Music under the video: 'fit' (made to its length, "
+                                                         "changing with the music cues), a music file, or '' none.")
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")
     narration: str | None = Field(default=None, description="One voice file (speak a whole script) said over the "
                                                            "whole video instead of each scene's line; '' none.")
@@ -88,12 +86,9 @@ class _VideoInput(BaseModel):
     voice: str | None = Field(default=None, description="create, change: this video's voice for its lines "
                                                         "('' the brand kit's).")
     voice_speed: float | None = Field(default=None, description="create, change: its speed, 0.9-1.25 (0 the kit's).")
-    cast: dict[str, str] | None = Field(default=None, description='create, change: a voice for each character who '
-                                                                  'speaks, e.g. {"Maya": "bf_emma"}, kept with a '
-                                                                  'saved character for every video (left out: its '
-                                                                  'saved voice, else one picked for it).')
-    on_beat: bool | None = Field(default=None, description="create, change: cut each scene on the music's beat "
-                                                           "(a montage).")
+    cast: dict[str, str] | None = Field(default=None, description="create, change: each character's voice, e.g. "
+                                                                  '{"Maya": "bf_emma"}, kept with a saved character.')
+    on_beat: bool | None = Field(default=None, description="create, change: cut scenes on the music's beat.")
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
@@ -103,10 +98,10 @@ class _VideoInput(BaseModel):
     caption_style: Literal["box", "bold", "title"] | None = Field(
         default=None, description="brand: how captions look when a video has them.")
     music_mood: Literal["calm", "upbeat", "focused", "warm"] | None = Field(
-        default=None, description="create, change: the mood of music made to fit ('fit'; default the brand kit's); "
-                                  "brand: the mood of music made for a video.")
-    loudness: float | None = Field(default=None, description="brand: every video's loudness in LUFS (-14 for social "
-                                                             "video, the default; -16 podcasts; -23 broadcast).")
+        default=None, description="create, change: the mood of 'fit' music (default the kit's); brand: the mood of "
+                                  "music made for a video.")
+    loudness: float | None = Field(default=None, description="brand: loudness in LUFS (-14 social, default; -16 "
+                                                             "podcasts; -23 broadcast).")
     note: str = Field(default="", description="create, change: what you changed, in a few words.")
     version: int | None = Field(default=None, description="make, status: a version (default the latest).")
 
