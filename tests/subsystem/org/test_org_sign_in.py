@@ -34,6 +34,7 @@ from row_bot_org.identity.gate import SESSION_COOKIE, SIGN_IN_COOKIE  # noqa: E4
 from row_bot_org.logging import configure_logging  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
 from tests.fixtures.oidc_idp import CLIENT_SECRET, OTHER_TENANT, PUBLIC_URL, REDIRECT_URI, FakeIdp, running_idp  # noqa: E402
+from tests.helpers.org_audit import stored_events, summary  # noqa: E402
 
 pytestmark = pytest.mark.postgres
 
@@ -319,6 +320,10 @@ def test_logout_revokes_the_session_and_clears_the_cookie(org_database, idp: Fak
         assert with_cookie(client, token).status_code == 401
         assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.server_sessions WHERE revoked_at IS NULL") \
             == [(0,)]
+    principal_id = owner_sql(org_database, "SELECT id::text FROM row_bot_org.principals")[0][0]
+    assert [summary(event) for event in stored_events(org_database.owner_url)] == [
+        ("session.signed_in", "person", principal_id, None, "succeeded", {}),
+        ("session.signed_out", "person", principal_id, None, "succeeded", {"reason": "signed_out"})]
 
 
 def test_signing_in_again_rotates_the_session(org_database, idp: FakeIdp) -> None:
@@ -346,6 +351,11 @@ def test_the_operator_revokes_every_session_of_a_principal(org_database, idp: Fa
 
         assert client.get("/api/me").status_code == 401
         assert laptop.get("/api/me").status_code == 401
+        # Nothing left to revoke: nothing recorded.
+        monkeypatch.setenv("ROW_BOT_ORG_MIGRATION_DATABASE_URL", org_database.owner_url)
+        assert cli.main(["principals", "revoke-sessions", principal_id]) == 0
+    assert [summary(event) for event in stored_events(org_database.owner_url, "session.revoked")] == [
+        ("session.revoked", "operator", "cli", principal_id, "succeeded", {})]
 
 
 def test_revoke_sessions_needs_a_principal_id() -> None:

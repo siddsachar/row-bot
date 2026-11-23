@@ -9,8 +9,8 @@
 
 An admin can't change their own role or suspend themself (409 ``cannot_change_your_own_role`` /
 ``cannot_suspend_yourself``).
-Each change emits an audit event: ``role.changed`` (role ``admin``, change ``granted`` or ``removed``),
-``person.suspended`` or ``person.resumed``.
+Each change is audited in the change's transaction: ``role.changed`` (role ``admin``, change ``granted`` or
+``removed``), ``person.suspended`` (with ``session.revoked`` when it signed sessions out) or ``person.resumed``.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from row_bot.audit import Action, Actor, Target, TargetKind
 from row_bot_org import audit
 from row_bot_org.identity import roles, store
 from row_bot_org.identity.gate import RequestPrincipal, request_principal
@@ -44,9 +45,9 @@ def person_dict(person: store.Person, admin_groups: frozenset[str]) -> dict[str,
             "last_sign_in_at": person.last_sign_in_at.isoformat(), "suspended": person.status == "suspended"}
 
 
-def role_changed(conn: psycopg.Connection, *, actor: str, target: str, granted: bool, via: str) -> None:
-    audit.emit(conn, "role.changed", actor=actor, details={
-        "target": target, "role": roles.ADMIN, "change": "granted" if granted else "removed", "via": via})
+def role_changed(conn: psycopg.Connection, *, actor: Actor, target: str, granted: bool) -> None:
+    audit.emit(conn, Action.ROLE_CHANGED, actor=actor, target=Target(TargetKind.PERSON, target),
+               details={"role": roles.ADMIN, "change": "granted" if granted else "removed"})
 
 
 def people_router() -> APIRouter:
@@ -81,8 +82,8 @@ def people_router() -> APIRouter:
         if previous is None:
             return _error(404, "person_not_found")
         if previous != body.role:
-            role_changed(conn, actor=principal.principal_id, target=found, granted=body.role == roles.ADMIN,
-                         via="api")
+            role_changed(conn, actor=audit.admin(principal.principal_id), target=found,
+                         granted=body.role == roles.ADMIN)
         return answer(request, conn, found)
 
     def suspension(request: Request, conn: psycopg.Connection, principal: RequestPrincipal, principal_id: str,
@@ -93,9 +94,14 @@ def people_router() -> APIRouter:
         previous = store.set_status(conn, found, status) if found else None
         if previous is None:
             return _error(404, "person_not_found")
+        # Suspending signs the person out everywhere, even when they were already suspended.
+        revoked = store.revoke_sessions(conn, found) if status == "suspended" else 0
+        actor, person = audit.admin(principal.principal_id), Target(TargetKind.PERSON, found)
         if previous != status:
-            audit.emit(conn, "person.suspended" if status == "suspended" else "person.resumed",
-                       actor=principal.principal_id, details={"target": found})
+            audit.emit(conn, Action.PERSON_SUSPENDED if status == "suspended" else Action.PERSON_RESUMED,
+                       actor=actor, target=person)
+        if revoked:
+            audit.emit(conn, Action.SESSION_REVOKED, actor=actor, target=person)
         return answer(request, conn, found)
 
     @router.post("/api/admin/people/{principal_id}/suspend")

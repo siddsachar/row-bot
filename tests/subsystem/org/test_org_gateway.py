@@ -36,6 +36,7 @@ from row_bot_org.logging import configure_logging  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
 from tests.fixtures.model_endpoints import INPUT_TOKENS, KEY, OUTPUT_TOKENS, STREAM_WORDS, running_endpoint  # noqa: E402
 from tests.fixtures.oidc_idp import CLIENT_SECRET, PUBLIC_URL, FakeIdp, running_idp  # noqa: E402
+from tests.helpers.org_audit import stored_events, summary  # noqa: E402
 
 pytestmark = pytest.mark.postgres
 
@@ -183,6 +184,15 @@ def test_a_streamed_chat_passes_through_and_is_metered_from_its_last_chunk(org_d
         assert endpoint.last().body["stream_options"] == {"include_usage": True}
         assert usage(admin) == [{"model": "company-chat", "calls": 1, "input_tokens": INPUT_TOKENS,
                                  "output_tokens": OUTPUT_TOKENS, "cost": CALL_COST}]
+        ada_id = ada.get("/api/me").json()["id"]
+    # Audited when the stream ended, with the usage row: counts only, never the prompt or the answer.
+    (called,) = stored_events(org_database.owner_url, "model.called")
+    duration = called["details"].pop("duration_ms")
+    assert isinstance(duration, int) and duration >= 0
+    assert summary(called) == ("model.called", "person", ada_id, None, "succeeded", {
+        "provider": "openai", "model": "company-chat", "input_tokens": INPUT_TOKENS, "output_tokens": OUTPUT_TOKENS,
+        "cost_micros": round(CALL_COST * 1_000_000)})
+    assert "Hello" not in json.dumps(called) and STREAM_WORDS[0] not in json.dumps(called)
 
 
 @pytest.mark.parametrize("stream", [False, True], ids=["whole", "streamed"])
@@ -408,7 +418,7 @@ def test_the_company_default_moves_and_an_endpoint_with_models_stays(org_databas
         endpoint_id = add_endpoint(admin, endpoint.base_url)
         first = add_model(admin, endpoint_id, "first-chat", is_default=True)
         second = add_model(admin, endpoint_id, "second-chat", is_default=True)
-        add_model(admin, endpoint_id, "company-embed", kind="embeddings", is_default=True)
+        embed = add_model(admin, endpoint_id, "company-embed", kind="embeddings", is_default=True)
 
         defaults = {m["name"]: m["is_default"] for m in admin.get("/api/admin/models").json()["models"]}
         assert defaults == {"first-chat": False, "second-chat": True, "company-embed": True}
@@ -421,6 +431,19 @@ def test_the_company_default_moves_and_an_endpoint_with_models_stays(org_databas
             assert admin.delete(f"/api/admin/models/{model['id']}").status_code == 204
         assert admin.delete(f"/api/admin/endpoints/{endpoint_id}").status_code == 204
         assert second["endpoint_id"] == endpoint_id
+        budget = admin.put("/api/admin/budgets", json={"scope": "group", "subject": "Sales", "hard_limit": 5})
+        assert admin.delete(f"/api/admin/budgets/{budget.json()['id']}").status_code == 204
+        admin_id = admin.get("/api/me").json()["id"]
+
+    # Each catalog and budget change is an org settings change on what changed; a refusal records nothing.
+    events = stored_events(org_database.owner_url, "org_settings.changed")
+    assert {event["actor"]["id"] for event in events} == {admin_id}
+    endpoint, budget_ref = f"gateway.endpoint.{endpoint_id}", f"gateway.budget.{budget.json()['id']}"
+    one, two, three = (f"gateway.model.{model['id']}" for model in (first, second, embed))
+    assert [(event["target"]["ref"], event["details"].get("change")) for event in events] == [
+        (endpoint, "created"), (one, "created"), (two, "created"), (three, "created"), (one, "updated"),
+        (one, "deleted"), (two, "deleted"), (three, "deleted"), (endpoint, "deleted"), (budget_ref, None),
+        (budget_ref, "deleted")]
 
 
 # -- what the gateway forwards ----------------------------------------------------------------------
@@ -576,12 +599,42 @@ def test_a_catalog_model_is_named_by_an_id_the_policy_can_allow(org_database, id
     with org_server(org_database, idp) as server:
         admin = admin_of(server, idp)
         endpoint_id = add_endpoint(admin, "http://h.example.test/v1")
-        for name in ("*", "two words", "-leading-dash", "x" * 201, "café"):
+        # 128 at most: the longest model id an audit event holds.
+        for name in ("*", "two words", "-leading-dash", "x" * 129, "café"):
             refused = admin.post("/api/admin/models", json={"endpoint_id": endpoint_id, "name": name, "kind": "chat"})
             assert refused.status_code == 422, name
         model = add_model(admin, endpoint_id, "meta-llama/Llama-3.3-70B:fp8")
         assert admin.patch(f"/api/admin/models/{model['id']}", json={"name": "*"}).status_code == 422
+        assert admin.patch(f"/api/admin/models/{model['id']}", json={"name": "x" * 129}).status_code == 422
         assert [m["name"] for m in admin.get("/api/admin/models").json()["models"]] == ["meta-llama/Llama-3.3-70B:fp8"]
+
+
+def test_a_call_whose_audit_event_cant_be_built_is_still_metered(org_database, idp, log_text) -> None:
+    long_name = "m" * 200  # Stored before names were capped at 128: too long for an audit event's model id.
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        endpoint_id = add_endpoint(admin, endpoint.base_url)
+        superuser_sql(org_database, "INSERT INTO row_bot_org.catalog_models (endpoint_id, name, upstream_model,"
+                      " display_name, kind, input_price, output_price) VALUES (%s, %s, 'llama', 'Long', 'chat', 3, 15)",
+                      endpoint_id, long_name)
+        ada = person(server, idp, "ada")
+
+        for stream in (False, True):
+            assert ada.post(CHAT, json={"model": long_name, "messages": HELLO, "stream": stream}).status_code == 200
+        assert usage(admin) == [{"model": long_name, "calls": 2, "input_tokens": 2 * INPUT_TOKENS,
+                                 "output_tokens": 2 * OUTPUT_TOKENS, "cost": 2 * CALL_COST}]
+
+    assert stored_events(org_database.owner_url, "model.called") == []
+    assert log_text().count("metered but not audited (InvalidAuditEvent)") == 2
+    assert long_name not in log_text()
+
+
+def test_token_counts_beyond_the_safe_range_are_capped() -> None:
+    from row_bot_org.gateway import upstream
+
+    huge = upstream.usage_of("anthropic", {"usage": {"input_tokens": 2**60, "cache_read_input_tokens": 5,
+                                                     "output_tokens": 2**53}})
+    assert (huge.input_tokens, huge.output_tokens) == (2**53 - 1, 2**53 - 1)
 
 
 def test_admin_refusals_never_echo_a_key(org_database, idp) -> None:

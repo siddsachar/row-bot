@@ -30,6 +30,7 @@ from row_bot.policy import (
     MAX_DOCUMENT_BYTES, ONLY_WIDEN, PolicyError, canonical_json, document_to_dict, loads, parse_override, parse_policy,
     policy_to_dict,
 )
+from row_bot.audit import Action
 from row_bot_org import audit
 from row_bot_org.identity import roles
 from row_bot_org.identity.gate import RequestPrincipal, request_principal
@@ -37,6 +38,8 @@ from row_bot_org.identity.web import principal_connection
 from row_bot_org.policy import store
 
 MAX_GROUP_NAME = 256
+# The policy contract's version (contracts/policy/v1), in each policy.changed event.
+POLICY_SCHEMA_VERSION = 1
 
 
 async def _body(request: Request) -> bytes | None:
@@ -114,8 +117,10 @@ def policy_router() -> APIRouter:
             return _error(422, "invalid_policy", settings=narrow.settings,
                           detail=f"{ONLY_WIDEN}: {', '.join(narrow.settings)} add nothing to the company policy")
         revision = written.revision
-        audit.emit(conn, "policy.changed", actor=principal.principal_id,
-                   details={"group": group, "version": revision.version})
+        stored = {key: value for key, value in document_to_dict(revision.document).items() if key != "version"}
+        audit.emit(conn, Action.POLICY_CHANGED, actor=audit.admin(principal.principal_id), details={
+            "digest": hashlib.sha256(canonical_json(stored)).hexdigest(), "schema_version": POLICY_SCHEMA_VERSION,
+            **({} if group is None else {"group": group})})
         answer: dict[str, Any] = {"policy": document_to_dict(revision.document)}
         if group is None:
             answer["still_granted_by"] = written.still_granted_by

@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from row_bot.audit.jcs import MAX_SAFE_INTEGER
+
 OPENAI = "openai"
 ANTHROPIC = "anthropic"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
@@ -112,6 +114,11 @@ def _count(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
+def _safe(count: int) -> int:
+    """At most 2^53 - 1, the largest count an audit event (JSON for every language) holds exactly."""
+    return min(count, MAX_SAFE_INTEGER)
+
+
 def _merge(usage: Usage, fields: Any, api: str) -> None:
     """Fold one ``usage`` object into ``usage``. Counts are cumulative, so the larger one wins."""
     if not isinstance(fields, dict):
@@ -124,9 +131,9 @@ def _merge(usage: Usage, fields: Any, api: str) -> None:
                   ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
         output = _count(fields.get("output_tokens"))
     if any(count is not None for count in inputs):
-        usage.input_tokens = max(usage.input_tokens, sum(count or 0 for count in inputs))
+        usage.input_tokens = max(usage.input_tokens, _safe(sum(count or 0 for count in inputs)))
     if output is not None:
-        usage.output_tokens = max(usage.output_tokens, output)
+        usage.output_tokens = max(usage.output_tokens, _safe(output))
 
 
 def usage_of(api: str, body: Any) -> Usage:

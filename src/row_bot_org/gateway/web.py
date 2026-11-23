@@ -10,14 +10,17 @@ A call is refused (in the caller's wire format) when the model isn't one the per
 to the other API, is the wrong kind, sits on a disabled endpoint, or when the person's or one of
 their groups' hard monthly budget is spent. A soft budget reached adds ``X-Row-Bot-Budget-Warning``
 (``person``, ``group`` or both). The server sends the endpoint's key, passes streams through as they
-come, and records one usage row per call it forwards, from the endpoint's own usage fields.
+come, and records one usage row per call it forwards, from the endpoint's own usage fields, with its
+``model.called`` audit event (counts only: tokens, cost, duration and outcome) in the same short transaction
+when the call ends (a stream's event can't share the transaction that let the call start).
 
 A person may use the catalog models their effective policy allows (``models.allowed``, with their groups'
 overrides): ``/api/models`` lists only those, and a call to any other is refused as unknown.
 
 For admins (``row_bot_org.identity.roles``): ``/api/admin/endpoints``, ``/api/admin/models``,
 ``/api/admin/budgets`` and ``GET /api/admin/usage``. An endpoint's key goes in once and never comes
-back out: responses say only ``has_key``.
+back out: responses say only ``has_key``. Each change is audited as ``org_settings.changed`` on the setting
+``gateway.endpoint.<id>``, ``gateway.model.<id>`` or ``gateway.budget.<id>``.
 
 Never logged: request or response bodies, keys, the endpoint's error text. Logged: the endpoint's name
 and the failure's kind.
@@ -44,7 +47,9 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from row_bot.audit import Action, InvalidAuditEvent, Outcome, Target, TargetKind
 from row_bot.policy.model import CATALOG_MODEL_ID
+from row_bot_org import audit
 from row_bot_org.db.rls import principal_transaction
 from row_bot_org.gateway import store, upstream
 from row_bot_org.gateway.keys import KeyUnavailable, endpoint_origin, seal, unseal
@@ -113,10 +118,24 @@ class GatewayService:
                 outcome: str) -> None:
         cost = ((Decimal(usage.input_tokens) * route.input_price + Decimal(usage.output_tokens) * route.output_price)
                 / _MILLION).quantize(_COST_PLACES)
+        duration_ms = int((time.perf_counter() - started) * 1000)
         with principal_transaction(self.pool, principal.principal_id, principal.groups) as conn:
             store.record_usage(conn, principal_id=principal.principal_id, groups=principal.groups, model=route.model,
                                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, cost=cost,
-                               duration_ms=int((time.perf_counter() - started) * 1000), outcome=outcome)
+                               duration_ms=duration_ms, outcome=outcome)
+            # The meter never depends on the audit event: an event that can't be built or stored is logged, and
+            # the usage row stays (the answer already went out).
+            try:
+                with conn.transaction():
+                    audit.emit(conn, Action.MODEL_CALLED, actor=audit.person(principal.principal_id),
+                               outcome=Outcome.SUCCEEDED if outcome == "ok" else Outcome.FAILED,
+                               details={"provider": route.api, "model": route.model,
+                                        "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                                        "duration_ms": duration_ms,
+                                        "cost_micros": int((cost * _MILLION).to_integral_value())})
+            except (InvalidAuditEvent, psycopg.Error) as error:
+                logger.error("a call to endpoint %s was metered but not audited (%s)", route.endpoint_name,
+                             type(error).__name__)
 
     async def record(self, principal: RequestPrincipal, route: store.Route, usage: upstream.Usage, started: float,
                      outcome: str) -> None:
@@ -378,8 +397,10 @@ def _upstream_refusal(route: store.Route, error: Exception) -> _Refusal:
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 ModelName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-# The id people call a model by, as the policy's models.allowed names it (without its "*").
-CatalogName = Annotated[str, StringConstraints(strip_whitespace=True, pattern=f"^(?:{CATALOG_MODEL_ID})$")]
+# The id people call a model by, as the policy's models.allowed names it (without its "*"), at most as long as
+# an audit event's model id (row_bot.audit.vocabulary.MODEL_PATTERN).
+CatalogName = Annotated[str, StringConstraints(strip_whitespace=True, max_length=128,
+                                               pattern=f"^(?:{CATALOG_MODEL_ID})$")]
 Group = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 # Printable ASCII: it goes into an HTTP header.
 ApiKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8192, pattern=r"^[!-~]+$")]
@@ -488,6 +509,12 @@ def _month_start(day: date) -> datetime:
 def gateway_router(service: GatewayService) -> APIRouter:
     router = APIRouter()
     admin = Depends(admin_connection, scope="function")
+    caller = Depends(request_principal)
+
+    def changed(conn: psycopg.Connection, principal: RequestPrincipal, setting: str, change: str | None) -> None:
+        audit.emit(conn, Action.ORG_SETTINGS_CHANGED, actor=audit.admin(principal.principal_id),
+                   target=Target(TargetKind.SETTING, f"gateway.{setting}"),
+                   details={} if change is None else {"change": change})
 
     # -- for connected Row-Bots ------------------------------------------------------------------
 
@@ -519,7 +546,8 @@ def gateway_router(service: GatewayService) -> APIRouter:
         return JSONResponse({"endpoints": store.list_endpoints(conn)})
 
     @router.post("/api/admin/endpoints")
-    def create_endpoint(body: EndpointIn, conn: psycopg.Connection = admin) -> JSONResponse:
+    def create_endpoint(body: EndpointIn, conn: psycopg.Connection = admin,
+                        principal: RequestPrincipal = caller) -> JSONResponse:
         endpoint_id = str(uuid.uuid4())
         sealed = None if body.api_key is None else service.seal(endpoint_id, body.base_url, body.api_key)
         try:
@@ -529,10 +557,12 @@ def gateway_router(service: GatewayService) -> APIRouter:
                                                 timeout_seconds=body.timeout_seconds, enabled=body.enabled)
         except psycopg.errors.UniqueViolation:
             return _error(409, "name_taken")
+        changed(conn, principal, f"endpoint.{endpoint_id}", "created")
         return JSONResponse(created, status_code=201)
 
     @router.patch("/api/admin/endpoints/{endpoint_id}")
-    def change_endpoint(endpoint_id: str, body: EndpointChange, conn: psycopg.Connection = admin) -> JSONResponse:
+    def change_endpoint(endpoint_id: str, body: EndpointChange, conn: psycopg.Connection = admin,
+                        principal: RequestPrincipal = caller) -> JSONResponse:
         endpoint_id = _uuid(endpoint_id) or ""
         current = store.endpoint_target(conn, endpoint_id) if endpoint_id else None
         if current is None:
@@ -547,20 +577,27 @@ def gateway_router(service: GatewayService) -> APIRouter:
             changes["key_sealed"] = None
         try:
             with conn.transaction():
-                changed = store.update_endpoint(conn, endpoint_id, changes)
+                updated = store.update_endpoint(conn, endpoint_id, changes)
         except psycopg.errors.UniqueViolation:
             return _error(409, "name_taken")
-        return JSONResponse(changed) if changed else _error(404, "endpoint_not_found")
+        if not updated:
+            return _error(404, "endpoint_not_found")
+        changed(conn, principal, f"endpoint.{endpoint_id}", "updated")
+        return JSONResponse(updated)
 
     @router.delete("/api/admin/endpoints/{endpoint_id}")
-    def delete_endpoint(endpoint_id: str, conn: psycopg.Connection = admin) -> Response:
+    def delete_endpoint(endpoint_id: str, conn: psycopg.Connection = admin,
+                        principal: RequestPrincipal = caller) -> Response:
         endpoint_id = _uuid(endpoint_id) or ""
         try:
             with conn.transaction():
                 deleted = bool(endpoint_id) and store.delete_endpoint(conn, endpoint_id)
         except psycopg.errors.ForeignKeyViolation:
             return _error(409, "endpoint_has_models")
-        return Response(status_code=204) if deleted else _error(404, "endpoint_not_found")
+        if not deleted:
+            return _error(404, "endpoint_not_found")
+        changed(conn, principal, f"endpoint.{endpoint_id}", "deleted")
+        return Response(status_code=204)
 
     # -- models ----------------------------------------------------------------------------------
 
@@ -569,7 +606,8 @@ def gateway_router(service: GatewayService) -> APIRouter:
         return JSONResponse({"models": store.list_models(conn)})
 
     @router.post("/api/admin/models")
-    def create_model(body: ModelIn, conn: psycopg.Connection = admin) -> JSONResponse:
+    def create_model(body: ModelIn, conn: psycopg.Connection = admin,
+                     principal: RequestPrincipal = caller) -> JSONResponse:
         target = store.endpoint_target(conn, str(body.endpoint_id))
         if target is None:
             return _error(404, "endpoint_not_found")
@@ -584,24 +622,32 @@ def gateway_router(service: GatewayService) -> APIRouter:
                 created = store.create_model(conn, fields)
         except psycopg.errors.UniqueViolation:
             return _error(409, "name_taken")
+        changed(conn, principal, f"model.{created['id']}", "created")
         return JSONResponse(created, status_code=201)
 
     @router.patch("/api/admin/models/{model_id}")
-    def change_model(model_id: str, body: ModelChange, conn: psycopg.Connection = admin) -> JSONResponse:
+    def change_model(model_id: str, body: ModelChange, conn: psycopg.Connection = admin,
+                     principal: RequestPrincipal = caller) -> JSONResponse:
         model_id = _uuid(model_id) or ""
         try:
             with conn.transaction():
-                changed = store.update_model(conn, model_id, _set_fields(body, nullable=frozenset(
+                updated = store.update_model(conn, model_id, _set_fields(body, nullable=frozenset(
                     {"context_window"}))) if model_id else None
         except psycopg.errors.UniqueViolation:
             return _error(409, "name_taken")
-        return JSONResponse(changed) if changed else _error(404, "model_not_found")
+        if not updated:
+            return _error(404, "model_not_found")
+        changed(conn, principal, f"model.{model_id}", "updated")
+        return JSONResponse(updated)
 
     @router.delete("/api/admin/models/{model_id}")
-    def delete_model(model_id: str, conn: psycopg.Connection = admin) -> Response:
+    def delete_model(model_id: str, conn: psycopg.Connection = admin,
+                     principal: RequestPrincipal = caller) -> Response:
         model_id = _uuid(model_id) or ""
-        deleted = bool(model_id) and store.delete_model(conn, model_id)
-        return Response(status_code=204) if deleted else _error(404, "model_not_found")
+        if not (model_id and store.delete_model(conn, model_id)):
+            return _error(404, "model_not_found")
+        changed(conn, principal, f"model.{model_id}", "deleted")
+        return Response(status_code=204)
 
     # -- budgets and usage -----------------------------------------------------------------------
 
@@ -610,7 +656,8 @@ def gateway_router(service: GatewayService) -> APIRouter:
         return JSONResponse({"budgets": store.list_budgets(conn)})
 
     @router.put("/api/admin/budgets")
-    def put_budget(body: BudgetIn, conn: psycopg.Connection = admin) -> JSONResponse:
+    def put_budget(body: BudgetIn, conn: psycopg.Connection = admin,
+                   principal: RequestPrincipal = caller) -> JSONResponse:
         subject = _uuid(body.subject) if body.scope == "person" else body.subject
         if subject is None:
             return _error(400, "person_budget_needs_a_principal_id")
@@ -618,14 +665,19 @@ def gateway_router(service: GatewayService) -> APIRouter:
             return _error(400, "budget_needs_a_limit")
         if body.soft_limit is not None and body.hard_limit is not None and body.soft_limit > body.hard_limit:
             return _error(400, "soft_limit_above_hard_limit")
-        return JSONResponse(store.put_budget(conn, scope=body.scope, subject=subject, soft_limit=body.soft_limit,
-                                             hard_limit=body.hard_limit))
+        budget = store.put_budget(conn, scope=body.scope, subject=subject, soft_limit=body.soft_limit,
+                                  hard_limit=body.hard_limit)
+        changed(conn, principal, f"budget.{budget['id']}", None)  # Set: made or changed.
+        return JSONResponse(budget)
 
     @router.delete("/api/admin/budgets/{budget_id}")
-    def delete_budget(budget_id: str, conn: psycopg.Connection = admin) -> Response:
+    def delete_budget(budget_id: str, conn: psycopg.Connection = admin,
+                      principal: RequestPrincipal = caller) -> Response:
         budget_id = _uuid(budget_id) or ""
-        deleted = bool(budget_id) and store.delete_budget(conn, budget_id)
-        return Response(status_code=204) if deleted else _error(404, "budget_not_found")
+        if not (budget_id and store.delete_budget(conn, budget_id)):
+            return _error(404, "budget_not_found")
+        changed(conn, principal, f"budget.{budget_id}", "deleted")
+        return Response(status_code=204)
 
     @router.get("/api/admin/usage")
     def usage(by: Literal["person", "group", "model"] = "person", start: date | None = None,

@@ -43,11 +43,13 @@ class AuditLayer(StrEnum):
 
 
 class ActorKind(StrEnum):
-    """Who acted: a person, an admin in the console, or a service (the Company Server's own workers)."""
+    """Who acted: a person, an admin in the console, a service (the Company Server's own workers), or an
+    operator's command on the server itself (``row-bot-org``, id ``cli``), which has no principal."""
 
     PERSON = "person"
     ADMIN = "admin"
     SERVICE = "service"
+    OPERATOR = "operator"
 
 
 class Outcome(StrEnum):
@@ -105,6 +107,7 @@ class Category(StrEnum):
     LIBRARY = "library"
     DATA = "data"
     ROLE = "role"
+    PERSON = "person"
     ORG_SETTINGS = "org_settings"
 
 
@@ -116,6 +119,7 @@ class Action(StrEnum):
     SESSION_REVOKED = "session.revoked"
     DEVICE_JOINED = "device.joined"
     DEVICE_REMOVED = "device.removed"
+    DEVICE_LOCKED_DOWN = "device.locked_down"
     MODEL_CALLED = "model.called"
     TOOL_CALLED = "tool.called"
     POLICY_CHANGED = "policy.changed"
@@ -129,7 +133,10 @@ class Action(StrEnum):
     SHARE_REJECTED = "share.rejected"
     LIBRARY_PUBLISHED = "library.published"
     DATA_EXPORTED = "data.exported"
+    DATA_DELETED = "data.deleted"
     ROLE_CHANGED = "role.changed"
+    PERSON_SUSPENDED = "person.suspended"
+    PERSON_RESUMED = "person.resumed"
     ORG_SETTINGS_CHANGED = "org_settings.changed"
 
 
@@ -139,14 +146,16 @@ MODEL_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,127}"
 ORG_ID_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"  # The policy's organisation id (POL-1 ``ORG_ID``).
 VERSION_PATTERN = r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}"
 HASH_PATTERN = r"[0-9a-f]{64}"  # SHA-256, lowercase hex.
+# A Row-Bot group as the policy names it: 1-256 characters, no control characters, no space at either end.
+GROUP_PATTERN = r"[^\x00-\x20\x7f](?:[^\x00-\x1f\x7f]{0,254}[^\x00-\x20\x7f])?"
 EVENT_ID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"  # A random UUID.
 TIME_PATTERN = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z"  # UTC, microseconds, Z: one spelling per instant.
 
 SUMMARY_MAX = 300  # As the activity log's summaries.
 
-DetailKind = Literal["id", "model", "version", "hash", "enum", "int", "text"]
+DetailKind = Literal["id", "model", "version", "hash", "group", "enum", "int", "text"]
 PATTERNS = MappingProxyType({"id": ID_PATTERN, "model": MODEL_PATTERN, "version": VERSION_PATTERN,
-                             "hash": HASH_PATTERN})
+                             "hash": HASH_PATTERN, "group": GROUP_PATTERN})
 
 
 @dataclass(frozen=True)
@@ -189,7 +198,7 @@ LIBRARY_KINDS = ("skill", "agent", "workflow")
 EXPORT_SCOPES = ("person", "space", "company", "audit")
 ROLES = ("admin", "member", "space_owner")
 
-_P, _A, _S = ActorKind.PERSON, ActorKind.ADMIN, ActorKind.SERVICE
+_P, _A, _S, _O = ActorKind.PERSON, ActorKind.ADMIN, ActorKind.SERVICE, ActorKind.OPERATOR
 _TEAM, _COMPANY, _ORG = AuditLayer.TEAM, AuditLayer.COMPANY, AuditLayer.ORG
 _SHARED = {_TEAM, _COMPANY}
 _DONE = frozenset({Outcome.SUCCEEDED, Outcome.FAILED})
@@ -215,15 +224,19 @@ _APP = {"version": Detail("version")}
 SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     Action.SESSION_SIGNED_IN: _spec({_P, _A}, {_ORG}, set(), _GATED),
     Action.SESSION_SIGNED_OUT: _spec({_P, _A}, {_ORG}, set(), _DONE, reason=_enum("signed_out", "expired")),
-    Action.SESSION_REVOKED: _spec({_A, _S}, {_ORG}, {TargetKind.PERSON}, _DONE),
+    Action.SESSION_REVOKED: _spec({_A, _S, _O}, {_ORG}, {TargetKind.PERSON}, _DONE),
     Action.DEVICE_JOINED: _spec(
         {_P}, {_ORG}, {TargetKind.DEVICE}, _GATED,
         platform=_enum("windows", "macos", "linux"), app_version=Detail("version", **_REQ)),
     Action.DEVICE_REMOVED: _spec({_P, _A, _S}, {_ORG}, {TargetKind.DEVICE}, _DONE, reason=_enum("left", "revoked")),
+    # A Row-Bot past its offline lease locked down to local models; it says so when it reaches the server again.
+    Action.DEVICE_LOCKED_DOWN: _spec({_P}, {_ORG}, {TargetKind.DEVICE}, frozenset({Outcome.SUCCEEDED}),
+                                     offline_days=Detail("int")),
     Action.MODEL_CALLED: _spec(
         {_P, _S}, {_ORG}, set(), _GATED,
         provider=Detail("id", **_REQ), model=Detail("model", **_REQ), input_tokens=Detail("int", **_REQ),
-        output_tokens=Detail("int", **_REQ), cache_read_tokens=Detail("int"), duration_ms=Detail("int")),
+        output_tokens=Detail("int", **_REQ), cache_read_tokens=Detail("int"), duration_ms=Detail("int"),
+        cost_micros=Detail("int")),  # The call's cost in millionths of the company's currency.
     Action.TOOL_CALLED: _spec(
         {_P}, {_ORG}, {TargetKind.TOOL},
         frozenset({Outcome.SUCCEEDED, Outcome.FAILED, Outcome.DENIED, Outcome.CHANGED, Outcome.BLOCKED}),
@@ -234,7 +247,7 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     Action.POLICY_CHANGED: _spec(
         {_A}, {_ORG}, set(), _GATED,
         digest=Detail("hash", **_REQ), previous_digest=Detail("hash"),
-        schema_version=Detail("int", **_REQ, minimum=1, maximum=1_000), group=Detail("id")),
+        schema_version=Detail("int", **_REQ, minimum=1, maximum=1_000), group=Detail("group")),
     Action.APP_APPROVED: _spec({_A}, {_ORG}, _APPS, _GATED, **_APP),
     Action.APP_PUSHED: _spec({_A}, {_ORG}, _APPS, _GATED, **_APP),
     Action.APP_REMOVED: _spec({_A}, {_ORG}, _APPS, _DONE, **_APP),
@@ -250,8 +263,13 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     Action.DATA_EXPORTED: _spec(
         {_P, _A, _S}, {_TEAM, _COMPANY, _ORG}, {TargetKind.EXPORT}, _GATED,
         scope=_enum(*EXPORT_SCOPES), item_count=Detail("int"), byte_count=Detail("int")),
+    # Offboarding: an admin deletes a person's data (their chats and memory, T7a).
+    Action.DATA_DELETED: _spec({_A, _S}, {_ORG}, {TargetKind.PERSON}, _DONE),
     Action.ROLE_CHANGED: _spec(
-        {_A}, {_TEAM, _COMPANY, _ORG}, {TargetKind.PERSON}, _GATED,
+        {_A, _O}, {_TEAM, _COMPANY, _ORG}, {TargetKind.PERSON}, _GATED,
         role=_enum(*ROLES), change=_enum("granted", "removed"), space_id=Detail("id")),
-    Action.ORG_SETTINGS_CHANGED: _spec({_A}, {_ORG}, {TargetKind.SETTING}, _GATED),
+    Action.PERSON_SUSPENDED: _spec({_A, _O}, {_ORG}, {TargetKind.PERSON}, _DONE),
+    Action.PERSON_RESUMED: _spec({_A, _O}, {_ORG}, {TargetKind.PERSON}, _DONE),
+    Action.ORG_SETTINGS_CHANGED: _spec({_A}, {_ORG}, {TargetKind.SETTING}, _GATED,
+                                       change=_enum("created", "updated", "deleted", required=False)),
 })

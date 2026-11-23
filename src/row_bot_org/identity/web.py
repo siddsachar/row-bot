@@ -26,6 +26,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from psycopg_pool import ConnectionPool
 
+from row_bot.audit import Action, Outcome
+from row_bot_org import audit
 from row_bot_org.db.rls import principal_transaction
 from row_bot_org.identity import store
 from row_bot_org.identity.gate import SESSION_COOKIE, SIGN_IN_COOKIE, RequestPrincipal, request_principal
@@ -167,11 +169,14 @@ def identity_router(service: IdentityService) -> APIRouter:
             return _failed(failure.reason, 502 if failure.reason in _PROVIDER_FAILURES else 400)
         previous = session_secret(request.cookies.get(SESSION_COOKIE))
         token = new_session_token()
-        principal_id, status = store.sign_in(
-            service.pool, identity, verifier=service.verifier("session", session_secret(token) or ""),
-            lifetime=settings.session_lifetime, idle=settings.session_idle_timeout,
-            user_agent=request.headers.get("user-agent", "")[:200], address=_client_address(request),
-            replaces=None if previous is None else service.verifier("session", previous))
+        with service.pool.connection() as conn, conn.transaction():
+            principal_id, status = store.sign_in(
+                conn, identity, verifier=service.verifier("session", session_secret(token) or ""),
+                lifetime=settings.session_lifetime, idle=settings.session_idle_timeout,
+                user_agent=request.headers.get("user-agent", "")[:200], address=_client_address(request),
+                replaces=None if previous is None else service.verifier("session", previous))
+            audit.emit(conn, Action.SESSION_SIGNED_IN, actor=audit.person(principal_id),
+                       outcome=Outcome.SUCCEEDED if status == "active" else Outcome.DENIED)
         if status != "active":
             logger.warning("sign-in refused: principal %s is %s", principal_id, status)
             return _failed("principal_suspended", 403)
@@ -185,6 +190,8 @@ def identity_router(service: IdentityService) -> APIRouter:
     def logout(principal: RequestPrincipal = Depends(request_principal),
                conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> Response:
         store.revoke_session(conn, principal.session_id)
+        audit.emit(conn, Action.SESSION_SIGNED_OUT, actor=audit.person(principal.principal_id),
+                   details={"reason": "signed_out"})
         response = Response(status_code=204)
         _clear_cookie(response, SESSION_COOKIE)
         return response

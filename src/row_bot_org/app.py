@@ -74,8 +74,9 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
-    and ``settings.idp`` it serves sign-in (``row_bot_org.identity``) and the policy routes
-    (``row_bot_org.policy``) and people (``row_bot_org.identity.people``), and with ``settings.gateway_key``
+    and ``settings.idp`` it serves sign-in (``row_bot_org.identity``), the policy routes
+    (``row_bot_org.policy``), people (``row_bot_org.identity.people``), the audit log (``row_bot_org.audit.web``)
+    and devices (``row_bot_org.devices``), and with ``settings.gateway_key``
     too the model catalog and gateway (``row_bot_org.gateway``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
 
@@ -125,6 +126,8 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         app.state.readiness.add("database", database_readiness(pool, load_migrations()))
     routers = [health_router(app.state.readiness)]
     if service is not None:
+        from row_bot_org.audit.web import audit_router
+        from row_bot_org.devices import devices_router
         from row_bot_org.identity.people import people_router
         from row_bot_org.identity.roles import AdminRequired
         from row_bot_org.identity.web import identity_router
@@ -132,7 +135,7 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
         app.state.identity = service
         app.add_exception_handler(AdminRequired, _admin_required)
-        routers += [identity_router(service), people_router(), policy_router()]
+        routers += [identity_router(service), people_router(), policy_router(), audit_router(), devices_router()]
     if gateway is not None:
         from row_bot_org.gateway.web import gateway_router
 

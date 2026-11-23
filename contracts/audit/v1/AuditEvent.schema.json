@@ -127,6 +127,7 @@
               "kind": {
                 "enum": [
                   "admin",
+                  "operator",
                   "service"
                 ]
               }
@@ -312,6 +313,66 @@
       "if": {
         "properties": {
           "action": {
+            "const": "device.locked_down"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "device"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "offline_days": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "device"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
             "const": "model.called"
           }
         }
@@ -338,6 +399,11 @@
             "additionalProperties": false,
             "properties": {
               "cache_read_tokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "cost_micros": {
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
@@ -567,7 +633,7 @@
                 "type": "string"
               },
               "group": {
-                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                "pattern": "^(?:[^\\x00-\\x20\\x7f](?:[^\\x00-\\x1f\\x7f]{0,254}[^\\x00-\\x20\\x7f])?)$",
                 "type": "string"
               },
               "previous_digest": {
@@ -1319,6 +1385,62 @@
       "if": {
         "properties": {
           "action": {
+            "const": "data.deleted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "data"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
             "const": "role.changed"
           }
         }
@@ -1329,7 +1451,8 @@
             "properties": {
               "kind": {
                 "enum": [
-                  "admin"
+                  "admin",
+                  "operator"
                 ]
               }
             }
@@ -1401,6 +1524,118 @@
       "if": {
         "properties": {
           "action": {
+            "const": "person.suspended"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "operator"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "person"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "person.resumed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "admin",
+                  "operator"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "person"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "failed",
+              "succeeded"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "person"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
             "const": "org_settings.changed"
           }
         }
@@ -1424,7 +1659,16 @@
           },
           "details": {
             "additionalProperties": false,
-            "properties": {},
+            "properties": {
+              "change": {
+                "enum": [
+                  "created",
+                  "updated",
+                  "deleted"
+                ],
+                "type": "string"
+              }
+            },
             "required": [],
             "type": "object"
           },
@@ -1462,14 +1706,18 @@
         "app.approved",
         "app.pushed",
         "app.removed",
+        "data.deleted",
         "data.exported",
         "device.joined",
+        "device.locked_down",
         "device.removed",
         "document.removed",
         "document.uploaded",
         "library.published",
         "model.called",
         "org_settings.changed",
+        "person.resumed",
+        "person.suspended",
         "policy.changed",
         "role.changed",
         "session.revoked",
@@ -1492,6 +1740,7 @@
         "kind": {
           "enum": [
             "admin",
+            "operator",
             "person",
             "service"
           ],
@@ -1513,6 +1762,7 @@
         "library",
         "model",
         "org_settings",
+        "person",
         "policy",
         "role",
         "session",
