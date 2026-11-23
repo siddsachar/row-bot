@@ -9,6 +9,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import VoiceBar, { latencyLine, type VoiceBarSession } from './VoiceBar';
 import type { VoiceSnapshot } from './voice-session';
+import { deviceChoice, resetDeviceChoice } from './devices';
 
 afterEach(() => {
   cleanup();
@@ -44,6 +45,7 @@ function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
     share: null,
     canShare: 'no',
     fallbacks: [],
+    device: null,
     ...initial,
   };
   const listeners = new Set<() => void>();
@@ -401,4 +403,127 @@ it('says when a chosen cloud speech service is standing in for, and where to add
   expect(
     screen.getByRole('link', { name: 'Add it in Settings › Voice' }),
   ).toHaveAttribute('href', '/settings/voice');
+});
+
+/** A browser with these named devices; *speakers* gives audio contexts setSinkId. */
+function namedDevices(speakers: boolean) {
+  const rows = [
+    { deviceId: 'default', kind: 'audioinput', label: 'Default - Laptop mic' },
+    { deviceId: 'laptop', kind: 'audioinput', label: 'Laptop mic' },
+    { deviceId: 'bt', kind: 'audioinput', label: 'Headset (WH-1000XM5)' },
+    { deviceId: 'phones', kind: 'audiooutput', label: 'Headset (WH-1000XM5)' },
+  ];
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    mediaDevices: {
+      getUserMedia: vi.fn(),
+      enumerateDevices: async () => rows,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    },
+  });
+  class Context {}
+  if (speakers)
+    Object.assign(Context.prototype, { setSinkId: async () => undefined });
+  vi.stubGlobal('AudioContext', Context);
+}
+
+it('the bar’s device menu lists the microphones and speakers by their system names, and remembers the choice', async () => {
+  localStorage.clear();
+  resetDeviceChoice();
+  namedDevices(true);
+  const { session } = fakeSession();
+  bar(session);
+  const trigger = screen.getByRole('button', {
+    name: 'Microphone and speaker',
+  });
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+  await screen.findByRole('menuitem', { name: /Laptop mic/ });
+  const items = screen.getAllByRole('menuitem');
+  expect(items.map((item) => item.textContent)).toEqual([
+    'Default microphoneLaptop mic',
+    'Laptop mic',
+    'Headset (WH-1000XM5)',
+    'Default speaker',
+    'Headset (WH-1000XM5)',
+  ]);
+  fireEvent.click(items[2]);
+  expect(deviceChoice().input).toBe('bt');
+  resetDeviceChoice();
+  expect(deviceChoice().input).toBe('bt');
+});
+
+it('where no speaker can be chosen (Safari, iPhone), the menu offers microphones only', async () => {
+  resetDeviceChoice();
+  namedDevices(false);
+  const { session } = fakeSession();
+  bar(session);
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Microphone' }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  await screen.findByRole('menuitem', { name: /Laptop mic/ });
+  expect(
+    screen.queryByRole('menuitem', { name: /Default speaker/ }),
+  ).toBeNull();
+});
+
+it('says when the default microphone or speaker stands in for the chosen one', () => {
+  const { session, update } = fakeSession();
+  bar(session);
+  update({ device: 'input' });
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Your chosen microphone isn’t connected, so Row-Bot is listening with the default one.',
+  );
+  update({ device: 'output' });
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'speaking through the default one',
+  );
+  update({ device: null });
+  expect(screen.queryByText(/isn’t connected/)).toBeNull();
+});
+
+it('holding Space talks while push to talk is on', () => {
+  const { session } = fakeSession({ pushToTalk: true });
+  bar(session);
+  fireEvent.keyDown(document.body, { code: 'Space', key: ' ' });
+  expect(session.hold).toHaveBeenLastCalledWith(true);
+  fireEvent.keyUp(document.body, { code: 'Space', key: ' ' });
+  expect(session.hold).toHaveBeenLastCalledWith(false);
+});
+
+it('on an iPhone, the bar says once that listening stops when the screen locks', () => {
+  localStorage.clear();
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',
+  });
+  const { session } = fakeSession();
+  bar(session, { phone: true });
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'On iPhone, Row-Bot stops listening when the screen locks or you switch apps',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+  expect(screen.queryByText(/stops listening/)).toBeNull();
+  cleanup();
+  // Not again: it was shown once.
+  bar(fakeSession().session, { phone: true });
+  expect(screen.queryByText(/stops listening/)).toBeNull();
+});
+
+it('on Android it names the screen turning off; on a computer it says nothing', () => {
+  localStorage.clear();
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9)',
+  });
+  bar(fakeSession().session, { phone: true });
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'On Android, Row-Bot stops listening when the screen turns off.',
+  );
+  cleanup();
+  localStorage.clear();
+  vi.stubGlobal('navigator', { ...navigator, userAgent: 'Windows Chrome' });
+  bar(fakeSession().session);
+  expect(screen.queryByText(/stops listening/)).toBeNull();
 });

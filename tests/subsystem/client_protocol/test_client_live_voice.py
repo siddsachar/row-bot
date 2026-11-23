@@ -12,6 +12,7 @@ import json
 import queue
 import struct
 import threading
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -71,10 +72,10 @@ class FakeRelay:
 
     def wait_for(self, predicate, limit: int = 50):
         for _ in range(limit):
+            self.said.clear()
             match = next((output for output in self.outputs if predicate(output)), None)
             if match is not None:
                 return match
-            self.said.clear()
             assert self.said.wait(5), "the relay was told nothing"
         raise AssertionError("no matching output")
 
@@ -259,9 +260,35 @@ def test_a_relayed_front_hears_through_the_host_and_its_consult_gets_progress_th
 
 
 @pytest.mark.slow
-def test_a_cancelled_consult_answers_with_a_short_cancelled_result(live):
-    barrier = StreamBarrier(release_on_cancel=True)
+@pytest.mark.parametrize("ends_before_answer", [False, True], ids=["run-still-stopping", "run-ends-mid-answer"])
+def test_a_cancelled_consult_answers_with_a_short_cancelled_result(live, ends_before_answer):
+    barrier = StreamBarrier(release_on_cancel=not ends_before_answer)
     live.service.stream_factory = ScriptedAgentStream((barrier, ("done", None))).stream
+    if ends_before_answer:
+        # A slow machine: the cancelled run ends after the cancel is checked, before it is answered.
+        realtime = live.service.realtime
+        control, active = realtime._control, realtime._active
+        after_cancel = {"thread": None, "checks": 0}
+
+        def cancel(owner, expected, *args):
+            result = control(owner, expected, *args)
+            after_cancel["thread"], after_cancel["run"] = threading.get_ident(), expected
+            return result
+
+        def ended_mid_answer(owner):
+            # The cancel's own check still sees the run; by the event's next check it has ended.
+            if after_cancel["thread"] == threading.get_ident():
+                after_cancel["checks"] += 1
+                if after_cancel["checks"] == 2:
+                    barrier.release.set()
+                    assert after_cancel["run"].producer_done.wait(5)
+                    for _ in range(500):
+                        if active(owner) is None:
+                            break
+                        time.sleep(0.01)
+            return active(owner)
+
+        realtime._control, realtime._active = cancel, ended_mid_answer
     started = start(live, "gemini")
     with live.client.websocket_connect(LIVE, headers=ORIGIN) as socket:
         hello(socket, started)

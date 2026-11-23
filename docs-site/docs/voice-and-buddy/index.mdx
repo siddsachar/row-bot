@@ -1,6 +1,6 @@
 ---
 title: "Voice And Buddy"
-description: "Configure Dictate, Talk, Read aloud, local and realtime voice, and Buddy."
+description: "Use Dictate, Talk, Read aloud and Live voice, choose local or cloud speech, and set up Buddy."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -14,16 +14,38 @@ Voice and Buddy make Row-Bot feel less like a text box and more like a desktop c
 ## Voice Modes
 
 - **Dictate** turns speech into composer text so you can review it before sending.
-- **Talk** submits spoken input more directly for conversation.
-- **Read aloud**, a button on each reply, speaks that reply with Kokoro on the computer running Row-Bot, in the voice chosen in Settings › Voice. Talk's spoken answers use the same voice.
+- **Talk** is a spoken conversation with Row-Bot Voice: hands-free, with the chat's own model, tools, memory and approvals.
+- **Read aloud**, a button on each reply, speaks that reply in the voice chosen in Settings › Voice: Kokoro on the computer running Row-Bot, or a cloud voice you chose. Talk's spoken answers use the same voice.
 - **Local voice** uses Whisper by default, or the optional SenseVoice Small engine after you install it explicitly. For Talk, a **faster speech model** picked for your computer (Moonshine Base on a processor or a Mac, Nemotron Speech Streaming on an NVIDIA graphics card the speech runtime can use) shows your words as you speak and answers sooner; download it under Settings › Voice › Talk.
 - **Live voice** (optional) talks through a cloud speech-to-speech model: OpenAI Realtime, Gemini Live or Grok Voice, with your own key for that provider. It knows the chat's recent messages, the agent profile's name and a few relevant memories, answers small talk itself and hands real work to Row-Bot, which uses the chat's own model, tools and approvals. While Row-Bot works it tells you what it is doing, and it says Row-Bot's answer when it is ready. Its own replies are saved in the chat, marked as Live voice lines.
 
+## Start Talking
+
+In a chat, the **Talk** button (beside the microphone that dictates) opens its menu: **Talk with Row-Bot** starts Row-Bot Voice, and the **Live voice** rows start a cloud provider (see [Live Voice](#live-voice)). On a phone with no Live voice key saved, one tap starts Row-Bot Voice. Talk waits while a reply is still running. Home's Ask box starts voice in a new chat too (see [Home And Phones](#home-and-phones)).
+
+Row-Bot hears when you start and stop speaking. It answers when you pause; **When you pause** in Settings › Voice sets how soon. Talk over Row-Bot and its voice drops at once; keep talking and it stops, and the rest of that answer stays on screen. A short "mhm" or "okay" doesn't stop it. After five minutes with nothing said, voice pauses; tap it to resume.
+
+## The Voice Bar
+
+Voice runs in a bar above the composer. Its round button shows the state (**Listening**, **Thinking**, **Speaking**, **Waiting for you**, **Muted** or **Paused**): tap it to stop Row-Bot speaking, to unmute, or to resume. The bar's buttons, each with its name as a tooltip:
+
+- **Hold to talk**, with push to talk on (see [Push To Talk](#push-to-talk)).
+- **Share camera or screen** (see [Show Row-Bot Your Camera Or Screen](#show-row-bot-your-camera-or-screen)).
+- **Microphone and speaker** (the headphones button) picks the devices (see [Microphone And Speakers](#microphone-and-speakers)).
+- **Show captions** or **Hide captions**: your words and Row-Bot's, as they are said. **Live captions** in Settings › Voice sets the default.
+- **Mute** or **Unmute**.
+- **Type instead** mutes and shows the composer; press it again to go back to talking.
+- **Show details**: how quickly Row-Bot replied and the language it last heard.
+- **Full screen**, on a phone.
+- **End voice**.
+
+The bar also says which resources spoken requests can change, what to do when an action needs your OK, and when a key, a device or a language is missing.
+
 ## Live Voice
 
-Open the **Talk** menu in a chat and choose a Live voice provider. Each one shows its approximate price a minute (from the provider's published prices, with the date checked); the provider bills your key, not Row-Bot. A provider without a saved key says so and links to Providers. Before you use a provider the first time, a panel says plainly that your voice, the chat's recent messages, the agent profile's name and a few related memories go to that provider while you talk (in an incognito chat, no memories), and you choose **Start** to go on. Live voice then runs in the same voice bar as Row-Bot Voice, with its captions and controls.
+Open the **Talk** menu in a chat and choose a Live voice provider. Each one shows its approximate price a minute (from the provider's published prices, with the date checked); the provider bills your key, not Row-Bot. A provider without a saved key says so and links to Providers. Before you use a provider the first time in a browser, a panel says plainly that your voice, the chat's recent messages, the agent profile's name and a few related memories go to that provider while you talk (in an incognito chat, no memories), and you choose **Start** with the provider's name to go on. Live voice then runs in the same voice bar as Row-Bot Voice, with its captions and controls. It is always hands-free: push to talk is for Row-Bot Voice.
 
-Your provider key never leaves the computer running Row-Bot, and the app page connects only to Row-Bot. For Gemini Live and Grok Voice, Row-Bot relays your voice and the provider's speech; for OpenAI Realtime, Row-Bot sets up the call with a short-lived credential it keeps. Row-Bot Voice, on your own computer, stays the default.
+Your provider key never leaves the computer running Row-Bot. For Gemini Live and Grok Voice, the page connects only to Row-Bot, which relays your voice and the provider's speech. For OpenAI Realtime, Row-Bot sets up the call with a short-lived credential it keeps, and the call's audio then goes directly between your browser and OpenAI. Row-Bot Voice, on your own computer, stays the default.
 
 ## Show Row-Bot Your Camera Or Screen
 
@@ -31,11 +53,19 @@ While you talk, the video button in the voice bar shares your camera or, in a de
 
 With Row-Bot Voice, nothing is streamed: when you finish saying something, Row-Bot takes one still of what you are showing and sends it with what you said, as an image in your message. You see exactly what was sent, and it is kept like any image you attach (in an incognito chat too, with the chat's other files). If the chat's model can't see images, the bar says so and links to the Vision model setting; nothing is sent. Something you say while Row-Bot is still working steers it with your words only.
 
-Gemini Live sees what you share as well: it is shown a still about once a second while you share, so it can talk about it, and its disclosure says so. OpenAI Realtime and Grok Voice don't take pictures in a live session, so they offer no sharing.
+Gemini Live sees what you share as well: it is shown a still about every two seconds while you share, so it can talk about it, and its disclosure says so. OpenAI Realtime and Grok Voice don't take pictures in a live session, so they offer no sharing.
 
 ## Choosing A Mode
 
-Use Dictate when accuracy and review matter. Use Talk when you want a faster hands-light conversation. Use local voice when privacy and offline-style behavior matter. Whisper remains the default local transcription engine. SenseVoice is an optional alternative on Windows, Linux, and Apple Silicon macOS; Intel macOS continues to use Whisper. Use Live voice for the most natural conversation when you accept that audio goes to the provider you choose, at its price.
+Use Dictate when accuracy and review matter. Use Talk when you want a conversation. Use local voice when privacy and offline-style behavior matter. Whisper remains the default local transcription engine; a faster speech model makes Talk quicker. SenseVoice is an optional alternative on Windows, Linux, and Apple Silicon macOS; Intel macOS continues to use Whisper. A cloud speech service (**Listen with**) or a cloud voice (**Speak with**) in Settings › Voice keeps Row-Bot Voice but uses that company, with your key. Use Live voice for the most natural conversation when you accept that audio goes to the provider you choose, at its price.
+
+## Languages
+
+Row-Bot hears which language you speak (**Language** in Settings › Voice, **Detect automatically** by default), and you can choose one instead. Whisper understands every language in the list; the faster speech models understand English only, and Settings says so if you speak another. Kokoro answers in English, Spanish, French, Hindi, Italian and Brazilian Portuguese. It can't speak other languages, such as Japanese or Chinese, yet: those answers stay on screen and the voice bar says so. A cloud voice speaks the languages its company lists. See [Settings: Voice](/docs/settings/voice).
+
+## Voice Notes In Chat Apps
+
+On Telegram and WhatsApp, a voice note you send is transcribed on the computer running Row-Bot, and Row-Bot answers with its text and then a voice note, in the voice chosen in Settings › Voice. Turn this off with the channel's **Reply to voice notes with a voice note**. See [Channels](/docs/integrations/channels).
 
 ## While Row-Bot Works
 
@@ -51,7 +81,19 @@ Open Settings -> Voice, find **SenseVoice** under **Voice models**, and choose *
 
 ## Microphone And Speakers
 
-Row-Bot records and plays voice in your browser, through the microphone and speakers it uses; choose them in the browser or your operating system's sound settings. The browser asks before Row-Bot may use the microphone.
+Row-Bot records and plays voice in your browser. Choose the microphone (and, in Chrome, Edge and the Windows app, the speaker) under **Settings › Voice › Microphone and speaker**, or from the headphones button in the voice bar while you talk. Devices have the names your operating system gives them, a Bluetooth headset included; the browser shows the names once Row-Bot may use the microphone. The choice is kept in that browser only. Safari, iPhone and Firefox play through the system's own output, so they offer no speaker choice.
+
+If the microphone you chose is disconnected while you talk, Row-Bot keeps listening with the default one at once and the bar says so; when it is connected again, Row-Bot goes back to it. The same goes for the speaker.
+
+## Push To Talk
+
+Hands-free is the default: Row-Bot hears when you start and stop. Turn on **Push to talk** under Settings › Voice › Talk to have it listen only while you hold **Hold to talk** in the voice bar, or hold **Space** while you aren't typing in Row-Bot's window. In the Windows app you can also choose a key to hold anywhere, even while another app is in front (**Hold a key to talk**: Ctrl + Alt + Space, Ctrl + Shift + Space or F13). It is off until you choose one, works only while voice is open with push to talk, and Row-Bot listens for that one key only; while it is on, other apps don't get that key. On a Mac this isn't offered yet.
+
+## Home And Phones
+
+Talk and Dictate start from Home's Ask box on a computer too: with nothing typed, its microphone dictates and its Talk button talks in a new chat.
+
+On a phone, Row-Bot keeps the screen on while you talk. A phone stops listening when the screen locks or turns off, or when you switch to another app: on iPhone that includes a Row-Bot added to the Home Screen, and on Android the screen turning off. The voice bar says so once. Where the phone or browser shows media controls (the lock screen, a headset's button), they show **Row-Bot · Listening**; play and pause unmute and mute, and hanging up ends voice.
 
 <Screenshot id="settings-buddy" alt="Row-Bot Buddy settings." caption="Buddy settings control visibility, look, personality, bubbles, motion, and new looks." />
 
@@ -74,17 +116,29 @@ See [Settings: Buddy](/docs/settings/buddy) for the complete drag, messaging, ap
 
 Buddy's bubble accepts typed messages for the thread named at its top. It does not contain a separate microphone control: Talk and Dictate remain in the full Row-Bot thread, where device state, transcription, and provider disclosure are visible. Use **Open full thread**, start Talk or Dictate there, and Buddy will continue reflecting that selected conversation.
 
-Use Dictate when you want to review speech as text before sending. Use Talk when you want the configured voice path to submit conversation turns. Undocking Buddy does not change which voice provider is used, create a new voice session, or bypass tool approvals.
+While you talk, Buddy shows that it is listening and its mouth moves with Row-Bot's voice, with Row-Bot Voice, Live voice and Read aloud alike, in the sidebar and as the desktop pet. Undocking Buddy does not change which voice provider is used, create a new voice session, or bypass tool approvals.
 
 ## Privacy And Safety
 
-Voice input can become chat text. Live voice sends your audio, the chat's recent messages, the agent profile's name and a few relevant memories (none in an incognito chat) to the provider you choose, only while you talk; Gemini Live is also shown what you share on camera or screen. A shared camera or screen is captured only after you start sharing, and with Row-Bot Voice only one still per thing you say leaves the page, saved in your message. Installing SenseVoice contacts ModelScope for the requested model and standard SDK metadata, but Row-Bot does not send audio, prompts, or usage data; inference stays local after installation. Buddy preferences and looks are local and Buddy animates on your computer; making a new look calls your configured image model. The desktop Buddy reads only the position and size of the window you are using (never its title or contents) to sit on it.
+What you say becomes chat text, and goes to the chat's model like anything you type. Beyond that, each part of voice stays on the computer running Row-Bot unless you choose a company for it:
+
+- **Row-Bot Voice** (the default): your browser sends your voice only to Row-Bot, over its own signed-in connection. Whisper, SenseVoice or a faster speech model writes it down there, and Kokoro speaks there. Nothing goes to a speech service.
+- **A cloud speech service** under **Listen with** (Deepgram, AssemblyAI, OpenAI or Google): the stretches where you speak go to that company, one at a time, while you talk. Dictation and chat-app voice notes stay local.
+- **A cloud voice** under **Speak with** (ElevenLabs, Cartesia or Google): the text of each sentence Row-Bot says goes to that company, for Talk, Read aloud and chat-app voice notes. **Describe a voice** sends only your description, never a recording.
+- **Live voice** (OpenAI, Google or xAI): your voice, the chat's recent messages, the agent profile's name and a few related memories (none in an incognito chat) go to that provider while you talk, and so do Row-Bot's answers and short progress lines, which it says for Row-Bot; Gemini Live is also shown what you share on camera or screen.
+- **Camera or screen**: captured only after you start sharing. With Row-Bot Voice, one still per thing you say leaves the page, saved in your message like an attached image, and goes where your images go (the chat's model or its Vision model).
+- **Downloads**: speech models download only when you press **Download** or **Install**: Whisper from Hugging Face, Kokoro and the faster speech models from GitHub, SenseVoice from ModelScope. Installing SenseVoice sends no audio, prompts or usage data; inference stays local after installation.
+- **Devices and controls**: the microphone and speaker you choose are kept in your browser and never sent to Row-Bot. The system's media controls show only **Row-Bot · Listening** (or what voice is doing).
+
+Every cloud key is yours; the company bills it, not Row-Bot. Buddy preferences and looks are local and Buddy animates on your computer; making a new look calls your configured image model. The desktop Buddy reads only the position and size of the window you are using (never its title or contents) to sit on it.
 
 ## Troubleshooting
 
-- If Dictate records nothing, check that the browser may use the microphone, and which microphone it uses.
+- If Dictate records nothing, check that the browser may use the microphone, and which microphone is chosen in Settings › Voice › Microphone and speaker.
+- If a Bluetooth headset sounds muffled while you talk, that is the headset switching to its call mode (a lower sound quality) to use its microphone; choose the computer's own microphone to keep the headset's full sound.
 - If Read aloud says it needs the Kokoro voice, install Kokoro under **Read aloud** in Settings › Voice.
-- If Talk sends too quickly, use Dictate instead.
+- If Talk answers before you have finished, set **When you pause** to **Give me time to think** in Settings › Voice, or turn on **Push to talk**.
+- If Talk doesn't hear you on a phone, check that the screen is on and Row-Bot is the app in front: phones stop listening otherwise.
 - If SenseVoice reports missing packages, install the `voice` extra for a source checkout or repair the packaged app. If its snapshot is missing or incomplete, reinstall it from Voice settings.
 - If SenseVoice is unavailable on Intel macOS, select local Whisper instead.
 - If a Live voice provider is unavailable, add that provider's API key in Providers.

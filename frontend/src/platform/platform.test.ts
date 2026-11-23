@@ -708,6 +708,36 @@ describe('desktop Buddy operations', () => {
     expect(hostless.moveWindow(1, 1)).toBe(false);
   });
 
+  it('arms and disarms only the listed push-to-talk hotkeys, and only in the desktop app', async () => {
+    const dispatch = vi.fn().mockResolvedValue({ status: 'ok', value: null });
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      {},
+    );
+    expect(await adapter.voiceHotkey('ctrl+alt+space')).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('voice_hotkey', {
+      key: 'ctrl+alt+space',
+    });
+    await adapter.voiceHotkey(null);
+    expect(dispatch).toHaveBeenLastCalledWith('voice_hotkey', { key: null });
+    dispatch.mockClear();
+    expect(
+      await adapter.voiceHotkey('alt+f4' as unknown as 'f13'),
+    ).toMatchObject({ status: 'unavailable', reason: 'invalid_request' });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(
+      await createBrowserPlatform(media()).voiceHotkey('f13'),
+    ).toMatchObject({
+      status: 'unavailable',
+      reason: 'voice_hotkey_requires_native',
+    });
+  });
+
   it('is unavailable in browsers and scripted in the fake', async () => {
     const browser = createBrowserPlatform(media());
     expect(await browser.readBuddyTarget()).toMatchObject({

@@ -24,5 +24,9 @@ export type RealtimeOptions = {
   bootstrap(): Promise<{ value: string | null }>;
   exchange(sdp: string, ephemeralKey: string): Promise<string>;
   onRuntime?(runtime: RealtimeRuntime): void;
+  /** The microphone's constraints (the chosen device and the capture settings). */
+  microphone?: MediaTrackConstraints;
+  /** The chosen speaker's id ('' for the system default). */
+  speaker?: string;
 };
 export function startRealtimeRuntime(options: RealtimeOptions): Promise<RealtimeRuntime | undefined>;

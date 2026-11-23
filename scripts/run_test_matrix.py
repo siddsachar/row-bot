@@ -176,6 +176,9 @@ BROWSER_SMOKE_SPECS = (
     # Languages (V8): Settings › Voice › Language, the English-only notice and the voices per language; the bar's
     # captions in French and Arabic (right to left); desktop and phone, light and dark. Appended likewise.
     "voice-languages",
+    # Presence and control (V7): the microphone and speaker picker with devices plugged in and pulled out, the
+    # Windows app's hold-to-talk key, Talk from Home, the iPhone's listening limits. Appended likewise.
+    "voice-presence",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

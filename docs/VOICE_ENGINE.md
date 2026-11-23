@@ -73,8 +73,58 @@ person-facing docs are in `docs-site/docs/voice-and-buddy/`.
 
 Latency marks per turn (end of speech, turn end, transcript, admission, first
 token, first sentence, first audio sent, first audio played) are kept as
-durations only; the bar's timing line and `row_bot.voice.engine.latency`
-show them.
+durations only; the bar's details (**Show details**) and
+`row_bot.voice.engine.latency` show them.
+
+## Live voice (V4)
+
+A chat's Talk menu also lists the Live voice fronts (`voice/live_voice.py`):
+OpenAI Realtime, Gemini Live and Grok Voice, each with the person's own key from
+Providers. Before a provider's first use in a browser the client shows what goes
+to it (the same list as Settings: voice, recent messages, the agent profile's
+name, a few memories unless incognito, and for Gemini Live what is shared).
+`POST /api/v1/conversations/{id}/voice/realtime` takes the lease and returns a
+ticket for `WS /api/v1/voice/live`, which carries the session's events.
+
+- **Gemini Live and Grok Voice are relayed by the host**: the provider socket is
+  opened from Row-Bot with the key, and the audio rides the page's socket
+  (16 kHz up, 24 kHz down) through the same capture and playback as Row-Bot
+  Voice. No provider token reaches the browser; the page's CSP keeps
+  `connect-src 'self'`.
+- **OpenAI Realtime keeps its WebRTC call for the media.** The host mints the
+  short-lived client secret and exchanges the SDP
+  (`.../voice/realtime/{lease}/exchange`); the browser's `RTCPeerConnection`
+  then carries audio directly to and from OpenAI, and the call's events go up
+  the socket.
+- **The front talks; Row-Bot works.** The front's instructions
+  (`voice/live_front.py`) and a bounded context block (12 recent messages,
+  5 memories) go to the provider; anything beyond small talk calls
+  `row_bot_agent_consult`, which runs the chat's own agent with its model,
+  tools and approvals. Progress lines ("Working on: …") and the answer go back
+  to the front to say. The front's own replies are saved as assistant messages
+  with `additional_kwargs={"voice_front": True}` (Learning keys on it: never
+  rename it).
+- Live voice is always hands-free (no push to talk); only Gemini Live takes
+  shared stills.
+
+## Voice-note replies in chat apps (V9)
+
+On Telegram and WhatsApp, a voice note in is transcribed with Dictation's
+local engine in the saved language (`speech_to_text_provider("voice_note")`).
+With the channel's **Reply to voice notes with a voice note** on (the default)
+and a voice that can speak, the turn runs with `voice_mode` for that turn only
+and the answer goes back as text, then as an OGG/Opus voice note made by the
+chosen speech output (`channels/voice_replies.py`; Kokoro, or the cloud voice
+with its key). Code, tables and links are left out of the note; an answer over
+the platform's size limit, or in a language the voice can't speak, goes as text
+alone.
+
+## Not shipped
+
+- **Wake word** (V10): not merged; there is no always-listening mode.
+- **Japanese and Mandarin speech** need misaki, which Row-Bot does not ship.
+- **The macOS push-to-talk hotkey** and **OpenAI Realtime sharing** are
+  follow-ups.
 
 ## Sharing the camera or screen
 
@@ -403,6 +453,45 @@ and `httpx`; no vendor SDK, so there is no new dependency and no third-party tel
   the provider's own time: the first piece of a sentence is sent the moment it arrives, before
   the rest is made. Real first-audio times need real keys (a hand check).
 
+## Presence and control (V7)
+
+- **Devices.** `features/voice/devices.ts` keeps the chosen microphone and speaker per browser
+  (`localStorage`, '' for the system default; never sent to the host) and lists devices by the
+  names the operating system gives them (`enumerateDevices`, without Chromium's `default` and
+  `communications` stand-ins). The microphone opens with `deviceId: {ideal}`, so a missing one
+  gives the default at once, and `getSettings().deviceId` tells the bar. A track the browser ends
+  (the device went away) reopens the microphone straight away; `devicechange` switches back when
+  the chosen one returns, and listens again when a microphone appears after none was left. The
+  speaker uses `AudioContext.setSinkId` (Chromium engines); where it is missing (WebKit, Firefox)
+  no speaker choice is shown. OpenAI Realtime's call gets the same constraints and its `<audio>`
+  element's `setSinkId`; a change mid-call replaces the sender's track. Dictation opens the chosen
+  microphone too.
+- **Push to talk.** With push to talk on, Space held in the window (not in a text field, a button,
+  a menu or a dialog) sends `hold`. In the Windows app the person may choose a hotkey
+  (`row_bot/voice_hotkey.py`, off by default, kept per computer): the page arms it through the
+  native bridge's `voice_hotkey` operation only while a push-to-talk session is open, and disarms it
+  when the session ends; the window loading or closing disarms it too. It is `RegisterHotKey` for
+  exactly that combination on its own thread (no keyboard hook, so no other keystroke is seen),
+  then `GetAsyncKeyState` of that one key every 20 ms until it is released; presses reach the page
+  as `row-bot-voice-hotkey` events. Checked here with a synthetic F13: press heard in 34 ms,
+  release within one poll. **macOS is not offered**: Carbon's `RegisterEventHotKey` needs no
+  Accessibility or Input Monitoring permission (unlike an event tap), but needs the window
+  process's main run loop and a Mac to check it on (since macOS 15 it also refuses hotkeys whose
+  only modifiers are Option or Shift); a follow-up.
+- **Media Session.** While voice is open, `navigator.mediaSession` (where it exists) shows
+  "Row-Bot · Listening" (or what voice is doing); play and pause unmute and mute, stop and hang up
+  end voice, and `setMicrophoneActive` follows mute. Whether the lock screen or a headset shows
+  them is the system's choice (an audible media element usually decides it).
+- **Phones.** The wake lock keeps the screen on while voice is open. The bar says once
+  (dismissible, remembered per browser) that an iPhone stops listening when the screen locks or
+  the app is backgrounded (a Home Screen web app included) and that Android stops capture with the
+  screen off; Settings › Voice says it too. Background listening would need a native app.
+- **Buddy.** Both voice paths set Buddy's listening state and lip-sync level; Live voice's OpenAI
+  call, which plays its own speech, has its remote stream read by an analyser. The desktop pet
+  is its own window, so the main window shares the two values on a same-origin
+  `BroadcastChannel` (`row-bot-buddy-voice`, about 25 a second while speaking, twice a second
+  while listening; the pet drops "listening" after 2 s without word).
+
 ## Transport: why a WebSocket, not WebRTC
 
 aiortc never offers loopback candidates (it uses LAN, virtual or link-local
@@ -429,5 +518,10 @@ What was verified: the capture constraints, the worklet's framing, playback,
 ducking and flushing in headless Chromium with a synthetic microphone.
 What needs a hand check on real devices: echo on open speakers in WebView2,
 WKWebView, iPhone Safari and Android Chrome; Bluetooth headsets (the HFP
-profile switch); and the phone's lock screen (an installed iPhone web app
-stops listening when locked).
+profile switch drops the headset to call quality and a lower sample rate when
+its microphone opens); the phone's lock screen (an installed iPhone web app
+stops listening when locked) and Media Session controls; Android with the
+screen off; the Windows push-to-talk hotkey on a real keyboard with another
+app in front; Live voice and the cloud speech parts with real keys (first
+audio, captions, barge-in), and OpenAI Realtime's direct WebRTC call from a
+phone over the remote-access tunnel.

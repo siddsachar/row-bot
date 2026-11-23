@@ -7,9 +7,15 @@
 let level = 0;
 let updated = -Infinity;
 
-export function setBuddyVoiceLevel(value: number) {
+function keepLevel(value: number) {
   level = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
   updated = performance.now();
+}
+
+export function setBuddyVoiceLevel(value: number) {
+  const was = level;
+  keepLevel(value);
+  share(was > 0 !== level > 0);
 }
 
 export function buddyVoiceLevel(now = performance.now()): number {
@@ -17,14 +23,73 @@ export function buddyVoiceLevel(now = performance.now()): number {
 }
 
 let listening = false;
+let heard = -Infinity;
 
 /** Row-Bot Voice is listening to the person: Buddy listens too. */
 export function setBuddyListening(value: boolean) {
+  const changed = value !== listening;
   listening = value;
+  share(changed);
 }
 
-export function buddyListening(): boolean {
-  return listening;
+export function buddyListening(now = performance.now()): boolean {
+  // Told by another window: only while it keeps saying so.
+  return listening && (!receiving || now - heard < 2000);
+}
+
+/**
+ * The desktop pet is its own window: the main window shares Buddy's voice
+ * state with it on a same-origin channel (two numbers, about 25 times a
+ * second while it speaks; nothing else).
+ */
+const CHANNEL = 'row-bot-buddy-voice';
+type Channel = Pick<BroadcastChannel, 'postMessage' | 'close'> & {
+  onmessage: ((event: MessageEvent) => void) | null;
+};
+type ChannelClass = new (name: string) => Channel;
+let outbound: Channel | null = null;
+let receiving = false;
+let sentAt = -Infinity;
+
+function share(now: boolean) {
+  if (!outbound) return;
+  const at = performance.now();
+  // While it speaks, about 25 a second; while it listens, twice a second.
+  if (!now && at - sentAt < (level > 0 ? 40 : 500)) return;
+  sentAt = at;
+  outbound.postMessage({ listening, level });
+}
+
+/** The main window: tell other windows (the desktop pet) how Buddy should listen and talk. */
+export function shareBuddyVoice(
+  Channel: ChannelClass | undefined = globalThis.BroadcastChannel,
+): () => void {
+  if (typeof Channel !== 'function') return () => undefined;
+  const channel = new Channel(CHANNEL);
+  outbound = channel;
+  return () => {
+    if (outbound === channel) outbound = null;
+    channel.close();
+  };
+}
+
+/** The desktop pet: Buddy listens and lip-syncs to voice in the main window. */
+export function receiveBuddyVoice(
+  Channel: ChannelClass | undefined = globalThis.BroadcastChannel,
+): () => void {
+  if (typeof Channel !== 'function') return () => undefined;
+  const channel = new Channel(CHANNEL);
+  receiving = true;
+  channel.onmessage = (event) => {
+    const data = (event.data ?? {}) as { listening?: unknown; level?: unknown };
+    listening = data.listening === true;
+    heard = performance.now();
+    keepLevel(typeof data.level === 'number' ? data.level : 0);
+  };
+  return () => {
+    receiving = false;
+    channel.close();
+  };
 }
 
 const WINDOW_MS = 20;
