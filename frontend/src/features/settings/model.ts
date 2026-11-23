@@ -26,12 +26,13 @@ export const settingsGroups = [
     id: 'connections',
     label: 'Connections',
     // Accounts and channels are apps too (Apps › Google, Apps › Telegram).
-    leaves: ['apps', 'company'],
+    leaves: ['apps'],
   },
   {
     id: 'system',
     label: 'System',
-    leaves: ['system', 'activity', 'access', 'updates', 'data'],
+    // Company last: a personal Row-Bot's lists stay as they were, and on a phone Updates stays in view.
+    leaves: ['system', 'activity', 'access', 'updates', 'data', 'company'],
   },
 ] as const;
 
