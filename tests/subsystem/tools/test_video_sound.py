@@ -10,7 +10,7 @@ import pytest
 from row_bot import video_sound
 from row_bot.video_sound import RATE, Mix, Track
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def _loudness(samples: np.ndarray) -> float:

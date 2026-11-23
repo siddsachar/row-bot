@@ -146,7 +146,9 @@ def test_a_real_video_given_music_is_its_picture_then_its_mix_at_minus_14(studio
     result = video_tool._edit_video(inputs=["clip.mp4"], name="scored", steps=[
         {"op": "trim", "start": 0.5, "end": 3.5}, {"op": "sound", "source": "music.wav", "role": "music"}])
 
-    assert "\nSaved 0:03 of video" in result, result
+    import re
+
+    assert re.search(r"\nSaved 0:03(\.\d)? of video", result), result  # As measured: 0:03.1 is three seconds too.
     edit = studio["edits"].get(result.split(":", 1)[0].removeprefix("Video edit "))
     output = tmp_path / "out.mp4"
     output.write_bytes(read_attachment(edit.media_ref)[1])
@@ -174,13 +176,19 @@ def test_a_real_project_is_its_picture_then_its_mix_and_a_sound_only_remake_reus
     studio["register"](studio["chat"], "clip.mp4", clip.read_bytes())
     sources = resolve("clip.mp4", studio["chat"])
     runs: list[tuple[str, str]] = []
+    sound_runs: list[list[str]] = []
     run = edits._run_process
 
-    def recorded(edit, ffmpeg, args, folder, name):
+    def recorded(edit, ffmpeg, args, folder, name):  # Only records: checked once the edit has ended.
         runs.append((name, args[-1].removeprefix("file:")))
         if name == "Video sound":
-            assert args[args.index("-c:v") + 1] == "copy" and any(arg.endswith("picture.mkv") for arg in args)
+            sound_runs.append(list(args))
         return run(edit, ffmpeg, args, folder, name)
+
+    def picture_read(args: list[str]) -> Path:
+        """The picture the sound run copies: what it reads with -i that is a Matroska file."""
+        return next(Path(args[index + 1].removeprefix("file:")) for index, arg in enumerate(args)
+                    if arg == "-i" and args[index + 1].endswith(".mkv"))
 
     studio["monkeypatch"].setattr(edits, "_run_process", recorded)
     cache = tmp_path / "scenes"
@@ -203,8 +211,15 @@ def test_a_real_project_is_its_picture_then_its_mix_and_a_sound_only_remake_reus
 
     make(0.3)
     assert runs == [("Video edit", "picture.mkv"), ("Video sound", "output.mp4")]
-    assert len(list(cache.glob("picture-*.mkv"))) == 1, "the picture is kept with the project"
+    kept = list(cache.glob("picture-*.mkv"))
+    assert len(kept) == 1, "the picture is kept with the project"
+    first = sound_runs[0]
+    assert first[first.index("-c:v") + 1] == "copy", "the picture is copied as it was made"
+    assert picture_read(first).resolve() == kept[0].resolve(), "made, then read from where the project keeps it"
     runs.clear()
     again = make(0.6)
     assert runs == [("Video sound", "output.mp4")], "a change to the sound alone copies the same picture"
+    remake = sound_runs[1]
+    assert remake[remake.index("-c:v") + 1] == "copy"
+    assert picture_read(remake).resolve() == kept[0].resolve(), "the kept picture, not a new one"
     assert again.scene_makes == ["reused", ""], "and draws no scene again"
