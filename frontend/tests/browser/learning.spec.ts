@@ -127,6 +127,8 @@ async function openChatMenu(page: Page, info: TestInfo, title: string) {
 test('turn Learning on, its tab appears, Teach a reply and undo it, then switch a chat off', async ({
   page,
 }, info) => {
+  // 17 screens in light and dark, each with an axe scan, and nine page loads: more than 60 s on a busy runner.
+  test.slow();
   // Before: no Learning anywhere, and Preferences keeps "Learn new skills".
   await openSettings(page, 'preferences');
   await expect(
