@@ -839,6 +839,8 @@ class DuplexSession:
                 if audio is None:
                     audio = await asyncio.to_thread(self.parts.tts.synthesize, text,
                                                     language=self._heard_language)
+                    if kind in _FIXED_KINDS and audio.pcm16 and len(self._fixed_audio) < 32:
+                        self._fixed_audio[text] = audio
                 if audio.unspoken and epoch == self._speech_epoch and not self.closed:
                     # A language the voice can't speak: the words stay on screen, and the bar says why.
                     await self.link.send_event({"type": "caption", "role": "assistant", "text": text,
@@ -846,8 +848,6 @@ class DuplexSession:
                                                 "spoken": False})
                     await self.link.send_event({"type": "unspoken", "language": audio.unspoken})
                     continue
-                    if kind in _FIXED_KINDS and audio.pcm16 and len(self._fixed_audio) < 32:
-                        self._fixed_audio[text] = audio
                 if (epoch != self._speech_epoch or self.closed or not audio.pcm16
                         or (kind == "progress" and self._burst is None)):
                     continue
