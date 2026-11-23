@@ -411,28 +411,28 @@ class ClientRealtimeTransport:
             lease.phase = "event"
             state.events.add(event.event_id)
 
+        # After a spoken cancel the run may end at any moment, even before this event is answered.
+        stopping = False
+
         def admitted() -> None:
             validate()
             with self.coordinator._dictation_lock:
                 self._lease(owner, handle)
                 self._transport._operation(operation)
-            if self._active(owner) is not generation:
+            current = self._active(owner)
+            if current is not generation and not (stopping and current is None):
                 raise DictationError("voice_run_changed")
 
         control_result: dict | None = None
 
         def control(action: str, text: str) -> dict:
-            nonlocal generation, control_result
+            nonlocal control_result, stopping
             admitted()
             if len(text) > 4000:
                 raise DictationError("voice_event_too_large")
             control_result = self._control(owner, generation, action, text, event.event_id, admitted)
-            validate()
-            current = self._active(owner)
-            if current is None and isinstance(control_result, dict) and control_result.get("control") == "cancel":
-                generation = None
-            elif current is not generation:
-                raise DictationError("voice_run_changed")
+            stopping = isinstance(control_result, dict) and control_result.get("control") == "cancel"
+            admitted()
             if not isinstance(control_result, dict):
                 raise DictationError("voice_operation_failed")
             return control_result
