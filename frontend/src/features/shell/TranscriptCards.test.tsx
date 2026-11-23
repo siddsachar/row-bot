@@ -433,6 +433,29 @@ it('folds recordings and edits, stills too, into working files in every reply', 
   ]);
 });
 
+it('keeps working files open when the finished reply takes over from the live turn', async () => {
+  const working = {
+    cards: [{ ...design, bindingId: 'binding-open', name: 'Contact sheet' }],
+    media: [],
+  };
+  const row = () => (
+    <OverlayProvider>
+      <CardActionsContext.Provider value={actions()}>
+        <WorkingFilesRow working={working} conversation="chat-open" />
+      </CardActionsContext.Provider>
+    </OverlayProvider>
+  );
+  const live = render(row());
+  fireEvent.click(screen.getByText('1 working file'));
+  await screen.findByRole('button', { name: 'Open' });
+  live.unmount();
+
+  render(row());
+  expect(screen.getByText('1 working file').closest('details')).toHaveAttribute(
+    'open',
+  );
+});
+
 it('keeps working files behind one quiet row that loads them only when opened', async () => {
   render(
     <OverlayProvider>
