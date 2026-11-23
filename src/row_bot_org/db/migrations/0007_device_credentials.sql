@@ -120,7 +120,7 @@ DECLARE
     found_redirect text;
 BEGIN
     DELETE FROM row_bot_org.device_codes c
-    WHERE c.expires_at OPERATOR(pg_catalog.<) pg_catalog.now() OPERATOR(pg_catalog.-) '1 day'::pg_catalog.interval;
+    WHERE c.expires_at OPERATOR(pg_catalog.<) (pg_catalog.now() OPERATOR(pg_catalog.-) '1 day'::pg_catalog.interval);
     UPDATE row_bot_org.device_codes c SET used_at = pg_catalog.now()
     WHERE c.verifier OPERATOR(pg_catalog.=) p_code AND c.used_at IS NULL
       AND c.expires_at OPERATOR(pg_catalog.>) pg_catalog.now()
@@ -169,7 +169,7 @@ DECLARE
     found_absolute timestamptz;
 BEGIN
     DELETE FROM row_bot_org.device_tokens t
-    WHERE t.expires_at OPERATOR(pg_catalog.<) pg_catalog.now() OPERATOR(pg_catalog.-) '1 day'::pg_catalog.interval;
+    WHERE t.expires_at OPERATOR(pg_catalog.<) (pg_catalog.now() OPERATOR(pg_catalog.-) '1 day'::pg_catalog.interval);
     UPDATE row_bot_org.device_tokens t SET used_at = pg_catalog.now()
     FROM row_bot_org.devices d, row_bot_org.principals p
     WHERE t.verifier OPERATOR(pg_catalog.=) p_refresh AND t.kind OPERATOR(pg_catalog.=) 'refresh'
