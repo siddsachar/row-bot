@@ -23,8 +23,11 @@ COPY scripts/client_build.py ./scripts/client_build.py
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --group org --no-install-project
 
-# Only the Org server's own package goes into the image.
+# Only the Org server's own package goes into the image, with the shared policy model (standard library
+# only) and its package marker; never the rest of the desktop app.
 COPY src/row_bot_org /opt/row-bot-org/src/row_bot_org
+COPY src/row_bot/__init__.py /opt/row-bot-org/src/row_bot/__init__.py
+COPY src/row_bot/policy /opt/row-bot-org/src/row_bot/policy
 RUN /opt/row-bot-org/.venv/bin/python -m compileall -q /opt/row-bot-org/src
 
 FROM ${PYTHON_IMAGE} AS runtime
