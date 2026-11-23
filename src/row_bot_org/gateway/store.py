@@ -1,5 +1,5 @@
 """The gateway's database calls (migration 0003). Each takes a connection already inside a principal's
-transaction (``principal_transaction``) or an admin's (``admin_transaction``); row-level security
+transaction (``principal_transaction``) or an admin's (``roles.admin_connection``); row-level security
 decides which rows it sees.
 
 Sealed keys stay in this module and ``web``: nothing here returns one to a caller outside the server.
@@ -15,9 +15,11 @@ from typing import Any
 import psycopg
 from psycopg import sql
 
+from row_bot.policy import ALL_MODELS, Policy
+
 ENDPOINT_COLUMNS = "id, name, api, base_url, key_sealed IS NOT NULL, timeout_seconds, enabled, created_at, updated_at"
 MODEL_COLUMNS = ("id, endpoint_id, name, upstream_model, display_name, kind, context_window, input_price, output_price,"
-                 " allowed_groups, is_default")
+                 " is_default")
 
 
 @dataclass(frozen=True)
@@ -64,13 +66,18 @@ def _endpoint(row: tuple) -> dict[str, Any]:
 def _model(row: tuple) -> dict[str, Any]:
     return {"id": str(row[0]), "endpoint_id": str(row[1]), "name": row[2], "upstream_model": row[3],
             "display_name": row[4], "kind": row[5], "context_window": row[6], "input_price": _money(row[7]),
-            "output_price": _money(row[8]), "allowed_groups": list(row[9]), "is_default": row[10]}
+            "output_price": _money(row[8]), "is_default": row[9]}
 
 
 # -- what a principal may use -----------------------------------------------------------------------
 
+def allowed(policy: Policy, model: str) -> bool:
+    """Whether the effective ``policy`` lets its person use the catalog model ``model`` (``models.allowed``)."""
+    return ALL_MODELS in policy.models.allowed or model in policy.models.allowed
+
+
 def available_models(conn: psycopg.Connection) -> list[dict[str, Any]]:
-    """The models the caller may use, on enabled endpoints."""
+    """The catalog's models on enabled endpoints (``allowed`` filters them by the caller's policy)."""
     rows = conn.execute(
         "SELECT m.name, m.display_name, m.kind, e.api, m.context_window, m.is_default"
         " FROM row_bot_org.catalog_models m JOIN row_bot_org.model_endpoints e ON e.id = m.endpoint_id"
@@ -80,7 +87,7 @@ def available_models(conn: psycopg.Connection) -> list[dict[str, Any]]:
 
 
 def route(conn: psycopg.Connection, model: str) -> Route | None:
-    """The route for ``model`` when the caller may use it; None when it doesn't exist or isn't theirs."""
+    """The route for ``model``; None when it isn't in the catalog (the caller checks ``allowed`` first)."""
     row = conn.execute(
         "SELECT m.name, m.upstream_model, m.kind, m.input_price, m.output_price, e.id, e.name, e.api, e.base_url,"
         " e.key_sealed, e.timeout_seconds, e.enabled"
@@ -225,7 +232,7 @@ def usage_report(conn: psycopg.Connection, *, by: str, start: datetime, end: dat
             for r in rows]
 
 
-__all__ = ["BudgetState", "Route", "available_models", "budget_state", "create_endpoint", "create_model",
+__all__ = ["BudgetState", "Route", "allowed", "available_models", "budget_state", "create_endpoint", "create_model",
            "delete_budget", "delete_endpoint", "delete_model", "endpoint_target", "list_budgets", "list_endpoints",
            "list_models", "model_kind", "put_budget", "record_usage", "route", "update_endpoint", "update_model",
            "usage_report"]

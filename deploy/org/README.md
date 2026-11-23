@@ -98,7 +98,8 @@ public URL's origin.
 - `ROW_BOT_ORG_IDP`: the provider, a JSON object, for example
   `{"kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0", "client_id": "...",
   "allowed_tenants": ["<tenant id>"]}`. `kind` is `entra`, `okta` or `google`. Optional: `groups_claim`
-  (`groups`), `group_map` (provider group to Row-Bot group; others are dropped) and
+  (`groups`), `group_map` (provider group to Row-Bot group; others are dropped), `admin_groups` (Row-Bot
+  groups whose members are admins: each must be a `group_map` target, see People and admins) and
   `allowed_email_domains` (sign-in then needs a verified email in one of them; not for Entra).
   - **Entra** needs the tenant's own issuer and `allowed_tenants`: the `common` and `organizations`
     authorities are refused. The tenant check admits everyone with an account in the tenant, B2B guests
@@ -124,6 +125,35 @@ public URL's origin.
 The server asks only for `openid email profile` and keeps no provider token. `row-bot-org principals
 revoke-sessions <principal id>`, with the owner's address, signs a person out everywhere.
 
+## People and admins
+
+Everyone who signs in is a **member**. An **admin** is a person with the stored admin role, or a member of
+one of `admin_groups`. (A **space owner** manages one company space; spaces come later.)
+
+**The first admin:** a person exists on the server only once they have signed in, so
+
+1. sign in once at `<public URL>/auth/login`, then
+2. with the owner's address (`ROW_BOT_ORG_MIGRATION_DATABASE_URL`), run
+   `row-bot-org principals grant-admin <your email or principal id>`.
+
+`row-bot-org principals revoke-admin <email or id>` takes the stored role away; it refuses to remove the last
+stored admin while `admin_groups` is unset, so the server always keeps one. An email two people share is
+refused: name one by its id (`/api/me` shows yours). Suspended admins don't count as the one kept.
+
+**Admins from your provider:** set `admin_groups` in `ROW_BOT_ORG_IDP` to Row-Bot groups that `group_map`
+maps your provider's admin group to, for example `"group_map": {"<IT admins' object id>": "it-admins"},
+"admin_groups": ["it-admins"]`. A group the provider merely sends never makes an admin, so the server refuses
+an `admin_groups` entry that isn't a `group_map` target. Map by immutable ids (Entra object ids), never by
+names people can create. Groups are read at sign-in, so a change in the provider applies at the person's
+next sign-in; to take access away at once, suspend the person.
+
+Admins manage people under `/api/admin/people`: the list (name, email, groups, stored `role`, `admin`,
+last sign-in, `suspended`), `PUT .../{id}/role` with `{"role": "admin"}` or `{"role": "member"}`, and
+`POST .../{id}/suspend` and `.../resume`. Suspending signs the person out everywhere and refuses their sign-in
+until they are resumed; a model call already running finishes. An admin can't suspend themself or change
+their own role (not even to admin: a provider-group admin would keep a stored role the provider can't take
+back).
+
 ## Models
 
 With sign-in and `ROW_BOT_ORG_GATEWAY_KEY` set, the server holds the company's model endpoints and
@@ -134,15 +164,16 @@ connected Row-Bots call models through it, so the endpoints' keys never reach a 
   A secret: it seals every endpoint key in the database, and keys sealed with another one can't be used.
 - `ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS`: the calls a person under a hard budget may have running at once,
   per server process, 4 by default (budgets count a call's spend after it ends).
-- Until roles arrive, admins are the members of the group `row-bot-org-admins`, and only through an explicit
-  `group_map` entry (`{"<your admin group>": "row-bot-org-admins", ...}`): a provider group that merely has
-  that name never makes an admin, and without such an entry there are none. They manage, under `/api/admin/`: `endpoints` (`api` `openai` for any
+- Admins (People and admins) manage, under `/api/admin/`: `endpoints` (`api` `openai` for any
   OpenAI-compatible server, with the SDK's base URL such as `http://gpu-box:8000/v1`, or `anthropic` with
   `https://api.anthropic.com`; `api_key`, `timeout_seconds`, `enabled`; a new host, scheme or port in
-  `base_url` drops the stored key unless `api_key` comes with it), `models` (the `name` people call,
-  the endpoint's `upstream_model`, `kind` `chat` or `embeddings`, prices per million tokens,
-  `allowed_groups`, empty for everyone, and `is_default`), `budgets` (monthly, per person or group, `soft_limit`
-  adds a warning header, `hard_limit` refuses) and `usage?by=person|group|model&start=&end=`.
+  `base_url` drops the stored key unless `api_key` comes with it), `models` (the `name` people call, a
+  model id the policy can name: letters, digits and `._:/@+-`, starting with a letter or digit; the
+  endpoint's `upstream_model`, `kind` `chat` or `embeddings`, prices per million tokens, and `is_default`),
+  `budgets` (monthly, per person or group, `soft_limit` adds a warning header, `hard_limit` refuses) and `usage?by=person|group|model&start=&end=`.
+- **Who may use which model is the policy's `models.allowed`** (Policy below), with its group overrides:
+  `*`, the default, is every catalog model. `/api/models` lists only the models a person's effective policy
+  allows, and a call to any other is refused as if the model didn't exist.
 - People list their models at `/api/models` and call them at `/api/gateway/openai/v1/chat/completions`,
   `/api/gateway/openai/v1/embeddings` and `/api/gateway/anthropic/v1/messages`. The gateway picks the model:
   requests naming others (`models`, `route`, `fallbacks`, `context_window_fallbacks`, `provider`), Anthropic

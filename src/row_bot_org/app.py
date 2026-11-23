@@ -65,14 +65,18 @@ async def _invalid_request(_request: Request, error: Exception) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=422)
 
 
+async def _admin_required(_request: Request, _error: Exception) -> JSONResponse:
+    return JSONResponse({"error": "admin_required"}, status_code=403)
+
+
 def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> FastAPI:
     """The server for ``settings``: health, readiness and, with identity providers, sign-in.
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
     and ``settings.idp`` it serves sign-in (``row_bot_org.identity``) and the policy routes
-    (``row_bot_org.policy``), and with ``settings.gateway_key`` too the model catalog and gateway
-    (``row_bot_org.gateway``). Every other path needs a server
+    (``row_bot_org.policy``) and people (``row_bot_org.identity.people``), and with ``settings.gateway_key``
+    too the model catalog and gateway (``row_bot_org.gateway``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
 
     ``X-Forwarded-For`` and ``X-Forwarded-Proto`` count only from ``settings.trusted_proxies`` (uvicorn's
@@ -121,11 +125,14 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         app.state.readiness.add("database", database_readiness(pool, load_migrations()))
     routers = [health_router(app.state.readiness)]
     if service is not None:
+        from row_bot_org.identity.people import people_router
+        from row_bot_org.identity.roles import AdminRequired
         from row_bot_org.identity.web import identity_router
         from row_bot_org.policy.web import policy_router
 
         app.state.identity = service
-        routers += [identity_router(service), policy_router()]
+        app.add_exception_handler(AdminRequired, _admin_required)
+        routers += [identity_router(service), people_router(), policy_router()]
     if gateway is not None:
         from row_bot_org.gateway.web import gateway_router
 

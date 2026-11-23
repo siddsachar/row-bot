@@ -43,7 +43,9 @@ APPROVAL_LEVELS = ("block", "approve", "auto", "full")
 APP_MODES = ("none", "allow-list", "any")
 
 ALL_MODELS = "*"
-MODEL_ID = r"\*|[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}"
+# A company catalog model's id (the gateway checks its names against it); models.allowed also takes "*".
+CATALOG_MODEL_ID = r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}"
+MODEL_ID = r"\*|" + CATALOG_MODEL_ID
 # A registry tool (BaseTool.name, such as shell) and a model-facing tool name (such as run_command).
 TOOL_GROUP = r"[a-z0-9][a-z0-9_]{0,63}"
 TOOL_NAME = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"

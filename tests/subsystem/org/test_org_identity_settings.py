@@ -92,6 +92,19 @@ def test_a_bad_provider_is_named_without_its_value(change: dict, expected: str) 
     assert problem.startswith("ROW_BOT_ORG_IDP ") and expected in problem
 
 
+def test_admin_groups_name_only_groups_the_group_map_maps_to() -> None:
+    entry = {**ENTRA, "group_map": {"g-1": "engineering", "g-2": "it-admins"}, "admin_groups": [" it-admins "]}
+    assert load_settings(_env(entry)).idp.admin_groups == ("it-admins",)
+
+    # A raw provider group (no map, or a name the map doesn't produce) never makes an admin.
+    for change in ({"group_map": {}}, {"admin_groups": ["g-2"]}, {"admin_groups": ["it-admins", "Admins"]}):
+        (problem,) = _problems(_env({**entry, **change}))
+        assert "admin_groups may name only groups that group_map maps a provider group to" in problem
+    for bad in ("it-admins", [""], [3]):
+        (problem,) = _problems(_env({**entry, "admin_groups": bad}))
+        assert "admin_groups must be a list of group names" in problem
+
+
 def test_a_loopback_http_issuer_is_allowed_for_a_provider_on_this_machine() -> None:
     entry = {**OKTA, "issuer": "http://127.0.0.1:9000/oauth2/default"}
     assert load_settings(_env(entry)).idp.issuer == entry["issuer"]
