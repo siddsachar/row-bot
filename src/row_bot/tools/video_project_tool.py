@@ -53,12 +53,10 @@ class _Scene(BaseModel):
                                                        "it fills the frame, cropped around the action; leave it out "
                                                        "for the brand's framing (full by default).")
     footage: Literal["clip", "picture", "ai", "card", "screen"] | None = Field(
-        default=None, description="Its footage type (from its source when left out). With no source, footage "
-                                  "still to make: plan it on the storyboard, make it before make.")
-    shows: str | None = Field(default=None, description="What it shows, in a few words (an AI shot's prompt).")
-    frame: str | None = Field(default=None, description="A still for its storyboard card (a picture), only one "
-                                                        "you already made; empty: a frame of its footage.")
-    cue: str | None = Field(default=None, description="Its music cue (\"strings swell\").")
+        default=None, description="Its footage (from its source when left out). No source: footage still to make.")
+    shows: str | None = Field(default=None, description="What it shows, in a few words.")
+    frame: str | None = Field(default=None, description="A picture you made for its card (empty: a frame of it).")
+    cue: str | None = Field(default=None, description="Its music cue.")
 
 
 class _VideoInput(BaseModel):
@@ -356,7 +354,7 @@ def langchain_tool():
             "logline and every scene's footage type, shows and line: a video of several scenes is a storyboard "
             "first, nothing made, which the person approves or comments on; make it when they approve. A video of "
             "one scene is made at once. change with every scene (keep scene ids) and a note: each change is a new "
-            "version, made again once the video was made (only changed scenes are drawn again). make, change and "
+            "version, made again once the video was made. make, change and "
             "export wait for the video; a longer one checks back here when it's made: never poll status. Each made "
             "video comes with its checks, by scene and time: fix what they list and make it again; it's ready to "
             "share only when they pass (no analyze_image passes of your own). undo goes back one version; export "

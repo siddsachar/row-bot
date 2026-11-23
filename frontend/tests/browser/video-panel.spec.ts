@@ -229,6 +229,12 @@ test('a new video is a storyboard first: cards to approve and comment on, made o
     .click();
   const comment = cards.nth(1).getByLabel('What to change in scene 2');
   await comment.fill('make this one moodier');
+  await expect(
+    cards.nth(1).getByRole('button', { name: 'Send to Row-Bot' }),
+  ).toBeEnabled();
+  await expect(
+    log.getByRole('group', { name: 'First snow · video' }).last(),
+  ).toContainText('Version 2 of 2');
   await views(page, info, 'c1-storyboard-comment', cards.nth(1));
   await page.setViewportSize(PHONE);
   await views(page, info, 'c1-storyboard-comment-phone', cards.nth(1));
