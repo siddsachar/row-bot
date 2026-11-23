@@ -185,7 +185,7 @@ def test_an_admin_sets_and_clears_the_admin_role_and_each_change_is_audited(org_
     ]
 
 
-def test_an_admin_can_neither_suspend_nor_demote_themself(org_database, idp, monkeypatch) -> None:
+def test_an_admin_can_neither_suspend_themself_nor_change_their_own_role(org_database, idp, monkeypatch) -> None:
     with org_server(org_database, idp) as server:
         owner = person(server, idp, "owner")
         assert grant_admin(org_database, monkeypatch, "owner@example.com") == 0
@@ -193,9 +193,16 @@ def test_an_admin_can_neither_suspend_nor_demote_themself(org_database, idp, mon
 
         demoted = owner.put(f"/api/admin/people/{owner_id}/role", json={"role": "member"})
         suspended = owner.post(f"/api/admin/people/{owner_id}/suspend")
-        assert (demoted.status_code, demoted.json()) == (409, {"error": "cannot_demote_yourself"})
+        assert (demoted.status_code, demoted.json()) == (409, {"error": "cannot_change_your_own_role"})
         assert (suspended.status_code, suspended.json()) == (409, {"error": "cannot_suspend_yourself"})
         assert owner.get("/api/admin/people").json()["people"][0]["role"] == "admin"
+
+        # An admin through the provider group can't store a role the provider couldn't take back.
+        it = person(server, idp, "it", groups=["IT Admins"])
+        promoted = it.put(f"/api/admin/people/{me(it)}/role", json={"role": "admin"})
+        assert (promoted.status_code, promoted.json()) == (409, {"error": "cannot_change_your_own_role"})
+        listed = {p["id"]: p for p in owner.get("/api/admin/people").json()["people"]}
+        assert (listed[me(it)]["role"], listed[me(it)]["admin"]) == ("member", True)
 
 
 def test_suspending_revokes_every_session_and_refuses_sign_in_until_resumed(org_database, idp,
@@ -283,6 +290,19 @@ def test_the_last_stored_admin_stays_unless_admin_groups_are_set(org_database, i
         assert grant_admin(org_database, monkeypatch, "owner@example.com", action="revoke-admin",
                            env=idp_env(idp, ["it-admins"])) == 0
         assert owner.get("/api/admin/people").status_code == 403
+
+
+def test_a_suspended_admin_doesnt_count_as_the_one_left(org_database, idp, monkeypatch, capsys) -> None:
+    with org_server(org_database, idp, admin_groups=[]) as server:
+        owner, deputy = person(server, idp, "owner"), person(server, idp, "deputy")
+        for who in ("owner@example.com", "deputy@example.com"):
+            assert grant_admin(org_database, monkeypatch, who) == 0
+        assert owner.post(f"/api/admin/people/{me(deputy)}/suspend").status_code == 200
+        capsys.readouterr()
+
+        assert grant_admin(org_database, monkeypatch, "owner@example.com", action="revoke-admin") == 1
+        assert "is the last admin" in capsys.readouterr().err
+        assert grant_admin(org_database, monkeypatch, "deputy@example.com", action="revoke-admin") == 0
 
 
 # -- row-level security ---------------------------------------------------------------------------

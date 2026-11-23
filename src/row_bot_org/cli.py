@@ -136,8 +136,8 @@ def _set_admin(url: str, settings: OrgSettings, person: str, grant: bool) -> int
                 return _fail(f"{_plural(len(found), 'principal')} have the email {person}: name one by its id ("
                              + ", ".join(p.id for p in found) + ").")
             target = found[0]
-            if (not grant and target.role == ADMIN and not admin_groups(settings)
-                    and store.stored_admins(conn) == 1):
+            if (not grant and target.role == ADMIN and target.status == "active" and not admin_groups(settings)
+                    and store.active_admins(conn) == 1):
                 return _fail(f"Principal {target.id} is the last admin, and ROW_BOT_ORG_IDP sets no admin_groups: "
                              "grant another admin first, so the server keeps one.")
             role = ADMIN if grant else MEMBER

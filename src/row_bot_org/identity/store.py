@@ -135,8 +135,10 @@ def find_people(conn: psycopg.Connection, id_or_email: str) -> list[Person]:
     return [] if person is None else [person]
 
 
-def stored_admins(conn: psycopg.Connection) -> int:
-    return conn.execute("SELECT count(*) FROM row_bot_org.principals WHERE role = 'admin'").fetchone()[0]
+def active_admins(conn: psycopg.Connection) -> int:
+    """Stored admins who aren't suspended: the ones who can act."""
+    return conn.execute("SELECT count(*) FROM row_bot_org.principals "
+                        "WHERE role = 'admin' AND status = 'active'").fetchone()[0]
 
 
 def set_role(conn: psycopg.Connection, principal_id: str, role: str) -> str | None:
@@ -163,4 +165,4 @@ def set_status(conn: psycopg.Connection, principal_id: str, status: str) -> str 
 
 __all__ = ["SIGN_IN_LIFETIME", "Person", "SessionPrincipal", "SignInAttempt", "begin_sign_in", "current_principal",
            "find_people", "get_person", "list_people", "resume_session", "revoke_session", "revoke_sessions",
-           "set_role", "set_status", "sign_in", "stored_admins", "take_sign_in"]
+           "set_role", "set_status", "sign_in", "active_admins", "take_sign_in"]

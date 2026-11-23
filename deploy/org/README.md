@@ -138,18 +138,21 @@ one of `admin_groups`. (A **space owner** manages one company space; spaces come
 
 `row-bot-org principals revoke-admin <email or id>` takes the stored role away; it refuses to remove the last
 stored admin while `admin_groups` is unset, so the server always keeps one. An email two people share is
-refused: name one by its id (`/api/me` shows yours).
+refused: name one by its id (`/api/me` shows yours). Suspended admins don't count as the one kept.
 
 **Admins from your provider:** set `admin_groups` in `ROW_BOT_ORG_IDP` to Row-Bot groups that `group_map`
 maps your provider's admin group to, for example `"group_map": {"<IT admins' object id>": "it-admins"},
 "admin_groups": ["it-admins"]`. A group the provider merely sends never makes an admin, so the server refuses
-an `admin_groups` entry that isn't a `group_map` target. Groups are read at sign-in, so a change in the
-provider applies at the person's next sign-in.
+an `admin_groups` entry that isn't a `group_map` target. Map by immutable ids (Entra object ids), never by
+names people can create. Groups are read at sign-in, so a change in the provider applies at the person's
+next sign-in; to take access away at once, suspend the person.
 
 Admins manage people under `/api/admin/people`: the list (name, email, groups, stored `role`, `admin`,
 last sign-in, `suspended`), `PUT .../{id}/role` with `{"role": "admin"}` or `{"role": "member"}`, and
 `POST .../{id}/suspend` and `.../resume`. Suspending signs the person out everywhere and refuses their sign-in
-until they are resumed. An admin can't suspend or demote themself.
+until they are resumed; a model call already running finishes. An admin can't suspend themself or change
+their own role (not even to admin: a provider-group admin would keep a stored role the provider can't take
+back).
 
 ## Models
 

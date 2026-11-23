@@ -7,7 +7,8 @@
 - ``POST /api/admin/people/{id}/suspend`` and ``.../resume``: a suspended person's sessions are revoked and
   sign-in refuses them until they are resumed.
 
-An admin can't demote or suspend themself (409 ``cannot_demote_yourself`` / ``cannot_suspend_yourself``).
+An admin can't change their own role or suspend themself (409 ``cannot_change_your_own_role`` /
+``cannot_suspend_yourself``).
 Each change emits an audit event: ``role.changed`` (role ``admin``, change ``granted`` or ``removed``),
 ``person.suspended`` or ``person.resumed``.
 """
@@ -73,8 +74,9 @@ def people_router() -> APIRouter:
     def set_role(principal_id: str, body: RoleIn, request: Request, conn: psycopg.Connection = admin,
                  principal: RequestPrincipal = Depends(request_principal)) -> JSONResponse:
         found = target(principal_id)
-        if found == principal.principal_id and body.role != roles.ADMIN:
-            return _error(409, "cannot_demote_yourself")
+        # Not even a grant: an admin through admin_groups would keep a stored role the provider can't take back.
+        if found == principal.principal_id:
+            return _error(409, "cannot_change_your_own_role")
         previous = store.set_role(conn, found, body.role) if found else None
         if previous is None:
             return _error(404, "person_not_found")
