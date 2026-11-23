@@ -2948,7 +2948,8 @@ def _storyboard_create(thread: str) -> str:
          "line": "Then the harbour went quiet."},
         {"source": "town-morning.mp4", "end": 2.5, "shows": "the town waking up",
          "line": "And the town woke to white streets.", "cue": "piano returns"},
-    ], note="First version", logline="A fox, a harbour and a small town wake to the first snow of the year.")
+    ], note="First version", logline="A fox, a harbour and a small town wake to the first snow of the year.",
+        music="fit")
     return video_projects.summary(project)
 
 

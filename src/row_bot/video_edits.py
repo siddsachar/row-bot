@@ -122,8 +122,14 @@ class Request:
     role: str = "working"
     output_id: str = ""
     version: int = 1
-    # Where a video project keeps its scenes' drawn clips, so making it again draws only the scenes that changed.
+    # Where a video project keeps its scenes' drawn clips, so making it again draws only the scenes that changed; its
+    # made picture, music and effects are kept there too, so a change to its sound mixes only the sound again.
     scene_cache: Path | None = None
+    # A video project's sound (C6): music made to fit its cut in this mood ("" none), its cuts on the music's beat,
+    # and the loudness its mix is brought to (LUFS; None: -14).
+    score: str = ""
+    on_beat: bool = False
+    loudness: float | None = None
 
 
 def _lineage(edit: "VideoEdit", request: Request, role: str = "") -> dict[str, Any]:
@@ -592,7 +598,8 @@ def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, plan: Any, request:
             _check(edit)
             found += video_check.look(sheet, [scene.line or scene.card for scene in step.scenes]
                                       if step is not None and step.op == "scenes" else [])
-    checks = video_check.checks(info, measures, found, narrated=plan.narrated, review=plan.review)
+    checks = video_check.checks(info, measures, found, narrated=plan.narrated, review=plan.review,
+                                target=request.loudness if plan.mix is not None else None)
     _set(edit, checks=checks.lines, checks_passed=checks.passed, detail="")
 
 
@@ -641,11 +648,138 @@ def _review_sheet(edit: VideoEdit, ffmpeg: Any, folder: Path, marks: list[float]
     return sheet
 
 
+# What a project keeps besides its scenes' clips, and how long one no make used is kept (as its clips are).
+_KEPT = ("picture-", "score-", "effect-")
+
+
+def _key(*parts: object) -> str:
+    import hashlib
+
+    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:32]
+
+
+def _kept(cache: Path | None, name: str) -> Path | None:
+    """A file a project made before and keeps (marked used now), or None."""
+    if cache is None:
+        return None
+    path = cache / name
+    try:
+        os.utime(path)
+    except OSError:
+        return None
+    return path
+
+
+def _keep(cache: Path | None, made: Path, name: str) -> Path:
+    """Keep a file just made with the project (where a later make finds it), or leave it in the edit's folder."""
+    if cache is None:
+        return made
+    cache.mkdir(parents=True, exist_ok=True)
+    os.replace(made, cache / name)
+    return cache / name
+
+
+def _prune_kept(cache: Path | None, used: set[str]) -> None:
+    from row_bot.video_studio import KEEP_SECONDS
+
+    if cache is None:
+        return
+    old = time.time() - KEEP_SECONDS
+    for path in cache.iterdir() if cache.is_dir() else []:
+        try:
+            if path.name.startswith(_KEPT) and path.name not in used and path.stat().st_mtime < old:
+                path.unlink()
+        except OSError:
+            pass
+
+
+def _on_beat(step: Any, inputs: list[Any], request: Request, sounds: dict[str, str], folder: Path) -> Any:
+    """A project's scenes cut on the beat of its music: the beat of the music made to fit (its mood's tempo), else
+    of its music file. Unchanged when it has no music."""
+    from dataclasses import replace
+
+    from row_bot import music, video_sound
+    from row_bot.video_editing import BOOKEND_SECONDS, on_the_beat
+
+    if request.score:
+        beats = video_sound.grid(music.STYLES[request.score].bpm, music.MAX_SECONDS)
+    else:
+        track = next((item.source for item in request.steps if item.op == "sound" and item.role == "music"), "")
+        if not track:
+            return step
+        path = Path(sounds[track])
+        beats = video_sound.file_beats(path if path.is_absolute() else folder / path)
+    offset = BOOKEND_SECONDS if step.look is not None and step.look.intro else 0.0
+    cut = on_the_beat(step.scenes, [item.info.duration for item in inputs], [item.info.still for item in inputs],
+                      beats, offset=offset)
+    return replace(step, scenes=cut)
+
+
+def _picture(edit: VideoEdit, ffmpeg: Any, plan: Any, folder: Path, cache: Path | None) -> Path:
+    """A video's picture with its footage's own sound (``PICTURE``): made by the plan's run, or, for a project whose
+    picture didn't change (only its sound did), the one it made before."""
+    import hashlib
+
+    from row_bot.video_editing import PICTURE
+
+    listed = folder / "scenes.txt"
+    name = "picture-" + _key(plan.args, plan.graph, hashlib.sha256(plan.overlay_sheet).hexdigest(),
+                             listed.read_text(encoding="utf-8") if listed.is_file() else "") + ".mkv"
+    kept = _kept(cache, name)
+    if kept is not None:
+        _set(edit, detail="Picture unchanged: mixing the sound")
+        return kept
+    _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
+    _check(edit)
+    return _keep(cache, folder / PICTURE, name)
+
+
+def _mix(edit: VideoEdit, plan: Any, folder: Path, request: Request, picture: Path) -> None:
+    """A video's sound (``video_sound.mix_down``): its music made to fit and its effects first (each kept with the
+    project, made again only when it changes), then every sound mixed at its loudness into ``MIXED``."""
+    from dataclasses import replace
+
+    from row_bot import music, video_sound
+    from row_bot.video_editing import MIXED, PICTURE, SCORE, EditError
+
+    _check(edit)
+    _set(edit, detail="Mixing the sound")
+    actual = {PICTURE: str(picture)}
+    used = {picture.name}
+    if request.score:
+        seconds = round(max(1.0, plan.duration), 3)
+        name = f"score-{_key(request.score, seconds, plan.sections)}.wav"
+        kept = _kept(request.scene_cache, name)
+        if kept is None:
+            (folder / SCORE).write_bytes(music.wav_bytes(music.compose(seconds, mood=request.score,
+                                                                       beats=list(plan.sections))))
+            kept = _keep(request.scene_cache, folder / SCORE, name)
+        actual[SCORE], used = str(kept), used | {kept.name}
+    for path, effect, _at, seconds in plan.effects:
+        name = f"effect-{_key(effect, round(seconds, 3))}.wav"
+        kept = _kept(request.scene_cache, name)
+        if kept is None:
+            video_sound.write_wav(folder / path, video_sound.effect(effect, seconds))
+            kept = _keep(request.scene_cache, folder / path, name)
+        actual[path], used = str(kept), used | {kept.name}
+    _check(edit)
+    mix = replace(plan.mix, tracks=tuple(replace(track, path=actual.get(track.path, track.path))
+                                         for track in plan.mix.tracks))
+    try:
+        video_sound.mix_down(mix, folder, folder / MIXED, stopped=edit.stop_event.is_set)
+    except video_sound.SoundError as error:
+        _check(edit)
+        raise EditError(str(error)) from None
+    _prune_kept(request.scene_cache, used)
+    _set(edit, detail="")
+
+
 def _run(edit: VideoEdit, request: Request) -> None:
     from row_bot import ffmpeg_runtime
     from row_bot.media_sources import SourceError
     from row_bot.video_editing import (
-        NARRATION, OVERLAYS, EditError, build_plan, frame_times, frames_arguments, graph_option_for, stills_arguments,
+        MIXED, NARRATION, OVERLAYS, SCORE, EditError, build_plan, final_arguments, frame_times, frames_arguments,
+        graph_option_for, stills_arguments,
     )
 
     folder = working_folder(edit)
@@ -671,6 +805,8 @@ def _run(edit: VideoEdit, request: Request) -> None:
                     sounds[name] = copied
                 else:
                     sounds[name] = str(path)
+            if request.score:
+                sounds[SCORE] = SCORE
             steps = list(request.steps)
             # The check reads a project's scenes as they were asked for, before the studio pass draws them.
             originals = (list(inputs), steps[0] if steps else None)
@@ -680,6 +816,8 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 def drawing(done: int, total: int) -> None:
                     _set(edit, detail=f"Drawing scene {done + 1} of {total}")
 
+                if request.on_beat:
+                    steps[0] = _on_beat(steps[0], inputs, request, sounds, folder)
                 inputs, steps[0], made = video_studio.prepare(inputs, steps[0], folder,
                                                               stopped=edit.stop_event.is_set, progress=drawing,
                                                               cache=request.scene_cache)
@@ -687,7 +825,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 _set(edit, detail="", scene_makes=made)
             plan = build_plan(inputs, steps, "output.mp4", sounds=sounds,
                               graph_option=graph_option_for(ffmpeg.version),
-                              encoder=ffmpeg_runtime.h264_encoder(ffmpeg))
+                              encoder=ffmpeg_runtime.h264_encoder(ffmpeg), loudness=request.loudness)
             (folder / "graph.txt").write_text(plan.graph, encoding="utf-8", newline="\n")
             if plan.overlay_sheet:
                 (folder / OVERLAYS).write_bytes(plan.overlay_sheet)
@@ -697,7 +835,12 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 video_studio.narration([(at, folder / path) for at, path in plan.voices], plan.duration,
                                        folder / NARRATION)
             _set(edit, expected_seconds=round(plan.duration, 2), marks=list(plan.marks))
-            _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
+            if plan.mix is None:
+                _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
+            else:  # Its picture (made, or as made before), then its sound mixed and laid beside it.
+                picture = _picture(edit, ffmpeg, plan, folder, request.scene_cache)
+                _mix(edit, plan, folder, request, picture)
+                _run_process(edit, ffmpeg, final_arguments(str(picture), MIXED, "output.mp4"), folder, "Video sound")
             _measure(edit, ffmpeg, folder)
             if request.check or plan.narrated:  # A video given a voice is checked for gaps in it.
                 _check_video(edit, ffmpeg, folder, plan, request, originals)

@@ -42,10 +42,17 @@ tags: []
 - Phone demos: browser_viewport phone before recording (taps show as
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
-  framing, camera, voice, speed, music mood) sets every video, and a video
-  may choose its own voice and voice_speed. When the person says how their
+  framing, camera, voice, speed, music mood, loudness) sets every video, and a
+  video may choose its own voice and voice_speed. When the person says how their
   videos should look ("full screen", a voice, a mood), save it with video
   action brand, so the next video starts that way.
+- Sound: music 'fit' is made to the video's length in the brand kit's mood
+  (or music_mood), changing where the music cue does, so make_music isn't
+  needed. A scene's speaker says its line in that character's voice (a voice
+  in cast becomes a saved character's voice in every video, so give one only
+  when the person chose it). Effects and ambience go on a scene.
+  A montage cuts on the music's beat with on_beat. A change to the sound
+  alone mixes it again; the picture isn't drawn again.
 - Captions only when the person asks for them: a narrated video needs none.
 - After make, read the checks: they list what to fix by scene and time, and
   already include one look at the review sheet, so don't look again with

@@ -126,3 +126,100 @@ def test_a_real_tiny_encode(studio, tmp_path):
     assert (info.width, info.height, info.has_audio) == (320, 180, True)
     assert abs(info.duration - 2.0) < 0.2
     assert Path(output).stat().st_size > 1000
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_video_given_music_is_its_picture_then_its_mix_at_minus_14(studio, tmp_path):
+    """C6: the picture's run, the mix, then the sound laid beside the picture copied as it was made."""
+    from row_bot import ffmpeg_runtime, music
+    from row_bot.application.attachments import read_attachment
+    from row_bot.tools import video_editing_tool as video_tool
+
+    real = ffmpeg_runtime.find()
+    clip = tmp_path / "clip.mp4"
+    subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "testsrc2=size=320x180:rate=15:duration=4", "-f", "lavfi", "-i", "sine=duration=4",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(clip)], check=True)
+    studio["register"](studio["chat"], "clip.mp4", clip.read_bytes())
+    studio["register"](studio["chat"], "music.wav", music.wav_bytes(music.compose(4.0, mood="upbeat")))
+
+    result = video_tool._edit_video(inputs=["clip.mp4"], name="scored", steps=[
+        {"op": "trim", "start": 0.5, "end": 3.5}, {"op": "sound", "source": "music.wav", "role": "music"}])
+
+    import re
+
+    assert re.search(r"\nSaved 0:03(\.\d)? of video", result), result  # As measured: 0:03.1 is three seconds too.
+    edit = studio["edits"].get(result.split(":", 1)[0].removeprefix("Video edit "))
+    output = tmp_path / "out.mp4"
+    output.write_bytes(read_attachment(edit.media_ref)[1])
+    info, measures = studio["edits"].measure_file(real, output, tmp_path)
+    assert info.has_audio and abs(info.duration - 3.0) < 0.2
+    assert -15.5 < measures.loudness < -12.5 and measures.peak < -1.0, (measures.loudness, measures.peak)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_project_is_its_picture_then_its_mix_and_a_sound_only_remake_reuses_the_picture(studio, tmp_path):
+    """C6 for real: a project's scenes drawn, its picture made (picture.mkv, kept with the project), its mix with
+    music made to fit and an effect laid beside it with -c:v copy; then a change to the sound alone mixes it again
+    and copies the same picture."""
+    from row_bot import ffmpeg_runtime
+    from row_bot.application.attachments import read_attachment
+    from row_bot.media_sources import resolve
+    from row_bot.video_editing import SCORE, SceneCut, Step
+
+    real = ffmpeg_runtime.find()
+    edits = studio["edits"]
+    clip = tmp_path / "clip.mp4"
+    subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "testsrc2=size=640x360:rate=30:duration=4", "-f", "lavfi", "-i", "sine=frequency=300:duration=4",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(clip)], check=True)
+    studio["register"](studio["chat"], "clip.mp4", clip.read_bytes())
+    sources = resolve("clip.mp4", studio["chat"])
+    runs: list[tuple[str, str]] = []
+    sound_runs: list[list[str]] = []
+    run = edits._run_process
+
+    def recorded(edit, ffmpeg, args, folder, name):  # Only records: checked once the edit has ended.
+        runs.append((name, args[-1].removeprefix("file:")))
+        if name == "Video sound":
+            sound_runs.append(list(args))
+        return run(edit, ffmpeg, args, folder, name)
+
+    def picture_read(args: list[str]) -> Path:
+        """The picture the sound run copies: what it reads with -i that is a Matroska file."""
+        return next(Path(args[index + 1].removeprefix("file:")) for index, arg in enumerate(args)
+                    if arg == "-i" and args[index + 1].endswith(".mkv"))
+
+    studio["monkeypatch"].setattr(edits, "_run_process", recorded)
+    cache = tmp_path / "scenes"
+    scenes = Step(op="scenes", aspect="16:9", scenes=[
+        SceneCut(input=0, start=0.5, end=2.5, cue="quiet"),
+        SceneCut(input=None, end=1.5, card="The end", effects=("whoosh",), cue="lift")])
+
+    def make(volume: float):
+        edit = edits.start(edits.Request(
+            conversation_id=studio["chat"], kind="video", sources=sources, output_name="Real.mp4", role="draft",
+            steps=[scenes, Step(op="sound", source=SCORE, role="music", volume=volume)], score="calm",
+            scene_cache=cache))
+        assert edits.wait(edit, 300) and edit.status == "saved", edit.detail
+        output = tmp_path / f"real-{volume}.mp4"
+        output.write_bytes(read_attachment(edit.media_ref)[1])
+        info, measures = edits.measure_file(real, output, tmp_path)
+        assert info.has_audio and abs(info.duration - 3.5) < 0.25, info
+        assert -15.5 < measures.loudness < -12.5 and measures.peak < -1.0, (measures.loudness, measures.peak)
+        return edit
+
+    make(0.3)
+    assert runs == [("Video edit", "picture.mkv"), ("Video sound", "output.mp4")]
+    kept = list(cache.glob("picture-*.mkv"))
+    assert len(kept) == 1, "the picture is kept with the project"
+    first = sound_runs[0]
+    assert first[first.index("-c:v") + 1] == "copy", "the picture is copied as it was made"
+    assert picture_read(first).resolve() == kept[0].resolve(), "made, then read from where the project keeps it"
+    runs.clear()
+    again = make(0.6)
+    assert runs == [("Video sound", "output.mp4")], "a change to the sound alone copies the same picture"
+    remake = sound_runs[1]
+    assert remake[remake.index("-c:v") + 1] == "copy"
+    assert picture_read(remake).resolve() == kept[0].resolve(), "the kept picture, not a new one"
+    assert again.scene_makes == ["reused", ""], "and draws no scene again"

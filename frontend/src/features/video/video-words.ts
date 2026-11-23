@@ -64,17 +64,74 @@ export function clockWords(seconds: number): string {
 /** The speeds a scene offers; 2× and up show a badge on the video. */
 export const SPEEDS = [0.5, 1, 1.5, 2, 3, 4] as const;
 
-/** The scenes as the panel edits them, from a version. */
-export function draftOf(view: VideoProjectView): {
+/** The sound effects and ambience a scene can carry (C6), all made by Row-Bot. */
+export const EFFECTS = {
+  whoosh: 'Whoosh',
+  hit: 'Hit',
+  click: 'Click',
+  rain: 'Rain',
+  wind: 'Wind',
+  crowd: 'Crowd',
+  waves: 'Waves',
+  footsteps: 'Footsteps',
+} as const;
+/** Effects that run under the whole scene; the rest play as it starts. */
+export const AMBIENCE = new Set([
+  'rain',
+  'wind',
+  'crowd',
+  'waves',
+  'footsteps',
+]);
+export const MAX_EFFECTS = 4;
+
+/** "Rain", or a sound file's own name. */
+export function effectWords(effect: string): string {
+  return EFFECTS[effect as keyof typeof EFFECTS] ?? effect;
+}
+
+/** Music made to fit the cut, instead of a music file. */
+export const FIT = 'fit';
+
+/** What plays under the video: "Made to fit · calm", a file's name, or "" for none. */
+export function musicWords(view: VideoProjectView): string {
+  if (view.music !== FIT) return view.music;
+  return view.music_mood ? `Made to fit · ${view.music_mood}` : 'Made to fit';
+}
+
+/** Where music made to fit changes section: each scene whose music cue isn't the one before's. */
+export function musicSections(scenes: { cue?: string | null }[]): number[] {
+  const at: number[] = [];
+  scenes.forEach((scene, index) => {
+    const cue = (scene.cue ?? '').trim().toLowerCase();
+    if (
+      index &&
+      cue &&
+      cue !== (scenes[index - 1].cue ?? '').trim().toLowerCase()
+    )
+      at.push(index);
+  });
+  return at;
+}
+
+export type VideoDraft = {
   scenes: VideoSceneWrite[];
   captions: boolean;
   brand: boolean;
   voice: string;
-} {
+  /** Each character's voice: name -> voice. */
+  cast: Record<string, string>;
+};
+
+/** The scenes as the panel edits them, from a version. */
+export function draftOf(view: VideoProjectView): VideoDraft {
   return {
     captions: view.captions,
     brand: view.brand,
     voice: view.voice ?? '',
+    cast: Object.fromEntries(
+      (view.cast ?? []).map((member) => [member.name, member.voice]),
+    ),
     scenes: view.scenes.map((scene) => ({
       scene_id: scene.scene_id,
       source: scene.source,
@@ -84,20 +141,26 @@ export function draftOf(view: VideoProjectView): {
       zoom: scene.zoom,
       card: scene.card,
       line: scene.line,
+      speaker: scene.speaker ?? '',
+      effects: [...(scene.effects ?? [])],
     })),
   };
 }
 
-export function isDirty(
-  view: VideoProjectView,
-  draft: {
-    scenes: VideoSceneWrite[];
-    captions: boolean;
-    brand: boolean;
-    voice: string;
-  },
-): boolean {
+export function isDirty(view: VideoProjectView, draft: VideoDraft): boolean {
   return JSON.stringify(draftOf(view)) !== JSON.stringify(draft);
+}
+
+/** The characters who speak in a draft: its cast's, then any new name a scene gives, each once. */
+export function speakersOf(draft: VideoDraft): string[] {
+  const names = new Map<string, string>();
+  for (const name of [
+    ...Object.keys(draft.cast),
+    ...draft.scenes.map((scene) => (scene.speaker ?? '').trim()),
+  ])
+    if (name && !names.has(name.toLowerCase()))
+      names.set(name.toLowerCase(), name);
+  return [...names.values()];
 }
 
 /** "4.2 s", "1:05": how long a scene lasts on the video. */

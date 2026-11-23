@@ -57,10 +57,11 @@ def studio(platform, monkeypatch):  # noqa: F811
         video_edits._RECORDS[edit.edit_id] = edit
         return edit
 
+    real_speak = sound.speak
     monkeypatch.setattr(sound, "speak", speak)
     monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: True)  # Row-Bot's voice is here.
     monkeypatch.setattr(video_edits, "start", start)
-    yield {"said": said, "voices": voices, "started": started}
+    yield {"said": said, "voices": voices, "started": started, "real_speak": real_speak}
     # A make runs on its own thread; finish it here, so it never writes into the next test's fresh databases.
     for thread in threading.enumerate():
         if thread.name.startswith("row-bot-vid-"):
@@ -1093,4 +1094,130 @@ def test_a_project_saved_before_storyboards_opens_with_each_scenes_footage_told_
     view = video_projects.view(video_projects.get(project.project_id))
     assert [(scene["footage"], scene["approved"]) for scene in view["scenes"]] == [("card", False), ("clip", False)]
     assert view["logline"] == "" and view["status"] == "draft"
+
+
+# ── C6: sound that carries the story ─────────────────────────────────────────
+
+DIALOGUE = [
+    {"card": "The door", "end": 2, "line": "It was late when Maya came home."},
+    {"source": "signup.mp4", "end": 3, "line": "Who left the light on?", "speaker": "Maya", "cue": "rain, tense"},
+    {"source": "pricing.mp4", "end": 3, "line": "I did. Sit down.", "speaker": "Sam", "effects": ["hit"]},
+    {"source": "signup.mp4", "start": 3, "end": 5, "line": "Fine.", "speaker": "maya"},
+]
+
+
+def test_each_character_speaks_in_its_own_voice_kept_with_it_and_a_changed_voice_says_only_its_lines(studio):
+    """G4: dialogue in a voice per character, unlike the narrator's and each other's; a voice given for a saved
+    character is kept with it in Library › Media, so its next video uses it too."""
+    from row_bot import media_library, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    maya = register_attachment("conversation-a", "maya.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    media_library.set_tags(maya["attachment_ref"], ["character: maya"])
+    project = video_projects.create("conversation-a", "Late", DIALOGUE, voice="af_heart")
+    cast = project.latest.cast
+    assert list(cast) == ["Maya", "Sam"] and len({"af_heart", *cast.values()}) == 3, "three voices, all different"
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    assert [options["voice"] for options in studio["voices"]] == ["af_heart", cast["Maya"], cast["Sam"],
+                                                                 cast["Maya"]], "a character's lines in its voice"
+
+    changed = video_projects.change(project, by="you", base=1, cast={"Maya": "bf_emma"}, kept=(kept := []))
+    assert changed.cast["Maya"] == "bf_emma" and kept == ["Maya"]
+    assert [scene.line for scene in video_projects.needs_voice(changed)] == ["Who left the light on?", "Fine."], \
+        "only Maya's lines are said again"
+    assert media_library.character_voice("Maya") == "bf_emma", "kept with the character"
+    later = video_projects.create("conversation-a", "Next day", [{"card": "Morning", "end": 2, "line": "Hi.",
+                                                                  "speaker": "Maya"}])
+    assert later.latest.cast == {"Maya": "bf_emma"}, "her next video uses her voice"
+    with pytest.raises(video_projects.ProjectError, match="no voice called robot"):
+        video_projects.change(project, by="you", cast={"Sam": "robot"})
+
+
+def test_pronunciations_reach_every_characters_lines_and_captions_keep_the_written_words(studio, monkeypatch):
+    """W6's pronunciations apply to dialogue as to narration: only the voice hears them."""
+    from row_bot import sound, tts, video_projects
+
+    heard: list[tuple[str, str]] = []
+    monkeypatch.setattr(sound, "speak", studio["real_speak"])
+    monkeypatch.setattr(tts.TTSService, "synthesize_wav_bytes",
+                        lambda self, text, voice=None, speed=None: heard.append((text, voice)) or _wav(1.0))
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    project = video_projects.create("conversation-a", "Models", [
+        {"card": "Qwen", "end": 2, "line": "Meet Qwen.", "speaker": "Ada"}])
+    video_projects.make(project, 1)
+    made = _wait(project.project_id, 1)
+    assert heard == [("Meet Kwen.", project.latest.cast["Ada"])]
+    assert made.scenes[0].line == "Meet Qwen.", "the line and its caption keep the real spelling"
+
+
+def test_music_made_to_fit_effects_from_a_scene_or_its_cue_and_the_kits_loudness_go_to_the_make(studio):
+    from row_bot import video_brand, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.video_editing import SCORE
+
+    register_attachment("conversation-a", "door.wav", _wav(0.5))
+    video_brand.update({"music_mood": "warm", "loudness": -16})
+    scenes = [dict(DIALOGUE[1]), dict(DIALOGUE[2], effects=["hit", "door.wav"])]
+    project = video_projects.create("conversation-a", "Late", scenes, music="FIT", on_beat=True)
+    assert [scene.effects for scene in project.latest.scenes] == [["rain"], ["hit", "door.wav"]], \
+        "a new scene's effects come from its music cue unless it names its own"
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    request = studio["started"][0]
+    cuts, music = request.steps
+    assert [cut.effects for cut in cuts.scenes] == [("rain",), ("hit", "door.wav")]
+    assert [cut.cue for cut in cuts.scenes] == ["rain, tense", ""]
+    assert (music.source, music.role, music.volume) == (SCORE, "music", 0.3), "music made to fit, at its volume"
+    assert (request.score, request.on_beat, request.loudness) == ("warm", True, -16)
+    assert "door.wav" in request.sounds and SCORE not in request.sounds, "the score is made with the video"
+    summary = video_projects.summary(video_projects.get(project.project_id))
+    assert "said by Maya, effects rain" in summary and "effects hit, door.wav" in summary
+    assert "Music: made to fit the cut, warm, its sections changing where the music cue does, with the cuts on " \
+           "its beat." in summary
+    assert "Voices: Maya " in summary
+
+    plain = video_projects.create("conversation-a", "Plain", [dict(SCENES[0])], brand=False)
+    video_projects.make(plain, 1)
+    _wait(plain.project_id, 1)
+    assert (studio["started"][-1].score, studio["started"][-1].loudness) == ("", None), "-14 without the kit"
+    with pytest.raises(video_projects.ProjectError, match="its effects are whoosh"):
+        video_projects.create("conversation-a", "Bad", [dict(SCENES[0], effects=["thunder"])])
+    with pytest.raises(video_projects.ProjectError, match="at most 4 effects"):
+        video_projects.create("conversation-a", "Bad", [dict(SCENES[0], effects=list(
+            ("whoosh", "hit", "click", "rain", "wind")))])
+
+
+def test_the_video_tool_takes_a_cast_and_says_where_each_voice_is_kept(studio, monkeypatch):
+    from row_bot import ffmpeg_runtime, media_library
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    sam = register_attachment("conversation-a", "sam.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    media_library.set_tags(sam["attachment_ref"], ["character: sam"])
+    said = video_project_tool._video(action="create", title="Late", scenes=DIALOGUE[1:3],
+                                     cast={"Sam": "bm_george"}, music="fit")
+    assert said.startswith("Video project vid-")
+    assert said.endswith("\nKept each voice with Sam in Library › Media: their lines in every video use it.")
+    assert "Voices: Maya " in said and "Sam bm_george" in said
+    assert video_project_tool._brand(loudness=-16).endswith("loudness -16.0.")
+    assert video_project_tool._brand(loudness=-30).startswith("The loudness is -24 to -10 LUFS")
+
+    again = video_project_tool._video(action="create", title="Later", scenes=DIALOGUE[1:3], cast={"Sam": "bm_george"})
+    assert "Kept each voice" not in again, "Sam already speaks in that voice: nothing was kept, so nothing is said"
+    assert not media_library.keep_character_voice("Sam", "bm_george")
+    assert media_library.keep_character_voice("Sam", "am_puck") and media_library.character_voice("Sam") == "am_puck"
+
+
+def test_cuts_on_the_beat_without_music_say_there_is_no_beat_and_make_as_they_are(studio):
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Montage", [dict(SCENES[0]), dict(SCENES[1])], on_beat=True,
+                                    narration="")
+    assert "No music, so the cuts aren't on a beat." in video_projects.summary(project)
+    scored = video_projects.create("conversation-a", "Montage", [dict(SCENES[0])], on_beat=True, music="fit")
+    assert "No music" not in video_projects.summary(scored)
 

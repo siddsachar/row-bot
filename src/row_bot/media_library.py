@@ -403,6 +403,39 @@ def bring(ref: str, conversation_id: str) -> dict[str, Any]:
         raise MediaError(f"That item couldn't be copied into this chat ({exc}).") from None
 
 
+_VOICE = re.compile(r"voice: (\S+)")
+
+
+def _character_refs(name: str) -> list[tuple[str, list[str]]]:
+    wanted = f"character: {' '.join(str(name).split()).lower()}"
+    return [(ref, tags) for ref, tags in _tags().items() if wanted in tags]
+
+
+def character_voice(name: str) -> str:
+    """The voice a saved character speaks in (C6): a "voice: …" tag kept on its pictures, or "" (none saved, or no
+    such character)."""
+    for _ref, tags in _character_refs(name):
+        for tag in tags:
+            if found := _VOICE.fullmatch(tag):
+                return found.group(1)
+    return ""
+
+
+def keep_character_voice(name: str, voice: str) -> bool:
+    """Keep a voice with a saved character, on its pictures, so its lines in every video use it. False when nothing
+    changed: there's no such character in Library › Media, or it already speaks in that voice."""
+    kept = False
+    for ref, tags in _character_refs(name):
+        if f"voice: {voice}" in tags and not any(_VOICE.fullmatch(tag) and tag != f"voice: {voice}" for tag in tags):
+            continue
+        try:
+            set_tags(ref, [tag for tag in tags if not _VOICE.fullmatch(tag)] + [f"voice: {voice}"])
+            kept = True
+        except MediaError:  # A picture since deleted, or one with all its tags taken.
+            continue
+    return kept
+
+
 def looks(kind: str, name: str = "") -> dict[str, list[dict[str, Any]]]:
     """The saved characters or styles (*kind*), or the one named: each name's pictures, newest first."""
     wanted = " ".join(name.split()).lower()

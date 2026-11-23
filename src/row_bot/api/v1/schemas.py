@@ -6531,6 +6531,10 @@ class VideoScene(WireModel):
     approved: bool = False
     has_frame: bool = False
     made: Literal["", "new", "reused"] = ""
+    # Its sound (C6): who says its line (a character, in its own voice; "" the narrator), and its effects and
+    # ambience (built-in names such as "whoosh" or "rain", or sound files in the chat by name).
+    speaker: str = Field(default="", max_length=40)
+    effects: list[str] = Field(default_factory=list, max_length=4)
 
 
 class VideoSceneWrite(WireModel):
@@ -6548,6 +6552,14 @@ class VideoSceneWrite(WireModel):
     shows: str | None = Field(default=None, max_length=200)
     frame: str | None = Field(default=None, max_length=512)
     cue: str | None = Field(default=None, max_length=80)
+    speaker: str | None = Field(default=None, max_length=40)
+    effects: list[Annotated[str, StringConstraints(max_length=120)]] | None = Field(default=None, max_length=4)
+
+
+class VideoCastMember(WireModel):
+    """A character who speaks in a video, and the voice its lines are said in (C6)."""
+    name: str = Field(min_length=1, max_length=40)
+    voice: str = Field(max_length=64)
 
 
 class VideoVersionView(WireModel):
@@ -6584,6 +6596,8 @@ class VideoBrand(WireModel):
     # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
+    # Every video's mix is brought to this loudness (LUFS): -14 for social video.
+    loudness: float = Field(default=-14.0, ge=-24, le=-10)
 
 
 class VideoProjectView(WireModel):
@@ -6600,8 +6614,14 @@ class VideoProjectView(WireModel):
     scenes: list[VideoScene] = Field(max_length=200)
     # The scenes this version added or changed against the one before it.
     changed: list[VideoSceneId] = Field(max_length=200)
+    # A music file, "fit" (music made to fit the cut, in ``music_mood``: the version's own, else the brand kit's) or
+    # "" none; and the cuts on its beat.
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
+    music_mood: Literal["", "calm", "upbeat", "focused", "warm"] = ""
+    on_beat: bool = False
+    # The voice each character who speaks is said in.
+    cast: list[VideoCastMember] = Field(default_factory=list, max_length=200)
     # One voice file said over the whole video ("" none): its scenes' lines then aren't said one by one.
     narration: str = Field(default="", max_length=200)
     captions: bool
@@ -6635,6 +6655,8 @@ class VideoProjectChange(WireModel):
     captions: bool | None = None
     brand: bool | None = None
     voice: str | None = Field(default=None, max_length=64)
+    # A voice for a character who speaks (kept with a saved character in Library › Media).
+    cast: list[VideoCastMember] | None = Field(default=None, max_length=200)
     note: str = Field(default="", max_length=200)
 
 

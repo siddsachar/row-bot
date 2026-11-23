@@ -154,6 +154,44 @@ def test_the_brand_kit_is_read_and_saved_through_the_api(service, studio):  # no
                           json={**kit.json(), "colour": "red"}).status_code == 422
 
 
+def test_the_panel_gives_lines_to_characters_their_voices_and_scenes_their_effects(service, studio):  # noqa: F811
+    """C6: who says each line, each character's voice and each scene's effects, read and written by the panel;
+    the brand kit's loudness with the rest of the kit."""
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Late", seed_default_skills=False)
+    register_attachment(chat, "door.mp4", _MP4)
+    project = video_projects.create(chat, "Late", [
+        {"source": "door.mp4", "end": 3, "line": "Who's there?", "speaker": "Maya", "cue": "rain"},
+        {"card": "Later", "end": 2, "line": "Only the wind."}], music="fit")
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        board = client.get(path, headers=headers).json()
+        assert [(scene["speaker"], scene["effects"]) for scene in board["scenes"]] == [("Maya", ["rain"]), ("", [])]
+        assert [member["name"] for member in board["cast"]] == ["Maya"] and board["music"] == "fit"
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in board["scenes"]]
+        scenes[1].update(speaker="Sam", effects=["wind", "whoosh"])
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes,
+                                                          "cast": [{"name": "Sam", "voice": "bm_george"}]})
+        assert changed.status_code == 200, changed.text
+        view = changed.json()
+        assert [(scene["speaker"], scene["effects"]) for scene in view["scenes"]] == [
+            ("Maya", ["rain"]), ("Sam", ["wind", "whoosh"])], "a scene left as it was keeps its own"
+        assert {member["name"]: member["voice"] for member in view["cast"]}["Sam"] == "bm_george"
+        bad = client.put(path, headers=headers, json={"base": 2, "scenes": [dict(scenes[1], effects=["thunder"])]})
+        assert (bad.status_code, bad.json()["code"]) == (422, "video_project_invalid")
+
+        kit = client.get("/api/v1/video-brand", headers=headers).json()
+        assert kit["loudness"] == -14.0
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "loudness": -16}).json()[
+            "loudness"] == -16.0
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "loudness": -30}).status_code == 422
+
+
 def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_nothing(service, studio):  # noqa: F811
     """C1: the panel's cards. Approving marks scenes on their version; each card's frame is its own route; a change
     to a storyboard stays a storyboard (making it is the person's call), and footage still to make can't be made."""

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Clapperboard,
   CircleAlert,
+  Music,
   CircleCheck,
   Download,
   Repeat,
@@ -43,12 +44,16 @@ import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
 import {
   SHAPES,
+  type VideoDraft,
   clockWords,
   draftOf,
   isPlanned,
+  musicSections,
+  musicWords,
   shapeHint,
   isDirty,
   sceneSeconds,
+  speakersOf,
   statusWords,
   versionWords,
 } from './video-words';
@@ -57,12 +62,7 @@ import {
 const FRAME = 1 / 30;
 const POLL_MS = 1500;
 
-type Draft = {
-  scenes: VideoSceneWrite[];
-  captions: boolean;
-  brand: boolean;
-  voice: string;
-};
+type Draft = VideoDraft;
 /** Unsaved edits per project and version, so they outlive the panel moving between side and full screen. */
 const drafts = new Map<string, Draft>();
 const WIDE = '(min-width: 768px)';
@@ -257,19 +257,25 @@ export default function VideoPanel({
       setBusy(false);
     }
   }
-  const save = () =>
-    view && edited
-      ? act(() =>
-          controller.changeVideoProject(projectId, {
-            base: view.number,
-            scenes: edited.scenes,
-            captions: edited.captions,
-            brand: edited.brand,
-            voice: edited.voice,
-            note: 'Edited in the panel',
-          }),
-        )
-      : undefined;
+  const save = () => {
+    if (!view || !edited) return undefined;
+    // Only the voices the person changed: each is kept with its character in Library › Media.
+    const before = draftOf(view).cast;
+    const cast = Object.entries(edited.cast)
+      .filter(([name, voice]) => voice && before[name] !== voice)
+      .map(([name, voice]) => ({ name, voice }));
+    return act(() =>
+      controller.changeVideoProject(projectId, {
+        base: view.number,
+        scenes: edited.scenes,
+        captions: edited.captions,
+        brand: edited.brand,
+        voice: edited.voice,
+        ...(cast.length ? { cast } : {}),
+        note: 'Edited in the panel',
+      }),
+    );
+  };
   const restore = (number: number) =>
     act(() => controller.restoreVideoProject(projectId, number));
 
@@ -386,6 +392,10 @@ export default function VideoPanel({
     ? lengths.reduce<number>((sum, value) => sum + (value ?? 0), 0)
     : null;
   const makes = scenes.map((scene) => scene.made ?? '');
+  const speakers = speakersOf(edited);
+  const speakerList = `video-speakers-${projectId}`;
+  const music = musicWords(view);
+  const sections = view.music === 'fit' ? musicSections(scenes) : [];
   const partial = view.status === 'made' && makes.includes('reused');
   // Footage still to make (an AI shot) is Row-Bot's: Make asks it in the chat.
   const make = () =>
@@ -457,6 +467,16 @@ export default function VideoPanel({
               {total !== null && ` · about ${clockWords(total)}`}
               {` · ${approved} of ${scenes.length} approved`}
             </span>
+            {music && (
+              <span className="video-storyboard-music">
+                <Music size={12} aria-hidden />
+                <span className="sr-only">Music: </span>
+                {music}
+                {sections.length > 0 &&
+                  ` · changes at scene${sections.length === 1 ? '' : 's'} ${sections.map((index) => index + 1).join(', ')}`}
+                {view.on_beat && ' · cut on the beat'}
+              </span>
+            )}
             {planned > 0 && (
               <small>
                 {planned === 1
@@ -610,12 +630,46 @@ export default function VideoPanel({
           ))}
         </Select>
       </div>
+      {speakers.length > 0 && (
+        <div className="video-cast" role="group" aria-label="Voices">
+          <span className="video-cast-name">Voices</span>
+          {speakers.map((name) => (
+            <label key={name} className="video-cast-member">
+              <span>{name}</span>
+              <Select
+                aria-label={`${name}'s voice`}
+                value={edited.cast[name] ?? ''}
+                disabled={!latest}
+                onChange={(event) =>
+                  edit({
+                    ...edited,
+                    cast: { ...edited.cast, [name]: event.target.value },
+                  })
+                }
+              >
+                <option value="">Picked for them</option>
+                {voices.map((voice) => (
+                  <option key={voice.value} value={voice.value}>
+                    {voice.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ))}
+        </div>
+      )}
+      <datalist id={speakerList}>
+        {speakers.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
       {wide && mode === 'timeline' && (
         <VideoTimeline
           scenes={edited.scenes}
           made={scenes}
           narration={view.narration}
-          music={view.music}
+          music={music}
+          sections={sections}
           url={url}
           playhead={url && !dirty ? time : null}
           disabled={!latest}
@@ -659,6 +713,7 @@ export default function VideoPanel({
             partial={partial && !dirty}
             playable={Boolean(url) && !dirty}
             busy={busy}
+            speakers={speakerList}
             onChange={(patch) => change(index, patch)}
             onMove={(by) => move(index, by)}
             onRemove={() => remove(index)}

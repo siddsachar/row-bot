@@ -149,6 +149,14 @@ function setup(
     })),
     intent: vi.fn(async () => ({ status: 'accepted' })),
     showLatest: vi.fn(),
+    settingsSnapshot: vi.fn(async () => ({
+      voice: {
+        tts_voice_options: [
+          { value: 'af_bella', label: 'Bella (American Female)' },
+          { value: 'bf_emma', label: 'Emma (British Female)' },
+        ],
+      },
+    })),
   } as unknown as ClientController & Record<string, ReturnType<typeof vi.fn>>;
   render(
     <RuntimeContext.Provider value={{ controller, platform }}>
@@ -589,6 +597,93 @@ it('a storyboard with all its footage is made from the panel, and its scenes are
   await userEvent.click(screen.getByRole('button', { name: 'Make video' }));
   expect(controller.makeVideoProject).toHaveBeenCalledWith('vid-1a2b3c4d');
   expect(await screen.findByText('Voicing')).toBeVisible();
+});
+
+function dialogue(): VideoProjectView {
+  const made = view({
+    number: 9,
+    latest: 9,
+    music: 'fit',
+    music_mood: 'warm',
+    on_beat: true,
+    cast: [{ name: 'Maya', voice: 'af_bella' }],
+  });
+  made.scenes = [
+    { ...made.scenes[0], cue: 'quiet', effects: ['rain'] },
+    { ...made.scenes[1], speaker: 'Maya', cue: 'storm', effects: ['whoosh'] },
+  ];
+  return made;
+}
+
+it('each character’s voice is chosen beside the storyboard, and only a changed one is sent', async () => {
+  const { controller } = setup(dialogue());
+  const voices = await screen.findByRole('group', { name: 'Voices' });
+  const maya = within(voices).getByLabelText("Maya's voice");
+  await waitFor(() => expect(maya).toHaveValue('af_bella'));
+  await userEvent.selectOptions(maya, 'bf_emma');
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  expect(controller.changeVideoProject).toHaveBeenCalledWith(
+    'vid-1a2b3c4d',
+    expect.objectContaining({
+      cast: [{ name: 'Maya', voice: 'bf_emma' }],
+      scenes: [
+        expect.objectContaining({ speaker: '', effects: ['rain'] }),
+        expect.objectContaining({ speaker: 'Maya', effects: ['whoosh'] }),
+      ],
+    }),
+  );
+});
+
+it('a new character given a line joins the voices, picked for them until chosen', async () => {
+  setup(view());
+  expect(
+    await screen.findByLabelText('Scene 1: who says its line'),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('group', { name: 'Voices' }),
+  ).not.toBeInTheDocument();
+  await userEvent.type(
+    screen.getByLabelText('Scene 1: who says its line'),
+    'Sam',
+  );
+  const voices = screen.getByRole('group', { name: 'Voices' });
+  expect(within(voices).getByLabelText("Sam's voice")).toHaveValue('');
+  expect(within(voices).getByLabelText("Sam's voice")).toHaveTextContent(
+    'Picked for them',
+  );
+});
+
+it('the timeline shows who says each line, each scene’s effects and the music’s sections', async () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(min-width: 768px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  setup(dialogue());
+  await userEvent.click(await screen.findByRole('radio', { name: 'Timeline' }));
+  const timeline = screen.getByRole('application', { name: /^Timeline/ });
+  expect(within(timeline).getByLabelText('Voice')).toHaveTextContent(
+    'Maya: Then pick a plan.',
+  );
+  expect(within(timeline).getByLabelText('Effects')).toHaveTextContent(
+    'RainWhoosh',
+  );
+  const music = within(timeline).getByLabelText('Music');
+  expect(music).toHaveTextContent('Made to fit · warm');
+  expect(music).toHaveTextContent('Scene 2');
+});
+
+it('a storyboard says what music it has, where it changes and that it cuts on the beat', async () => {
+  setup({ ...dialogue(), status: 'draft', edit: null, checks: [] });
+  expect(
+    await screen.findByRole('region', { name: 'Storyboard' }),
+  ).toHaveTextContent(
+    'Made to fit · warm · changes at scene 2 · cut on the beat',
+  );
 });
 
 it('an edit to a storyboard is saved without making it', async () => {

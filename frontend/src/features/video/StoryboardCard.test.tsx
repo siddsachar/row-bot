@@ -65,6 +65,7 @@ afterEach(() => {
 function card(shown: VideoScene, patch: { approvable?: boolean } = {}) {
   const onAsk = vi.fn(async () => true);
   const onApprove = vi.fn();
+  const onChange = vi.fn();
   const controller = {
     subscribe: () => () => {},
     getSnapshot: () => ({ status: 'ready' }),
@@ -91,7 +92,8 @@ function card(shown: VideoScene, patch: { approvable?: boolean } = {}) {
             partial={false}
             playable={false}
             busy={false}
-            onChange={vi.fn()}
+            speakers="video-speakers"
+            onChange={onChange}
             onMove={vi.fn()}
             onRemove={vi.fn()}
             onApprove={onApprove}
@@ -102,8 +104,49 @@ function card(shown: VideoScene, patch: { approvable?: boolean } = {}) {
       </OverlayProvider>
     </RuntimeContext.Provider>,
   );
-  return { onAsk, onApprove, controller };
+  return { onAsk, onApprove, onChange, controller };
 }
+
+it('a scene’s line is given to a character, and its sound effects are added and removed in a tap', async () => {
+  const { onChange } = card({
+    ...CLIP,
+    speaker: 'Maya',
+    effects: ['rain'],
+  });
+  const speaker = screen.getByLabelText('Scene 2: who says its line');
+  expect(speaker).toHaveValue('Maya');
+  expect(speaker).toHaveAttribute('list', 'video-speakers');
+  await userEvent.type(speaker, 'X');
+  expect(onChange).toHaveBeenLastCalledWith({ speaker: 'MayaX' });
+
+  const effects = screen.getByRole('list', { name: 'Scene 2 sound effects' });
+  expect(effects).toHaveTextContent('Rain');
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Remove Rain from scene 2' }),
+  );
+  expect(onChange).toHaveBeenLastCalledWith({ effects: [] });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Add a sound to scene 2' }),
+  );
+  expect(
+    screen.queryByRole('menuitem', { name: /^Rain/ }),
+  ).not.toBeInTheDocument();
+  await userEvent.click(
+    await screen.findByRole('menuitem', { name: /^Whoosh/ }),
+  );
+  expect(onChange).toHaveBeenLastCalledWith({ effects: ['rain', 'whoosh'] });
+});
+
+it('a narrator’s scene shows who says it as the narrator, and four effects fill it', () => {
+  card({ ...CLIP, effects: ['rain', 'wind', 'hit', 'click'] });
+  expect(screen.getByLabelText('Scene 2: who says its line')).toHaveAttribute(
+    'placeholder',
+    'Narrator',
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Add a sound to scene 2' }),
+  ).not.toBeInTheDocument();
+});
 
 it('a planned AI shot says what it shows, its cue and that Row-Bot makes it, with no frame to load', () => {
   const { controller } = card(SHOT);

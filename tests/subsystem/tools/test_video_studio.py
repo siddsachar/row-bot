@@ -456,5 +456,6 @@ def test_two_hundred_scenes_from_a_hundred_videos_and_pictures_make_one_short_ff
     assert len(held) == 40 and {what[2] for what in held} == {video_studio.STILL_SECONDS, 2.6}, \
         "a picture lasts its line, else a few seconds"
     plan = build_plan(inputs, [cut], "output.mp4", sounds=sounds)
-    assert len(plan.args) < 80 and plan.args.count("-i") == 3, "one clip, the voice track and the pictures laid"
+    assert len(plan.args) < 80 and plan.args.count("-i") == 2, "one clip and the pictures laid"
+    assert [track.path for track in plan.mix.tracks] == ["narration.wav", "picture.mkv"], "the voices as one track"
     assert len(plan.marks) == 201 and len(plan.voices) == 100

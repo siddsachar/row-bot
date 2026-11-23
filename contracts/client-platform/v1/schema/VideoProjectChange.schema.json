@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "VideoCastMember": {
+      "additionalProperties": false,
+      "description": "A character who speaks in a video, and the voice its lines are said in (C6).",
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "voice": {
+          "maxLength": 64,
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "voice"
+      ],
+      "title": "VideoCastMember",
+      "type": "object"
+    },
     "VideoSceneWrite": {
       "additionalProperties": false,
       "description": "A scene as the Video panel writes it (an empty id is a new scene).",
@@ -22,6 +45,23 @@
           ],
           "default": null,
           "title": "Cue"
+        },
+        "effects": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 120,
+                "type": "string"
+              },
+              "maxItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effects"
         },
         "end": {
           "anyOf": [
@@ -100,6 +140,19 @@
           "title": "Source",
           "type": "string"
         },
+        "speaker": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speaker"
+        },
         "speed": {
           "default": 1,
           "maximum": 4,
@@ -166,6 +219,22 @@
       ],
       "default": null,
       "title": "Captions"
+    },
+    "cast": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/VideoCastMember"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cast"
     },
     "music_volume": {
       "anyOf": [
