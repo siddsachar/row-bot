@@ -180,7 +180,7 @@ for (const phone of PHONES)
       for (const item of [
         /^Community Workshop Deck.*Design · in Community workshop deck/,
         /Code folder · in Release notes cleanup/,
-        /^launch-card\.png.*Picture · in Launch assets/,
+        /^Launch card.*Picture · in Launch assets/,
       ])
         await expect(files.getByRole('link', { name: item })).toBeVisible();
       await expect(page.getByRole('checkbox')).toHaveCount(0);

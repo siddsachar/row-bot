@@ -440,7 +440,8 @@ export function Menu({
           }}
         >
           {orderMenuActions(actions).map((action, index) => (
-            <Fragment key={action.label}>
+            // Two rows may share a label (a headset is a microphone and a speaker).
+            <Fragment key={`${index}:${action.label}`}>
               {action.separatorBefore && index > 0 && (
                 <Dropdown.Separator className="menu-separator" />
               )}

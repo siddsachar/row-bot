@@ -87,6 +87,7 @@ import CommandPalette, {
   type PaletteCommand,
   type PaletteFile,
 } from './CommandPalette';
+import { outputTitle } from './outputs';
 import {
   SETTINGS_CHANGED,
   saveSwitch,
@@ -1277,7 +1278,7 @@ export default function Workspace() {
   async function loadFiles(signal: AbortSignal): Promise<PaletteFile[]> {
     const [pages, media] = await Promise.all([
       controller.pages(undefined, signal),
-      controller.media({}, signal),
+      controller.outputs({ show: 'made' }, signal),
     ]);
     return [
       ...(pages?.items ?? []).map((page) => ({
@@ -1289,8 +1290,8 @@ export default function Workspace() {
         pageId: page.page_id,
       })),
       ...(media?.items ?? []).map((item) => ({
-        id: `media:${item.ref}`,
-        label: item.name,
+        id: `media:${item.conversation_id}:${item.id}`,
+        label: outputTitle(item),
         kind: item.kind,
         conversationId: item.conversation_id,
         conversationTitle: item.conversation_title ?? '',

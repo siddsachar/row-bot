@@ -116,7 +116,7 @@ test.beforeEach(async ({ context, page }) => {
   });
 });
 
-test('Live voice exchanges through the host and consults the same saved conversation', async ({
+test('Live voice (OpenAI) runs in the voice bar, exchanges through the host and answers its consult', async ({
   page,
 }, info) => {
   const remote: string[] = [];
@@ -127,10 +127,15 @@ test('Live voice exchanges through the host and consults the same saved conversa
   const id = await newConversation(page);
   await composer(page).fill('Retain the realtime draft.');
   await page.getByRole('button', { name: 'Talk', exact: true }).click();
-  await page.getByRole('menuitem', { name: /Live voice/ }).click();
-  const panel = page.getByRole('region', { name: 'Live voice' });
-  await panel.getByRole('button', { name: 'Talk', exact: true }).click();
-  await expect(panel.getByRole('status')).toHaveText('Listening…');
+  await page
+    .getByRole('menuitem', { name: 'Live voice · OpenAI Realtime' })
+    .click();
+  await page
+    .getByRole('region', { name: 'Live voice' })
+    .getByRole('button', { name: 'Start OpenAI Realtime' })
+    .click();
+  const bar = page.getByRole('region', { name: 'Voice conversation' });
+  await expect(bar).toContainText('OpenAI Realtime · Listening');
   await screenshot(page, info, 'realtime-listening-unified-conversation');
   await accessibility(page, info, 'realtime-listening-unified-conversation');
   await page.evaluate(() => {
@@ -174,10 +179,8 @@ test('Live voice exchanges through the host and consults the same saved conversa
       ),
     )
     .toContain('Synthetic stream settled.');
-  await panel.getByRole('button', { name: 'Stop Talk', exact: true }).click();
-  await expect(
-    panel.getByRole('button', { name: 'Talk', exact: true }),
-  ).toBeEnabled();
+  await bar.getByRole('button', { name: 'End voice' }).click();
+  await expect(bar).toHaveCount(0);
   await expect(composer(page)).toHaveValue('Retain the realtime draft.');
   await expect(composer(page)).toHaveCount(1);
   expect(remote).toEqual([]);

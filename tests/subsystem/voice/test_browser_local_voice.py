@@ -61,10 +61,10 @@ class _Voice:
     def sync_saved_models(self) -> None:
         pass
 
-    def sensevoice_provider(self) -> _SenseVoice:
+    def sensevoice_provider(self, *, language: str | None = None) -> _SenseVoice:
         return self.sensevoice
 
-    def transcribe_pcm16(self, pcm: bytes, *, allow_download: bool) -> str:
+    def transcribe_pcm16(self, pcm: bytes, *, allow_download: bool, language: str | None) -> str:
         self.calls.append((pcm, allow_download))
         return "hello browser"
 
@@ -84,6 +84,11 @@ class _TTS:
 
     def reload_settings(self) -> None:
         pass
+
+    def voice_for(self, text: str, *, hint: str | None = None) -> tuple[str, str | None]:
+        from row_bot.voice import languages
+
+        return languages.kokoro_voice_for(text, hint=hint, own="af_heart", picked={})
 
     def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, **_options) -> bytes:
         self.texts.append(text)

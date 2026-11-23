@@ -7,6 +7,7 @@ export type RealtimeMetadata = {
 export type RealtimeRuntime = {
   stop(): Promise<void>;
   sendFunctionOutput(callId: string, output: string, metadata?: RealtimeMetadata): boolean;
+  /** Ask the front to speak: *text* is the whole request, as the host wrote it. */
   sendRunEvent(text: string, metadata?: RealtimeMetadata): boolean;
   clearGeneration(sessionId: number, threadId: string, generationId: string): boolean;
   setGeneration(sessionId: number, threadId: string, previous: string, next: string): boolean;
@@ -23,5 +24,9 @@ export type RealtimeOptions = {
   bootstrap(): Promise<{ value: string | null }>;
   exchange(sdp: string, ephemeralKey: string): Promise<string>;
   onRuntime?(runtime: RealtimeRuntime): void;
+  /** The microphone's constraints (the chosen device and the capture settings). */
+  microphone?: MediaTrackConstraints;
+  /** The chosen speaker's id ('' for the system default). */
+  speaker?: string;
 };
 export function startRealtimeRuntime(options: RealtimeOptions): Promise<RealtimeRuntime | undefined>;

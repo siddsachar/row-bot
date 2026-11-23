@@ -57,10 +57,11 @@ def studio(platform, monkeypatch):  # noqa: F811
         video_edits._RECORDS[edit.edit_id] = edit
         return edit
 
+    real_speak = sound.speak
     monkeypatch.setattr(sound, "speak", speak)
     monkeypatch.setattr("row_bot.tts.TTSService.is_installed", lambda self: True)  # Row-Bot's voice is here.
     monkeypatch.setattr(video_edits, "start", start)
-    yield {"said": said, "voices": voices, "started": started}
+    yield {"said": said, "voices": voices, "started": started, "real_speak": real_speak}
     # A make runs on its own thread; finish it here, so it never writes into the next test's fresh databases.
     for thread in threading.enumerate():
         if thread.name.startswith("row-bot-vid-"):
@@ -230,7 +231,8 @@ def test_each_scene_says_its_own_line_when_the_title_has_a_version_number_and_ru
     voices = [cut.voice for cut in request.steps[0].scenes]
     assert len(set(voices)) == 2 and all(voice.startswith("Row-Bot 5.3.1 beta") for voice in voices)
     assert set(request.sounds) == set(voices)
-    assert request.output_name.startswith("Row-Bot 5.3.1 beta") and request.output_name.endswith(" v1.mp4")
+    # The version is no part of the name (W4): a title that has one is never "… v2 v1.mp4".
+    assert request.output_name == "Row-Bot 5.3.1 beta - Linked conversations, from meeting note.mp4"
 
 
 def test_narration_said_over_the_whole_video_is_part_of_the_project_and_its_lines_are_not_said_again(studio):
@@ -288,6 +290,30 @@ def test_a_title_card_scene_needs_no_video_and_a_video_of_cards_alone_needs_none
     assert studio["started"][1].sources == [], "a video of cards alone has no input"
 
 
+def test_a_title_with_its_own_version_number_names_every_version_once(studio):
+    """W4: "Living Buddy v2" was saved as "Living Buddy v2 v1.mp4"; a version now lives in the file's record."""
+    from row_bot import media_sources, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    project = video_projects.create("conversation-a", "Living Buddy v2", SCENES)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    video_projects.change(project, by="you", base=1, scenes=[SCENES[0]], note="Shorter")
+    video_projects.make(video_projects.get(project.project_id), 2)
+    _wait(project.project_id, 2)
+
+    renders = studio["started"]
+    saved = [register_attachment("conversation-a", request.output_name, MP4 + bytes([request.version]),
+                                 role=request.role, output_id=request.output_id, version=request.version)
+             for request in renders]
+
+    assert [request.output_name for request in renders] == ["Living Buddy v2.mp4"] * 2
+    assert [item["name"] for item in saved] == ["Living Buddy v2.mp4"] * 2
+    [older] = media_sources.find("Living Buddy v2@v1", "conversation-a")
+    [newest] = media_sources.find("Living Buddy v2", "conversation-a")
+    assert (older.ref, newest.ref) == (saved[0]["attachment_ref"], saved[1]["attachment_ref"])
+
+
 def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment
@@ -306,7 +332,7 @@ def test_a_made_version_exports_in_another_shape_and_as_a_gif(studio):
             break
         __import__("threading").Event().wait(0.01)
     tall = studio["started"][-1]
-    assert tall.steps[0].aspect == "9:16" and tall.output_name == "Launch demo v1 9x16.mp4"
+    assert tall.steps[0].aspect == "9:16" and tall.output_name == "Launch demo 9x16.mp4"
     video_projects.export(project, "gif")
     gif = studio["started"][-1]
     assert gif.gif and [media.ref for media in gif.sources] == [saved["attachment_ref"]]
@@ -480,7 +506,9 @@ def test_scenes_that_cannot_be_used_are_refused_plainly(studio):
     for scenes, words in (([], "at least one scene"), ([{"source": "missing.mp4"}], "Scene 1"),
                           ([{"source": "signup.mp4", "speed": 9}], "speed is 0.25 to 4"),
                           ([{"source": "signup.mp4", "start": 5, "end": 4}], "ends before it starts"),
-                          ([{"line": "Hello."}], "or give it a card")):
+                          ([{"line": "Hello."}], "give it a card to make it a title card"),
+                          ([{"footage": "ai"}], "say what it shows, so its AI shot can be made"),
+                          ([{"footage": "film"}], "its footage is one of clip, picture, ai, card or screen")):
         with pytest.raises(video_projects.ProjectError, match=words):
             video_projects.create("conversation-a", "Demo", scenes)
 
@@ -496,11 +524,17 @@ def test_the_video_tool_makes_a_project_and_its_step_shows_the_project_card(stud
 
     result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES, note="First cut")
     first = result.splitlines()[0]
-    assert first.startswith("Video project vid-") and '"Launch demo", version 1 of 1, 2 scenes' in first
+    assert first.startswith("Video project vid-") and first.endswith(
+        ': Output "Launch demo" v1 (storyboard); version 1 of 1, 2 scenes, nothing made yet.')
     assert '1. [s' in result and 'signup.mp4 1–4 s, card "Sign up" — "First, sign up."' in result
+    assert studio["started"] == [], "a video of several scenes is a storyboard first: nothing is made"
     project_id = first.split()[2].rstrip(":")
     public = _public_specialization(specialize_tool_result({"name": "video", "content": result}))
     assert (public["kind"], public["project_id"]) == ("video_project", project_id)
+    made = video_project_tool._video(action="make", project=project_id)
+    assert made.splitlines()[0].endswith(': Output "Launch demo" v1 (draft); version 1 of 1, 2 scenes, '
+                                         'voicing the lines.')
+    assert _wait(project_id, 1).edit_id and len(studio["started"]) == 1
 
     assert "no earlier version" in video_project_tool._video(action="undo", project=project_id)
     assert "isn't a video project in this chat" in video_project_tool._video(action="status", project="vid-00000000")
@@ -643,9 +677,11 @@ def test_make_returns_the_finished_video_when_it_is_made_within_the_wait(studio,
 
     monkeypatch.setattr(video_edits, "start", made)
 
-    result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES)
+    project_id = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES).split()[2][:-1]
+    result = video_project_tool._video(action="make", project=project_id)
 
-    assert "2 scenes, made." in result.splitlines()[0] and "Video: Launch demo v1.mp4" in result
+    assert result.splitlines()[0].endswith(
+        ': Output "Launch demo" v1 (draft) · Launch demo.mp4; version 1 of 1, 2 scenes, made.')
     assert "checks back" not in result and waits.waiting("conversation-a") == []
 
 
@@ -660,10 +696,10 @@ def test_a_video_that_takes_longer_checks_back_by_itself_when_it_is_made(studio,
     monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
     monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
 
-    result = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES)
+    project_id = video_project_tool._video(action="create", title="Launch demo", scenes=SCENES).split()[2][:-1]
+    result = video_project_tool._video(action="make", project=project_id)
 
     assert "Row-Bot checks back here when it's made" in result and "Don't call status meanwhile" in result
-    project_id = result.split()[2].rstrip(":")
     edit = video_edits.get(_wait(project_id, 1).edit_id)
     [record] = waits.waiting("conversation-a")
     assert (record["kind"], record["label"]) == ("video", "“Launch demo” version 1 is made")
@@ -895,3 +931,310 @@ def test_a_file_elsewhere_the_reviewer_allows_on_auto_is_recorded_as_the_reviewe
                                       "photos")
     [project] = video_projects.list_projects("conversation-a")
     assert project.outside == [{"path": str(footage["photo"].resolve()), "by": "reviewer"}]
+
+
+# ── The storyboard (C1): plan first, approve and comment, make what changed ──────────────────────────────────
+
+
+STORYBOARD = [
+    {"card": "Winter", "line": "It came early that year."},
+    {"footage": "ai", "shows": "a fox crossing deep snow at dawn", "end": 4, "line": "The fox knew first.",
+     "cue": "strings swell"},
+    {"source": "signup.mp4", "end": 2, "shows": "the town waking up", "line": "Then everyone else."},
+]
+
+
+def test_a_storyboard_plans_every_kind_of_footage_and_makes_nothing_until_its_footage_is_there(studio, monkeypatch):
+    """G6: a new video of several scenes is its storyboard first: a logline, then each scene's footage type, what it
+    shows, its length, line and music cue. An AI shot can be planned before it exists; making waits for it."""
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+
+    result = video_project_tool._video(action="create", title="First snow", logline="A fox and a town meet winter.",
+                                       scenes=STORYBOARD)
+
+    lines = result.splitlines()
+    assert lines[0].endswith(': Output "First snow" v1 (storyboard); version 1 of 1, 3 scenes, nothing made yet.')
+    assert lines[1] == "Logline: A fox and a town meet winter."
+    assert 'title card 0–3 s, card "Winter" — "It came early that year."' in lines[2]
+    assert ('AI shot to make, 4 s, shows "a fox crossing deep snow at dawn", music "strings swell" — '
+            '"The fox knew first."') in lines[3]
+    assert 'signup.mp4 0–2 s, shows "the town waking up"' in lines[4]
+    assert lines[5] == ("Storyboard, nothing made yet: show it to the person (the Video panel shows each scene as "
+                        "a card to approve, change or comment on). Make it with action make once they approve, or now "
+                        "when they said to make the video.")
+    assert lines[6].startswith('No footage yet: scene 2 (AI shot: a fox crossing deep snow at dawn).')
+    assert studio["started"] == [] and studio["said"] == [], "nothing is voiced or made"
+    [project] = video_projects.list_projects("conversation-a")
+    view = video_projects.view(project)
+    assert [(scene["footage"], scene["has_frame"]) for scene in view["scenes"]] == [
+        ("card", False), ("ai", False), ("clip", True)]
+    assert view["status"] == "draft" and view["logline"] == "A fox and a town meet winter."
+
+    refused = video_project_tool._video(action="make", project=project.project_id)
+    assert refused.startswith("No footage yet: scene 2") and studio["started"] == [], "its AI shot comes first"
+
+    scenes = [{"scene_id": scene.scene_id} for scene in project.latest.scenes]
+    scenes[0].update(STORYBOARD[0])
+    scenes[1].update(source="pricing.mp4", footage="ai", line="The fox knew first.", end=4)  # The shot, made.
+    scenes[2].update(source="signup.mp4", end=2, line="Then everyone else.")
+    changed = video_project_tool._video(action="change", project=project.project_id, scenes=scenes,
+                                        note="The fox's shot is made")
+    assert "(storyboard); version 2 of 2" in changed.splitlines()[0], "a storyboard stays one until it's made"
+    assert 'pricing.mp4 0–4 s, AI shot, shows "a fox crossing deep snow at dawn", music "strings swell"' in changed, \
+        "what a scene shows and its cue stay when a change leaves them out"
+    assert studio["started"] == []
+
+    made = video_project_tool._video(action="make", project=project.project_id)
+    assert "(draft); version 2 of 2, 3 scenes, voicing the lines." in made.splitlines()[0]
+    assert _wait(project.project_id, 2).edit_id and len(studio["started"]) == 1 and studio["started"][0].scene_cache == video_projects.scene_cache(project)
+
+
+def test_a_video_of_one_scene_and_a_change_to_a_made_video_are_made_at_once(studio, monkeypatch):
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+
+    result = video_project_tool._video(action="create", title="Sign up", scenes=[SCENES[0]])
+    [project] = video_projects.list_projects("conversation-a")
+    assert "(draft); version 1 of 1" in result.splitlines()[0] and _wait(project.project_id, 1).edit_id,         "a quick video: made at once"
+    scene = video_projects.get(project.project_id).latest.scenes[0]
+    video_project_tool._video(action="change", project=project.project_id, note="Shorter",
+                              scenes=[dict(SCENES[0], scene_id=scene.scene_id, end=3)])
+    assert _wait(project.project_id, 2).edit_id and len(studio["started"]) == 2, "a quick edit of a made video is made straight away"
+
+
+def test_the_person_approves_scenes_and_a_scene_keeps_its_approval_only_while_it_is_unchanged(studio):
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "First snow", STORYBOARD)
+    ids = [scene.scene_id for scene in project.latest.scenes]
+    version = video_projects.approve(project, ids[:2], True, base=1)
+    assert [scene.approved for scene in version.scenes] == [True, True, False]
+    assert len(video_projects.get(project.project_id).versions) == 1, "approving makes no new version"
+    with pytest.raises(video_projects.ProjectError) as stale:
+        video_projects.approve(project, ids[:1], True, base=2)
+    assert stale.value.stale
+    with pytest.raises(video_projects.ProjectError, match="aren't in this version"):
+        video_projects.approve(project, ["s000000"], True, base=1)
+
+    edited = [{"scene_id": ids[0], **STORYBOARD[0]}, {"scene_id": ids[1], **STORYBOARD[1], "line": "The fox knew."},
+              {"scene_id": ids[2], **STORYBOARD[2]}]
+    second = video_projects.change(project, by="you", base=1, scenes=edited)
+    assert [scene.approved for scene in second.scenes] == [True, False, False], \
+        "the line changed: that scene's approval goes"
+    assert video_projects.changed_scenes(project, second) == [ids[1]]
+    assert video_projects.summary(project).splitlines()[1].endswith('approved — "It came early that year."')
+
+
+def test_a_make_that_drew_only_the_changed_scenes_says_so(studio):
+    from row_bot import video_edits, video_projects
+
+    project = video_projects.create("conversation-a", "Launch demo", SCENES)
+    video_projects.make(project, 1)
+    edit = video_edits.get(_wait(project.project_id, 1).edit_id)
+    video_edits._set(edit, status="saved", scene_makes=["reused", "new"], marks=[0.0, 3.0, 5.0])
+
+    project = video_projects.get(project.project_id)
+    assert "Drew 1 changed scene again and reused 1 unchanged." in video_projects.summary(project)
+    assert [scene["made"] for scene in video_projects.view(project)["scenes"]] == ["reused", "new"]
+
+
+def test_a_workflows_video_of_several_scenes_is_made_at_once_with_no_storyboard_to_wait_on(studio, monkeypatch):
+    """A workflow's run has nobody to approve a storyboard: its message is the person's instruction, so it's made."""
+    from row_bot import ffmpeg_runtime, tasks
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    monkeypatch.setattr(tasks, "active_run_for_conversation",
+                        lambda thread_id: {"id": "run-1"} if thread_id == "conversation-a" else None)
+
+    result = video_project_tool._video(action="create", title="Weekly changes", scenes=SCENES)
+
+    assert "(storyboard)" not in result.splitlines()[0] and "Storyboard, nothing made yet" not in result
+    assert studio["said"], "its lines are voiced: the video is being made"
+
+
+def test_a_storyboard_cards_frame_is_its_picture_or_a_frame_of_its_clip_and_a_card_has_none(studio, tmp_path):
+    """The frames are read here, once, from the footage itself: no provider makes a picture for a card."""
+    pytest.importorskip("av")
+    import io
+
+    from PIL import Image
+
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+    from tests.helpers.media_files import video
+
+    register_attachment("conversation-a", "town.mp4", video(tmp_path / "town.mp4", sound=False).read_bytes())
+    still = io.BytesIO()
+    Image.new("RGB", (1200, 800), (30, 90, 200)).save(still, format="PNG")
+    register_attachment("conversation-a", "fox.png", still.getvalue())
+    project = video_projects.create("conversation-a", "First snow", [
+        STORYBOARD[0], {"footage": "ai", "shows": "a fox", "frame": "fox.png"},
+        {"source": "town.mp4", "start": 1.5, "end": 2.5}])
+    card, fox, town = (scene.scene_id for scene in project.latest.scenes)
+
+    assert video_projects.scene_frame(project, card) is None, "a title card draws itself"
+    picture = Image.open(io.BytesIO(video_projects.scene_frame(project, fox)))
+    assert (picture.format, picture.size, picture.getpixel((10, 10))[2] > 150) == ("JPEG", (480, 320), True)
+    frame = Image.open(io.BytesIO(video_projects.scene_frame(project, town)))
+    assert frame.size == (320, 180) and frame.getpixel((300, 90))[0] > 150, "from inside the scene: the red half"
+    kept = list(video_projects.scene_cache(project).with_name(f"{project.project_id}-frames").iterdir())
+    assert len(kept) == 2, "each frame is read once, then kept with the project"
+    assert video_projects.scene_frame(project, "s000000") is None
+
+
+def test_a_project_saved_before_storyboards_opens_with_each_scenes_footage_told_from_its_source(studio):
+    import json
+
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Launch demo", [STORYBOARD[0], SCENES[0]])
+    path = video_projects._path("conversation-a", project.project_id)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    for scene in saved["versions"][0]["scenes"]:
+        for key in ("footage", "shows", "frame", "cue", "approved"):
+            scene.pop(key)
+    saved["versions"][0].pop("logline")
+    path.write_text(json.dumps(saved), encoding="utf-8")
+
+    view = video_projects.view(video_projects.get(project.project_id))
+    assert [(scene["footage"], scene["approved"]) for scene in view["scenes"]] == [("card", False), ("clip", False)]
+    assert view["logline"] == "" and view["status"] == "draft"
+
+
+# ── C6: sound that carries the story ─────────────────────────────────────────
+
+DIALOGUE = [
+    {"card": "The door", "end": 2, "line": "It was late when Maya came home."},
+    {"source": "signup.mp4", "end": 3, "line": "Who left the light on?", "speaker": "Maya", "cue": "rain, tense"},
+    {"source": "pricing.mp4", "end": 3, "line": "I did. Sit down.", "speaker": "Sam", "effects": ["hit"]},
+    {"source": "signup.mp4", "start": 3, "end": 5, "line": "Fine.", "speaker": "maya"},
+]
+
+
+def test_each_character_speaks_in_its_own_voice_kept_with_it_and_a_changed_voice_says_only_its_lines(studio):
+    """G4: dialogue in a voice per character, unlike the narrator's and each other's; a voice given for a saved
+    character is kept with it in Library › Media, so its next video uses it too."""
+    from row_bot import media_library, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    maya = register_attachment("conversation-a", "maya.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    media_library.set_tags(maya["attachment_ref"], ["character: maya"])
+    project = video_projects.create("conversation-a", "Late", DIALOGUE, voice="af_heart")
+    cast = project.latest.cast
+    assert list(cast) == ["Maya", "Sam"] and len({"af_heart", *cast.values()}) == 3, "three voices, all different"
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    assert [options["voice"] for options in studio["voices"]] == ["af_heart", cast["Maya"], cast["Sam"],
+                                                                 cast["Maya"]], "a character's lines in its voice"
+
+    changed = video_projects.change(project, by="you", base=1, cast={"Maya": "bf_emma"}, kept=(kept := []))
+    assert changed.cast["Maya"] == "bf_emma" and kept == ["Maya"]
+    assert [scene.line for scene in video_projects.needs_voice(changed)] == ["Who left the light on?", "Fine."], \
+        "only Maya's lines are said again"
+    assert media_library.character_voice("Maya") == "bf_emma", "kept with the character"
+    later = video_projects.create("conversation-a", "Next day", [{"card": "Morning", "end": 2, "line": "Hi.",
+                                                                  "speaker": "Maya"}])
+    assert later.latest.cast == {"Maya": "bf_emma"}, "her next video uses her voice"
+    with pytest.raises(video_projects.ProjectError, match="no voice called robot"):
+        video_projects.change(project, by="you", cast={"Sam": "robot"})
+
+
+def test_pronunciations_reach_every_characters_lines_and_captions_keep_the_written_words(studio, monkeypatch):
+    """W6's pronunciations apply to dialogue as to narration: only the voice hears them."""
+    from row_bot import sound, tts, video_projects
+
+    heard: list[tuple[str, str]] = []
+    monkeypatch.setattr(sound, "speak", studio["real_speak"])
+    monkeypatch.setattr(tts.TTSService, "synthesize_wav_bytes",
+                        lambda self, text, voice=None, speed=None: heard.append((text, voice)) or _wav(1.0))
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    project = video_projects.create("conversation-a", "Models", [
+        {"card": "Qwen", "end": 2, "line": "Meet Qwen.", "speaker": "Ada"}])
+    video_projects.make(project, 1)
+    made = _wait(project.project_id, 1)
+    assert heard == [("Meet Kwen.", project.latest.cast["Ada"])]
+    assert made.scenes[0].line == "Meet Qwen.", "the line and its caption keep the real spelling"
+
+
+def test_music_made_to_fit_effects_from_a_scene_or_its_cue_and_the_kits_loudness_go_to_the_make(studio):
+    from row_bot import video_brand, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.video_editing import SCORE
+
+    register_attachment("conversation-a", "door.wav", _wav(0.5))
+    video_brand.update({"music_mood": "warm", "loudness": -16})
+    scenes = [dict(DIALOGUE[1]), dict(DIALOGUE[2], effects=["hit", "door.wav"])]
+    project = video_projects.create("conversation-a", "Late", scenes, music="FIT", on_beat=True)
+    assert [scene.effects for scene in project.latest.scenes] == [["rain"], ["hit", "door.wav"]], \
+        "a new scene's effects come from its music cue unless it names its own"
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+
+    request = studio["started"][0]
+    cuts, music = request.steps
+    assert [cut.effects for cut in cuts.scenes] == [("rain",), ("hit", "door.wav")]
+    assert [cut.cue for cut in cuts.scenes] == ["rain, tense", ""]
+    assert (music.source, music.role, music.volume) == (SCORE, "music", 0.3), "music made to fit, at its volume"
+    assert (request.score, request.on_beat, request.loudness) == ("warm", True, -16)
+    assert "door.wav" in request.sounds and SCORE not in request.sounds, "the score is made with the video"
+    summary = video_projects.summary(video_projects.get(project.project_id))
+    assert "said by Maya, effects rain" in summary and "effects hit, door.wav" in summary
+    assert "Music: made to fit the cut, warm, its sections changing where the music cue does, with the cuts on " \
+           "its beat." in summary
+    assert "Voices: Maya " in summary
+
+    plain = video_projects.create("conversation-a", "Plain", [dict(SCENES[0])], brand=False)
+    video_projects.make(plain, 1)
+    _wait(plain.project_id, 1)
+    assert (studio["started"][-1].score, studio["started"][-1].loudness) == ("", None), "-14 without the kit"
+    with pytest.raises(video_projects.ProjectError, match="its effects are whoosh"):
+        video_projects.create("conversation-a", "Bad", [dict(SCENES[0], effects=["thunder"])])
+    with pytest.raises(video_projects.ProjectError, match="at most 4 effects"):
+        video_projects.create("conversation-a", "Bad", [dict(SCENES[0], effects=list(
+            ("whoosh", "hit", "click", "rain", "wind")))])
+
+
+def test_the_video_tool_takes_a_cast_and_says_where_each_voice_is_kept(studio, monkeypatch):
+    from row_bot import ffmpeg_runtime, media_library
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    sam = register_attachment("conversation-a", "sam.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    media_library.set_tags(sam["attachment_ref"], ["character: sam"])
+    said = video_project_tool._video(action="create", title="Late", scenes=DIALOGUE[1:3],
+                                     cast={"Sam": "bm_george"}, music="fit")
+    assert said.startswith("Video project vid-")
+    assert said.endswith("\nKept each voice with Sam in Library › Media: their lines in every video use it.")
+    assert "Voices: Maya " in said and "Sam bm_george" in said
+    assert video_project_tool._brand(loudness=-16).endswith("loudness -16.0.")
+    assert video_project_tool._brand(loudness=-30).startswith("The loudness is -24 to -10 LUFS")
+
+    again = video_project_tool._video(action="create", title="Later", scenes=DIALOGUE[1:3], cast={"Sam": "bm_george"})
+    assert "Kept each voice" not in again, "Sam already speaks in that voice: nothing was kept, so nothing is said"
+    assert not media_library.keep_character_voice("Sam", "bm_george")
+    assert media_library.keep_character_voice("Sam", "am_puck") and media_library.character_voice("Sam") == "am_puck"
+
+
+def test_cuts_on_the_beat_without_music_say_there_is_no_beat_and_make_as_they_are(studio):
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Montage", [dict(SCENES[0]), dict(SCENES[1])], on_beat=True,
+                                    narration="")
+    assert "No music, so the cuts aren't on a beat." in video_projects.summary(project)
+    scored = video_projects.create("conversation-a", "Montage", [dict(SCENES[0])], on_beat=True, music="fit")
+    assert "No music" not in video_projects.summary(scored)
+

@@ -111,7 +111,7 @@ def test_a_stopped_turn_no_longer_counts_for_browser_eviction(running_turn) -> N
 def test_status_tool_reports_the_streaming_turn(monkeypatch, running_turn) -> None:
     from row_bot.tools.row_bot_status_tool import _query_voice
 
-    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
 
     output = _query_voice()
 

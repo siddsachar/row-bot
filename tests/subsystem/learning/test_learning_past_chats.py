@@ -125,6 +125,34 @@ def test_past_chats_in_the_window_become_partial_historical_episodes(learning_on
     assert store.find("signal") == []
 
 
+def test_live_voices_own_lines_are_never_read_as_replies_and_an_answer_to_one_follows_none(learning_on, clock,
+                                                                                         chats, source):
+    store = LearningStore(learning_on, clock=clock)
+    chats.chat("talk")
+    front = {"voice_front": True}  # a line Live voice's speech model said itself (V4)
+    source.add("talk", clock() - 2 * DAY, [
+        HumanMessage(content="Hi there", id="h1"),
+        AIMessage(content="Hi! What can I do?", id="f1", additional_kwargs=front),
+        HumanMessage(content="What's on my calendar today?", id="h2"),
+        AIMessage(content="A dentist at 10.", id="a2"),
+        HumanMessage(content="Thanks", id="h3"),
+        AIMessage(content="You're welcome.", id="f3", additional_kwargs=front),
+        HumanMessage(content="No, I meant tomorrow", id="h4"),
+        AIMessage(content="Tomorrow is free.", id="a4"),
+    ])
+
+    _run(store, source, chats, clock)
+
+    greeting, calendar, thanks, tomorrow = sorted(store.find("episode"), key=lambda item: item.started_at)
+    replies = {item.episode_id: item for item in store.find("decision") if item.kind == "model_call"}
+    # Only Row-Bot's model's replies are read as replies to learn from.
+    assert set(replies) == {calendar.id, tomorrow.id}
+    # A message after a voice line answered that line; one after Row-Bot's reply follows the reply.
+    assert (calendar.follows_decision_id, tomorrow.follows_decision_id) == (None, None)
+    assert thanks.follows_decision_id == replies[calendar.id].id
+    assert greeting.follows_decision_id is None
+
+
 def test_an_imported_chat_that_quoted_another_goes_when_that_one_is_excluded(learning_on, clock, chats, source):
     from row_bot.learning import scope
     from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY

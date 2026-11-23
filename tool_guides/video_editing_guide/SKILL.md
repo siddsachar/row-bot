@@ -14,6 +14,18 @@ tags: []
   full path on this computer, used where it is, never copied. A scene
   without a source is a title card, and it voices each line and lays the
   music itself.
+- A new video of several scenes is a storyboard first: video action create
+  with a logline and each scene's footage (clip, picture, ai, card or
+  screen), what it shows, its line, length and music cue. Nothing is made.
+  Footage that doesn't exist yet (an AI shot) has no source until you make
+  it. Show the storyboard; once the person approves, or at once when they
+  said to make the video, make the planned footage, change those scenes with
+  their sources, then video action make. A request to plan, draft or
+  storyboard a video, or to work on one together, gets the storyboard.
+  A comment on a card comes to you as their message: change that scene.
+  Quick edits and a video of one scene are made at once.
+- For footage not made yet its words are enough; make a frame with
+  generate_image only when the person asked for pictures in the storyboard.
 - Render the final through the video tool whenever it can do the job. Only
   when a look needs more than it offers, a script of your own (ffmpeg,
   Pillow) is the fallback: check still frames of each scene first, render
@@ -24,17 +36,25 @@ tags: []
   step mark a beat with its note (a short title) and its line, do the step,
   and stay on it about as long as the line takes (the beat says how long);
   beat=work before a wait, cut for a stretch to leave out. Stop, then video
-  action create with recording=rec-…: one scene per beat with its title,
-  line and voice. The camera follows what was done (leave zoom empty).
+  action create with recording=rec-…: a storyboard of one scene per beat
+  with its title, line and voice. The camera follows what was done (leave
+  zoom empty).
 - The video is the app, not slides: at most an opening and a closing card
   (3 s, a few words); titles go over the footage as a scene's card.
 - Phone demos: browser_viewport phone before recording (taps show as
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
-  framing, camera, voice, speed, music mood) sets every video, and a video
-  may choose its own voice and voice_speed. When the person says how their
+  framing, camera, voice, speed, music mood, loudness) sets every video, and a
+  video may choose its own voice and voice_speed. When the person says how their
   videos should look ("full screen", a voice, a mood), save it with video
   action brand, so the next video starts that way.
+- Sound: music 'fit' is made to the video's length in the brand kit's mood
+  (or music_mood), changing where the music cue does, so make_music isn't
+  needed. A scene's speaker says its line in that character's voice (a voice
+  in cast becomes a saved character's voice in every video, so give one only
+  when the person chose it). Effects and ambience go on a scene.
+  A montage cuts on the music's beat with on_beat. A change to the sound
+  alone mixes it again; the picture isn't drawn again.
 - Captions only when the person asks for them: a narrated video needs none.
 - After make, read the checks: they list what to fix by scene and time, and
   already include one look at the review sheet, so don't look again with

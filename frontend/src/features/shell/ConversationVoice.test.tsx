@@ -5,20 +5,12 @@ import {
   render,
   screen,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import ConversationVoice from './ConversationVoice';
 import { startVoiceOnOpen } from './new-chat';
 import type { ClientController } from '../../api/controller';
-import type { RealtimeTalkControlsProps } from './RealtimeTalkControls';
-import { FakeAudio, FakeSocket } from '../voice/voice-test-fakes';
-
-let realtime: RealtimeTalkControlsProps;
-vi.mock('./RealtimeTalkControls', () => ({
-  default: (props: RealtimeTalkControlsProps) => {
-    realtime = props;
-    return <span>Live voice controls</span>;
-  },
-}));
+import { FakeAudio, FakeSocket, audioFrame } from '../voice/voice-test-fakes';
 const audio = { current: new FakeAudio() };
 vi.mock('../voice/voice-audio', () => ({
   BrowserVoiceAudio: vi.fn(function () {
@@ -40,6 +32,32 @@ const handle = {
   lease_id: '11111111-1111-4111-8111-111111111111',
 };
 const TICKET = 'ticket-xxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+const live = (
+  id: 'openai' | 'gemini' | 'grok',
+  label: string,
+  company: string,
+  price: string,
+  available: boolean,
+) => ({
+  id,
+  label,
+  company,
+  price,
+  price_checked: '22 Nov 2026',
+  available,
+  reason: available
+    ? ('available' as const)
+    : ('realtime_key_missing' as const),
+});
+const liveProviders = [
+  live('openai', 'OpenAI Realtime', 'OpenAI', 'about $0.10 a minute', true),
+  // Gemini Live sees what the person shares on camera or screen.
+  {
+    ...live('gemini', 'Gemini Live', 'Google', 'about $0.02 a minute', true),
+    shares: true,
+  },
+  live('grok', 'Grok Voice', 'xAI', 'about $0.08 a minute', false),
+];
 
 function setup(extra: Record<string, unknown> = {}) {
   audio.current = new FakeAudio();
@@ -66,13 +84,30 @@ function setup(extra: Record<string, unknown> = {}) {
       sockets.push(socket);
       return socket;
     }),
-    startRealtime: vi
+    startRealtime: vi.fn().mockResolvedValue({
+      snapshot: {
+        schema_version: 1,
+        handle,
+        state: 'connecting',
+        quiesced: true,
+        expires_in_ms: 1,
+        run_id: null,
+        transport: 'gemini_live',
+      },
+      exchange_available: false,
+      ticket: TICKET,
+      ticket_expires_in_ms: 30000,
+    }),
+    stopRealtime: vi.fn().mockResolvedValue({}),
+    realtimeTicket: vi
       .fn()
-      .mockResolvedValue({ snapshot: { handle, run_id: null } }),
-    voiceRun: vi.fn(),
-    voiceControl: vi.fn(),
+      .mockResolvedValue({ ticket: TICKET, expires_in_ms: 30000 }),
+    openLiveSocket: vi.fn(() => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket;
+    }),
     realtimeExchange: vi.fn(),
-    realtimeEvent: vi.fn(),
   };
   const props = {
     controller: controller as unknown as ClientController,
@@ -101,14 +136,24 @@ function setup(extra: Record<string, unknown> = {}) {
     focusComposer: vi.fn(),
     ...extra,
   };
-  const view = render(<ConversationVoice {...props} />);
+  const view = render(<ConversationVoice {...props} />, {
+    wrapper: MemoryRouter,
+  });
   return { controller, props, view, sockets };
 }
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.clearAllMocks();
 });
+
+async function openMenu() {
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Talk' }), {
+    button: 0,
+  });
+  return screen.findAllByRole('menuitem');
+}
 
 async function tapTalk() {
   await act(async () => {
@@ -170,22 +215,69 @@ it('waits for the current reply before it can start', () => {
   expect(screen.getByRole('button', { name: 'Talk' })).toBeDisabled();
 });
 
-it('Live voice stays selectable beside Row-Bot Voice', async () => {
-  const { controller } = setup({ liveAvailable: true });
-  fireEvent.pointerDown(screen.getByRole('button', { name: 'Talk' }), {
-    button: 0,
-  });
-  fireEvent.click(await screen.findByRole('menuitem', { name: /Live voice/ }));
-  expect(screen.getByText('Live voice controls')).toBeVisible();
-  const signal = new AbortController().signal;
-  await realtime.exchange!(handle, 'v=0 synthetic', signal);
-  expect(controller.realtimeExchange).toHaveBeenCalledWith(
-    scope,
-    handle,
-    'v=0 synthetic',
-    signal,
+it('the Talk menu offers each Live voice provider with its price, or why it can’t be used', async () => {
+  setup({ liveProviders });
+  const items = await openMenu();
+  expect(items.map((item) => item.textContent)).toEqual([
+    'Talk with Row-BotRow-Bot Voice, with this chat’s model',
+    'Live voice · OpenAI RealtimeAbout $0.10 a minute · audio goes to OpenAI',
+    'Live voice · Gemini LiveAbout $0.02 a minute · audio goes to Google',
+    'Live voice · Grok VoiceNeeds your xAI API key',
+  ]);
+  fireEvent.click(items[3]);
+  expect(screen.getByText(/Add your xAI API key in/)).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Providers' })).toHaveAttribute(
+    'href',
+    '/settings/models#providers-api',
   );
+});
+
+it('says everything that leaves the device before first use, then Live voice runs in the voice bar', async () => {
+  const { controller, sockets } = setup({ liveProviders });
+  fireEvent.click((await openMenu())[2]);
+  expect(
+    screen.getByText(
+      'Your voice, this chat’s recent messages, the agent profile’s name, a few related memories and what you share on camera or screen go to Google while you talk. About $0.02 a minute, from Google’s published prices (22 Nov 2026), billed to your Google key.',
+    ),
+  ).toBeVisible();
+  expect(controller.startRealtime).not.toHaveBeenCalled();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Start Gemini Live' }));
+  });
+  const [, body] = controller.startRealtime.mock.calls[0];
+  expect(body.live_provider).toBe('gemini');
   expect(controller.startTalk).not.toHaveBeenCalled();
+  // The page speaks only to Row-Bot: its own socket, with the ticket.
+  expect(sockets).toHaveLength(1);
+  await act(async () => {
+    sockets[0].open();
+    sockets[0].emit({ type: 'ready', output_sample_rate: 24000 });
+    sockets[0].emit({ type: 'caption', role: 'user', text: 'Good morning' });
+    sockets[0].emit(audioFrame(1));
+  });
+  expect(sockets[0].json()[0]).toEqual({ type: 'hello', ticket: TICKET });
+  expect(screen.getByText('Gemini Live · Listening')).toBeVisible();
+  expect(screen.getByText('Good morning')).toBeVisible();
+  expect(audio.current.played).toEqual([1]);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'End voice' }));
+  });
+  expect(controller.stopRealtime).toHaveBeenCalledWith(scope, handle);
+  // Read once: the next start goes straight to the bar.
+  fireEvent.click((await openMenu())[2]);
+  await act(async () => undefined);
+  expect(controller.startRealtime).toHaveBeenCalledTimes(2);
+});
+
+it('an incognito chat’s disclosure leaves out memories, which it does not send', async () => {
+  setup({ liveProviders, incognito: true });
+  fireEvent.click((await openMenu())[1]);
+  expect(
+    screen.getByText(
+      /^Your voice, this chat’s recent messages and the agent profile’s name go to OpenAI while you talk\./,
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/related memories/)).toBeNull();
 });
 
 it('a chat opened from Home’s Talk starts voice once, when it can (D3)', async () => {

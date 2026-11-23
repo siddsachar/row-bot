@@ -77,20 +77,20 @@ def clip(tmp_path):
 def test_scenes_are_drawn_one_after_another_into_one_clip_through_their_cameras(clip, tmp_path):
     import av
 
-    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10)
+    studio = video_studio.Studio(tmp_path / "scenes.mkv", (320, 180), fps=10)
     zoomed = studio.add(clip, 1.0, 2.5, ((0.0, 0.5, 0.5, 1.0), (0.3, 0.9, 0.5, 2.0)), Frame((320, 180), "full"))
     plain = studio.add(clip, 0.0, 1.0, (), Frame((320, 180), "full"))
     studio.close()
 
     assert (zoomed, plain) == ((0.0, 1.5), (1.5, 1.0)), "where each starts in the clip, and how long"
-    with av.open(str(tmp_path / "scenes.mp4")) as reader:
+    with av.open(str(tmp_path / "scenes.mkv")) as reader:
         frames = [frame.to_image() for frame in reader.decode(video=0)]
     assert len(frames) == 25 and frames[0].size == (320, 180)
     assert frames[0].getpixel((240, 90))[1] < 80 < frames[0].getpixel((40, 90))[1], \
         "from one second in: the red half is there, the whole picture in view"
     assert frames[14].getpixel((40, 90))[1] < 80, "zoomed in on the right: red fills the frame"
     assert frames[15].getpixel((240, 90))[1] > 200, "the next scene from the start: before the red"
-    stopping = video_studio.Studio(tmp_path / "stop.mp4", (320, 180), fps=10)
+    stopping = video_studio.Studio(tmp_path / "stop.mkv", (320, 180), fps=10)
     with pytest.raises(Exception, match="Stopped"):
         stopping.add(clip, 0.0, 3.0, (), Frame((320, 180), "full"), stopped=lambda: True)
     stopping.close()
@@ -101,13 +101,13 @@ def test_a_scenes_sound_stays_with_its_pictures_and_a_silent_scene_is_silence(cl
     import numpy
 
     noisy = video(tmp_path / "talk.mp4", sound=True)
-    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10, sound=True)
+    studio = video_studio.Studio(tmp_path / "scenes.mkv", (320, 180), fps=10, sound=True)
     studio.add(noisy, 0.5, 1.5, (), Frame((320, 180), "full"))
     studio.add(clip, 0.0, 1.0, (), Frame((320, 180), "full"))
     studio.close()
 
-    with av.open(str(tmp_path / "scenes.mp4")) as reader:
-        sound = numpy.concatenate([frame.to_ndarray()[0] for frame in reader.decode(audio=0)])
+    with av.open(str(tmp_path / "scenes.mkv")) as reader:
+        sound = _left(reader)
     assert abs(sound.size / 48000 - 2.0) < 0.1, "as long as the pictures"
     assert numpy.abs(sound[4800:43200]).mean() > 0.1, "the first scene's tone"
     assert numpy.abs(sound[52800:91200]).max() < 0.01, "silence under the scene that has none"
@@ -124,27 +124,77 @@ def test_a_projects_recorded_scenes_reach_the_edit_as_one_drawn_clip_however_man
         *[SceneCut(input=0, start=0.2 * index, end=0.2 * index + 0.2,
                    camera=((0.0, 0.5, 0.5, 1.0), (0.1, 0.9, 0.5, 2.0))) for index in range(12)],
     ])
-    inputs, drawn = video_studio.prepare([source], step, tmp_path)
+    inputs, drawn, made = video_studio.prepare([source], step, tmp_path)
 
-    assert [item.path for item in inputs] == ["scenes.mp4"], "the recording itself isn't read again"
+    assert [(item.path, item.concat) for item in inputs] == [("scenes.txt", True)], \
+        "the recording itself isn't read again: its scenes' clips, one after another"
+    assert made == ["", *["new"] * 12], "the card is the edit's; each scene was drawn"
     assert (inputs[0].info.width, inputs[0].info.height) == (1920, 1080)
     card, *scenes = drawn.scenes
     assert card.input is None and all(scene.input == 0 and scene.camera == () for scene in scenes)
     assert [scene.start for scene in scenes] == pytest.approx([5 / 24 * index for index in range(12)], abs=1e-3),         "one after another, each a whole number of frames at the video's rate (24 at least)"
-    assert build_plan(inputs, [drawn], "output.mp4").duration == pytest.approx(2 + 12 * 5 / 24, abs=0.01)
+    plan = build_plan(inputs, [drawn], "output.mp4")
+    assert plan.duration == pytest.approx(2 + 12 * 5 / 24, abs=0.01)
+    assert plan.args[plan.args.index("-f") + 1] == "concat" and plan.args.count("-i") == 2, \
+        "ffmpeg reads the clips as one input, beside the cards' pictures"
+
+
+@pytest.mark.slow
+def test_making_a_video_again_draws_only_the_scenes_whose_inputs_changed(clip, tmp_path, monkeypatch):
+    """C1: each scene's clip is kept under a hash of what it was drawn from. Making the video again draws only the
+    scenes whose inputs changed; a scene's speed and line are the edit's, so changing them draws nothing; footage
+    that changed on disk draws its scenes again; clips no make uses any more go."""
+    from dataclasses import replace
+
+    from row_bot.video_editing import InputVideo, SceneCut, Step, VideoInfo
+
+    source = InputVideo(path=str(clip), info=VideoInfo(3.0, 320, 180, 10.0, False), identity="rec.mp4:1")
+    scenes = [SceneCut(input=0, start=0.0, end=1.0), SceneCut(input=None, end=1, card="Hi"),
+              SceneCut(input=0, start=1.0, end=2.0), SceneCut(input=0, start=2.0, end=3.0)]
+    kept = tmp_path / "kept"
+
+    def make(cuts, name, footage=source):
+        (tmp_path / name).mkdir()
+        return video_studio.prepare([footage], Step(op="scenes", aspect="16:9", scenes=cuts), tmp_path / name,
+                                    cache=kept)[2]
+
+    assert make(scenes, "first") == ["new", "", "new", "new"]
+    assert len(list(kept.iterdir())) == 3, "one clip per scene of footage, kept with the project"
+    edited = [scenes[0], scenes[1], replace(scenes[2], end=1.5), replace(scenes[3], speed=2.0, line="Faster.")]
+    assert make(edited, "second") == ["reused", "", "new", "reused"], \
+        "only the trimmed scene is drawn again: its speed and line are the edit's"
+    with _scenes(tmp_path / "second") as reader:
+        assert len(list(reader.decode(video=0))) == (1 + 0.5 + 1) * 24, "the kept clips and the new one, in order"
+
+    monkeypatch.setattr(video_studio, "KEEP_SECONDS", -60.0)  # Every clip this make doesn't use is old.
+    assert make(scenes, "third", replace(source, identity="rec.mp4:2")) == ["new", "", "new", "new"], \
+        "the file changed: its scenes are drawn again"
+    assert len(list(kept.iterdir())) == 3, "the clips no make used went"
+
+
+def _left(reader):
+    """A drawn clip's sound, its left channel, from -1 to 1 (plain 16-bit samples, side by side)."""
+    import numpy
+
+    return numpy.concatenate([frame.to_ndarray()[0][::2] for frame in reader.decode(audio=0)]) / 32768
+
+
+def _scenes(folder):
+    """The drawn scenes as the edit reads them: their clips, one after another."""
+    import av
+
+    return av.open(str(folder / "scenes.txt"), format="concat", options={"safe": "0"})
 
 
 def _drawn(folder, sources, step):
     """The drawn clip of a project's scenes from these (path, size) videos: (its inputs, its frames)."""
-    import av
-
     from row_bot.video_editing import InputVideo, VideoInfo
 
     folder.mkdir(exist_ok=True)
     given = [InputVideo(path=str(path), info=VideoInfo(duration=3.0, width=size[0], height=size[1], fps=10.0,
                                                       has_audio=False)) for path, size in sources]
-    inputs, _step = video_studio.prepare(given, step, folder)
-    with av.open(str(folder / "scenes.mp4")) as reader:
+    inputs, _step, _made = video_studio.prepare(given, step, folder)
+    with _scenes(folder) as reader:
         return inputs, [frame.to_image() for frame in reader.decode(video=0)]
 
 
@@ -262,7 +312,7 @@ def test_a_videos_voice_lines_are_laid_at_their_times_into_one_track(tmp_path):
 def _frames(path):
     import av
 
-    with av.open(str(path)) as reader:
+    with (_scenes(path.parent) if path.name == "scenes.txt" else av.open(str(path))) as reader:
         stream = reader.streams.video[0]
         frames = list(reader.decode(video=0))
         return stream.average_rate, frames
@@ -280,12 +330,12 @@ def test_a_picture_is_held_filling_the_frame_upright_and_pushed_in_slowly(clip, 
     assert (info.width, info.height, info.still) == (400, 300, True)
 
     seconds = 4.0
-    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=30)
+    studio = video_studio.Studio(tmp_path / "scenes.mkv", (320, 180), fps=30)
     assert studio.still(tmp_path / "photo.jpg", seconds, video_studio.push_in(seconds), Frame((320, 180))) == \
         (0.0, 4.0)
     studio.close()
 
-    rate, frames = _frames(tmp_path / "scenes.mp4")
+    rate, frames = _frames(tmp_path / "scenes.mkv")
     assert rate == 30 and len(frames) == 120 and (frames[0].width, frames[0].height) == (320, 180)
     first, last = frames[0].to_image(), frames[-1].to_image()
 
@@ -322,12 +372,12 @@ def test_footage_at_any_frame_rate_and_a_turned_phone_clip_come_out_at_one_rate_
              InputVideo(path=str(pal), info=VideoInfo(2.0, 320, 180, 25.0, True))]
     scenes = [SceneCut(input=0, start=1.0, end=2.0), SceneCut(input=1, start=0.5, end=2.0),
               SceneCut(input=2, start=1.0, end=1.5)]
-    inputs, step = video_studio.prepare(given, Step(op="scenes", scenes=scenes), tmp_path)
+    inputs, step, _made = video_studio.prepare(given, Step(op="scenes", scenes=scenes), tmp_path)
 
-    assert [item.path for item in inputs] == ["scenes.mp4"] and inputs[0].info.fps == 60.0, \
+    assert [item.path for item in inputs] == ["scenes.txt"] and inputs[0].info.fps == 60.0, \
         "the rate most of the footage plays at (1.5 s of the 3 s at 60)"
     assert [(scene.start, scene.end) for scene in step.scenes] == [(0.0, 1.0), (1.0, 2.5), (2.5, 3.0)]
-    rate, frames = _frames(tmp_path / "scenes.mp4")
+    rate, frames = _frames(tmp_path / "scenes.txt")
     assert rate == 60 and len(frames) == 180 and (frames[0].width, frames[0].height) == (180, 320)
     phone_frame = frames[30].to_image()
     assert phone_frame.getpixel((170, 160))[1] < 80 < phone_frame.getpixel((10, 160))[1], \
@@ -335,9 +385,7 @@ def test_footage_at_any_frame_rate_and_a_turned_phone_clip_come_out_at_one_rate_
     assert frames[89].to_image().getpixel((170, 160))[1] > 200 > frames[91].to_image().getpixel((170, 160))[1], \
         "the 60 fps clip from half a second in: red from its second second, on time"
     assert {(frame.colorspace, frame.color_range) for frame in frames} == {(1, 1)}, "BT.709, TV range"
-    import av
-
-    with av.open(str(tmp_path / "scenes.mp4")) as reader:
+    with _scenes(tmp_path) as reader:
         sound = sum(frame.samples for frame in reader.decode(audio=0))
     assert abs(sound / 48000 - 3.0) < 0.1, "sound all along: silence under the clips that have none"
 
@@ -345,12 +393,12 @@ def test_footage_at_any_frame_rate_and_a_turned_phone_clip_come_out_at_one_rate_
 def test_a_long_clip_is_read_only_around_the_part_used(tmp_path):
     """Real footage is long: a clip used for one second is read from a seek to the key frame before it."""
     long = video(tmp_path / "long.mp4", sound=True, seconds=30)
-    studio = video_studio.Studio(tmp_path / "scenes.mp4", (320, 180), fps=10, sound=True)
+    studio = video_studio.Studio(tmp_path / "scenes.mkv", (320, 180), fps=10, sound=True)
     assert studio.add(long, 25.0, 26.0, (), Frame((320, 180))) == (0.0, 1.0)
     studio.close()
 
     assert studio.decoded <= 25, "a second or two of pictures decoded, not the 250 before it"
-    _rate, frames = _frames(tmp_path / "scenes.mp4")
+    _rate, frames = _frames(tmp_path / "scenes.mkv")
     assert len(frames) == 10 and frames[0].to_image().getpixel((300, 90))[1] < 80, "the part used, from 25 s"
 
 
@@ -364,6 +412,7 @@ def test_two_hundred_scenes_from_a_hundred_videos_and_pictures_make_one_short_ff
     class Drawing:  # The drawing itself is tested above: here, what is drawn, in what order, how long.
         def __init__(self, output, size, *, fps, sound):
             self.fps, self.written, self.has_sound = fps, 0, sound
+            output.write_bytes(b"")
             drawn.append(("clip", size, fps, sound))
 
         def add(self, source, start, end, keys, frame, *, stopped):
@@ -397,13 +446,16 @@ def test_two_hundred_scenes_from_a_hundred_videos_and_pictures_make_one_short_ff
                                if number % 10 == 0 else "", **voice))
     sounds = {scene.voice: f"C:/voices/{scene.voice}" for scene in scenes if scene.voice}
     step = Step(op="scenes", aspect="16:9", scenes=scenes, style="caption", look=Look())
-    inputs, cut = video_studio.prepare(given, step, tmp_path)
+    inputs, cut, _made = video_studio.prepare(given, step, tmp_path)
 
-    assert drawn[0] == ("clip", (1920, 1080), 30.0, True) and drawn[-1] == "closed"
-    assert len(drawn) == 202 and drawn[1] == ("video", "clip-00.mov", 5.0, 8.0)
-    held = [what for what in drawn[1:-1] if what[0] == "picture"]
+    clips = [what for what in drawn if what[0] == "clip"]
+    assert len(clips) == 200 and set(clips) == {("clip", (1920, 1080), 30.0, True)} and drawn[-1] == "closed", \
+        "a clip of its own per scene, all of one size, rate and sound"
+    assert len(drawn) == 600 and drawn[1] == ("video", "clip-00.mov", 5.0, 8.0)
+    held = [what for what in drawn if what[0] == "picture"]
     assert len(held) == 40 and {what[2] for what in held} == {video_studio.STILL_SECONDS, 2.6}, \
         "a picture lasts its line, else a few seconds"
     plan = build_plan(inputs, [cut], "output.mp4", sounds=sounds)
-    assert len(plan.args) < 80 and plan.args.count("-i") == 3, "one clip, the voice track and the pictures laid"
+    assert len(plan.args) < 80 and plan.args.count("-i") == 2, "one clip and the pictures laid"
+    assert [track.path for track in plan.mix.tracks] == ["narration.wav", "picture.mkv"], "the voices as one track"
     assert len(plan.marks) == 201 and len(plan.voices) == 100

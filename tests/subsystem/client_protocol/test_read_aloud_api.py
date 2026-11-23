@@ -44,6 +44,11 @@ class _Kokoro:
     def reload_settings(self) -> None:
         pass
 
+    def voice_for(self, text: str, *, hint: str | None = None) -> tuple[str, str | None]:
+        from row_bot.voice import languages
+
+        return languages.kokoro_voice_for(text, hint=hint, own="af_heart", picked={})
+
     def synthesize_wav_bytes(self, text: str, **_options) -> bytes:
         self.said.append(text)
         return _wav()

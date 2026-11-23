@@ -139,6 +139,7 @@ function setup(
     }),
     restoreVideoProject: vi.fn(async () => view({ number: 3, latest: 3 })),
     download: vi.fn(async () => new Blob(['mp4'], { type: 'video/mp4' })),
+    videoSceneFrame: vi.fn(async () => new Blob(['jpeg'])),
     controlsSettled: vi.fn(async () => undefined),
     workspaceFor: vi.fn(async () => ({
       revision: '7',
@@ -148,6 +149,14 @@ function setup(
     })),
     intent: vi.fn(async () => ({ status: 'accepted' })),
     showLatest: vi.fn(),
+    settingsSnapshot: vi.fn(async () => ({
+      voice: {
+        tts_voice_options: [
+          { value: 'af_bella', label: 'Bella (American Female)' },
+          { value: 'bf_emma', label: 'Emma (British Female)' },
+        ],
+      },
+    })),
   } as unknown as ClientController & Record<string, ReturnType<typeof vi.fn>>;
   render(
     <RuntimeContext.Provider value={{ controller, platform }}>
@@ -477,4 +486,232 @@ it('while edited, the player previews the edits live from each scene’s own vid
     expect.anything(),
   );
   expect(controller.changeVideoProject).not.toHaveBeenCalled();
+});
+
+function storyboard(patch: Partial<VideoProjectView> = {}): VideoProjectView {
+  const scene = view().scenes[0];
+  return view({
+    title: 'First snow',
+    number: 1,
+    latest: 1,
+    versions: [{ number: 1, at: AT, by: 'row-bot', note: 'First version' }],
+    status: 'draft',
+    edit: null,
+    checks: [],
+    checks_passed: null,
+    changed: [],
+    logline: 'A fox and a town meet winter.',
+    scenes: [
+      {
+        ...scene,
+        scene_id: 's0c0c0c',
+        source: '',
+        start: 0,
+        end: 3,
+        card: 'Winter',
+        footage: 'card',
+        at: null,
+        length: null,
+        voiced: false,
+        approved: true,
+      },
+      {
+        ...scene,
+        scene_id: 's0f0f0f',
+        source: '',
+        start: 0,
+        end: 4,
+        card: '',
+        line: 'The fox knew first.',
+        footage: 'ai',
+        shows: 'a fox in deep snow',
+        at: null,
+        length: null,
+        voiced: false,
+      },
+      {
+        ...scene,
+        scene_id: 's0e0e0e',
+        source: 'town.mp4',
+        start: 0,
+        end: 2,
+        card: '',
+        footage: 'clip',
+        has_frame: true,
+        at: null,
+        length: null,
+        voiced: false,
+      },
+    ],
+    ...patch,
+  });
+}
+
+it('a storyboard shows its logline and cards, and Make asks Row-Bot when footage is still to make', async () => {
+  const { controller } = setup(storyboard());
+  const bar = await screen.findByRole('region', { name: 'Storyboard' });
+  expect(screen.getByText('A fox and a town meet winter.')).toBeVisible();
+  expect(bar).toHaveTextContent('3 scenes · about 0:09 · 1 of 3 approved');
+  expect(bar).toHaveTextContent('1 scene needs its footage');
+  expect(
+    screen.queryByLabelText('First snow, version 1'),
+  ).not.toBeInTheDocument();
+  const cards = within(
+    screen.getByRole('list', { name: 'Storyboard' }),
+  ).getAllByRole('listitem');
+  expect(cards.map((card) => card.getAttribute('data-approved'))).toEqual([
+    'true',
+    null,
+    null,
+  ]);
+  await userEvent.click(
+    within(bar).getByRole('button', { name: 'Make video' }),
+  );
+  await waitFor(() => expect(controller.intent).toHaveBeenCalled());
+  const body = (controller.intent as unknown as ReturnType<typeof vi.fn>).mock
+    .calls[0][2];
+  expect(body.text).toBe(
+    'Make the video "First snow" (vid-1a2b3c4d) from its storyboard, version 1.',
+  );
+  expect(body.video_panel).toEqual({ action: 'make' });
+});
+
+it('a storyboard with all its footage is made from the panel, and its scenes are approved one by one', async () => {
+  const board = storyboard({ number: 6, latest: 6 });
+  board.scenes = board.scenes.filter((scene) => scene.footage !== 'ai');
+  const { controller } = setup(board);
+  controller.approveVideoScenes = vi.fn(async () => board);
+  const making = view({ number: 6, latest: 6, status: 'voicing', edit: null });
+  controller.makeVideoProject = vi.fn(async () => {
+    vi.mocked(controller.videoProject).mockImplementation(async () => making);
+    return making;
+  });
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Approve scene 2' }),
+  );
+  expect(controller.approveVideoScenes).toHaveBeenCalledWith('vid-1a2b3c4d', {
+    base: 6,
+    scene_ids: ['s0e0e0e'],
+    approved: true,
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Make video' }));
+  expect(controller.makeVideoProject).toHaveBeenCalledWith('vid-1a2b3c4d');
+  expect(await screen.findByText('Voicing')).toBeVisible();
+});
+
+function dialogue(): VideoProjectView {
+  const made = view({
+    number: 9,
+    latest: 9,
+    music: 'fit',
+    music_mood: 'warm',
+    on_beat: true,
+    cast: [{ name: 'Maya', voice: 'af_bella' }],
+  });
+  made.scenes = [
+    { ...made.scenes[0], cue: 'quiet', effects: ['rain'] },
+    { ...made.scenes[1], speaker: 'Maya', cue: 'storm', effects: ['whoosh'] },
+  ];
+  return made;
+}
+
+it('each character’s voice is chosen beside the storyboard, and only a changed one is sent', async () => {
+  const { controller } = setup(dialogue());
+  const voices = await screen.findByRole('group', { name: 'Voices' });
+  const maya = within(voices).getByLabelText("Maya's voice");
+  await waitFor(() => expect(maya).toHaveValue('af_bella'));
+  await userEvent.selectOptions(maya, 'bf_emma');
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  expect(controller.changeVideoProject).toHaveBeenCalledWith(
+    'vid-1a2b3c4d',
+    expect.objectContaining({
+      cast: [{ name: 'Maya', voice: 'bf_emma' }],
+      scenes: [
+        expect.objectContaining({ speaker: '', effects: ['rain'] }),
+        expect.objectContaining({ speaker: 'Maya', effects: ['whoosh'] }),
+      ],
+    }),
+  );
+});
+
+it('a new character given a line joins the voices, picked for them until chosen', async () => {
+  setup(view());
+  expect(
+    await screen.findByLabelText('Scene 1: who says its line'),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('group', { name: 'Voices' }),
+  ).not.toBeInTheDocument();
+  await userEvent.type(
+    screen.getByLabelText('Scene 1: who says its line'),
+    'Sam',
+  );
+  const voices = screen.getByRole('group', { name: 'Voices' });
+  expect(within(voices).getByLabelText("Sam's voice")).toHaveValue('');
+  expect(within(voices).getByLabelText("Sam's voice")).toHaveTextContent(
+    'Picked for them',
+  );
+});
+
+it('the timeline shows who says each line, each scene’s effects and the music’s sections', async () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(min-width: 768px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  setup(dialogue());
+  await userEvent.click(await screen.findByRole('radio', { name: 'Timeline' }));
+  const timeline = screen.getByRole('application', { name: /^Timeline/ });
+  expect(within(timeline).getByLabelText('Voice')).toHaveTextContent(
+    'Maya: Then pick a plan.',
+  );
+  expect(within(timeline).getByLabelText('Effects')).toHaveTextContent(
+    'RainWhoosh',
+  );
+  const music = within(timeline).getByLabelText('Music');
+  expect(music).toHaveTextContent('Made to fit · warm');
+  expect(music).toHaveTextContent('Scene 2');
+});
+
+it('a storyboard says what music it has, where it changes and that it cuts on the beat', async () => {
+  setup({ ...dialogue(), status: 'draft', edit: null, checks: [] });
+  expect(
+    await screen.findByRole('region', { name: 'Storyboard' }),
+  ).toHaveTextContent(
+    'Made to fit · warm · changes at scene 2 · cut on the beat',
+  );
+});
+
+it('an edit to a storyboard is saved without making it', async () => {
+  const { controller } = setup(storyboard({ number: 7, latest: 7 }));
+  await userEvent.type(await screen.findByLabelText('Scene 1 card'), '!');
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(controller.changeVideoProject).toHaveBeenCalledWith(
+    'vid-1a2b3c4d',
+    expect.objectContaining({ base: 7 }),
+  );
+});
+
+it('after a make that reused unchanged scenes, the panel says which were drawn again', async () => {
+  const made = view({ number: 8, latest: 8 });
+  made.scenes = made.scenes.map((scene, index) => ({
+    ...scene,
+    made: index ? 'new' : 'reused',
+  }));
+  setup(made);
+  expect(
+    await screen.findByText('Made again: 1 changed scene drawn, 1 reused.'),
+  ).toBeVisible();
+  const cards = within(
+    screen.getByRole('list', { name: 'Storyboard' }),
+  ).getAllByRole('listitem');
+  expect(cards[0]).toHaveTextContent('Reused');
+  expect(cards[1]).toHaveTextContent('Made again');
+  expect(
+    screen.queryByRole('button', { name: 'Approve scene 1' }),
+  ).not.toBeInTheDocument();
 });

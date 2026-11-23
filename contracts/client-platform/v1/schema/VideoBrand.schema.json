@@ -54,6 +54,13 @@
       "title": "Logo Corner",
       "type": "string"
     },
+    "loudness": {
+      "default": -14.0,
+      "maximum": -10,
+      "minimum": -24,
+      "title": "Loudness",
+      "type": "number"
+    },
     "music_mood": {
       "enum": [
         "calm",

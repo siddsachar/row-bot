@@ -66,7 +66,7 @@ class KokoroLikeVoice:
         return VoiceProviderStatus(self.provider_id, self.display_name, self.ready,
                                    unavailable_code="kokoro_model_missing")
 
-    def synthesize(self, text: str) -> SynthesizedSpeech:
+    def synthesize(self, text: str, *, language: str | None = None) -> SynthesizedSpeech:
         self.said.append(text)
         return SynthesizedSpeech(_wav(b"\x01\x00" * self.channels * 480, channels=self.channels), "audio/wav")
 

@@ -152,3 +152,98 @@ def test_the_brand_kit_is_read_and_saved_through_the_api(service, studio):  # no
         assert (missing.status_code, missing.json()["code"]) == (422, "video_brand_invalid")
         assert client.put("/api/v1/video-brand", headers=headers,
                           json={**kit.json(), "colour": "red"}).status_code == 422
+
+
+def test_the_panel_gives_lines_to_characters_their_voices_and_scenes_their_effects(service, studio):  # noqa: F811
+    """C6: who says each line, each character's voice and each scene's effects, read and written by the panel;
+    the brand kit's loudness with the rest of the kit."""
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Late", seed_default_skills=False)
+    register_attachment(chat, "door.mp4", _MP4)
+    project = video_projects.create(chat, "Late", [
+        {"source": "door.mp4", "end": 3, "line": "Who's there?", "speaker": "Maya", "cue": "rain"},
+        {"card": "Later", "end": 2, "line": "Only the wind."}], music="fit")
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        board = client.get(path, headers=headers).json()
+        assert [(scene["speaker"], scene["effects"]) for scene in board["scenes"]] == [("Maya", ["rain"]), ("", [])]
+        assert [member["name"] for member in board["cast"]] == ["Maya"] and board["music"] == "fit"
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in board["scenes"]]
+        scenes[1].update(speaker="Sam", effects=["wind", "whoosh"])
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes,
+                                                          "cast": [{"name": "Sam", "voice": "bm_george"}]})
+        assert changed.status_code == 200, changed.text
+        view = changed.json()
+        assert [(scene["speaker"], scene["effects"]) for scene in view["scenes"]] == [
+            ("Maya", ["rain"]), ("Sam", ["wind", "whoosh"])], "a scene left as it was keeps its own"
+        assert {member["name"]: member["voice"] for member in view["cast"]}["Sam"] == "bm_george"
+        bad = client.put(path, headers=headers, json={"base": 2, "scenes": [dict(scenes[1], effects=["thunder"])]})
+        assert (bad.status_code, bad.json()["code"]) == (422, "video_project_invalid")
+
+        kit = client.get("/api/v1/video-brand", headers=headers).json()
+        assert kit["loudness"] == -14.0
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "loudness": -16}).json()[
+            "loudness"] == -16.0
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "loudness": -30}).status_code == 422
+
+
+def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_nothing(service, studio):  # noqa: F811
+    """C1: the panel's cards. Approving marks scenes on their version; each card's frame is its own route; a change
+    to a storyboard stays a storyboard (making it is the person's call), and footage still to make can't be made."""
+    import io
+
+    from PIL import Image
+
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("First snow", seed_default_skills=False)
+    picture = io.BytesIO()
+    Image.new("RGB", (640, 360), (200, 40, 40)).save(picture, format="PNG")
+    register_attachment(chat, "town.png", picture.getvalue())
+    project = video_projects.create(chat, "First snow", [
+        {"card": "Winter", "line": "It came early."},
+        {"footage": "ai", "shows": "a fox in deep snow", "end": 4, "cue": "strings swell"},
+        {"source": "town.png", "line": "Then the town woke."}], logline="A fox and a town meet winter.")
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        board = client.get(path, headers=headers).json()
+        assert (board["status"], board["logline"]) == ("draft", "A fox and a town meet winter.")
+        assert [(scene["footage"], scene["shows"], scene["cue"], scene["has_frame"]) for scene in board["scenes"]] == [
+            ("card", "", "", False), ("ai", "a fox in deep snow", "strings swell", False), ("picture", "", "", True)]
+        card, fox, town = (scene["scene_id"] for scene in board["scenes"])
+
+        frame = client.get(f"{path}/scenes/{town}/frame", headers=headers)
+        assert (frame.status_code, frame.headers["content-type"]) == (200, "image/jpeg")
+        assert Image.open(io.BytesIO(frame.content)).getpixel((5, 5))[0] > 150
+        assert client.get(f"{path}/scenes/{card}/frame", headers=headers).status_code == 404, "a card draws itself"
+        assert client.get(f"{path}/scenes/not-a-scene/frame", headers=headers).status_code == 404
+
+        approved = client.post(f"{path}/approve", headers=headers,
+                               json={"base": 1, "scene_ids": [card, town], "approved": True})
+        assert approved.status_code == 200, approved.text
+        assert [scene["approved"] for scene in approved.json()["scenes"]] == [True, False, True]
+        assert approved.json()["latest"] == 1, "approving is no new version"
+        stale = client.post(f"{path}/approve", headers=headers, json={"base": 2, "scene_ids": [fox], "approved": True})
+        assert (stale.status_code, stale.json()["code"]) == (409, "video_project_stale")
+
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in board["scenes"]]
+        scenes[0]["line"] = "Winter came early."
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes})
+        assert changed.status_code == 200, changed.text
+        assert (changed.json()["number"], changed.json()["status"]) == (2, "draft"), "still a storyboard"
+        assert [scene["approved"] for scene in changed.json()["scenes"]] == [False, False, True]
+        assert changed.json()["scenes"][1]["shows"] == "a fox in deep snow", "the panel's change keeps the plan"
+        assert studio == [], "nothing voiced"
+
+        refused = client.post(f"{path}/make", headers=headers)
+        assert (refused.status_code, refused.json()["code"]) == (422, "video_project_invalid"), \
+            "the AI shot is still to make: Row-Bot makes it"

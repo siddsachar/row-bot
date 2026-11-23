@@ -1968,7 +1968,7 @@ const CATALOG: Record<string, Entry> = {
   ],
   sent_file_unavailable: ['That file is no longer here to download.', 'none'],
   sent_file_expired: [
-    'This download has ended: sent files stay for 7 days. Ask Row-Bot to send it again.',
+    'This download has ended: sent files can be downloaded for 7 days. Ask Row-Bot to send it again.',
     'none',
   ],
   sent_files_gone: [
@@ -3273,34 +3273,60 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   realtime_auth_unavailable: [
-    'Realtime Talk needs an OpenAI key or sign-in.',
+    'Live voice: the provider refused the key. Check it in Providers.',
+    'review',
+    PROVIDERS,
+  ],
+  realtime_key_missing: [
+    'Live voice needs this provider’s API key. Add it in Providers.',
     'review',
     PROVIDERS,
   ],
   realtime_credential_expired: [
-    'The Realtime Talk session expired. Start Talk again.',
+    'The Live voice session expired. Start it again.',
     'retry',
     RETRY,
   ],
   realtime_credential_unavailable: [
-    "Realtime Talk couldn't get a session. Try again.",
+    "Live voice couldn't get a session. Try again.",
     'retry',
     RETRY,
   ],
   realtime_exchange_timeout: [
-    'Realtime Talk took too long to connect. Try again.',
+    'Live voice took too long to connect. Try again.',
     'retry',
     RETRY,
   ],
   realtime_provider_unavailable: [
-    "The Realtime Talk service isn't responding. Try again.",
+    "The Live voice provider isn't responding. Try again.",
     'retry',
     RETRY,
   ],
   realtime_quota_or_rate_limit: [
-    'The Realtime Talk provider refused the call: its quota or rate limit was reached.',
+    'The Live voice provider refused the call: its quota or rate limit was reached.',
     'review',
     PROVIDERS,
+  ],
+  cloud_key_missing: [
+    'That speech service needs your API key. Add it in Voice settings.',
+    'review',
+    VOICE,
+  ],
+  cloud_voice_failed: [
+    "The voice service didn't answer. Check your key in Voice settings, or try again.",
+    'retry',
+    VOICE,
+  ],
+  cloud_speech_failed: [
+    "The speech service didn't answer. Check your key in Voice settings, or try again.",
+    'retry',
+    VOICE,
+  ],
+  speech_model_missing: [
+    (place) =>
+      `The speech model Talk listens with isn't downloaded ${place.on}. Download it in Voice settings, or choose Whisper.`,
+    'review',
+    VOICE,
   ],
   sensevoice_unavailable: [
     (place) =>
@@ -3379,11 +3405,6 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
-  voice_transcript_changed: [
-    'The transcript changed. Try again.',
-    'retry',
-    RETRY,
-  ],
   whisper_model_missing: [
     'Set up a speech recognition model in Voice settings before using Dictate.',
     'review',
@@ -3396,6 +3417,10 @@ const CATALOG: Record<string, Entry> = {
   ],
   nothing_to_read: [
     'This reply is code or a table, with nothing to read aloud.',
+    'none',
+  ],
+  voice_language_unspoken: [
+    'Row-Bot’s voice can’t speak this reply’s language yet, so it stays on screen.',
     'none',
   ],
   voice_rate_limited: [

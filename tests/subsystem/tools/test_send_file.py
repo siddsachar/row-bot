@@ -92,7 +92,8 @@ def test_only_files_in_the_chat_or_the_workspace_can_be_sent(chat, tmp_path):
     for name in (str(outside), "../secret.txt", "docs/../../secret.txt", str(private)):
         result = chat.send(files=[name], to="telegram")
         assert not result.startswith("Delivery"), (name, result)
-        assert "outside the workspace" in result or "isn't a file in the workspace" in result, (name, result)
+        assert ("outside the workspace" in result or "isn't a file in the workspace" in result
+                or "private data folder" in result), (name, result)
     assert "Couldn't find missing.pdf" in chat.send(files=["missing.pdf"])
     assert chat.telegram.documents == [] and chat.asked == [] and chat.reviews == []
     assert chat.deliveries.list_deliveries() == []
@@ -196,9 +197,25 @@ def test_a_file_sent_to_your_devices_is_the_chats_own_file_and_only_its_link_exp
         chat.deliveries.open_file(delivery.delivery_id, 1)
     assert refused.value.code == "sent_file_expired"  # The phone's link ends ...
     view = chat.deliveries.view(delivery)
-    assert view["status"] == "expired" and not view["files"][1]["downloadable"]
-    assert view["files"][1]["media_ref"] == film["media_ref"]  # ... the chat's card still plays it.
+    assert view["status"] == "sent" and not view["files"][1]["downloadable"]  # ... but nothing it sent expired:
+    assert view["files"][1]["media_ref"] == film["media_ref"]  # the chat's card still plays it.
+    assert chat.deliveries.sweep() == 0  # Start-up's clean-up keeps the chat's files too.
     assert read_attachment(film["media_ref"])[1].startswith(b"\x00\x00\x00\x18ftyp")
+
+
+def test_a_send_with_a_file_too_big_for_a_chat_ends_only_that_files_download(chat, monkeypatch):
+    from row_bot.application.attachments import read_attachment
+    from row_bot.file_deliveries import DEVICE_KEEP_SECONDS
+
+    big = _too_big_for_a_chat(chat, monkeypatch)
+    delivery = _delivery(chat.send(files=["docs/notes.txt", big]))
+    monkeypatch.setattr(chat.deliveries, "_now", lambda: delivery.created_at + DEVICE_KEEP_SECONDS + 1)
+
+    view = chat.deliveries.view(delivery)
+    notes, film = view["files"]
+    assert view["status"] == "sent"  # The notes stay with the chat ...
+    assert read_attachment(notes["media_ref"])[1] == b"Notes for the meeting.\n"
+    assert film["media_ref"] is None and not film["downloadable"]  # ... only the copy's download ended.
 
 
 def test_the_copy_of_a_file_too_big_for_a_chat_ends_when_it_expires(chat, monkeypatch):

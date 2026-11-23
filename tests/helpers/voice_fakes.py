@@ -54,6 +54,29 @@ class FakeClock:
         self.now += ms / 1000
 
 
+class FakeSleep:
+    """``asyncio.sleep`` on the fake clock: a sleeper wakes once a test moves the clock past its time."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        self.clock = clock
+        self._sleepers: list[tuple[float, Any]] = []
+
+    async def __call__(self, seconds: float) -> None:
+        import asyncio
+
+        waiter = asyncio.get_running_loop().create_future()
+        self._sleepers.append((self.clock.now + seconds, waiter))
+        await waiter
+
+    def advance(self, ms: float) -> None:
+        self.clock.advance(ms)
+        for due, waiter in list(self._sleepers):
+            if due <= self.clock.now:
+                self._sleepers.remove((due, waiter))
+                if not waiter.done():
+                    waiter.set_result(None)
+
+
 class FakeActivity:
     """Speech wherever the audio is loud: Silero's role without the model."""
 
@@ -90,7 +113,7 @@ class FakeSpeechStream:
         self.owner.clock.advance(self.owner.finish_ms)
         text = self.owner.finals.pop(0) if self.owner.finals else ""
         self.owner.finished.append((text, len(self.audio)))
-        return TranscriptUpdate(text, final=True)
+        return TranscriptUpdate(text, final=True, language=self.owner.heard_language)
 
     def close(self) -> None:
         self.closed = True
@@ -108,11 +131,15 @@ class FakeSpeechToText:
         self.partials = 0
         self.warmed = False
         self.streams: list[FakeSpeechStream] = []
+        # The language each utterance was opened in, and the one every final reports it heard.
+        self.opened: list[str | None] = []
+        self.heard_language: str | None = None
 
     def warm(self) -> None:
         self.warmed = True
 
     def open(self, *, language: str | None = None) -> FakeSpeechStream:
+        self.opened.append(language)
         stream = FakeSpeechStream(self)
         self.streams.append(stream)
         return stream
@@ -127,16 +154,23 @@ class FakeSentenceSpeech:
         self.clock = clock
         self.synth_ms = synth_ms
         self.spoken: list[str] = []
+        # The language hint each sentence was asked in.
+        self.languages: list[str | None] = []
+        # Set: the voice can't speak this language, so every sentence comes back unspoken.
+        self.unspoken: str | None = None
         self.warmed = False
         self.gate: threading.Event | None = None
 
     def warm(self) -> None:
         self.warmed = True
 
-    def synthesize(self, text: str) -> SpeechAudio:
+    def synthesize(self, text: str, *, language: str | None = None) -> SpeechAudio:
+        self.languages.append(language)
         if self.gate is not None:
             self.gate.wait(5)
         self.clock.advance(self.synth_ms)
+        if self.unspoken:
+            return SpeechAudio(b"", 24_000, unspoken=self.unspoken)
         self.spoken.append(text)
         return SpeechAudio(b"\x01\x00" * (240 * len(text)), 24_000)
 
@@ -169,17 +203,26 @@ class FakeLink:
 
 
 class FakeHost:
-    def __init__(self, outcome: Any = None) -> None:
+    def __init__(self, outcome: Any = None, *, sees: bool = True) -> None:
         self.turns: list[str] = []
+        self.stills: list[Any] = []  # the still each turn carried (None for none)
         self.spoken: list[str] = []
         self.outcome = outcome
         self.keepalives = 0
+        # A spoken answer to an approval: what the host says back, and what it was asked.
+        self.approval_result = "answered"
+        self.approvals: list[tuple[str, bool]] = []
+        self.sees = sees
 
-    def take_turn(self, text: str, utterance_id: str) -> Any:
+    def take_turn(self, text: str, utterance_id: str, still: Any = None) -> Any:
         from row_bot.voice.engine.session import TurnOutcome
 
         self.turns.append(text)
+        self.stills.append(still)
         return self.outcome or TurnOutcome("submitted")
+
+    def sees_images(self) -> bool:
+        return self.sees
 
     def drops(self, text: str) -> bool:
         heard = " ".join(text.lower().split())
@@ -190,6 +233,10 @@ class FakeHost:
 
     def keepalive(self) -> None:
         self.keepalives += 1
+
+    def answer_approval(self, approval_id: str, approve: bool, utterance_id: str) -> str:
+        self.approvals.append((approval_id, approve))
+        return self.approval_result
 
 
 def fake_engine_parts(clock: FakeClock, stt: FakeSpeechToText, tts: FakeSentenceSpeech | None = None,

@@ -12,7 +12,7 @@ import wave
 
 from row_bot.tts import TTSService
 from row_bot.voice import SAMPLE_RATE, VoiceService, get_voice_service
-from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
+from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderError, VoiceProviderStatus
 from row_bot.voice.providers import (
     SpeechMode,
     speech_output_provider,
@@ -148,7 +148,11 @@ class BrowserLocalVoiceService:
 
     def synthesize(self, session_key: str, text: str, *,
                    validate: Callable[[], None] | None = None) -> SynthesizedSpeech:
-        """All of *text* as one recording: piece by piece when it is long, never cut short."""
+        """All of *text* as one recording: piece by piece when it is long, never cut short.
+
+        A piece in a language the voice can't speak is left out (it stays on screen); when no piece can
+        be spoken, ``voice_language_unspoken``.
+        """
         pieces = speech_pieces(str(text or "").strip(), MAX_TEXT_CHARS)
         if not pieces:
             raise BrowserVoiceError("text_required")
@@ -164,11 +168,16 @@ class BrowserLocalVoiceService:
             for piece in pieces:
                 if validate is not None:
                     validate()
-                speech = provider.synthesize(piece)
+                try:
+                    speech = provider.synthesize(piece)
+                except VoiceProviderError as error:  # A cloud voice that failed or lost its key.
+                    raise BrowserVoiceError(error.code, status_code=503) from None
                 if validate is not None:
                     validate()
                 if not isinstance(speech, SynthesizedSpeech) or not isinstance(speech.audio, bytes):
                     raise BrowserVoiceError("voice_output_unavailable", status_code=409)
+                if speech.unspoken:
+                    continue
                 total += len(speech.audio)
                 if not speech.audio or total > MAX_OUTPUT_BYTES:
                     raise BrowserVoiceError("audio_output_too_large", status_code=413)
@@ -176,6 +185,8 @@ class BrowserLocalVoiceService:
                 if valid is None or not valid(speech.audio):
                     raise BrowserVoiceError("voice_output_unavailable", status_code=409)
                 spoken.append(speech)
+            if not spoken:
+                raise BrowserVoiceError("voice_language_unspoken", status_code=422)
             return spoken[0] if len(spoken) == 1 else _joined_wav(spoken)
 
     def install_whisper(self, session_key: str) -> None:

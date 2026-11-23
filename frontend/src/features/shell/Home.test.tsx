@@ -122,7 +122,16 @@ const mock = vi.hoisted(() => ({
     setHourlyConnectionChecks: vi.fn(),
     insights: vi.fn(),
     waits: vi.fn(async () => ({ schema_version: 1, items: [] })),
-    dictationCapability: vi.fn(),
+    dictationCapability: vi.fn(async () => ({
+      schema_version: 1,
+      browser_dictation_available: false,
+      native_capture_available: false,
+      reason: 'host_unavailable',
+      talk_available: false,
+      realtime_available: false,
+      talk_reason: 'host_unavailable',
+      realtime_reason: 'host_unavailable',
+    })),
     backgroundProcesses: vi.fn(),
   },
 }));
@@ -1117,4 +1126,28 @@ it('a phone’s Home asks once whether this host can dictate and Talk, for the d
   expect(mock.controller.dictationCapability).toHaveBeenCalledTimes(1);
   // Monitor's reads are for the computer's Home.
   expect(mock.controller.monitorSnapshot).not.toHaveBeenCalled();
+});
+
+it('a computer’s Home asks the same, for Talk and Dictate in its Ask box', async () => {
+  mock.controller.dictationCapability.mockResolvedValue({
+    schema_version: 1,
+    browser_dictation_available: true,
+    native_capture_available: false,
+    reason: 'available',
+    talk_available: true,
+    realtime_available: false,
+    talk_reason: 'available',
+    realtime_reason: 'host_unavailable',
+  });
+  const onAsk = vi.fn();
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <Home onAsk={onAsk} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Talk in a new chat' }),
+  );
+  expect(onAsk).toHaveBeenCalledWith('', { send: false, voice: 'talk' });
+  expect(mock.controller.dictationCapability).toHaveBeenCalledTimes(1);
 });

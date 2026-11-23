@@ -1932,8 +1932,13 @@ def _summarize_tool_result(name: str, content: str) -> str:
         return f"[{name}]: (empty result)"
     # Strip leading/trailing whitespace
     content = content.strip()
+    lines = content.split("\n")
+    # A result's leading "Approval: …" lines say how it was allowed; the line after them names what it did (a
+    # media result's output, W4), so that line is kept, unless the result is nothing but approval lines.
+    start = next((index for index, line in enumerate(lines)
+                  if line.strip() and not line.lstrip().startswith("Approval: ")), 0)
     # Try first meaningful line (skip blank lines)
-    for line in content.split("\n"):
+    for line in lines[start:]:
         line = line.strip()
         if line:
             candidate = f"[{name}]: {line}"
@@ -8047,9 +8052,9 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         media_failed = False
         if caches is not None:
             # A made picture or video becomes a chat file here, so the result names it the way every
-            # media tool finds it, never by its private path (R2).
+            # media tool finds it, never by its private path (R2), on its first line (W4).
             from row_bot.application.generated_media import capture_generated_media, name_saved_files
-            names: list[str] = []
+            names: list[dict] = []
             try:
                 media = capture_generated_media(caches.conversation_id, caches, names=names,
                                                 label=_media_label(request.tool_call or {}))
@@ -8095,7 +8100,8 @@ def _media_label(call: dict[str, Any]) -> str:
     args = call.get("args") if isinstance(call.get("args"), dict) else {}
     if str(call.get("name") or "") == "tool_invoke" and isinstance(args.get("arguments"), dict):
         args = args["arguments"]
-    words = re.findall(r"[a-z0-9]+", str(args.get("prompt") or "").lower())[:6]
+    # Letters of any language, digits and currency signs: "£480" and "café" stay as written (W4).
+    words = re.findall(r"[^\W_]+(?:[£€$¥][^\W_]*)*|[£€$¥][^\W_]+", str(args.get("prompt") or "").lower())[:6]
     return "-".join(words)[:48].strip("-")
 
 

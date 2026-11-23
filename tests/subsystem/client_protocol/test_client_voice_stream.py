@@ -292,3 +292,133 @@ def test_a_typed_turn_runs_in_voice_mode_only_while_voice_listens(voice, listeni
     finally:
         voice.service.voice_listeners.pop(voice.conversation, None)
     assert configs and bool(configs[-1].get("voice_mode")) is listening
+
+
+def _caption(socket, **match) -> dict:
+    while True:
+        caption = _until(socket, "caption", limit=2000)
+        if all(caption.get(key) == value for key, value in match.items()):
+            return caption
+
+
+@pytest.mark.slow
+def test_a_spoken_yes_after_the_summary_approves_an_undoable_action_through_the_card(service):
+    stt = _bind(service, "Tidy my files", "Yes, go ahead.")
+    answers = []
+
+    def stream(_text, _enabled, _config, *, stop_event=None):
+        yield "interrupt", [{"__interrupt_id": "card-1", "tool": "workspace_move_file", "label": "Move / rename file",
+                             "description": "Move / rename file: 'a.md' to 'notes/a.md'",
+                             "args": {"source_path": "a.md", "destination_path": "notes/a.md"}}]
+
+    def resume(_enabled, _config, approved, *, interrupt_ids=None, stop_event=None):
+        answers.append(approved)
+        yield "token", "Moved it."
+        yield "done", None
+
+    service.stream_factory, service.resume_factory = stream, resume
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation, body = _conversation(client, headers)
+        started = _start(client, headers, conversation, body)
+        with client.websocket_connect(STREAM, headers={"Origin": "http://localhost"}) as socket:
+            socket.send_text(json.dumps({"type": "hello", "ticket": started["ticket"]}))
+            _until(socket, "ready")
+            for frame in [VOICED] * 30 + [SILENT] * 20:
+                socket.send_bytes(frame)
+            asked = _until(socket, "approval", limit=2000)
+            assert asked["voice"] is True and asked["card"]["action_label"] == "workspace_move_file"
+            # The client sends back the title its card shows; that is what is said.
+            socket.send_text(json.dumps({"type": "approval_title", "approval_id": asked["approval_id"],
+                                         "title": "Move a file?"}))
+            summary = _caption(socket, kind="approval")
+            assert summary["text"] == "I need your OK. Move a file? Say yes or no, or tap the card."
+            socket.send_text(json.dumps({"type": "playback", "state": "idle"}))
+            for frame in [VOICED] * 30 + [SILENT] * 20:
+                socket.send_bytes(frame)
+            assert _until(socket, "approval", limit=2000)["approval_id"] == ""
+            assert _caption(socket, role="assistant")["text"] == "Moved it."
+            socket.send_text(json.dumps({"type": "end"}))
+    assert answers == [True]
+    assert [text for text, _ in stt.finished] == ["Tidy my files", "Yes, go ahead."]
+    service.close_voice()
+
+
+def _jpeg() -> bytes:
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (96, 64), (30, 90, 160)).save(out, "JPEG")
+    return out.getvalue()
+
+
+@pytest.mark.slow
+def test_a_spoken_turn_while_sharing_carries_the_still_as_an_image_of_the_persons_message(voice, monkeypatch):
+    from row_bot import threads, vision_runtime
+    from row_bot.application import workspace_setup
+    from row_bot.application.attachments import read_attachment
+
+    monkeypatch.setattr(workspace_setup, "sees_images", lambda model_ref: None)  # Not known not to: it may.
+
+    looked = []
+
+    class Vision:
+        enabled = True
+
+        def effective_model(self, chat_model=None):
+            return chat_model or ""
+
+        def analyze(self, data, question, *, chat_model=None):
+            looked.append(data)
+            return "A blue card held up to the camera."
+
+    monkeypatch.setattr(vision_runtime, "get_vision_service", lambda: Vision())
+    heard = []
+    scripted = ScriptedAgentStream((("token", "That is a blue card."), ("done", None)))
+
+    def stream(text, *args, **kwargs):
+        heard.append(text)
+        yield from scripted.stream(text, *args, **kwargs)
+
+    voice.service.stream_factory = stream
+    still = _jpeg()
+    started = _start(voice.client, voice.headers, voice.conversation, voice.body)
+    with voice.client.websocket_connect(STREAM, headers={"Origin": "http://localhost"}) as socket:
+        socket.send_text(json.dumps({"type": "hello", "ticket": started["ticket"]}))
+        assert _until(socket, "ready")["sees_images"] is True
+        socket.send_text(json.dumps({"type": "share", "source": "camera"}))
+        assert _until(socket, "sharing")["source"] == "camera"
+        for frame in [VOICED] * 30 + [SILENT] * 20:
+            socket.send_bytes(frame)
+        _until(socket, "look")
+        socket.send_text(json.dumps({"type": "still", "bytes": len(still)}))
+        socket.send_bytes(still)
+        caption = _until(socket, "caption", limit=2000)
+        while caption.get("role") != "assistant":
+            caption = _until(socket, "caption", limit=2000)
+        socket.send_text(json.dumps({"type": "end"}))
+    # The agent read the still as an attached image, already described for it.
+    assert looked == [still]
+    assert heard and "[Attached image: Live camera.jpg" in heard[0]
+    assert "A blue card held up to the camera." in heard[0]
+    # The chat shows it as part of the person's message, saved like an image they attached.
+    person = [message for message in threads.get_latest_checkpoint_messages(voice.conversation)
+              if getattr(message, "type", "") == "human"][-1]
+    attached = person.additional_kwargs["platform_attachments"]
+    assert [(item["name"], item["mime_type"]) for item in attached] == [("Live camera.jpg", "image/jpeg")]
+    assert read_attachment(attached[0]["attachment_ref"])[1] == still
+
+
+def test_a_model_known_not_to_see_images_is_never_sent_a_still(voice, monkeypatch):
+    from row_bot.application import workspace_setup
+
+    monkeypatch.setattr(workspace_setup, "sees_images", lambda model_ref: False)
+    started = _start(voice.client, voice.headers, voice.conversation, voice.body)
+    with voice.client.websocket_connect(STREAM, headers={"Origin": "http://localhost"}) as socket:
+        socket.send_text(json.dumps({"type": "hello", "ticket": started["ticket"]}))
+        assert _until(socket, "ready")["sees_images"] is False
+        socket.send_text(json.dumps({"type": "share", "source": "screen"}))
+        assert _until(socket, "error")["code"] == "voice_share_unavailable"
+        socket.send_text(json.dumps({"type": "end"}))

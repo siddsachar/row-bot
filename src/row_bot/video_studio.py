@@ -12,15 +12,20 @@ where the action is (the camera's view, else the recording's pointer, else the m
 play as one film; or, when asked, the picture inset on the brand's backdrop with rounded corners and a soft shadow
 ("framed": the brand kit's choice, or one scene's ``fit``).
 
-The scenes are drawn one after another into one clip: a view that moves, and the framed look, frame by frame with
-Pillow (sub-pixel crops, so a slow zoom never shimmers), a view that doesn't by ffmpeg's own scaler. The edit then
-cuts, captions and mixes that clip as it does any video. The camera path and one frame's look are
-pure; only ``Studio`` reads and writes video.
+Each scene is drawn into a clip of its own: a view that moves, and the framed look, frame by frame with Pillow
+(sub-pixel crops, so a slow zoom never shimmers), a view that doesn't by ffmpeg's own scaler. A project keeps its
+scenes' clips, each named by a hash of what it was drawn from, so making the video again draws only the scenes
+that changed (C1). The edit reads the clips one after another as one video, then cuts, captions and mixes it as it
+does any video. The camera path and one frame's look are pure; only ``Studio`` reads and writes video.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import os
+import time
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache
@@ -63,6 +68,10 @@ PUSH_IN = 1.12
 # Threads to decode a scene's video and to encode the clip: past 8, a 4K clip's decoding and the encoder's frames held
 # for them doubled the memory (1.5 GB, from 0.7) and drew no faster.
 THREADS = 8
+# How a scene is drawn: a change to the drawing changes this, so no clip drawn the old way is reused.
+DRAWING = 1
+# A project's drawn clips that no make used are kept this long (a make running beside this one may still read them).
+KEEP_SECONDS = 3600.0
 
 
 def _ease(value: float) -> float:
@@ -326,11 +335,11 @@ def _chain(frame: Any, keys: tuple[Key, ...], look: Frame, direct: bool) -> list
 
 
 class Studio:
-    """A video's footage drawn one scene after another into one clip (``scenes.mp4``) at one size, frame rate and
-    colour (BT.709, TV range): each frame its scene's picture through its camera and look, a view that doesn't move
-    drawn by ffmpeg's own scaler, one that moves (or the framed look) by Pillow, drawn again only when the picture
-    or the view has changed; its sound, when any scene has some, kept in step at one rate (silence where a scene has
-    none). One clip, however many scenes and sources: the edit reads it as one input."""
+    """Footage drawn into a clip (Matroska, H.264) at one size, frame rate and colour (BT.709, TV range): each frame
+    its scene's picture through its camera and look, a view that doesn't move drawn by ffmpeg's own scaler, one that
+    moves (or the framed look) by Pillow, drawn again only when the picture or the view has changed; its sound, when
+    the video has some, kept in step at one rate as plain samples (silence where a scene has none), so clips drawn
+    apart play one after another with no gap or drift."""
 
     RATE = 48000
 
@@ -353,7 +362,7 @@ class Studio:
         context = self._video.codec_context
         context.colorspace = context.color_primaries = context.color_trc = 1  # BT.709,
         context.color_range = 1  # in TV range.
-        self._audio = self._writer.add_stream("aac", rate=self.RATE, layout="stereo") if sound else None
+        self._audio = self._writer.add_stream("pcm_s16le", rate=self.RATE, layout="stereo") if sound else None
         self._fifo = av.AudioFifo() if sound else None
         self._drawn: tuple[Any, Any] = (None, None)
 
@@ -463,8 +472,11 @@ class Studio:
 
     def _push(self, samples: Any) -> None:
         import av
+        import numpy
 
-        piece = av.AudioFrame.from_ndarray(samples.astype("float32"), format="fltp", layout="stereo")
+        # Planar floats in, 16-bit samples side by side out.
+        packed = (numpy.clip(samples, -1.0, 1.0) * 32767).astype("int16").T.reshape(1, -1)
+        piece = av.AudioFrame.from_ndarray(packed, format="s16", layout="stereo")
         piece.sample_rate = self.RATE
         piece.pts = None
         self._fifo.write(piece)
@@ -518,14 +530,56 @@ def frame_rate(scenes: list[Any], inputs: list[Any]) -> float:
     return max(used, key=lambda rate: (used[rate], rate)) if used else 30.0
 
 
+def scene_key(item: Any, start: float, end: float, keys: tuple[Key, ...], frame: Frame, fps: float,
+              sound: bool) -> str:
+    """What a scene's clip is drawn from, as a hash: its footage (``InputVideo.identity``: which file, as it is
+    now), the part of it, its camera and look, the frame rate and whether the video has sound. Its speed, card, line
+    and voice are the edit's, not the drawing's: changing them draws nothing again."""
+    what = [DRAWING, item.identity or item.path, item.info.still, round(start, 3), round(end, 3), keys,
+            [*frame.size, frame.framing, *frame.colour, frame.captions], fps, sound]
+    return hashlib.sha256(json.dumps(what).encode()).hexdigest()[:32]
+
+
+def _concat(clips: list[tuple[Path, float]], output: Path) -> None:
+    """The list ffmpeg reads the scenes' clips from, one after another, each exactly as long as drawn."""
+    lines = ["ffconcat version 1.0"]
+    for path, seconds in clips:
+        lines += ["file '" + f"file:{path.resolve().as_posix()}".replace("'", "'\\''") + "'",
+                  f"duration {seconds:.6f}"]
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def _keep(clip: Path) -> bool:
+    """Whether a scene's clip drawn before is here to use again (marked used now, so it's kept)."""
+    try:
+        os.utime(clip)
+    except OSError:
+        return False
+    return True
+
+
+def _prune(cache: Path, size: tuple[int, int], used: set[str]) -> None:
+    """Clips of this size no make used for ``KEEP_SECONDS``: what a project keeps is what it can use again."""
+    old = time.time() - KEEP_SECONDS
+    for path in cache.glob(f"{size[0]}x{size[1]}-*.mkv"):
+        try:
+            if path.name not in used and path.stat().st_mtime < old:
+                path.unlink()
+        except OSError:
+            pass
+
+
 def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[], bool] = lambda: False,
-            progress: Callable[[int, int], None] = lambda _done, _total: None) -> tuple[list[Any], Any]:
-    """A video project's footage drawn one scene after another into one clip (``scenes.mp4``) in the video's shape
-    (its own, else 16:9 when its first footage is wide, else that footage's): each scene cut from a video, read from
-    a seek to its start, and each picture held with a slow push in, all through their cameras and look, conformed to
-    one size, colour and frame rate (``frame_rate``), upright, with their sound at one rate. The edit then cuts,
-    captions and mixes that one clip, however many scenes and sources there are. The brand kit's framed look is for
-    16:9."""
+            progress: Callable[[int, int], None] = lambda _done, _total: None,
+            cache: Path | None = None) -> tuple[list[Any], Any, list[str]]:
+    """A video project's footage drawn scene by scene in the video's shape (its own, else 16:9 when its first
+    footage is wide, else that footage's): each scene cut from a video, read from a seek to its start, and each
+    picture held with a slow push in, all through their cameras and look, conformed to one size, colour and frame
+    rate (``frame_rate``), upright, with their sound at one rate. Each scene is a clip of its own (``scene_key``):
+    in *cache*, a project's, one drawn before from the same inputs is used again and only changed scenes are drawn.
+    The edit reads the clips one after another as one input (``scenes.txt``), however many scenes and sources there
+    are, then cuts, captions and mixes it. The brand kit's framed look is for 16:9. Also how each scene was made:
+    "new" (drawn now), "reused", or "" (a title card, which the edit draws)."""
     from dataclasses import replace
 
     from row_bot.video_editing import CARD_SIZES, EditError, InputVideo, Look, VideoInfo, fit_to_lines
@@ -535,7 +589,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     look = step.look or Look()
     given = [scene for scene in step.scenes if scene.input is not None]
     if not given or any(not 0 <= scene.input < len(inputs) for scene in given):
-        return inputs, step  # (The edit says what's wrong with a scene that isn't one of the inputs.)
+        return inputs, step, []  # (The edit says what's wrong with a scene that isn't one of the inputs.)
     held = [replace(scene, start=0.0, end=still_seconds(scene), speed=1.0)
             if scene.input is not None and inputs[scene.input].info.still else scene for scene in step.scenes]
     lengths = [max([scene.end for scene in held if scene.input == index] + [0.0]) if item.info.still
@@ -565,34 +619,115 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
         return ()
 
     fps = frame_rate(footage, inputs)
-    studio = Studio(folder / "scenes.mp4", size, fps=fps,
-                    sound=any(inputs[scene.input].info.has_audio for scene in footage))
+    sound = any(inputs[scene.input].info.has_audio for scene in footage)
+    shelf = cache or folder
+    shelf.mkdir(parents=True, exist_ok=True)
+    clips: list[tuple[Path, float]] = []
+    made: list[str] = []
+    plans = []  # Each footage scene: (scene, its footage, its part, camera, look, its clip, kept from before).
+    for scene in fitted:
+        if scene.input is None:
+            plans.append((scene, None, (0.0, 0.0), (), fill, None, False))
+            continue
+        item = inputs[scene.input]
+        keys, frame = keys_of(scene), frame_of(scene)
+        if item.info.still:
+            start, end = 0.0, scene.end
+        else:
+            start = min(max(0.0, scene.start), item.info.duration)
+            end = item.info.duration if scene.end is None else min(scene.end, item.info.duration)
+        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound)}.mkv"
+        plans.append((scene, item, (start, end), keys, frame, clip, cache is not None and _keep(clip)))
+    drawing = sum(1 for *_rest, clip, kept in plans if clip is not None and not kept)
     scenes = []
+    written = 0
+    for scene, item, (start, end), keys, frame, clip, kept in plans:
+        if clip is None:
+            scenes.append(scene)
+            made.append("")
+            continue
+        source = Path(item.path) if Path(item.path).is_absolute() else folder / item.path
+        count = max(1, round((end - start) * fps))
+        if kept:
+            made.append("reused")
+        else:
+            progress(made.count("new"), drawing)
+            part = folder / f"{clip.stem}.part.mkv"
+            studio = Studio(part, size, fps=fps, sound=sound)
+            try:
+                if item.info.still:
+                    studio.still(source, end, keys, frame)
+                else:
+                    studio.add(source, start, end, keys, frame, stopped=stopped)
+            finally:
+                studio.close()
+            os.replace(part, clip)
+            made.append("new")
+        at = written / fps
+        written += count
+        clips.append((clip, count / fps))
+        # Its times are now the video's: what its recording logged moves with it.
+        shift = at - start
+        scenes.append(replace(scene, input=0, start=round(at, 3), end=round(at + count / fps, 3), zoom=None,
+                              camera=(), waits=tuple((begin + shift, until + shift) for begin, until in scene.waits)))
+    _concat(clips, folder / "scenes.txt")
+    if cache is not None:
+        _prune(cache, size, {path.name for path, _seconds in clips})
+    joined = InputVideo(path="scenes.txt", label="scenes", concat=True,
+                        info=VideoInfo(duration=written / fps, width=size[0], height=size[1], fps=fps,
+                                       has_audio=sound))
+    return [joined], replace(step, scenes=scenes), made
+
+
+FRAME_WIDTH = 480
+
+
+def card_frame(source: Path | bytes, *, picture: bool, at: float = 0.0) -> bytes:
+    """A storyboard card's frame (C1), a JPEG at most ``FRAME_WIDTH`` wide: a picture upright, or a video's picture at
+    *at* seconds (the last before it when the video is shorter), decoded here by PyAV, never made by a provider."""
+    from PIL import Image
+
     try:
-        for scene in fitted:
-            if scene.input is None:
-                scenes.append(scene)
-                continue
-            progress(len([done for done in scenes if done.input == 0]), len(footage))
-            item = inputs[scene.input]
-            source = Path(item.path) if Path(item.path).is_absolute() else folder / item.path
-            if item.info.still:
-                start = 0.0
-                at, seconds = studio.still(source, scene.end, keys_of(scene), frame_of(scene))
-            else:
-                start = min(max(0.0, scene.start), item.info.duration)
-                end = item.info.duration if scene.end is None else min(scene.end, item.info.duration)
-                at, seconds = studio.add(source, start, end, keys_of(scene), frame_of(scene), stopped=stopped)
-            # Its times are now the clip's: what its recording logged moves with it.
-            shift = at - start
-            scenes.append(replace(scene, input=0, start=round(at, 3), end=round(at + seconds, 3), zoom=None,
-                                  camera=(), waits=tuple((begin + shift, until + shift) for begin, until in scene.waits)))
-    finally:
-        studio.close()
-    clip = InputVideo(path="scenes.mp4", label="scenes",
-                      info=VideoInfo(duration=studio.written / fps, width=size[0], height=size[1], fps=fps,
-                                     has_audio=studio.has_sound))
-    return [clip], replace(step, scenes=scenes)
+        shown = _card_picture(source, picture=picture, at=at)
+    except (IndexError, Image.DecompressionBombError) as error:
+        raise ValueError(str(error)) from None
+    shown.thumbnail((FRAME_WIDTH, FRAME_WIDTH))
+    out = io.BytesIO()
+    shown.save(out, format="JPEG", quality=82)
+    return out.getvalue()
+
+
+def _card_picture(source: Path | bytes, *, picture: bool, at: float) -> Any:
+    from PIL import Image, ImageOps
+
+    from row_bot.video_editing import INPUT_FORMATS
+
+    opened = source if isinstance(source, Path) else io.BytesIO(source)
+    if picture:
+        with Image.open(opened) as image:
+            image.draft("RGB", (FRAME_WIDTH * 2, FRAME_WIDTH * 2))
+            return ImageOps.exif_transpose(image).convert("RGB")
+    import av
+
+    shown = None
+    try:
+        with av.open(str(opened) if isinstance(opened, Path) else opened,
+                     options={"protocol_whitelist": "file", "format_whitelist": INPUT_FORMATS}) as reader:
+            video = reader.streams.video[0]
+            offset = (reader.start_time or 0) / av.time_base
+            if at > 0 and video.time_base:
+                reader.seek(int((at + offset) / video.time_base), stream=video, backward=True)
+            for decoded in reader.decode(video):
+                shown = decoded
+                if decoded.time is None or decoded.time - offset >= at:
+                    break
+    except av.error.FFmpegError as error:
+        raise ValueError(str(error)) from None
+    if shown is None:
+        raise ValueError("The video has no pictures.")
+    turned = shown.to_image()
+    return turned.rotate(shown.rotation, expand=True) if shown.rotation else turned
+
 
 def narration(lines: list[tuple[float, Path]], seconds: float, output: Path) -> None:
     """A video's voice lines laid at their times into one track, quiet between them: the edit then reads one

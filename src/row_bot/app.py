@@ -1662,8 +1662,9 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=_APP_PORT,
         log_level="warning",
         proxy_headers=False,
-        # HTTP and server-sent events, and one WebSocket: Row-Bot Voice's audio
-        # (/api/v1/voice/stream, authenticated and same-origin like every route).
+        # HTTP and server-sent events, and the voice WebSockets (/api/v1/voice/stream
+        # for Row-Bot Voice, /api/v1/voice/live for Live voice), authenticated and
+        # same-origin like every route.
         ws="websockets",
         # Open event streams never end on their own; stop waiting for them so
         # the shutdown sequence (tunnels, channels, sessions) always runs.

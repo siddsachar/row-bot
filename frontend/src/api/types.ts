@@ -41,6 +41,15 @@ export type ClientError = {
 };
 /** One part of a saved reply, spoken by Read aloud, and how many parts it has. */
 export type ReadAloudSpeech = Wire.ReadAloudSpeech;
+/** What the outputs list shows (W3): one chat's or every chat's, made, uploads or working files. */
+export type OutputFilter = {
+  conversation_id?: string;
+  show?: 'made' | 'uploads' | 'working';
+  query?: string;
+  kind?: Wire.OutputView['kind'];
+  /** The page after one read before (its `next`). */
+  before?: string;
+};
 export type DictationScope = Readonly<{
   conversationId: string;
   clientSessionId: string;
@@ -733,12 +742,17 @@ export interface ClientTransport {
     body: Wire.TalkStart,
     signal?: AbortSignal,
   ): Promise<Wire.RealtimeStart>;
-  voiceControl?(
-    mode: 'realtime',
+  stopRealtime?(
     handle: Wire.DictationHandle,
-    action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
   ): Promise<Wire.RealtimeSnapshot>;
+  /** A fresh single-use ticket for the Live voice socket. */
+  realtimeTicket?(
+    handle: Wire.DictationHandle,
+    signal?: AbortSignal,
+  ): Promise<Wire.VoiceTicket>;
+  /** The Live voice socket on this server's own origin. */
+  openLiveSocket?(): WebSocket;
   /** The Voice settings test phrase, spoken by the selected output provider. */
   speechTest?(signal?: AbortSignal): Promise<Blob>;
   /** Part *part* of a saved reply, spoken by the selected output provider. */
@@ -748,21 +762,11 @@ export interface ClientTransport {
     part: number,
     signal?: AbortSignal,
   ): Promise<Wire.ReadAloudSpeech>;
-  realtimeEvent?(
-    handle: Wire.DictationHandle,
-    event: Wire.RealtimeEvent,
-    signal?: AbortSignal,
-  ): Promise<Wire.RealtimeEventResult>;
   realtimeExchange?(
     handle: Wire.DictationHandle,
     sdp: string,
     signal?: AbortSignal,
   ): Promise<string>;
-  voiceRun?(
-    mode: 'realtime',
-    handle: Wire.DictationHandle,
-    signal?: AbortSignal,
-  ): Promise<Wire.VoiceRunView>;
   startDictation?(
     conversation: string,
     requestId: string,
@@ -1152,6 +1156,11 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.MediaPage>;
   setMediaTags?(ref: string, tags: string[]): Promise<Wire.MediaTags>;
+  /** The outputs list (W3): a chat's, or every chat's. */
+  outputs?(
+    filter: OutputFilter,
+    signal?: AbortSignal,
+  ): Promise<Wire.OutputPage>;
   /** A video project (5.3.1 B3) at one version, the latest by default. */
   videoProject?(
     projectId: string,
@@ -1167,6 +1176,18 @@ export interface ClientTransport {
     number: number,
   ): Promise<Wire.VideoProjectView>;
   makeVideoProject?(projectId: string): Promise<Wire.VideoProjectView>;
+  /** Approve storyboard scenes as they are, or take that back (C1). */
+  approveVideoScenes?(
+    projectId: string,
+    approval: Wire.VideoSceneApproval,
+  ): Promise<Wire.VideoProjectView>;
+  /** A storyboard card's frame, a small JPEG (C1). */
+  videoSceneFrame?(
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   videoBrand?(signal?: AbortSignal): Promise<Wire.VideoBrand>;
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
@@ -1365,6 +1386,18 @@ export interface ClientTransport {
   repairLocalModelRuntime?(
     signal?: AbortSignal,
   ): Promise<Wire.LocalModelRuntimeView>;
+  speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
+  installSpeechModel?(
+    body: Wire.SpeechModelInstallRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
+  stopSpeechModelDownload?(
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
+  removeSpeechModel?(
+    body: Wire.SpeechModelRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
   testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
   checkProviderKey?(
     body: Wire.ProviderKeyCheckRequest,

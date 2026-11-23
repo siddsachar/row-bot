@@ -1,0 +1,321 @@
+{
+  "$defs": {
+    "LocalModelFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "download_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Download Bytes"
+        },
+        "free_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Free Bytes"
+        },
+        "needed_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needed Bytes"
+        },
+        "reason": {
+          "maxLength": 64,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "LocalModelFailure",
+      "type": "object"
+    },
+    "SpeechModelDownload": {
+      "additionalProperties": false,
+      "properties": {
+        "done_bytes": {
+          "minimum": 0,
+          "title": "Done Bytes",
+          "type": "integer"
+        },
+        "facts": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Facts"
+        },
+        "model_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9-]+$",
+          "title": "Model Id",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "downloading",
+            "checking",
+            "finished",
+            "stopped",
+            "failed"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "total_bytes": {
+          "minimum": 0,
+          "title": "Total Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_id",
+        "total_bytes",
+        "done_bytes",
+        "phase"
+      ],
+      "title": "SpeechModelDownload",
+      "type": "object"
+    },
+    "SpeechModelOption": {
+      "additionalProperties": false,
+      "description": "One pinned streaming speech-to-text model Row-Bot Voice can download (VD3).",
+      "properties": {
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "engine_id": {
+          "maxLength": 128,
+          "title": "Engine Id",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "installed_bytes": {
+          "minimum": 0,
+          "title": "Installed Bytes",
+          "type": "integer"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "licence": {
+          "maxLength": 64,
+          "title": "Licence",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "runs_best_on": {
+          "enum": [
+            "gpu",
+            "cpu"
+          ],
+          "title": "Runs Best On",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "source": {
+          "maxLength": 256,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "engine_id",
+        "size_bytes",
+        "installed_bytes",
+        "download_bytes",
+        "installed",
+        "licence",
+        "source",
+        "runs_best_on"
+      ],
+      "title": "SpeechModelOption",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a Voice: the streaming speech models, the one picked for this computer, the download.",
+  "properties": {
+    "computer": {
+      "maxLength": 256,
+      "title": "Computer",
+      "type": "string"
+    },
+    "disk_bytes": {
+      "minimum": 0,
+      "title": "Disk Bytes",
+      "type": "integer"
+    },
+    "download": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpeechModelDownload"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalModelFailure"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "freed_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Freed Bytes"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/SpeechModelOption"
+      },
+      "maxItems": 8,
+      "title": "Models",
+      "type": "array"
+    },
+    "reason": {
+      "enum": [
+        "gpu",
+        "cpu",
+        "mac",
+        "no_gpu_runtime"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "recommended": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$",
+      "title": "Recommended",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "unavailable",
+        "not_installed",
+        "downloading",
+        "installed",
+        "failed"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "talk_engine": {
+      "maxLength": 128,
+      "title": "Talk Engine",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "computer",
+    "recommended",
+    "reason",
+    "models",
+    "talk_engine",
+    "disk_bytes"
+  ],
+  "title": "SpeechModelsView",
+  "type": "object"
+}

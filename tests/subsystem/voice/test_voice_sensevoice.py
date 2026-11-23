@@ -219,16 +219,17 @@ def test_whisper_transcription_path_is_unchanged(monkeypatch: pytest.MonkeyPatch
     service = VoiceService()
     calls = []
 
-    def _transcribe(audio_bytes: bytes, *, allow_download: bool) -> str:
-        calls.append((audio_bytes, allow_download))
+    def _transcribe(audio_bytes: bytes, *, allow_download: bool, language: str | None) -> str:
+        calls.append((audio_bytes, allow_download, language))
         return "whisper text"
 
     monkeypatch.setattr(service, "transcribe_pcm16", _transcribe)
     provider = speech_to_text_provider("dictate", voice_service=service, settings=VoiceRuntimeSettings())
 
     assert provider.transcribe_bytes(b"pcm") == "whisper text"
-    # Speech is never downloaded mid-utterance: installing is an explicit Settings action.
-    assert calls == [(b"pcm", False)]
+    # Speech is never downloaded mid-utterance: installing is an explicit Settings action. The language is
+    # detected until one is chosen.
+    assert calls == [(b"pcm", False, None)]
 
 
 def _browser(service: VoiceService):

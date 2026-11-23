@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "VideoCastMember": {
+      "additionalProperties": false,
+      "description": "A character who speaks in a video, and the voice its lines are said in (C6).",
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "voice": {
+          "maxLength": 64,
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "voice"
+      ],
+      "title": "VideoCastMember",
+      "type": "object"
+    },
     "VideoSceneWrite": {
       "additionalProperties": false,
       "description": "A scene as the Video panel writes it (an empty id is a new scene).",
@@ -9,6 +32,36 @@
           "maxLength": 120,
           "title": "Card",
           "type": "string"
+        },
+        "cue": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cue"
+        },
+        "effects": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 120,
+                "type": "string"
+              },
+              "maxItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effects"
         },
         "end": {
           "anyOf": [
@@ -23,6 +76,38 @@
           "default": null,
           "title": "End"
         },
+        "footage": {
+          "anyOf": [
+            {
+              "enum": [
+                "clip",
+                "picture",
+                "ai",
+                "card",
+                "screen"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Footage"
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame"
+        },
         "line": {
           "default": "",
           "maxLength": 300,
@@ -36,11 +121,37 @@
           "title": "Scene Id",
           "type": "string"
         },
+        "shows": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shows"
+        },
         "source": {
           "default": "",
           "maxLength": 512,
           "title": "Source",
           "type": "string"
+        },
+        "speaker": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speaker"
         },
         "speed": {
           "default": 1,
@@ -109,6 +220,22 @@
       "default": null,
       "title": "Captions"
     },
+    "cast": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/VideoCastMember"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cast"
+    },
     "music_volume": {
       "anyOf": [
         {
@@ -133,7 +260,7 @@
       "items": {
         "$ref": "#/$defs/VideoSceneWrite"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "minItems": 1,
       "title": "Scenes",
       "type": "array"

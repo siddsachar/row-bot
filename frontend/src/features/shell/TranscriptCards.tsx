@@ -684,6 +684,23 @@ export function TranscriptCards({
 }
 
 /**
+ * The working-file rows a person opened, by chat and first file. A finished
+ * turn's saved reply takes over from the live one, so the row is drawn again:
+ * it stays open.
+ */
+const openWorking = new Set<string>();
+
+function workingKey(
+  working: { media: GeneratedMedia[]; cards: TranscriptCard[] },
+  conversation?: string | null,
+) {
+  const first =
+    working.media[0]?.reference ??
+    (working.cards[0] ? cardKey(working.cards[0]) : '');
+  return first ? `${conversation ?? ''}|${first}` : '';
+}
+
+/**
  * What a reply made on the way (finals first): recordings, edits, frames,
  * contact sheets and screenshots, as one quiet row under its steps,
  * "12 working files". They load only when it is opened. A recording or an
@@ -696,7 +713,14 @@ export function WorkingFilesRow({
   working: { media: GeneratedMedia[]; cards: TranscriptCard[] };
   conversation?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const key = workingKey(working, conversation);
+  const [open, setOpen] = useState(() => openWorking.has(key));
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    if (!key) return;
+    if (next) openWorking.add(key);
+    else openWorking.delete(key);
+  };
   const chat = conversation ?? undefined;
   const recordings = useRecordings(useContext(RecordingIoContext), chat);
   const edits = useVideoEdits(useContext(VideoEditIoContext), chat);
@@ -736,7 +760,7 @@ export function WorkingFilesRow({
         <Disclosure
           className="transcript-working-files"
           open={open}
-          onOpenChange={setOpen}
+          onOpenChange={toggle}
           summary={
             <span className="transcript-working-summary">
               <Layers size={14} aria-hidden />

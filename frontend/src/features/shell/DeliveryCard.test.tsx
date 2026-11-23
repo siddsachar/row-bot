@@ -130,9 +130,9 @@ it('a file sent to your devices plays in the card, after its phone link ends too
     media_ref: 'conversation-a:film',
   };
   const deliveries = io({
+    // Its link ended a day ago; the chat keeps the film, so it never expires.
     'send-1a2b3c4d': view({
       files: [film],
-      status: 'expired',
       expires_at: new Date(Date.now() - DAY).toISOString(),
     }),
   });
@@ -182,7 +182,7 @@ it('says plainly when the download has ended, and reads the card again', async (
     within(card).getByRole('button', { name: 'Download report.pdf' }),
   );
   expect(await within(card).findByRole('alert')).toHaveTextContent(
-    'This download has ended: sent files stay for 7 days.',
+    'This download has ended: sent files can be downloaded for 7 days.',
   );
   await waitFor(() => expect(deliveries.load).toHaveBeenCalledTimes(2));
 });
@@ -204,6 +204,76 @@ it('after a week the files can no longer be downloaded', async () => {
     'Downloads end 7 days after sending. Ask Row-Bot to send it again.',
   );
   expect(within(card).queryByRole('button', { name: /Download/ })).toBeNull();
+});
+
+it('beside a file that plays here, only the copy too big for a chat counts down and ends', async () => {
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:sent');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  const notes = {
+    index: 0,
+    name: 'notes.txt',
+    size_bytes: 900,
+    mime_type: 'text/plain',
+    sent: true,
+    downloadable: true,
+    media_ref: 'conversation-a:notes',
+  };
+  const film = {
+    index: 1,
+    name: 'Full cut.mp4',
+    size_bytes: 300 * MB,
+    mime_type: 'video/mp4',
+    sent: true,
+    downloadable: true,
+  };
+  const shown = (patch: Partial<DeliveryView>) =>
+    render(
+      <RuntimeContext.Provider
+        value={{
+          controller: {
+            download: vi.fn(async () => new Blob(['notes'])),
+          } as unknown as ClientController,
+          platform: {} as ClientPlatform,
+        }}
+      >
+        <OverlayProvider>
+          <DeliveryIoContext.Provider
+            value={io({ 'send-1a2b3c4d': view(patch) })}
+          >
+            <DeliveryCard deliveryId="send-1a2b3c4d" />
+          </DeliveryIoContext.Provider>
+        </OverlayProvider>
+      </RuntimeContext.Provider>,
+    );
+
+  shown({ files: [notes, film] });
+  let card = await screen.findByRole('group', {
+    name: 'Sent to your devices: Sent',
+  });
+  expect(card).toHaveTextContent('On all your signed-in devices');
+  expect(card).toHaveTextContent('300.0 MB · MP4 video · 7 days left');
+  expect(
+    within(card).getByRole('button', { name: 'Download Full cut.mp4' }),
+  ).toBeVisible();
+  cleanup();
+
+  // A week on: the notes are still the chat's; only the copy's download ended.
+  shown({
+    expires_at: new Date(Date.now() - DAY).toISOString(),
+    files: [
+      { ...notes, downloadable: false },
+      { ...film, downloadable: false },
+    ],
+  });
+  card = await screen.findByRole('group', {
+    name: 'Sent to your devices: Sent',
+  });
+  expect(card).not.toHaveTextContent('Expired');
+  expect(card).not.toHaveTextContent('Ask Row-Bot to send it again');
+  expect(card).toHaveTextContent('300.0 MB · MP4 video · Download ended');
+  expect(
+    within(card).queryByRole('button', { name: 'Download Full cut.mp4' }),
+  ).toBeNull();
 });
 
 it('files sent to a chat app say where they went, with no download', async () => {

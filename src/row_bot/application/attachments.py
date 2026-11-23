@@ -181,11 +181,12 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
                         version: int = 1, made_from: tuple[str, ...] | list[str] = ()) -> dict:
     """Persist one bounded immutable file and its reference in thread media.
 
-    Each file in a chat has its own name: one whose name is taken is kept as name-2, name-3, … (the
-    returned ``name`` says which), so five generated videos are five files a tool can name.
+    Each output in a chat has its own name: a file whose name another output holds is kept as name-2,
+    name-3, … (the returned ``name`` says which), so five generated videos are five files a tool can name.
 
     A file a tool made has a *role* (``ROLES``) and is a *version* of an output (*output_id*, its own id
-    when none is given), *made_from* the files it names.
+    when none is given), *made_from* the files it names. A new version of an output keeps its output's
+    name: versions are told apart by their number, never by their names.
     """
     from row_bot import threads
     if not data or len(data) > MAX_ATTACHMENT_BYTES:
@@ -202,7 +203,8 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         folder.mkdir(parents=True, exist_ok=True)
         _safe_path(media_root, folder)
         # Under the lock, so two tools finishing at once in one chat never take the same name.
-        name = _numbered(name, {str(item["name"]).casefold() for item in _named_files(conversation_id)})
+        name = _numbered(name, {str(item["name"]).casefold() for item in _named_files(conversation_id)
+                                if not output_id or item["output_id"] != output_id})
         attachment_id = str(uuid4())
         ref = f"{conversation_id}:{attachment_id}"
         filename = f"attachment_{attachment_id}.bin"
@@ -244,42 +246,6 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         return {key: value for key, value in metadata.items() if key != "sha256"}
 
 
-def list_generated_outputs(conversation_id: str, *, limit: int = 20) -> list[dict[str, str]]:
-    """Recover generated output references from the conversation's immutable media owner."""
-    from row_bot import threads
-
-    _conversation(conversation_id)
-    root = _managed_root(threads._MEDIA_DIR)
-    folder = root / conversation_id
-    _safe_path(root, folder)
-    if not folder.is_dir():
-        return []
-    candidates = []
-    for path in folder.glob("attachment_*.json"):
-        try:
-            candidates.append((path.stat().st_mtime_ns, path))
-        except OSError:
-            continue
-    candidates.sort(reverse=True)
-    outputs: list[dict[str, str]] = []
-    for _, path in candidates[:200]:
-        try:
-            _safe_path(root, path)
-            with _open(root, path) as source:
-                metadata = json.load(source)
-            ref = str(metadata.get("attachment_ref") or "")
-            mime = str(metadata.get("mime_type") or "")
-            if (ref.startswith(conversation_id + ":")
-                    and str(metadata.get("name") or "").startswith("generated-")
-                    and mime in {"image/png", "image/jpeg", "video/mp4"}):
-                outputs.append({"media_ref": ref, "mime_type": mime})
-                if len(outputs) >= limit:
-                    break
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            continue
-    return list(reversed(outputs))
-
-
 def list_conversation_files(conversation_id: str, *, limit: int = 200) -> list[dict]:
     """The conversation's files (name, type, size and reference), newest first, from their checked records.
 
@@ -304,9 +270,10 @@ def output_versions(conversation_id: str, output_id: str) -> list[dict]:
 
 
 def _named_files(conversation_id: str) -> list[dict]:
-    """All the conversation's files, newest first, each under a name no other file in the chat has.
+    """All the conversation's files, newest first, each under a name no other output in the chat has (the
+    versions of one output share its name).
 
-    ``register_attachment`` gives every new file a free name. Files kept before that may share one (every
+    ``register_attachment`` gives every new output a free name. Files kept before that may share one (every
     generated video was "generated-video.mp4"): the newest keeps the name, so it still finds what it found
     before, and the older ones are told apart as name-2, name-3, … from newest to oldest. Their records stay
     as they are, and a file that never shared its name keeps it.
@@ -338,11 +305,13 @@ def _named_files(conversation_id: str) -> list[dict]:
         files.append(dict(zip(("attachment_ref", "name", "mime_type", "size_bytes", "role", "output_id", "version"),
                               record)))
     taken = {str(item["name"]).casefold() for item in files}
-    kept: set[str] = set()
+    kept: dict[str, str] = {}
     for item in files:
         key = str(item["name"]).casefold()
         if key not in kept:
-            kept.add(key)  # The newest with a name keeps it.
+            kept[key] = item["output_id"]  # The newest with a name keeps it, and so do its output's versions.
+            continue
+        if item["output_id"] and item["output_id"] == kept[key]:
             continue
         item["name"] = _numbered(str(item["name"]), taken)
         taken.add(item["name"].casefold())

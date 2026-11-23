@@ -2,6 +2,7 @@ import type { Page, WebSocketRoute } from '@playwright/test';
 import { accessibility, expect, screenshot, test } from './evidence';
 import {
   blockFixtureServiceWorkers,
+  composer,
   fixtureState,
   newConversation,
   releaseProducer,
@@ -54,6 +55,16 @@ test.beforeEach(async ({ context, page }) => {
       },
     });
   });
+});
+
+// A test that stops early still ends its voice session, so the next can start one.
+test.afterEach(async ({ page }) => {
+  const bar = page.getByRole('region', { name: 'Voice conversation' });
+  if (await bar.isVisible().catch(() => false))
+    await bar
+      .getByRole('button', { name: 'End voice' })
+      .click()
+      .catch(() => undefined);
 });
 
 async function startVoice(page: Page) {
@@ -130,6 +141,19 @@ const STATES = [
   {
     name: 'listening',
     events: [{ type: 'state', state: 'listening', muted: false }],
+  },
+  {
+    // A streaming speech model's live caption while the person speaks.
+    name: 'listening',
+    shot: 'hearing',
+    events: [
+      {
+        type: 'caption',
+        role: 'user',
+        text: 'What’s on my calendar',
+        final: false,
+      },
+    ],
   },
   {
     name: 'thinking',
@@ -210,10 +234,12 @@ for (const viewport of [
         // Row-Bot's caption shows as its words start playing.
         if (state.name === 'speaking')
           await expect(bar).toContainText('You have two meetings');
+        if ('shot' in state)
+          await expect(bar).toContainText('What’s on my calendar');
         await screenshot(
           page,
           info,
-          `voice-bar-${viewport.label}-${scheme}-${state.name}`,
+          `voice-bar-${viewport.label}-${scheme}-${'shot' in state ? state.shot : state.name}`,
         );
       }
       if (viewport.label === 'phone') {
@@ -239,6 +265,130 @@ for (const viewport of [
           `voice-bar-${viewport.label}-${scheme}`,
         );
       // Ending stops the host's voice lease for the next test.
+      await bar.getByRole('button', { name: 'End voice' }).click();
+      await expect(bar).toBeHidden();
+    });
+
+/*
+ * While Row-Bot works (V3): its progress line, a waiting approval (one voice may
+ * answer, one only a tap may) beside the real card, and on the phone the newest
+ * result in the focus view. The turn is the fixture's; the socket is scripted.
+ */
+for (const viewport of [
+  { label: 'desktop', width: 1280, height: 800 },
+  { label: 'phone', width: 375, height: 812 },
+])
+  for (const scheme of ['light', 'dark'] as const)
+    test(`the voice bar while Row-Bot works · ${viewport.label} · ${scheme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({
+        width: viewport.width,
+        height: viewport.height,
+      });
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      let server: WebSocketRoute | null = null;
+      await page.routeWebSocket(/\/api\/v1\/voice\/stream$/, (socket) => {
+        server = socket;
+        socket.onMessage(() => undefined);
+      });
+      await newConversation(page);
+      const bar = await startVoice(page);
+      await expect.poll(() => server !== null).toBe(true);
+      const send = (event: Record<string, unknown>) =>
+        server!.send(JSON.stringify(event));
+      send({ type: 'state', state: 'listening', muted: false });
+      const say = async (text: string) => {
+        await bar.getByRole('button', { name: 'Type instead' }).click();
+        await composer(page).fill(text);
+        await page.getByRole('button', { name: 'Send', exact: true }).click();
+        await bar.getByRole('button', { name: 'Hide the keyboard' }).click();
+      };
+      await say('Make a picture and tidy my drafts, voice work fixture');
+      const log = page.getByRole('log', { name: 'Conversation' });
+      const card = page.getByRole('complementary', {
+        name: /^Approval required/,
+      });
+      await expect(card).toBeVisible();
+      await expect(log.locator('[data-media-ref]').first()).toBeVisible();
+      send({
+        type: 'caption',
+        role: 'assistant',
+        text: 'Making the picture…',
+        segment: 1,
+        sample_rate: 24000,
+        kind: 'progress',
+        final: true,
+      });
+      send({ type: 'state', state: 'speaking', muted: false });
+      server!.send(audioFrame(1));
+      await expect(
+        bar.getByText('Making the picture…').locator('..'),
+      ).toHaveAttribute('data-kind', 'progress');
+      await screenshot(
+        page,
+        info,
+        `voice-work-${viewport.label}-${scheme}-progress`,
+      );
+      send({ type: 'state', state: 'waiting', muted: false });
+      send({
+        type: 'approval',
+        approval_id: 'approval-move',
+        card: { action_label: 'workspace_move_file', question: '' },
+        voice: true,
+      });
+      await expect(bar).toContainText('Say yes or no, or tap the card');
+      // The bar names it exactly as its card does.
+      await expect(card).toContainText('Move a file?');
+      await expect(bar).toContainText('Move a file?');
+      await screenshot(
+        page,
+        info,
+        `voice-work-${viewport.label}-${scheme}-approval-voice`,
+      );
+      if (viewport.label === 'phone') {
+        await bar.getByRole('button', { name: 'Full screen' }).click();
+        await expect(bar).toHaveAttribute('data-focus', 'true');
+        await expect(
+          bar.getByRole('button', { name: /lighthouse at dawn/i }),
+        ).toBeVisible();
+        await screenshot(
+          page,
+          info,
+          `voice-work-${viewport.label}-${scheme}-focus-result`,
+        );
+        await accessibility(
+          page,
+          info,
+          `voice-work-${viewport.label}-${scheme}-focus-result`,
+        );
+        // Its card is behind the focus view: the bar's pointer leaves focus for it.
+        await bar.getByRole('button', { name: 'Show the approval' }).click();
+        await expect(bar).not.toHaveAttribute('data-focus');
+      }
+      // Denied on its card, then a turn whose card asks to delete.
+      await card.getByRole('button', { name: 'Deny', exact: true }).click();
+      await expect(card).toBeHidden();
+      await say('Delete the old draft, voice work fixture');
+      await expect(card).toContainText(/delete/i);
+      send({
+        type: 'approval',
+        approval_id: 'approval-delete',
+        card: { action_label: 'workspace_file_delete', question: '' },
+        voice: false,
+      });
+      await expect(bar).toContainText('Needs a tap on Approve');
+      await screenshot(
+        page,
+        info,
+        `voice-work-${viewport.label}-${scheme}-approval-tap`,
+      );
+      if (viewport.label === 'desktop')
+        await accessibility(
+          page,
+          info,
+          `voice-work-${viewport.label}-${scheme}-approval`,
+        );
       await bar.getByRole('button', { name: 'End voice' }).click();
       await expect(bar).toBeHidden();
     });

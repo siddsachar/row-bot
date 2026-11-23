@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { VoiceSocket } from '../../api/types';
 import { buddyListening } from '../buddy/living/voice';
-import { VoiceSession } from './voice-session';
+import { cardTitle, VoiceSession } from './voice-session';
+import { approvalQuestion } from '../shell/tool-activity';
 import { FakeAudio, FakeSocket, audioFrame } from './voice-test-fakes';
 
 function setup() {
@@ -164,4 +165,141 @@ it('a refused microphone ends the session with a plain reason', async () => {
   await session.start();
   expect(sockets).toHaveLength(0);
   expect(session.getSnapshot().error).toMatch(/microphone/);
+});
+
+it('keeps what kind of line was said, and the waiting approval until it clears', async () => {
+  const { session, sockets, audio } = setup();
+  await session.start();
+  const socket = sockets[0];
+  socket.open();
+  socket.emit({
+    type: 'caption',
+    role: 'assistant',
+    text: 'Checking your calendar…',
+    segment: 1,
+    sample_rate: 24000,
+    kind: 'progress',
+    final: true,
+  });
+  socket.emit(audioFrame(1));
+  audio.playback?.started(1, 10);
+  expect(session.getSnapshot().rowBot).toEqual({
+    text: 'Checking your calendar…',
+    final: true,
+    kind: 'progress',
+  });
+  socket.emit({
+    type: 'approval',
+    approval_id: 'approval-1',
+    voice: true,
+    card: { action_label: 'workspace_move_file', question: '' },
+  });
+  // The card's own title, which Row-Bot is sent back to say in the same words.
+  expect(session.getSnapshot().approval).toEqual({
+    id: 'approval-1',
+    title: 'Move a file?',
+    voice: true,
+  });
+  expect(socket.json().at(-1)).toEqual({
+    type: 'approval_title',
+    approval_id: 'approval-1',
+    title: 'Move a file?',
+  });
+  socket.emit({ type: 'approval', approval_id: '' });
+  expect(session.getSnapshot().approval).toBeNull();
+  socket.emit({
+    type: 'approval',
+    approval_id: 'approval-2',
+    voice: false,
+    card: { action_label: 'send_gmail_message', question: '' },
+  });
+  expect(session.getSnapshot().approval?.title).toBe('Send an email?');
+  await session.end();
+  expect(session.getSnapshot().approval).toBeNull();
+});
+
+it('words a card title exactly as the approval card does', () => {
+  for (const [card, title] of [
+    [{ action_label: 'workspace_move_file' }, 'Move a file?'],
+    [{ action_label: 'send_gmail_message' }, 'Send an email?'],
+    [{ action_label: 'workspace_file_delete' }, 'Delete a file?'],
+    [
+      { action_label: 'send_file', question: 'Send report.pdf to Telegram?' },
+      'Send report.pdf to Telegram?',
+    ],
+  ] as const) {
+    expect(cardTitle(card)).toBe(title);
+    expect(cardTitle(card)).toBe(
+      ('question' in card && card.question) ||
+        approvalQuestion(card.action_label),
+    );
+    expect(cardTitle(card)).not.toContain('/');
+  }
+});
+
+it('keeps the language heard, and shows an answer the voice can’t speak at once', async () => {
+  const { session, sockets, audio } = setup();
+  await session.start();
+  const socket = sockets[0];
+  socket.open();
+  socket.emit({
+    type: 'caption',
+    role: 'user',
+    text: 'Wie spät ist es?',
+    final: true,
+    language: 'de',
+  });
+  socket.emit({ type: 'caption', role: 'user', text: 'Und', final: false });
+  expect(session.getSnapshot().heard).toBe('de');
+  socket.emit({
+    type: 'caption',
+    role: 'assistant',
+    text: 'Es ist drei Uhr.',
+    segment: 1,
+    kind: 'answer',
+    final: true,
+    spoken: false,
+  });
+  socket.emit({ type: 'unspoken', language: 'de' });
+  expect(session.getSnapshot()).toMatchObject({
+    rowBot: { text: 'Es ist drei Uhr.', kind: 'answer' },
+    unspoken: 'de',
+  });
+  // The next answer it can speak clears the notice as it starts playing.
+  socket.emit({
+    type: 'caption',
+    role: 'assistant',
+    text: 'It is three.',
+    segment: 2,
+    sample_rate: 24000,
+    final: true,
+  });
+  socket.emit(audioFrame(2));
+  audio.playback?.started(2, 10);
+  expect(session.getSnapshot()).toMatchObject({
+    rowBot: { text: 'It is three.' },
+    unspoken: null,
+  });
+});
+
+it('hears which chosen cloud speech parts run locally for now, and a cloud failure in words (V5)', async () => {
+  const { session, sockets } = setup();
+  await session.start();
+  const socket = sockets[0];
+  socket.open();
+  socket.emit({
+    type: 'ready',
+    output_sample_rate: 24000,
+    fallbacks: [
+      { part: 'listen', id: 'deepgram', company: 'Deepgram' },
+      { part: 'nonsense', company: 'Nobody' },
+    ],
+  });
+  expect(session.getSnapshot().fallbacks).toEqual([
+    { part: 'listen', company: 'Deepgram' },
+  ]);
+  socket.emit({ type: 'error', code: 'cloud_voice_failed' });
+  expect(session.getSnapshot().error).toMatch(
+    /voice service didn’t answer, so that stays on screen/,
+  );
 });

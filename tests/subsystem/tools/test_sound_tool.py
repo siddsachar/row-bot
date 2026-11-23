@@ -68,7 +68,7 @@ def test_a_voice_file_reads_the_whole_script_with_its_pronunciations(chat, voice
     script = "Row-Bot runs on Qwen. " * 40
     result = _speak(script, name="scene 1", voice="bf_emma", speed=1.1, pronunciations={"Qwen": "Kwen"})
 
-    assert result.startswith("Voice file scene 1.wav: ") and "voice bf_emma" in result
+    assert result.startswith('Output "scene 1" v1 (working) · scene 1.wav\nVoice file: ') and "voice bf_emma" in result
     assert voice[0]["voice"] == "bf_emma" and voice[0]["speed"] == 1.1
     assert "Qwen" not in voice[0]["text"] and voice[0]["text"].count("Kwen") == 40
     assert _files(chat)["scene 1.wav"]["mime_type"] == "audio/wav"
@@ -176,8 +176,9 @@ def test_without_rowbots_voice_speaking_asks_once_to_download_it(chat, voice, mo
 
     answer["value"] = (None, "Approval: asked; approved by you")
     made = _speak("Hello")
-    assert made.startswith("Approval: asked; approved by you\nVoice file voice.wav: ") and downloads == ["kokoro"]
-    assert _speak("Again").startswith("Voice file "), "once: it's there now, so nothing asks"
+    assert made.startswith('Approval: asked; approved by you\nOutput "voice" v1 (working) · voice.wav\nVoice file: ')
+    assert downloads == ["kokoro"]
+    assert _speak("Again").startswith('Output "voice-2" v1'), "once: it's there now, so nothing asks"
     assert len(cards) == 2
 
 
@@ -215,7 +216,7 @@ def test_music_is_saved_in_the_chat_for_the_videos_length(chat):
 
     result = _make_music(3, mood="upbeat", name="demo music")
 
-    assert result.startswith("Music file demo music.wav: 3.0 seconds, upbeat")
+    assert result.startswith('Output "demo music" v1 (working) · demo music.wav\nMusic file: 3.0 seconds, upbeat')
     saved = _files(chat)["demo music.wav"]
     assert saved["mime_type"] == "audio/wav" and saved["size_bytes"] == 3 * music.SR * 4 + 44
     assert _make_music(0.5).startswith("Not made: music is between 1 second and 20 minutes long")
@@ -247,8 +248,8 @@ def test_a_clip_is_transcribed_with_timings_and_subtitles_are_saved(chat, monkey
 
     result = _transcribe("interview.wav")
 
-    assert result.startswith("Transcript of interview.wav (1:03, 3 words, language en). "
-                             "Subtitles: interview-subtitles.srt.")
+    assert result.startswith('Output "interview-subtitles" v1 (working) · interview-subtitles.srt\n'
+                             "Transcript of interview.wav (1:03, 3 words, language en).")
     assert "[0:00] Welcome to the show.\n[1:01] Thanks for having me." in result
     assert abs(len(given[0]) - 3 * 16_000 * 2) < 2_000, "3 seconds as 16 kHz mono 16-bit for Whisper"
     from row_bot.application.attachments import read_attachment
@@ -279,9 +280,9 @@ def test_without_the_speech_model_transcribing_asks_once_to_download_it(chat, mo
                                     "Hugging Face. Download it now?")
 
     answer["value"] = (None, "Approval: asked; approved by you")
-    assert _transcribe("memo.wav").startswith("Approval: asked; approved by you\nTranscript of memo.wav")
+    assert _transcribe("memo.wav").startswith('Approval: asked; approved by you\nOutput "memo-subtitles" v1')
     assert installed["value"]
-    assert _transcribe("memo.wav").startswith("Transcript of memo.wav"), "once: it's there now, so nothing asks"
+    assert _transcribe("memo.wav").startswith('Output "memo-subtitles-2" v1'), "once: it's there now, so nothing asks"
     assert len(cards) == 2
 
 

@@ -90,6 +90,10 @@ class VoiceService:
     def _ensure_whisper(self, *, allow_download: bool = True):
         if self._whisper_model is not None:
             return self._whisper_model
+        from row_bot import onnxruntime_telemetry
+
+        # Before faster-whisper's voice filter (Silero VAD) opens an ONNX Runtime session.
+        onnxruntime_telemetry.switch_off()
         from faster_whisper import WhisperModel
 
         _WHISPER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -152,10 +156,12 @@ class VoiceService:
                 self._sensevoice_model_path = path
                 self._funasr_provider = None
 
-    def sensevoice_provider(self):
-        """The SenseVoice provider for the saved model path."""
+    def sensevoice_provider(self, *, language: str | None):
+        """The SenseVoice provider for the saved model path, in *language* (None detects it)."""
         with self._models_lock:
-            return self._get_funasr_provider()
+            provider = self._get_funasr_provider()
+            provider.language = language
+            return provider
 
     def _get_funasr_provider(self):
         if self._funasr_provider is None:
@@ -171,15 +177,41 @@ class VoiceService:
         audio_bytes: bytes,
         *,
         allow_download: bool = False,
+        language: str | None,
     ) -> str:
-        """Transcribe 16 kHz mono signed-16 PCM."""
+        """Transcribe 16 kHz mono signed-16 PCM in *language*; None detects it."""
+        return self.transcribe_pcm16_heard(audio_bytes, allow_download=allow_download, language=language)[0]
+
+    def transcribe_pcm16_heard(
+        self,
+        audio_bytes: bytes,
+        *,
+        allow_download: bool = False,
+        language: str | None,
+    ) -> tuple[str, str | None]:
+        """The words in 16 kHz mono signed-16 PCM and the language they are in: *language*, or with None
+        the one Whisper detects. When detection can't tell (under half sure, or under 1.5 s of audio) it
+        keeps the last language it heard clearly (else the interface's), on the same model."""
+        from row_bot.voice import languages
+
         # Keep this call's model: a saved size change may drop the shared one.
         model = self._ensure_whisper(allow_download=allow_download)
         f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        segs, _ = model.transcribe(
-            f32, beam_size=5, language="en", vad_filter=True,
-        )
-        return " ".join(s.text.strip() for s in segs).strip()
+        sure = False
+        if language is None and languages.too_short(audio_bytes):
+            language = languages.kept_language()
+        segs, info = model.transcribe(f32, beam_size=5, language=language, vad_filter=True)
+        if language is None:
+            # Detection happens before any decoding: an unsure guess is dropped and the audio read again.
+            heard = str(getattr(info, "language", "") or "")
+            sure = bool(heard) and float(getattr(info, "language_probability", 0.0)) >= languages.SURE_PROBABILITY
+            language = heard if sure else languages.kept_language()
+            if not sure:
+                segs, info = model.transcribe(f32, beam_size=5, language=language, vad_filter=True)
+        text = " ".join(s.text.strip() for s in segs).strip()
+        if sure and text:
+            languages.note_heard(language)
+        return text, language
 
 
     def transcribe_words(self, audio_bytes: bytes) -> tuple[list, str]:

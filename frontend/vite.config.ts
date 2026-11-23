@@ -97,8 +97,9 @@ export default defineConfig({
     strictPort: true,
     port: 5173,
     proxy: {
-      // Row-Bot Voice's socket, with its Origin rewritten like every request.
-      '/api/v1/voice/stream': {
+      // The voice sockets (Row-Bot Voice, Live voice), with their Origin
+      // rewritten like every request.
+      '^/api/v1/voice/(stream|live)$': {
         ...loopbackProxy,
         ws: true,
         configure(proxy) {

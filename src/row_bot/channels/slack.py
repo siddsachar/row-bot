@@ -1916,7 +1916,7 @@ async def _handle_file(event: dict, say, client) -> None:
     if not turn.usable:
         conv_ts = _conversation_thread_ts(event)
         await say(
-            "⚠️ I couldn't read that attachment.",
+            turn.notice or "⚠️ I couldn't read that attachment.",
             channel=channel_id,
             **({"thread_ts": conv_ts} if conv_ts else {}),
         )

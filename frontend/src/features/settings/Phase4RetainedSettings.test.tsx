@@ -81,6 +81,7 @@ const snapshot = {
       dictation_model: 'base',
       speech_output_provider: 'local',
       speech_output_model: 'kokoro',
+      realtime_model: 'gpt-realtime-2-mini',
       realtime_voice: 'alloy',
       captions_enabled: true,
     },
@@ -93,21 +94,70 @@ const snapshot = {
       installed: true,
       voice: 'af_heart',
       speed: 1,
+      language_voices: {
+        es: 'ef_dora',
+        fr: 'ff_siwis',
+        hi: 'hf_alpha',
+        it: 'if_sara',
+        pt: 'pf_dora',
+      },
     },
-    openai_realtime_credential: {
-      configured: true,
-      source: 'keyring',
-      fingerprint: 'must-not-render',
-    },
-    talk_providers: [
-      { value: 'local', label: 'Local' },
-      { value: 'openai_realtime', label: 'OpenAI Realtime' },
+    live_providers: [
+      {
+        id: 'openai',
+        label: 'OpenAI Realtime',
+        company: 'OpenAI',
+        price: 'about $0.10 a minute',
+        price_checked: '22 Nov 2026',
+        available: true,
+        reason: 'available',
+      },
+      {
+        id: 'gemini',
+        label: 'Gemini Live',
+        company: 'Google',
+        price: 'about $0.02 a minute',
+        price_checked: '22 Nov 2026',
+        available: false,
+        reason: 'realtime_key_missing',
+      },
     ],
+    talk_providers: [{ value: 'local', label: 'Local' }],
     dictation_providers: [{ value: 'local', label: 'Local' }],
     speech_output_providers: [{ value: 'local', label: 'Local' }],
     whisper_options: [{ value: 'base', label: 'Base' }],
     realtime_voice_options: [{ value: 'alloy', label: 'Alloy' }],
     tts_voice_options: [{ value: 'af_heart', label: 'Heart' }],
+    language: {
+      options: [
+        { value: 'auto', label: 'Detect automatically' },
+        { value: 'ar', label: 'Arabic' },
+        { value: 'en', label: 'English' },
+        { value: 'fr', label: 'French' },
+        { value: 'de', label: 'German' },
+        { value: 'hi', label: 'Hindi' },
+        { value: 'it', label: 'Italian' },
+        { value: 'pt', label: 'Portuguese' },
+        { value: 'es', label: 'Spanish' },
+      ],
+      spoken: ['en', 'es', 'fr', 'hi', 'it', 'pt'],
+      voice_options: [
+        {
+          language: 'es',
+          label: 'Spanish',
+          options: [
+            { value: 'ef_dora', label: 'Dora (female)' },
+            { value: 'em_alex', label: 'Alex (male)' },
+          ],
+        },
+        {
+          language: 'fr',
+          label: 'French',
+          options: [{ value: 'ff_siwis', label: 'Siwis (female)' }],
+        },
+      ],
+      notices: [],
+    },
   },
   system: {
     availability: 'available',
@@ -499,14 +549,20 @@ it('renders real voice controls without probing a device or provider', async () 
     screen.getByText('Download the speech model to talk on this computer'),
   ).toBeVisible();
   expect(screen.getByLabelText('Speech model')).toHaveValue('base');
-  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
+  // Listen with offers speech-to-text only: OpenAI Realtime is Live voice's.
+  expect(
+    within(screen.getByLabelText('Listen with'))
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['Whisper · on this computer']);
+  expect(document.body).not.toHaveTextContent('Realtime Talk online');
   expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
   expect(screen.queryByLabelText('Start automatically')).toBeNull();
   expect(screen.queryByLabelText('Provider voice')).toBeNull();
   // Read aloud says what speaks it; there is no switch that does nothing.
   expect(
     screen.getByText(
-      'Replies you read aloud and Talk’s answers speak with Kokoro, on this computer.',
+      'Replies you read aloud, Talk’s answers and voice-note replies speak with Kokoro, on this computer.',
     ),
   ).toBeVisible();
   expect(screen.getByLabelText('Voice')).toHaveValue('af_heart');
@@ -517,24 +573,32 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
   expect(screen.getByText('Kokoro')).toBeVisible();
-  expect(screen.getByText('Credential saved · not checked')).toBeVisible();
+  // Live voice: each front's price, who hears the audio, and whether its key is saved.
+  expect(screen.getByText('Key saved')).toBeVisible();
+  expect(screen.getByText('Needs your Google API key')).toBeVisible();
+  expect(
+    screen.getByText(
+      /About \$0\.02 a minute \(Google’s prices, 22 Nov 2026\)\. Your voice, the chat’s recent messages, the agent profile’s name and a few related memories go to Google \(no memories in an incognito chat\)\./,
+    ),
+  ).toBeVisible();
   expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);
   expect(
     screen.queryByRole('button', {
       name: /OpenAI Realtime API key/,
     }),
   ).toBeNull();
-  fireEvent.change(screen.getByLabelText('Listen with'), {
-    target: { value: 'openai_realtime' },
-  });
+  // OpenAI Realtime's voice and model sit under Live voice, whatever Talk listens with.
   expect(screen.getByLabelText('Realtime voice')).toBeVisible();
-  expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
-  // A choice saves at once (decision 19); nothing probes a device.
+  const model = screen.getByLabelText('Realtime model');
+  expect(model).toHaveValue('gpt-realtime-2-mini');
+  fireEvent.change(model, { target: { value: 'gpt-realtime-2' } });
+  fireEvent.blur(model);
+  // Nothing probes a device.
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
       expect.objectContaining({
-        field: 'runtime.talk_provider',
-        value: 'openai_realtime',
+        field: 'runtime.realtime_model',
+        value: 'gpt-realtime-2',
       }),
       expect.any(AbortSignal),
     ),
@@ -545,17 +609,13 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(document.body).not.toHaveTextContent('must-not-render');
 });
 
-it('shows Realtime-only voice controls only for Realtime and hides uninstalled local TTS controls', () => {
+it('keeps OpenAI Realtime’s voice under Live voice and hides uninstalled local TTS controls', () => {
   mutation.page = 'voice';
   render(
     <MemoryRouter>
       <VoiceSnapshotPanel
         snapshot={{
           ...snapshot.voice,
-          runtime: {
-            ...snapshot.voice.runtime,
-            talk_provider: 'openai_realtime',
-          },
           tts: { ...snapshot.voice.tts, installed: false },
         }}
         conversationId="conversation-a"
@@ -564,9 +624,8 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
     </MemoryRouter>,
   );
   expect(screen.getByLabelText('Live captions')).toBeChecked();
+  expect(screen.getByLabelText('When you pause')).toHaveValue('normal');
   expect(screen.getByLabelText('Realtime voice')).toHaveValue('alloy');
-  // Which realtime model Talk uses stays a choice (the saved talk model names it).
-  expect(screen.getByLabelText('Realtime model')).toHaveValue('gpt-realtime-2');
   // Kokoro's install is a text action in the Read aloud row's status line.
   expect(screen.getByText('Kokoro isn’t installed yet')).toBeVisible();
   expect(screen.getByText('Kokoro voice')).toBeVisible();
@@ -2412,6 +2471,14 @@ it.each<SettingsLeafId>([
   async (leaf) => {
     const everyRow = {
       ...snapshot,
+      // A cloud voice is offered, so Read aloud shows Speak with.
+      voice: {
+        ...snapshot.voice,
+        speech_output_providers: [
+          { value: 'local', label: 'Local' },
+          { value: 'elevenlabs', label: 'ElevenLabs Flash' },
+        ],
+      },
       tools: {
         ...snapshot.tools,
         items: [
@@ -2490,7 +2557,7 @@ it.each<SettingsLeafId>([
   },
 );
 
-it('offers a speech engine choice in Voice › Advanced only once there is one', () => {
+it('offers a speech model choice for Talk and Dictation only once there is one', () => {
   mutation.page = 'voice';
   const voice = (sensevoice: boolean) => (
     <MemoryRouter>
@@ -2516,8 +2583,11 @@ it('offers a speech engine choice in Voice › Advanced only once there is one',
   );
   const view = render(voice(false));
   fireEvent.click(screen.getByText('Advanced'));
-  // Saved ids such as "local-whisper" are never typed in by hand.
-  expect(screen.queryByRole('textbox', { name: /model/i })).toBeNull();
+  // Saved ids such as "local-whisper" are never typed in by hand; only Live voice's OpenAI model is.
+  expect(screen.queryAllByRole('textbox', { name: /model/i })).toHaveLength(1);
+  expect(screen.getByLabelText('Realtime model')).toHaveValue(
+    'gpt-realtime-2-mini',
+  );
   expect(screen.queryByLabelText('Talk listens with')).toBeNull();
   expect(screen.queryByDisplayValue('local-whisper')).toBeNull();
   view.rerender(voice(true));
@@ -2533,11 +2603,127 @@ it('offers a speech engine choice in Voice › Advanced only once there is one',
   expect(screen.queryByLabelText(/Read-aloud model/)).toBeNull();
 });
 
+function showLanguage(voice: Partial<SettingsSnapshot['voice']> = {}) {
+  mutation.page = 'voice';
+  return render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{ ...snapshot.voice, ...voice }}
+          conversationId={null}
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+}
+
+it('Language detects what you speak by default, and a chosen one saves at once (V8)', async () => {
+  showLanguage();
+  const language = screen.getByRole('combobox', { name: 'Language' });
+  expect(language).toHaveValue('auto');
+  expect(
+    within(language).getByRole('option', { name: 'Detect automatically' }),
+  ).toBeVisible();
+  // The voices for other languages wait behind one line.
+  expect(screen.getByLabelText('Spanish voice')).not.toBeVisible();
+  fireEvent.click(screen.getByText('Voices for other languages'));
+  expect(
+    screen.getByText(
+      'Kokoro speaks English, Spanish, French, Hindi, Italian and Portuguese. Answers in other languages stay on screen.',
+    ),
+  ).toBeVisible();
+  fireEvent.change(language, { target: { value: 'fr' } });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.speech_language',
+        value: 'fr',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('an English-only Talk model says so for another language and switches to Whisper only when asked (V8)', async () => {
+  showLanguage({
+    runtime: {
+      ...snapshot.voice.runtime,
+      talk_model: 'local-moonshine-base-en',
+      speech_language: 'fr',
+    },
+    language: {
+      ...snapshot.voice.language,
+      notices: [
+        {
+          use: 'talk',
+          engine: 'Moonshine Base',
+          understands: ['English'],
+          language: 'fr',
+          language_label: 'French',
+          heard: false,
+          alternatives: ['Whisper'],
+          switch_field: 'runtime.talk_model',
+          switch_value: 'local-whisper',
+        },
+      ],
+    },
+  });
+  expect(
+    screen.getByText(
+      'Moonshine Base understands English only; for French, use Whisper.',
+    ),
+  ).toBeVisible();
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use Whisper for Talk' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_model',
+        value: 'local-whisper',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(await notice('Talk now listens with Whisper')).toBeVisible();
+});
+
+it('each other language Kokoro speaks has its voice, and one it can’t speak says so (V8)', async () => {
+  const view = showLanguage();
+  fireEvent.click(screen.getByText('Voices for other languages'));
+  const spanish = screen.getByLabelText('Spanish voice');
+  expect(spanish).toHaveValue('ef_dora');
+  // French has one voice: it is named, not offered as a choice.
+  expect(screen.getByText('Siwis (female)')).toBeVisible();
+  expect(screen.queryByLabelText('French voice')).toBeNull();
+  fireEvent.change(spanish, { target: { value: 'em_alex' } });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'tts.language_voices.es',
+        value: 'em_alex',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+  view.unmount();
+  showLanguage({
+    runtime: { ...snapshot.voice.runtime, speech_language: 'de' },
+  });
+  expect(
+    screen.getByText(
+      'Kokoro can’t speak German yet, so answers in German stay on screen.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByLabelText('Spanish voice')).toBeNull();
+});
+
 const GB = 2 ** 30;
 
 function showVoice(
   talkProvider: string,
   host: SettingsSnapshot['system']['hosted_by'] = null,
+  cloud: Cloud[] = [deepgram, geminiListen],
 ) {
   mutation.page = 'voice';
   return render(
@@ -2547,6 +2733,14 @@ function showVoice(
           snapshot={{
             ...snapshot.voice,
             runtime: { ...snapshot.voice.runtime, talk_provider: talkProvider },
+            cloud_speech: cloud,
+            talk_providers: [
+              { value: 'local', label: 'Local' },
+              ...cloud.map((option) => ({
+                value: option.id,
+                label: option.label,
+              })),
+            ],
           }}
           conversationId={null}
           mutation={mutation}
@@ -2559,7 +2753,7 @@ function showVoice(
 
 it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks before it is chosen (U8)', async () => {
   setMemoryLimit(2 * GB);
-  showVoice('openai_realtime');
+  showVoice('gemini_transcribe');
   // Dictation listens with Whisper here: its quiet pill. Listen with is in the cloud: none.
   expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(1);
 
@@ -2571,12 +2765,16 @@ it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks be
   expect(sheet).toHaveTextContent(
     'This server has 2 GB. Local speech-to-text may make Row-Bot restart.',
   );
-  expect(listen).toHaveValue('openai_realtime');
+  // The cloud way is the service already chosen, with its saved key.
+  expect(sheet).toHaveTextContent(
+    'Cloud speech-to-text listens with Gemini Transcribe Live, with your saved key.',
+  );
+  expect(listen).toHaveValue('gemini_transcribe');
   fireEvent.click(
     within(sheet).getByRole('button', { name: 'Use cloud speech-to-text' }),
   );
   expect(screen.queryByRole('dialog')).toBeNull();
-  expect(listen).toHaveValue('openai_realtime');
+  expect(listen).toHaveValue('gemini_transcribe');
   expect(mutation.review).not.toHaveBeenCalled();
 
   fireEvent.change(listen, { target: { value: 'local' } });
@@ -2598,6 +2796,41 @@ it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks be
   expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
 });
 
+it('with no cloud key saved, the small-server sheet picks a cloud service and asks for its key (U8)', async () => {
+  setMemoryLimit(2 * GB);
+  showVoice('local', null, [deepgram]);
+  const listen = screen.getByLabelText('Listen with');
+  fireEvent.change(listen, { target: { value: 'deepgram' } });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_provider',
+        value: 'deepgram',
+      }),
+      expect.anything(),
+    ),
+  );
+  // Without its key Talk still listens here, so the pill stays on Listen with.
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
+  vi.mocked(mutation.review).mockClear();
+  fireEvent.change(listen, { target: { value: 'local' } });
+  const sheet = screen.getByRole('dialog', {
+    name: 'Use local speech-to-text?',
+  });
+  expect(sheet).toHaveTextContent(
+    'Cloud speech-to-text listens with Deepgram Nova-3 and needs your Deepgram key, which you add next.',
+  );
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Use cloud speech-to-text' }),
+  );
+  expect(listen).toHaveValue('deepgram');
+  expect(screen.getByText(/Until you add it, Talk listens/)).toBeVisible();
+  expect(mutation.review).not.toHaveBeenCalledWith(
+    expect.objectContaining({ value: 'openai_realtime' }),
+    expect.anything(),
+  );
+});
+
 it.each([
   ['with 4 GB', 4 * GB],
   ['on the desktop, with no limit', null],
@@ -2605,7 +2838,7 @@ it.each([
   'local speech-to-text needs no pill or sheet %s (U8)',
   async (_where, limit) => {
     setMemoryLimit(limit);
-    showVoice('openai_realtime');
+    showVoice('gemini_transcribe');
     expect(screen.queryByText('Needs a 4 GB server')).toBeNull();
     fireEvent.change(screen.getByLabelText('Listen with'), {
       target: { value: 'local' },
@@ -2697,7 +2930,7 @@ it.each([
   'on Railway the local speech-to-text sheet links %s (A2, A4)',
   (_what, host, label, url) => {
     setMemoryLimit(2 * GB);
-    showVoice('openai_realtime', host);
+    showVoice('gemini_transcribe', host);
     fireEvent.change(screen.getByLabelText('Listen with'), {
       target: { value: 'local' },
     });
@@ -2712,7 +2945,7 @@ it.each([
 
 it('without the host’s page, the sheet links nowhere (A2)', () => {
   setMemoryLimit(2 * GB);
-  showVoice('openai_realtime', { ...railwayHost, settings_url: null });
+  showVoice('gemini_transcribe', { ...railwayHost, settings_url: null });
   fireEvent.change(screen.getByLabelText('Listen with'), {
     target: { value: 'local' },
   });
@@ -2800,4 +3033,211 @@ it('Devices on a phone puts Connect a phone or computer first under Advanced, ho
     within(hosted).getByRole('region', { name: 'Connect a phone or computer' }),
   ).toBeInTheDocument();
   expect(within(hosted).queryByText('Network')).toBeNull();
+});
+
+type Cloud = NonNullable<SettingsSnapshot['voice']['cloud_speech']>[number];
+const deepgram: Cloud = {
+  id: 'deepgram',
+  part: 'listen',
+  label: 'Deepgram Nova-3',
+  company: 'Deepgram',
+  price: 'about $0.005 a minute',
+  price_checked: '23 Nov 2026',
+  key_saved: false,
+  key_field: 'deepgram.credential',
+  key: { configured: false, source: 'none', fingerprint: '' },
+  describe: '',
+};
+const geminiListen: Cloud = {
+  ...deepgram,
+  id: 'gemini_transcribe',
+  label: 'Gemini Transcribe Live',
+  company: 'Google',
+  price: 'about $0.009 a minute',
+  key_saved: true,
+  key_field: null,
+  key: null,
+};
+const elevenlabs: Cloud = {
+  id: 'elevenlabs',
+  part: 'speak',
+  label: 'ElevenLabs Flash',
+  company: 'ElevenLabs',
+  price: 'about $0.04 a minute of speech',
+  price_checked: '23 Nov 2026',
+  key_saved: true,
+  key_field: 'elevenlabs.credential',
+  key: { configured: true, source: 'keyring', fingerprint: '****9f2a' },
+  voices: [
+    { value: 'EXAVITQu4vr4xnSDxMaL', label: 'Sarah' },
+    { value: 'JBFqnCBsd6RMkjVDRZzb', label: 'George' },
+  ],
+  voice: 'EXAVITQu4vr4xnSDxMaL',
+  describe: 'design',
+  description: 'A calm, warm voice with a slight smile.',
+  designed: false,
+};
+const geminiSpeak: Cloud = {
+  ...elevenlabs,
+  id: 'gemini_tts',
+  label: 'Gemini Flash TTS',
+  company: 'Google',
+  key_saved: false,
+  key_field: null,
+  key: null,
+  voices: [{ value: 'Kore', label: 'Kore (firm)' }],
+  voice: 'Kore',
+  describe: 'style',
+  description: '',
+};
+
+function showCloudVoice(talk: string, speak: string) {
+  mutation.page = 'voice';
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{
+            ...snapshot.voice,
+            runtime: {
+              ...snapshot.voice.runtime,
+              talk_provider: talk,
+              speech_output_provider: speak,
+            },
+            local: { ...snapshot.voice.local, whisper_installed: true },
+            cloud_speech: [deepgram, geminiListen, elevenlabs, geminiSpeak],
+            talk_providers: [
+              { value: 'local', label: 'Local' },
+              { value: 'deepgram', label: 'Deepgram Nova-3' },
+              { value: 'gemini_transcribe', label: 'Gemini Transcribe Live' },
+            ],
+            speech_output_providers: [
+              { value: 'local', label: 'Local' },
+              { value: 'elevenlabs', label: 'ElevenLabs Flash' },
+              { value: 'gemini_tts', label: 'Gemini Flash TTS' },
+            ],
+          }}
+          conversationId="conversation-a"
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+}
+
+it('lists local listening and speaking first, then cloud ones with their price and key (V5)', () => {
+  showCloudVoice('local', 'local');
+  const listen = screen.getByLabelText('Listen with');
+  expect(
+    within(listen)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual([
+    'Whisper · on this computer',
+    'Deepgram Nova-3 · cloud · needs key',
+    'Gemini Transcribe Live · cloud',
+  ]);
+  const speak = screen.getByLabelText('Speak with');
+  expect(speak).toHaveValue('local');
+  expect(within(speak).getAllByRole('option')[0]).toHaveTextContent(
+    'Kokoro · on this computer',
+  );
+  // Locally, nothing leaves: no company is named, and Kokoro's voices are shown.
+  expect(screen.queryByText(/goes to/)).toBeNull();
+  expect(screen.getByLabelText('Voice')).toHaveValue('af_heart');
+});
+
+it('says whose servers hear the voice, what it costs and that it needs a key until one is added', () => {
+  showCloudVoice('deepgram', 'local');
+  expect(
+    screen.getByText(
+      'Your voice goes to Deepgram while you talk. About $0.005 a minute (Deepgram’s prices, 23 Nov 2026).',
+    ),
+  ).toBeVisible();
+  expect(screen.getByText('Needs your Deepgram key')).toBeVisible();
+  expect(
+    screen.getByText('Until you add it, Talk listens on this computer.'),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Add Deepgram API key' }),
+  ).toBeVisible();
+});
+
+it('a Google key lives in Providers, and Speak with names who reads the text, voice notes included', () => {
+  showCloudVoice('gemini_transcribe', 'gemini_tts');
+  expect(screen.getByText('Talk listens with Google')).toBeVisible();
+  expect(
+    screen.getByText(
+      'Text goes to Google to be spoken. About $0.04 a minute of speech (Google’s prices, 23 Nov 2026).',
+    ),
+  ).toBeVisible();
+  // No key yet: Kokoro speaks, and the note says so; the key is added in Providers.
+  expect(
+    screen.getByText(/voice-note replies speak with Kokoro/),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: 'Add it in Providers' }),
+  ).toHaveAttribute('href', '/settings/models#providers-api');
+  expect(screen.getByLabelText('Voice')).toHaveValue('Kore');
+  expect(screen.getByLabelText('Describe the voice')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Make this voice' })).toBeNull();
+});
+
+it('picks a cloud voice and makes one from a description only, after a review (VD11)', async () => {
+  showCloudVoice('local', 'elevenlabs');
+  expect(
+    screen.getByText(
+      /voice-note replies in chat apps are spoken by ElevenLabs: their text goes to ElevenLabs/,
+    ),
+  ).toBeVisible();
+  const voice = screen.getByLabelText('Voice');
+  expect(
+    within(voice)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['Sarah', 'George']);
+  expect(
+    screen.getByText(/no recordings, no copies of real people/),
+  ).toBeVisible();
+  // Nothing here takes a recording of a voice.
+  expect(document.querySelector('input[type="file"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Make this voice' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'voice',
+        field: 'elevenlabs.design_voice',
+        value: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('a cloud voice says which chosen language it can’t speak, not Kokoro (V5, V8)', () => {
+  showLanguage({
+    runtime: {
+      ...snapshot.voice.runtime,
+      speech_language: 'ar',
+      speech_output_provider: 'elevenlabs',
+    },
+    cloud_speech: [
+      {
+        id: 'elevenlabs',
+        part: 'speak',
+        label: 'ElevenLabs Flash',
+        company: 'ElevenLabs',
+        price: 'about $0.04 a minute of speech',
+        price_checked: '23 Nov 2026',
+        key_saved: true,
+      },
+    ],
+    language: { ...snapshot.voice.language, spoken: ['de', 'en', 'es'] },
+  });
+  expect(
+    screen.getByText(
+      'ElevenLabs Flash can’t speak Arabic yet, so answers in Arabic stay on screen.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/Kokoro can’t speak/)).toBeNull();
 });

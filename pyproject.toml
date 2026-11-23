@@ -76,6 +76,7 @@ voice = [
   "torchaudio==2.11.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
   "kokoro-onnx>=0.4,<1.0",
   "pipecat-ai>=1.16,<1.17",
+  "sherpa-onnx>=2.0.1,<2.1",
 ]
 designer = [
   "fpdf2>=2.8,<3.0",
@@ -136,6 +137,7 @@ all = [
   "torchaudio==2.11.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
   "kokoro-onnx>=0.4,<1.0",
   "pipecat-ai>=1.16,<1.17",
+  "sherpa-onnx>=2.0.1,<2.1",
   "fpdf2>=2.8,<3.0",
   "python-pptx>=1.0,<2.0",
   "python-docx>=1.1,<2.0",

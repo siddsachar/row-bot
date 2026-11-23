@@ -37,6 +37,10 @@
   display: grid;
   gap: 12px;
 }
+.button.library-files-more {
+  justify-self: center;
+  min-height: 44px;
+}
 .phone-chats .library-search > .input {
   min-height: 44px;
   border-radius: 12px;

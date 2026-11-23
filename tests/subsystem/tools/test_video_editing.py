@@ -216,8 +216,12 @@ def test_progress_ffmpeg_version_options_and_clock_words():
     assert [clock(value) for value in (0, 42, 1.5, 62.25, 3730)] == ["0:00", "0:42", "0:01.5", "1:02.2", "1:02:10"]
 
 
-def test_voice_lines_and_ducked_music_are_laid_on_the_finished_video_at_one_loudness():
-    """5.3.1 B: a narrated video's sound in one pass: voices at their times, music under them."""
+def test_voice_lines_and_ducked_music_are_mixed_on_the_made_picture_at_one_loudness():
+    """C6: a video given sound is its picture (with the footage's own sound as cut), then its mix laid beside it:
+    voices at their times, music under them, the video's own sound, brought to one loudness."""
+    from row_bot.video_editing import final_arguments
+    from row_bot.video_sound import Track
+
     steps = parse_steps([
         {"op": "trim", "start": 1},
         {"op": "sound", "source": "scene-1.wav", "start": 0.5},
@@ -227,17 +231,19 @@ def test_voice_lines_and_ducked_music_are_laid_on_the_finished_video_at_one_loud
     ])
     plan = build_plan([InputVideo(path="input-1.mp4", info=HD)], steps, "output.mp4",
                       sounds={"scene-1.wav": "sound-1.wav", "scene-2.wav": "sound-2.wav",
-                              "music-calm.wav": "C:/music/calm.wav"})
+                              "music-calm.wav": "C:/music/calm.wav"}, loudness=-16)
 
-    sound_inputs = [plan.args[i + 1] for i, a in enumerate(plan.args) if a == "-i" and "sound" in plan.args[i + 1]]
-    assert sound_inputs == ["file:sound-1.wav", "file:sound-2.wav"] and "file:C:/music/calm.wav" in plan.args
-    assert "wav" in plan.args[plan.args.index("file:sound-1.wav") - 2], "plain audio files open as audio"
-    assert "[1:a]" in plan.graph and "adelay=500|500" in plan.graph and "adelay=3000|3000" in plan.graph
-    assert "[3:a]" in plan.graph and "volume=0.300" in plan.graph and "afade=t=out" in plan.graph
-    assert "sidechaincompress" in plan.graph, "the music dips while a voice speaks"
-    assert "volume=0.200" in plan.graph, "the video's own sound, turned down"
-    assert plan.graph.count("loudnorm=I=-16") == 1 and "atrim=0:5" in plan.graph, "one loudness, the video's length"
+    assert plan.args[-1] == "file:picture.mkv" and plan.args.count("-i") == 1, "the picture's run reads the video only"
+    assert plan.args[plan.args.index("-c:a") + 1] == "pcm_s16le", "its own sound kept as cut, for the mix"
+    assert set(plan.mix.tracks) == {Track("sound-1.wav", 0.5, 1.0, "voice"), Track("sound-2.wav", 3.0, 1.0, "voice"),
+                                    Track("C:/music/calm.wav", 0.0, 0.3, "music"),
+                                    Track("picture.mkv", 0.0, 0.2, "original")}
+    assert (plan.mix.seconds, plan.mix.duck, plan.mix.loudness) == (5.0, True, -16), "the music dips under the voice"
     assert plan.has_audio and describe(steps) == "Trimmed, added a voice, added music and set the sound level"
+    final = final_arguments("C:/kept/picture.mkv", "mix.wav", "output.mp4")
+    assert final[final.index("-c:v") + 1] == "copy", "the picture is used as it was made"
+    assert "file:C:/kept/picture.mkv" in final and "wav" in final[final.index("file:mix.wav") - 2]
+    assert final[-1] == "file:output.mp4" and "aac" in final
 
 
 def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_their_voice_at_each_start():
@@ -256,7 +262,8 @@ def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_the
     assert "setpts=PTS/2" in plan.graph and "atempo=2" in plan.graph
     assert "crop=" in plan.graph, "the second scene punches in"
     assert len(plan.overlays) == 2, "the card and the first scene's caption; a sped-up scene has no badge (U26)"
-    assert plan.voices == [(2.0, "sound-1.wav")] and "file:narration.wav" in plan.args, "its line starts with it"
+    assert plan.voices == [(2.0, "sound-1.wav")] and plan.mix.tracks[0].path == "narration.wav", \
+        "its line starts with it, in the narration track the mix lays"
     assert (plan.duration, plan.marks) == (4.0, [0.0, 2.0, 4.0])
     assert plan.summary == "Joined 2 videos and cut 2 scenes"
     with pytest.raises(EditError, match="Scene 1: .* outside its video"):
@@ -428,8 +435,9 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
     pictures = [_picture(png) for png in alone.overlays]
     backdrops = [picture for picture in pictures if picture.size == (1080, 1080)]
     titles = [picture for picture in pictures if picture.size != (1080, 1080)]
-    assert len(backdrops) == 2 and len(titles) == 2 and "[0:a]" in alone.graph, \
-        "each card on its backdrop with its title, and the voice is the only input"
+    assert len(backdrops) == 2 and len(titles) == 2 and alone.args.count("-i") == 1 and "-an" in alone.args, \
+        "each card on its backdrop with its title: the picture reads only the pictures it lays"
+    assert [track.path for track in alone.mix.tracks] == ["narration.wav"], "and the voice is all its sound"
     assert titles[0].getpixel((0, 0))[3] == 0, "a plain title: the card's backdrop is its box"
     # The backdrop is the brand's colour, lit from the top left and darker at the edges: a slide, not a flat fill.
     top_left, centre, bottom_right = (backdrops[0].getpixel(at)[:3] for at in ((40, 40), (540, 540), (1040, 1040)))
@@ -450,21 +458,24 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
 
 def test_turning_the_videos_own_sound_off_keeps_only_the_voice_or_leaves_no_sound():
     """A video's own sound at volume 0 once broke the edit, alone or under a voice."""
+    from row_bot.video_sound import Track
+
     muted = _plan([{"op": "sound", "role": "original", "volume": 0}])
-    assert "volume=0.000" in muted.graph and "amix=inputs=0" not in muted.graph and _every_stream_is_used(muted)
+    assert muted.mix.tracks == (Track("picture.mkv", volume=0.0, bus="original"),) and _every_stream_is_used(muted)
 
     voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)],
                         parse_steps([{"op": "sound", "role": "original", "volume": 0},
                                      {"op": "sound", "source": "line.wav"}]), "output.mp4",
                         sounds={"line.wav": "sound-1.wav"})
-    assert voiced.has_audio and "[1:a]" in voiced.graph and _every_stream_is_used(voiced)
+    assert voiced.has_audio and Track("sound-1.wav") in voiced.mix.tracks and _every_stream_is_used(voiced)
 
 
 def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
     plan = build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
                       parse_steps([{"op": "sound", "source": "line.wav"}]), "output.mp4",
                       sounds={"line.wav": "sound-1.wav"})
-    assert plan.has_audio and "-an" not in plan.args and "sidechaincompress" not in plan.graph
+    assert plan.has_audio and "-an" in plan.args, "its picture has no sound of its own: the mix is all of it"
+    assert [track.bus for track in plan.mix.tracks] == ["voice"] and not plan.mix.duck
 
     with pytest.raises(EditError, match="isn't a sound file Row-Bot found"):
         build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
@@ -495,7 +506,8 @@ def test_a_long_narrated_captioned_project_is_one_short_command_with_each_pictur
                       sounds={f"line-{index}.wav": f"C:/voices/line-{index}.wav" for index in range(60)})
 
     assert len(plan.overlays) > 120 and len(plan.voices) == 60
-    assert len(plan.args) < 60 and plan.args.count("-i") == 3, "the video, its narration and the picture sheet"
+    assert len(plan.args) < 60 and plan.args.count("-i") == 2, "the video and the picture sheet"
+    assert [track.path for track in plan.mix.tracks] == ["narration.wav", "picture.mkv"], "its lines as one track"
     assert plan.voices[1] == (pytest.approx(plan.marks[1]), "C:/voices/line-1.wav")
     assert f"file:{OVERLAYS}" in plan.args and _every_stream_is_used(plan)
     sheet = _picture(plan.overlay_sheet)

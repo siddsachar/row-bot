@@ -102,7 +102,8 @@ def test_each_file_a_tool_makes_has_its_role(chat, tmp_path):
 
     files = {item["name"]: item for item in list_conversation_files(CHAT)}
     assert files[voice]["role"] == "working" and files["contact-sheet.jpg"]["role"] == "working"
-    assert "a working file: present shows it to the person" in recordings.summary(recordings.get(record.recording_id))
+    assert recordings.summary(recordings.get(record.recording_id)).startswith(
+        f'Recording {record.recording_id}: Output "recording" v1 (working) · generated-recording.mp4\nSaved ')
     # The reload reads each step's role, as the live events said it.
     assert [(name, [media.get("role") for media in found]) for name, found in chat.reloaded() if found] == [
         ("generate_image", ["final"]), ("Browser Screenshot", ["working"]), ("analyze_image", ["working"])]
@@ -119,7 +120,7 @@ def test_present_marks_a_working_file_final_and_its_reply_carries_it(chat):
     result, media = chat.step("present", {"files": ["pricing-page.png"], "caption": "The new pricing page"},
                               lambda: _present(files=["pricing-page.png"], caption="The new pricing page"))
 
-    assert result.startswith("Presented “pricing-page.png” (final) in this reply")
+    assert result.startswith('Output "pricing-page" v1 (final) · pricing-page.png\nPresented in this reply')
     # Presenting doesn't end the work: what else they asked for comes first, then a line about it.
     assert result.endswith("Finish anything else they asked for, then end with a line saying what it is.")
     assert _lineage(reference)["role"] == "final"
@@ -144,14 +145,17 @@ def test_a_film_rendered_in_the_workspace_becomes_the_chats_own_output_once(chat
     film.write_bytes(MP4 + b"recut")
     _third, [recut] = chat.step("present", {}, lambda: _present(files=["renders/Birthday montage.mp4"]))
 
-    assert first.startswith("Presented “Birthday montage.mp4” (final)")
+    assert first.startswith('Output "Birthday montage" v1 (final) · Birthday montage.mp4\nPresented')
     assert same["payload"]["media_ref"] == shown["payload"]["media_ref"], "the same bytes are the same output"
-    assert again.startswith("Marked “Birthday montage.mp4” final: it already shows in this chat")
+    assert again.startswith('Output "Birthday montage" v1 (final) · Birthday montage.mp4\nMarked final: it '
+                            "already shows in this chat")
     first_lineage, recut_lineage = _lineage(shown["payload"]["media_ref"]), _lineage(recut["payload"]["media_ref"])
     assert first_lineage["output_id"] == recut_lineage["output_id"]  # One output, two versions.
     assert (first_lineage["version"], recut_lineage["version"]) == (1, 2)
     assert first_lineage["made_from"] == ["renders/Birthday montage.mp4"]
-    assert len(list_conversation_files(CHAT)) == 2
+    # One name for the output: its versions share the film's name, told apart by their numbers (W4).
+    assert [item["name"] for item in list_conversation_files(CHAT)] == ["Birthday montage.mp4"] * 2
+    assert _third.startswith('Output "Birthday montage" v2 (final) · Birthday montage.mp4\n')
 
 
 def test_a_generated_video_presented_is_marked_final_and_never_shown_twice(chat, tmp_path):
@@ -168,8 +172,8 @@ def test_a_generated_video_presented_is_marked_final_and_never_shown_twice(chat,
     file_name = inspect_attachment(made["payload"]["media_ref"])["name"]
     result, [again] = chat.step("present", {}, lambda: _present(files=[file_name]))
 
-    assert result.startswith(f"Marked “{file_name}” final: it already shows in this chat, so it isn't "
-                             "shown twice")
+    assert result.startswith(f'Output "video" v1 (final) · {file_name}\nMarked final: it already shows '
+                             "in this chat, so it isn't shown twice")
     assert again["payload"]["media_ref"] == made["payload"]["media_ref"]  # The client folds it into the first.
 
 

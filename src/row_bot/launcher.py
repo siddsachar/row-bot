@@ -2370,6 +2370,7 @@ def _attach_client_v2(window, instance_id, role="main"):
         PyWebViewDriver,
         attach_native_client,
     )
+    from row_bot.voice_hotkey import window_hotkey
 
     def authenticate(attestation, context):
         value = _native_json("/api/v1/native/attest", {
@@ -2566,6 +2567,8 @@ def _attach_client_v2(window, instance_id, role="main"):
         save_reference=save_reference,
         buddy_placement=placement_callback(_BUDDY, "main"),
         publish_buddy_target=_BUDDY.publish_target,
+        # Hold-to-talk on a desktop hotkey (Windows), armed by the page only during push-to-talk voice.
+        voice_hotkey=window_hotkey(window),
     )
     return attach_native_client(
         window,

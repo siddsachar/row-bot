@@ -5,16 +5,15 @@ transport ``duplex``), freezes the conversation's model and approval policy
 exactly as typed messages do, and returns a short-lived, single-use ticket.
 The browser opens the voice WebSocket and presents that ticket in its first
 message; the socket is then bound to that client session, conversation and
-lease. Audio lives only in memory for the turn it belongs to.
+lease. Audio lives only in memory for the turn it belongs to, and so does a
+still of a shared camera or screen until it is attached to its turn.
 """
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-import hmac
-import secrets
-import threading
+import logging
 import time
 from typing import Any, Literal, Protocol
 
@@ -26,9 +25,9 @@ from row_bot.voice.client_transport import (
     DictationOwner,
 )
 from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderError
+from row_bot.voice.tickets import RedeemedTicket, VoiceTicket, VoiceTickets
 
-TICKET_SECONDS = 30.0
-MAX_TICKETS = 8
+_LOG = logging.getLogger(__name__)
 SPEECH_TEST_PHRASE = "Hello! This is your Row-Bot voice test."
 
 
@@ -43,24 +42,10 @@ class TalkSnapshot:
 
 
 @dataclass(frozen=True)
-class VoiceTicket:
-    ticket: str
-    expires_in_ms: int
-
-
-@dataclass(frozen=True)
 class TalkStarted:
     snapshot: TalkSnapshot
     ticket: str
     ticket_expires_in_ms: int
-
-
-@dataclass(frozen=True)
-class RedeemedTicket:
-    owner: DictationOwner
-    handle: DictationHandle
-    # The client session's CSRF token, so the socket can keep checking that session.
-    csrf: str
 
 
 class VoiceEngineFactory(Protocol):
@@ -75,7 +60,7 @@ class VoiceEngineFactory(Protocol):
 
 
 class LocalVoiceEngine:
-    """The selected local speech engines, Silero VAD and Smart Turn."""
+    """The selected speech engines (local, or a cloud service the person chose), Silero VAD and Smart Turn."""
 
     def __init__(self, browser_service: Callable[[], Any]) -> None:
         self._browser = browser_service
@@ -102,18 +87,16 @@ class LocalVoiceEngine:
         from row_bot.voice.engine.pipecat_boundary import SileroActivity, SmartTurn
         from row_bot.voice.engine.session import EngineParts
         from row_bot.voice.engine.speech import ProviderSentenceSpeech, SegmentedSpeechToText
+        from row_bot.voice.cloud_speech import fallbacks
+        from row_bot.voice.runtime import load_voice_runtime_settings
 
         listen, speak = self._providers()
-        return EngineParts(SegmentedSpeechToText(listen), ProviderSentenceSpeech(speak),
-                           SileroActivity(), SmartTurn())
-
-
-@dataclass
-class _Ticket:
-    owner: DictationOwner
-    handle: DictationHandle
-    csrf: str
-    expires: float
+        # A streaming model (or a cloud service) hears the person as they speak; Whisper and SenseVoice
+        # are segmented. A cloud voice streams each sentence's speech as it is made.
+        stt = listen.streaming() if hasattr(listen, "streaming") else SegmentedSpeechToText(listen)
+        tts = speak.sentence_speech() if hasattr(speak, "sentence_speech") else ProviderSentenceSpeech(speak)
+        return EngineParts(stt, tts, SileroActivity(), SmartTurn(),
+                           fallbacks=tuple(fallbacks(load_voice_runtime_settings())))
 
 
 class DuplexTalkTransport:
@@ -125,8 +108,7 @@ class DuplexTalkTransport:
         self.engine = engine
         self._listeners = listeners
         self._clock = clock
-        self._tickets: dict[str, _Ticket] = {}
-        self._tickets_lock = threading.Lock()
+        self._tickets = VoiceTickets(lambda: self._clock())
         self._live: dict[str, Callable[[], None]] = {}
         # How often a live socket checks its sign-in, lease and idle time.
         self.tick_seconds = 5.0
@@ -173,29 +155,14 @@ class DuplexTalkTransport:
         validate()
         with self.coordinator._dictation_lock:
             self._lease(owner, handle)
-        value = secrets.token_urlsafe(32)
-        now = self._clock()
-        with self._tickets_lock:
-            for key, item in list(self._tickets.items()):
-                if item.expires <= now or item.handle != handle and item.owner.client_session_id == owner.client_session_id:
-                    del self._tickets[key]
-            if len(self._tickets) >= MAX_TICKETS:
-                raise DictationError("voice_session_busy")
-            self._tickets[value] = _Ticket(owner, handle, csrf, now + TICKET_SECONDS)
-        return VoiceTicket(value, int(TICKET_SECONDS * 1000))
+        return self._tickets.issue(owner, handle, csrf)
 
     def redeem(self, ticket: str) -> RedeemedTicket:
         """The ticket's session, once: a second use, an expired or unknown ticket is refused."""
-        if not isinstance(ticket, str) or not 20 <= len(ticket) <= 128:
-            raise DictationError("action_denied")
-        with self._tickets_lock:
-            match = next((key for key in self._tickets if hmac.compare_digest(key, ticket)), None)
-            item = self._tickets.pop(match) if match is not None else None
-        if item is None or item.expires <= self._clock():
-            raise DictationError("action_denied")
+        item = self._tickets.redeem(ticket)
         with self.coordinator._dictation_lock:
             self._lease(item.owner, item.handle)
-        return RedeemedTicket(item.owner, item.handle, item.csrf)
+        return item
 
     def stop(self, owner: DictationOwner, handle: DictationHandle, *,
              validate: Callable[[], None]) -> TalkSnapshot:
@@ -206,10 +173,7 @@ class DuplexTalkTransport:
             end = self._live.get(handle.lease_id)
         if end is not None:
             end()
-        with self._tickets_lock:
-            for key, item in list(self._tickets.items()):
-                if item.handle == handle:
-                    del self._tickets[key]
+        self._tickets.drop(handle)
         with self.coordinator._dictation_lock:
             return self._snapshot(lease)
 
@@ -242,6 +206,14 @@ class DuplexTalkTransport:
         def follow(event: tuple, handle: Any) -> None:
             kind = str(event[0]) if event else ""
             payload = event[1] if len(event) > 1 else None
+            if kind == "interrupt":
+                # The card it raised, as voice says it: a summary, and whether a spoken yes may answer it.
+                from row_bot.voice.approvals import approval_notice
+                payload = approval_notice(payload, str(getattr(handle, "approval_id", "") or ""))
+            elif kind in {"tool_call", "tool_done"}:
+                get = getattr(payload, "get", None)
+                payload = {"tool": str(get("runtime_name") or get("raw_name") or ""),
+                           "id": str(get("tool_call_id") or get("id") or "")} if callable(get) else {}
             session.agent_event(kind, payload, str(getattr(handle, "pass_id", "") or ""),
                                 str(getattr(handle, "segment_id", "") or ""))
 
@@ -269,7 +241,7 @@ class ConversationVoiceHost:
         with self._transport.coordinator._dictation_lock:
             self._transport._lease(self._owner, self._handle)
 
-    def take_turn(self, text: str, utterance_id: str) -> Any:
+    def take_turn(self, text: str, utterance_id: str, still: Any = None) -> Any:
         from row_bot.voice.engine.session import TurnOutcome
 
         admission = self._transport._admission
@@ -277,12 +249,13 @@ class ConversationVoiceHost:
             self._admitted()
             running = admission.active(self._owner)
             if running is None:
-                admission.submit(self._owner, text, utterance_id, self._admitted)
+                admission.submit(self._owner, text, utterance_id, self._admitted, still=still)
                 outcome = TurnOutcome("submitted")
             else:
-                # The person spoke while a run works: steer it, stop it or ask how it is going.
+                # The person spoke while a run works: steer it, stop it or ask how it is going (words only).
                 result = admission.control(self._owner, running, "input", text, utterance_id, self._admitted)
-                outcome = TurnOutcome("control", speakable=str(result.get("speakable") or ""))
+                outcome = TurnOutcome("control", speakable=str(result.get("speakable") or ""),
+                                      control=str(result.get("control") or ""))
             with self._transport.coordinator._dictation_lock:
                 lease = self._transport._lease(self._owner, self._handle)
                 lease.last_activity = self._transport._clock()
@@ -291,6 +264,18 @@ class ConversationVoiceHost:
             return TurnOutcome("rejected", code=exc.code)
         except Exception as exc:
             return TurnOutcome("rejected", code=str(getattr(exc, "code", "") or "voice_admission_failed"))
+
+    def answer_approval(self, approval_id: str, approve: bool, utterance_id: str) -> str:
+        try:
+            self._admitted()
+            return self._transport._admission.answer_approval(self._owner, approval_id, approve, utterance_id,
+                                                              self._admitted)
+        except Exception as exc:  # Refused or already answered: the card is the way now.
+            _LOG.info("A spoken approval answer was not taken: %s", str(getattr(exc, "code", "") or type(exc).__name__))
+            return "gone"
+
+    def sees_images(self) -> bool:
+        return self._transport._admission.sees_images(self._owner)
 
     def drops(self, text: str) -> bool:
         with self._transport.coordinator._dictation_lock:
@@ -310,11 +295,13 @@ def session_settings() -> Any:
     """The saved Row-Bot Voice settings for a session starting now."""
     from row_bot.voice.engine.session import SessionSettings
     from row_bot.voice.engine.turns import TurnSettings
+    from row_bot.voice import languages
     from row_bot.voice.runtime import load_voice_runtime_settings
 
     saved = load_voice_runtime_settings()
     return SessionSettings(turns=TurnSettings.for_eagerness(saved.turn_eagerness),
-                           push_to_talk=saved.push_to_talk, captions=saved.captions_enabled)
+                           push_to_talk=saved.push_to_talk, captions=saved.captions_enabled,
+                           language=languages.requested(saved.speech_language))
 
 
 async def run_socket_session(transport: DuplexTalkTransport, redeemed: RedeemedTicket, *,
@@ -358,7 +345,7 @@ async def run_socket_session(transport: DuplexTalkTransport, redeemed: RedeemedT
                 ended.set()
                 return
             if isinstance(message, bytes):
-                await session.audio(message)
+                await session.binary(message)
             elif not await session.control(message):
                 stop_requested = True
                 ended.set()

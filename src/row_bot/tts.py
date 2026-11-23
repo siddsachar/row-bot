@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 import numpy as np
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.voice import languages
 from row_bot.voice.speech_policy import clean_for_speech
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,8 @@ class TTSService:
         # Persisted settings
         self._voice: str = _DEFAULT_VOICE
         self._speed: float = 1.0
+        # The voice the person picked for a language other than their own voice's ({"fr": "ff_siwis"}).
+        self._language_voices: dict[str, str] = {}
         self._load_settings()
 
     # ── Kokoro model (lazy-loaded) ───────────────────────────────────────
@@ -144,6 +147,9 @@ class TTSService:
                 return None
 
             try:
+                from row_bot import onnxruntime_telemetry
+
+                onnxruntime_telemetry.switch_off()  # before Kokoro opens its ONNX Runtime session
                 from kokoro_onnx import Kokoro
                 logger.info("Loading Kokoro TTS model from %s", _MODEL_PATH)
                 _SHARED_KOKORO.append(_SerialKokoro(Kokoro(str(_MODEL_PATH), str(_VOICES_PATH))))
@@ -164,6 +170,10 @@ class TTSService:
     @property
     def speed(self) -> float:
         return self._speed
+
+    def voice_for(self, text: str, *, hint: str | None = None) -> tuple[str, str | None]:
+        """The language *text* is spoken in and the voice that speaks it (None: Kokoro can't speak it)."""
+        return languages.kokoro_voice_for(text, hint=hint, own=self._voice, picked=self._language_voices)
 
     # ── Status checks ────────────────────────────────────────────────────
 
@@ -215,12 +225,12 @@ class TTSService:
         kokoro = self._get_kokoro()
         if kokoro is None:
             raise RuntimeError("Kokoro model is not installed")
-        chosen = voice if voice in VOICE_CATALOG else self._voice
+        chosen = voice if voice in VOICE_CATALOG or voice in languages.kokoro_voice_ids() else self._voice
         samples, sample_rate = kokoro.create(
             text,
             voice=chosen,
             speed=float(speed) if speed else self._speed,
-            lang=_voice_lang(chosen),
+            lang=languages.kokoro_phonemes(chosen),
         )
         return np.asarray(samples), int(sample_rate)
 
@@ -244,6 +254,11 @@ class TTSService:
                 else:
                     self._voice = _DEFAULT_VOICE
                 self._speed = data.get("speed", 1.0)
+                picked = data.get("language_voices")
+                self._language_voices = {
+                    language: voice for language, voice in (picked.items() if isinstance(picked, dict) else ())
+                    if voice in languages.KOKORO_VOICES.get(language, ())
+                }
         except Exception:
             logger.warning("Failed to load TTS settings from %s", _SETTINGS_PATH, exc_info=True)
 
@@ -251,27 +266,6 @@ class TTSService:
 # ═════════════════════════════════════════════════════════════════════════════
 # Module-level helpers
 # ═════════════════════════════════════════════════════════════════════════════
-
-def _voice_lang(voice_id: str) -> str:
-    """Infer the ``lang`` parameter from a Kokoro voice ID prefix.
-
-    Kokoro voice IDs use a two-letter prefix:
-      a* = American English, b* = British English,
-      j* = Japanese, z* = Mandarin Chinese, etc.
-    """
-    prefix = voice_id[:1] if voice_id else "a"
-    return {
-        "a": "en-us",
-        "b": "en-gb",
-        "j": "ja",
-        "z": "cmn",
-        "e": "es",
-        "f": "fr-fr",
-        "h": "hi",
-        "i": "it",
-        "p": "pt-br",
-    }.get(prefix, "en-us")
-
 
 def _download_file(
     url: str,

@@ -22,7 +22,7 @@ class TranscriptUpdate:
 
     text: str
     final: bool
-    # Reserved for automatic language detection (a later package); None today.
+    # The language heard (a BCP 47 tag): the model's own, or what it detected; None when unknown.
     language: str | None = None
 
 
@@ -48,31 +48,45 @@ class SpeechToTextStream(Protocol):
 
 class StreamingSpeechToText(Protocol):
     provider_id: str
+    # True when ``partial`` is cheap (the model decodes as audio arrives): the engine then reads
+    # partials as the person speaks, for live captions and to hear words during a barge-in.
+    live_partials: bool
 
     def warm(self) -> None:
         """Load the model now, so the first turn does not pay for it."""
         ...
 
     def open(self, *, language: str | None = None) -> SpeechToTextStream:
+        """One utterance in *language* (Settings › Voice › Language; None detects it)."""
         ...
 
 
 @dataclass(frozen=True)
 class SpeechAudio:
-    """Synthesised speech for one sentence or clause: mono s16le PCM."""
+    """Synthesised speech for one sentence or clause: mono s16le PCM.
+
+    No audio with ``unspoken`` set: the text is in a language the voice cannot speak (its code).
+    """
 
     pcm16: bytes
     sample_rate: int
+    unspoken: str | None = None
 
 
 class SentenceSpeech(Protocol):
-    """Text-to-speech, one sentence or clause at a time."""
+    """Text-to-speech, one sentence or clause at a time.
+
+    A voice that streams (a cloud voice) also has ``stream(text)``: an iterator of ``SpeechAudio``
+    pieces as they are made, whose ``close()`` cancels the rest. The engine then sends the first
+    piece before the sentence is finished, and closes the iterator at a barge-in.
+    """
 
     provider_id: str
 
     def warm(self) -> None:
         ...
 
-    def synthesize(self, text: str) -> SpeechAudio:
-        """Speech for ``text``; empty PCM when there is nothing to say."""
+    def synthesize(self, text: str, *, language: str | None = None) -> SpeechAudio:
+        """Speech for ``text``; empty PCM when there is nothing to say. *language* is a hint: the
+        language the person was heard speaking."""
         ...

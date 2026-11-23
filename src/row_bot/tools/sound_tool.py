@@ -5,6 +5,7 @@ Each result is saved in the chat's files under its name, so the video tools and 
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +15,8 @@ from pydantic import BaseModel, Field
 from row_bot.tools import registry
 from row_bot.tools.base import BaseTool
 
-_AUDIO_SUFFIXES = frozenset({".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac", ".webm"})
+# What transcribe and the sound steps read: a sound file or a video.
+_HEARD = frozenset({"audio", "video"})
 _TRANSCRIPT_CHARS = 30_000
 
 
@@ -37,6 +39,13 @@ def _save(name: str, data: bytes, conversation: str = "") -> str:
         if str(error) == "payload_too_large":
             raise ValueError("The result is too large to keep in the chat (over 200 MB): make it shorter.") from None
         raise ValueError("The result couldn't be saved in the chat.") from None
+
+
+def _made(name: str) -> str:
+    """A saved working file's identity: the result's first line (W4), which history masking keeps."""
+    from row_bot.media_sources import identity
+
+    return identity({"name": name, "role": "working", "version": 1})
 
 
 def _name(value: str, default: str, suffix: str) -> str:
@@ -142,8 +151,8 @@ def _speak(text: str, name: str = "", voice: str = "", speed: float = 0.0,
         saved = _save(_name(name, "voice", ".wav"), speech.wav)
     except ValueError as error:
         return f"Not made: {error}"
-    text = (f"Voice file {saved}: {speech.seconds:.1f} seconds, voice {speech.voice}. Use it by that name in the "
-            "video tools or send_file.")
+    text = (f"{_made(saved)}\nVoice file: {speech.seconds:.1f} seconds, voice {speech.voice}. Use it by that name "
+            "in the video tools or send_file.")
     taught = [word for word in kept if str((pronunciations or {}).get(word) or "").strip()]
     forgot = [word for word in kept if word not in taught]
     if taught:
@@ -169,8 +178,8 @@ def _make_music(seconds: float, mood: str = "calm", beats: list[float] | None = 
         saved = _save(_name(name, f"music-{mood}", ".wav"), music.wav_bytes(track))
     except ValueError as error:
         return f"Not made: {error}"
-    return (f"Music file {saved}: {float(seconds):.1f} seconds, {mood}, original and royalty-free. Mix it under the "
-            "voice in the video tools by that name.")
+    return (f"{_made(saved)}\nMusic file: {float(seconds):.1f} seconds, {mood}, original and royalty-free. Mix it "
+            "under the voice in the video tools by that name.")
 
 
 class _TranscribeInput(BaseModel):
@@ -180,32 +189,23 @@ class _TranscribeInput(BaseModel):
 
 
 def _source(value: str, conversation: str = "") -> tuple[str, Path | None, bytes | None, str]:
-    """(label, path, bytes, suffix) of an audio or video file the person can see."""
+    """(label, path, bytes, suffix) of a sound file or a video, found as every tool finds files
+    (``media_sources.find``)."""
     from row_bot import media_sources
-    from row_bot.application.attachments import AttachmentError, list_conversation_files, read_attachment
+    from row_bot.application.attachments import AttachmentError, read_attachment
 
-    conversation = conversation or _conversation()
-    text = str(value or "").strip()
-    for item in list_conversation_files(conversation):
-        if str(item["name"]).casefold() == text.casefold():
-            try:
-                return str(item["name"]), None, read_attachment(str(item["attachment_ref"]))[1], Path(text).suffix
-            except AttachmentError:
-                raise media_sources.SourceError(f"{text} can't be read any more.") from None
-    place = media_sources.workspace(conversation)
-    if place is not None and Path(text).suffix.casefold() in _AUDIO_SUFFIXES:
-        path = media_sources.workspace_file(place.root, text)
-        return text, path, None, path.suffix
-    media = media_sources.resolve(text, conversation)[0]
-    if media.kind != "video":
-        raise media_sources.SourceError(f"{text} is a picture: it has no sound to transcribe.")
+    media = media_sources.find(value, conversation or _conversation(), kinds=_HEARD)[0]
     if media.path is not None:
         return media.label, media.path, None, media.path.suffix
-    return media.label, None, read_attachment(media.ref)[1], ".mp4"
+    try:
+        metadata, data = read_attachment(media.ref)
+    except AttachmentError:
+        raise media_sources.SourceError(f"{media.label} can't be read any more.") from None
+    suffix = Path(str(metadata["name"])).suffix or mimetypes.guess_extension(str(metadata["mime_type"])) or ".mp4"
+    return media.label, None, data, suffix
 
 
 def _transcribe(source: str, name: str = "") -> str:
-    from row_bot import sound
     from row_bot.media_sources import SourceError
     from row_bot.tools.approval_gate import with_approval
 
@@ -233,14 +233,14 @@ def _transcript(label: str, path: Path | None, data: bytes | None, suffix: str, 
     try:
         saved = _save(_name(name, Path(label).stem + "-subtitles", ".srt"), sound.srt(segments).encode("utf-8"))
     except ValueError as error:
-        saved, note = "", f" (the subtitles weren't saved: {error})"
+        head, note = "", f" (the subtitles weren't saved: {error})"
     else:
-        note = f" Subtitles: {saved}."
+        head, note = f"{_made(saved)}\n", ""
     lines = "\n".join(f"[{sound.clock(segment.start)}] {segment.text}" for segment in segments)
     if len(lines) > _TRANSCRIPT_CHARS:
         lines = lines[:_TRANSCRIPT_CHARS] + "\n[…the rest is in the subtitles file.]"
     words = sum(len(segment.words) for segment in segments)
-    return (f"Transcript of {label} ({sound.clock(segments[-1].end)}, {words} words"
+    return (f"{head}Transcript of {label} ({sound.clock(segments[-1].end)}, {words} words"
             + (f", language {language}" if language else "") + f").{note}\n\n{lines}")
 
 
