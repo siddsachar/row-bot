@@ -2614,6 +2614,9 @@ it('Language detects what you speak by default, and a chosen one saves at once (
   expect(
     within(language).getByRole('option', { name: 'Detect automatically' }),
   ).toBeVisible();
+  // The voices for other languages wait behind one line.
+  expect(screen.getByLabelText('Spanish voice')).not.toBeVisible();
+  fireEvent.click(screen.getByText('Voices for other languages'));
   expect(
     screen.getByText(
       'Kokoro speaks English, Spanish, French, Hindi, Italian and Portuguese. Answers in other languages stay on screen.',
@@ -2676,6 +2679,7 @@ it('an English-only Talk model says so for another language and switches to Whis
 
 it('each other language Kokoro speaks has its voice, and one it can’t speak says so (V8)', async () => {
   const view = showLanguage();
+  fireEvent.click(screen.getByText('Voices for other languages'));
   const spanish = screen.getByLabelText('Spanish voice');
   expect(spanish).toHaveValue('ef_dora');
   // French has one voice: it is named, not offered as a choice.

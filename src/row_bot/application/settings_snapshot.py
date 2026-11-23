@@ -1862,6 +1862,8 @@ def _revision(value: Mapping[str, Any]) -> str:
         updates.pop("last_check", None)
         updates.pop("last_success", None)
     value.get("system", {}).pop("memory", None)
+    # Voice's language notices follow saved settings, or languages heard lately (in memory): never stale-making.
+    value.get("voice", {}).get("language", {}).pop("notices", None)
     return hashlib.sha256(
         json.dumps(
             value, sort_keys=True, ensure_ascii=True, separators=(",", ":")

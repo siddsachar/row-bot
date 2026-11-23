@@ -2240,11 +2240,15 @@ def test_an_english_only_talk_model_says_so_for_another_language_and_offers_whis
     _write(data / "voice_runtime_settings.json", {"talk_model": "local-nemotron-streaming-en"})
     languages.forget_heard()
     try:
-        assert client.get(BASE, headers=headers).json()["voice"]["language"]["notices"] == []
+        before = client.get(BASE, headers=headers).json()
+        assert before["voice"]["language"]["notices"] == []
         for _ in range(languages.HEARD_OFTEN):
             languages.note_heard("de")
-        notice, = client.get(BASE, headers=headers).json()["voice"]["language"]["notices"]
+        after = client.get(BASE, headers=headers).json()
+        notice, = after["voice"]["language"]["notices"]
         assert (notice["engine"], notice["language_label"], notice["heard"]) == (
             "Nemotron Speech Streaming", "German", True)
+        # What was heard is not a setting: a change being made elsewhere stays current.
+        assert after["revision"] == before["revision"]
     finally:
         languages.forget_heard()

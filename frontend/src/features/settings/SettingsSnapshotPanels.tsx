@@ -421,6 +421,7 @@ export function SavedSetting({
   row,
   savedMessage,
   onDraftChange,
+  resettable = true,
   children,
 }: {
   mutation: SettingsMutationIO;
@@ -429,6 +430,8 @@ export function SavedSetting({
   value: SettingsValue;
   hint?: ReactNode;
   group?: boolean;
+  /** False: no "changed" dot or Reset (a row whose own action is the way back). */
+  resettable?: boolean;
   /**
    * When a change saves (decision 19): "change" at once (choices, switches),
    * "blur" when the field is left or Enter is pressed (text, numbers),
@@ -482,7 +485,7 @@ export function SavedSetting({
     field !== 'workspace.folder_grant';
   const defaultValue = mutation.defaults?.[field];
   const modified =
-    defaultValue !== undefined && !sameValue(value, defaultValue);
+    resettable && defaultValue !== undefined && !sameValue(value, defaultValue);
 
   // The saved value the draft started from. A draft still equal to it was
   // never edited here, so when the saved value changes elsewhere (another
@@ -1906,6 +1909,7 @@ function LanguageNotice({
       field={notice.switch_field}
       label={use}
       value={current}
+      resettable={false}
       savedMessage={() => `${use} now listens with Whisper`}
       row={{
         status: <StatusLine tone="warning">{message}</StatusLine>,
@@ -1945,9 +1949,35 @@ function VoiceLanguageGroup({
     snapshot.tts.installed &&
     snapshot.runtime.speech_output_provider === 'local';
   const spoken = wordList(language.spoken.map(name));
-  const voices = language.voice_options.filter(
-    (row) => chosen === 'auto' || row.language === chosen,
-  );
+  const voices = language.voice_options
+    .filter((row) => chosen === 'auto' || row.language === chosen)
+    .map((row) =>
+      row.options.length > 1 ? (
+        <SelectSetting
+          key={row.language}
+          mutation={mutation}
+          field={`tts.language_voices.${row.language}`}
+          label={`${row.label} voice`}
+          hint={`Speaks answers in ${row.label}.`}
+          value={
+            snapshot.tts.language_voices[
+              row.language as keyof typeof snapshot.tts.language_voices
+            ]
+          }
+          options={row.options}
+        />
+      ) : (
+        <SettingsItem
+          key={row.language}
+          label={`${row.label} voice`}
+          help={`Speaks answers in ${row.label}.`}
+          bind={false}
+          control={
+            <span className="settings-row-value">{row.options[0]?.label}</span>
+          }
+        />
+      ),
+    );
   const unspoken =
     chosen !== 'auto' && !language.spoken.includes(chosen) ? name(chosen) : '';
   return (
@@ -1997,50 +2027,25 @@ function VoiceLanguageGroup({
           }
         />
       )}
-      {kokoro &&
-        voices.map((row) =>
-          row.options.length > 1 ? (
-            <SelectSetting
-              key={row.language}
-              mutation={mutation}
-              field={`tts.language_voices.${row.language}`}
-              label={`${row.label} voice`}
-              hint={
-                chosen === 'auto'
-                  ? `Speaks answers in ${row.label}.`
-                  : `Speaks Row-Bot’s answers.`
-              }
-              value={
-                snapshot.tts.language_voices[
-                  row.language as keyof typeof snapshot.tts.language_voices
-                ]
-              }
-              options={row.options}
-            />
-          ) : (
-            <SettingsItem
-              key={row.language}
-              label={`${row.label} voice`}
-              help={`Speaks answers in ${row.label}.`}
-              bind={false}
-              control={
-                <span className="settings-row-value">
-                  {row.options[0]?.label}
-                </span>
-              }
-            />
-          ),
-        )}
+      {kokoro && chosen !== 'auto' && voices}
       {kokoro && chosen === 'auto' && (
-        <SettingsItem
-          label="Other languages"
-          bind={false}
-          status={
-            <StatusLine>
-              Kokoro speaks {spoken}. Answers in other languages stay on screen.
-            </StatusLine>
-          }
-        />
+        <Disclosure
+          className="settings-group-disclosure settings-divided"
+          summary="Voices for other languages"
+          meta={wordList(language.voice_options.map((row) => row.label))}
+        >
+          {voices}
+          <SettingsItem
+            label="Other languages"
+            bind={false}
+            status={
+              <StatusLine>
+                Kokoro speaks {spoken}. Answers in other languages stay on
+                screen.
+              </StatusLine>
+            }
+          />
+        </Disclosure>
       )}
     </SettingsGroup>
   );
