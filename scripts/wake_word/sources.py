@@ -38,6 +38,11 @@ SOURCES = (
            "https://github.com/livekit/livekit-wakeword/releases/download/v2.0.0/encoders.tar.gz",
            37_490_513, "Apache-2.0",
            "a13a83c34752f6e1c20c47f1b048c02217f6d147ee721ea101eb58e59d4922e7"),
+    # Piper's multi-speaker LibriTTS-R voice for piper-sample-generator (MIT code; the voice is
+    # trained on LibriTTS-R, CC BY 4.0): 904 speakers.
+    Source("en_US-libritts_r-medium.pt",
+           "https://github.com/rhasspy/piper-sample-generator/releases/download/v2.0.0/en_US-libritts_r-medium.pt",
+           204_089_915, "CC BY 4.0 (LibriTTS-R)"),
     Source("dev-clean.tar.gz", f"{_LIBRISPEECH}/dev-clean.tar.gz", 337_926_286, "CC BY 4.0"),
     Source("dev-other.tar.gz", f"{_LIBRISPEECH}/dev-other.tar.gz", 314_305_928, "CC BY 4.0"),
     Source("test-clean.tar.gz", f"{_LIBRISPEECH}/test-clean.tar.gz", 346_663_984, "CC BY 4.0"),
