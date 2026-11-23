@@ -37,6 +37,8 @@ _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], di
     Action.DEVICE_REMOVED: (ADMIN, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", {}, {"reason": "revoked"}),
     Action.DEVICE_LOCKED_DOWN: (PERSON, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", _ON_DEVICE,
                                 {"offline_days": 8}),
+    Action.DEVICE_CREDENTIAL_REUSED: (SERVICE, "org", Target(TargetKind.DEVICE, DEVICE), "blocked", _ON_DEVICE,
+                                      {"credential": "refresh_token"}),
     Action.MODEL_CALLED: (PERSON, "org", None, "succeeded", {**_ON_DEVICE, "turn_id": "turn-41"},
                           {"provider": "azure_openai", "model": "deployments/gpt-5", "input_tokens": 1200,
                            "output_tokens": 300, "cache_read_tokens": 800, "duration_ms": 2100,

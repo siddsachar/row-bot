@@ -53,8 +53,9 @@ def is_admin(conn: psycopg.Connection, principal: RequestPrincipal, settings: Or
 
 def enter_admin(conn: psycopg.Connection, principal: RequestPrincipal, settings: OrgSettings) -> bool:
     """Whether ``principal`` is an admin; when it is, this transaction (``conn``, inside the principal's
-    ``principal_transaction``) acts as one."""
-    if not is_admin(conn, principal, settings):
+    ``principal_transaction``) acts as one. Only from a browser session: a device's bearer token never acts as an
+    admin (the gate already keeps it off the admin routes)."""
+    if principal.device_id is not None or not is_admin(conn, principal, settings):
         return False
     conn.execute("SELECT set_config('row_bot.admin', 'on', true)")
     return True

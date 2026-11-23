@@ -235,12 +235,12 @@ def test_a_person_sees_and_refreshes_only_their_own_devices(org_database, idp, p
         conn.execute("DELETE FROM row_bot_org.devices")
     with pytest.raises(psycopg.errors.InsufficientPrivilege), principal_transaction(pool, ada_id) as conn:
         conn.execute("UPDATE row_bot_org.devices SET principal_id = %s", (bo_id,))
-    # Nobody registers a device as someone else, or revokes their own through the person's rules.
+    # Nobody registers a device as someone else, or revokes someone else's (leaving revokes only your own).
     with pytest.raises(psycopg.errors.InsufficientPrivilege), principal_transaction(pool, bo_id) as conn:
         conn.execute("INSERT INTO row_bot_org.devices (principal_id, name, platform, app_version)"
                      " VALUES (%s, 'x', 'linux', '1')", (ada_id,))
-    with pytest.raises(psycopg.errors.InsufficientPrivilege), principal_transaction(pool, ada_id) as conn:
-        conn.execute("UPDATE row_bot_org.devices SET revoked_at = now()")
+    with principal_transaction(pool, bo_id) as conn:
+        assert conn.execute("UPDATE row_bot_org.devices SET revoked_at = now()").rowcount == 0
 
 
 def test_a_revoked_device_stays_revoked_even_for_an_admin_on_their_own(org_database, idp, pool) -> None:

@@ -352,3 +352,38 @@ A connected Row-Bot registers itself (`POST /api/devices`) and reports in (`POST
 Admins list devices (`GET /api/admin/devices?person=&revoked=`) and revoke one
 (`POST /api/admin/devices/{id}/revoke`): a revoked device is refused from then on. To stop a person
 altogether, suspend them (People and admins).
+
+**How a Row-Bot joins.** In Row-Bot's settings the person enters the server's address. Row-Bot opens the system
+browser at `/auth/device`; the person signs in with the company's identity provider as usual and sees "Connect
+Row-Bot on <device> to <server>?". Connect registers the device (`device.joined`) and hands Row-Bot, through its
+own loopback address on the person's computer (`http://127.0.0.1:<port>/...`, nothing else is accepted), a
+one-time code that it trades for its own credential (OAuth's native-app flow with PKCE, RFC 8252). The browser
+session plays no further part: Row-Bot's calls to the person's API, the models and audit carry the device's
+bearer token. A device's token never opens an admin route or the console: administration stays in a browser.
+
+**What stops a device.** Every request with a device's token checks that the device isn't revoked and its person
+is active, so each takes effect on the device's next request:
+- an admin revokes the device (above): it's done for good; the person joins again to get a new device;
+- an admin suspends the person: all their devices stop, and start working again if they're resumed (a device
+  whose refresh token lapsed meanwhile signs in again);
+- the person leaves in Row-Bot (`POST /api/device/leave`): the device is revoked with its tokens
+  (`device.removed`, reason `left`).
+
+**Offboarding means suspending the person in Row-Bot too** (People and admins). Disabling them at the identity
+provider alone stops their devices only when each next signs in through the browser, which happens within 30
+days. Groups, too, are refreshed at each browser sign-in.
+
+**Token lifetimes** (fixed in this version): an access token lasts 1 hour, and Row-Bot then rotates its refresh
+token. A device's refresh tokens end 30 days after it last signed in through the browser, however much they're
+used, so every device goes back through the company sign-in (and the identity provider) at least monthly. Signing
+in again keeps the same device record: Row-Bot sends its device id, its old tokens end, and no new
+`device.joined` is recorded. A refresh token presented a second time is treated as a copy and revokes every token
+of its device (`device.credential_reused`), with one allowance: within 60 seconds of its use, and while nothing
+issued from it has been used, the server assumes its answer was lost and issues a new pair instead. A one-time code
+presented a second time revokes its device's tokens the same way. The server keeps only HMAC verifiers of codes
+and tokens.
+
+**Limits per client address** (`ROW_BOT_ORG_SIGN_IN_RATE_LIMIT` a minute, each counted apart from sign-in's):
+`/auth/device` counts every request; `/api/device/token` counts only refused ones, so an office of Row-Bots
+refreshing behind one address is never held up, while an address that keeps presenting bad codes or tokens waits
+out the minute.

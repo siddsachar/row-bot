@@ -17,7 +17,8 @@ console, when it is served), or on ``next``: ``/auth/login?next=/console/people`
 in its own ``__Host-`` cookie for the callback, which checks it again. The database keeps only the session's
 verifier.
 
-``GET /api/me`` is the caller: ``id``, ``display_name``, ``email``, ``status``, ``groups`` and ``admin``.
+``GET /api/me`` is the caller: ``id``, ``display_name``, ``email``, ``status``, ``groups`` and ``admin`` (always
+false for a device's bearer token: administration is browser-only).
 """
 
 from __future__ import annotations
@@ -229,7 +230,9 @@ def identity_router(service: IdentityService) -> APIRouter:
         found = store.current_principal(conn, principal.principal_id)
         if found is None:
             return JSONResponse({"error": "sign_in_required"}, status_code=401)
-        return JSONResponse({**found, "admin": roles.is_admin(conn, principal, settings)})
+        # Administration is browser-only, so a device's bearer is never an admin's.
+        admin = principal.device_id is None and roles.is_admin(conn, principal, settings)
+        return JSONResponse({**found, "admin": admin})
 
     @router.get(LANDING_PATH)
     def landing(principal: RequestPrincipal = Depends(request_principal)) -> Response:
