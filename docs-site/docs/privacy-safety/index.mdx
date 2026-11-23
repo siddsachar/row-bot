@@ -7,7 +7,7 @@ import Screenshot from '@site/src/components/Screenshot';
 
 # Privacy And Safety
 
-Row-Bot is local-first: the app and its data live on your machine. Local-first does not mean every feature is offline. Hosted models, web search, browser actions, account tools, channels, MCP servers, plugins, realtime voice, and media providers can send data outside the app when you configure and use them.
+Row-Bot is local-first: the app and its data live on your machine. Local-first does not mean every feature is offline. Hosted models, web search, browser actions, account tools, channels, MCP servers, plugins, Live voice, cloud speech, and media providers can send data outside the app when you configure and use them.
 
 For how Row-Bot keeps its agent's actions in bounds, and how to report a security problem, read [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds).
 
@@ -25,7 +25,7 @@ Row-Bot also records how many tokens each model call used, for the context ring 
 
 ## External Calls
 
-External calls happen when you choose or enable something that needs them: hosted models, subscription providers, API providers, web search, browser automation, account tools, messaging channels, MCP servers, plugin tools, realtime voice, and media generation. OpenRouter requests identify Row-Bot as the app making them (its website address and name, in the headers OpenRouter asks apps to send), which lets OpenRouter show Row-Bot in its public app rankings; these headers add no user, prompt or account data.
+External calls happen when you choose or enable something that needs them: hosted models, subscription providers, API providers, web search, browser automation, account tools, messaging channels, MCP servers, plugin tools, Live voice, cloud speech, and media generation. OpenRouter requests identify Row-Bot as the app making them (its website address and name, in the headers OpenRouter asks apps to send), which lets OpenRouter show Row-Bot in its public app rankings; these headers add no user, prompt or account data.
 
 An installed Row-Bot also keeps itself up to date: about once a day it asks GitHub for a new release and, unless you turn background downloads off, downloads the changed files from GitHub and, when libraries changed, from the Python Package Index and PyTorch. Every file is checked against a published checksum, and update checks and downloads carry no account, usage or personal data. See [Updates](/docs/operations/updates#what-updates-contact).
 
@@ -43,6 +43,9 @@ Row-Bot also contacts these on its own, as Settings › System › Privacy lists
 | Web search, reading pages, Row-Bot's browser | The search service and the sites involved | When Row-Bot looks something up or browses for you | The search words or the page request |
 | Apps and accounts (GitHub, Google, Outlook through Microsoft Graph, X, MCP servers, plugins) | That service | When a tool of the app runs | What that action needs |
 | Messaging channels | Telegram, Discord, Slack, WhatsApp or your SMS provider | When you or a workflow send through them | The message |
+| Speech models | Hugging Face (Whisper), GitHub (Kokoro and the faster speech models), ModelScope (SenseVoice) | When you press **Install** or **Download** in Settings › Voice | Nothing personal; then they run on the computer running Row-Bot. Row-Bot Voice sends your voice only to Row-Bot |
+| Cloud speech services | Deepgram, AssemblyAI, OpenAI or Google (**Listen with**); ElevenLabs, Cartesia or Google (**Speak with**) | Only once you choose one and its key is saved, while you talk or Row-Bot speaks | Listening: the stretches where you speak. Speaking: the text of each sentence. **Describe a voice**: your description only |
+| Live voice | OpenAI, Google or xAI | While you talk with the provider you chose from a chat's Talk menu | Your voice, the chat's recent messages, the agent profile's name and a few related memories (none in an incognito chat), and Row-Bot's answers and progress lines for it to say; for Gemini Live, what you share on camera or screen |
 | Install stats | Row-Bot's stats service (Cloudflare) | About once a day | A random ID, the version and the system. See [Install Stats](#install-stats) |
 | Finding local model servers | This computer only (127.0.0.1): Ollama's, LM Studio's, vLLM's and llama.cpp's usual ports | When you open **On this computer** in Setup, or choose Check again | A request for the model list; nothing leaves this computer |
 | Updates | GitHub, and when libraries change, the Python Package Index and PyTorch | About once a day, and when downloading an update | Nothing personal. See [Updates](/docs/operations/updates#what-updates-contact) |
