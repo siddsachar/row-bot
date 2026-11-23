@@ -282,6 +282,9 @@ def build_saved_model_catalog_rows(
     for info in ollama_rows:
         if isinstance(info, dict):
             add("ollama", info.get("model_id") or "", info, local=True)
+    from row_bot.company.provider import add_rows as add_company_rows
+
+    add_company_rows(rows)  # Row-Bot for Teams: a joined company's models (none, and no network, otherwise).
     return sorted(rows.values(), key=lambda row: (
         row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id,
     ))
@@ -296,6 +299,9 @@ def project_saved_catalog_readiness(rows: Iterable[CatalogModelRow]) -> list[Cat
     statuses = _provider_status_by_id()
     projected = []
     for row in rows:
+        if row.provider_id == "company":
+            projected.append(row)  # Row-Bot for Teams: assessed from the company's own state (company.provider).
+            continue
         assessed = _catalog_row(
             provider_id=row.provider_id, model_id=row.model_id,
             display_name=row.display_name, categories=row.categories,

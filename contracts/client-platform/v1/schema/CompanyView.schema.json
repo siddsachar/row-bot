@@ -67,6 +67,20 @@
       ],
       "title": "Joined At"
     },
+    "model_count": {
+      "anyOf": [
+        {
+          "maximum": 512,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Count"
+    },
     "name": {
       "anyOf": [
         {
@@ -129,6 +143,32 @@
       ],
       "title": "State",
       "type": "string"
+    },
+    "suggested_model_name": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggested Model Name"
+    },
+    "suggested_model_ref": {
+      "anyOf": [
+        {
+          "maxLength": 280,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggested Model Ref"
     }
   },
   "required": [

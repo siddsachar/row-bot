@@ -177,10 +177,14 @@ def exchange_code(origin: str, *, code: str, verifier: str, redirect_uri: str) -
     }))
 
 
-def _disconnect() -> None:
+def disconnect() -> None:
+    """The company no longer accepts this Row-Bot: the record says so and the credential goes."""
+    from row_bot.application.live_updates import publish
+
     logger.info("The company no longer accepts this Row-Bot; it shows as disconnected")
     store.mark_disconnected()
     store.delete_credential()
+    publish("models")  # Its models show as unavailable now.
 
 
 def _refresh(origin: str, stale: store.Credential) -> store.Credential:
@@ -207,29 +211,42 @@ def _refresh(origin: str, stale: store.Credential) -> store.Credential:
                     raise
             except Refused as refused:
                 if refused.error == "invalid_grant":
-                    _disconnect()
+                    disconnect()
                     raise Disconnected from None
                 raise Unreachable(refused.error) from None
         store.save_credential(grant.credential)  # Before the new pair is used: the old one is spent.
         return grant.credential
 
 
-def call(origin: str, method: str, path: str) -> httpx.Response:
-    """A call with the device's bearer, refreshing it when it is about to end and once more on a 401.
+def bearer(origin: str) -> store.Credential:
+    """The credential to present now, refreshed first when its access token is about to end.
 
     Raises Disconnected, Unreachable (Busy for a 429) or store.StorageUnavailable (a locked keychain)."""
     credential = store.read_credential()
     if credential is None:
-        _disconnect()
+        disconnect()
         raise Disconnected
     if credential.expires_at - EARLY <= now():
         credential = _refresh(origin, credential)
+    return credential
+
+
+def refreshed(origin: str, stale: store.Credential) -> store.Credential:
+    """After a 401: a new pair (or the one another call has just saved). Raises as ``bearer``."""
+    return _refresh(origin, stale)
+
+
+def call(origin: str, method: str, path: str) -> httpx.Response:
+    """A call with the device's bearer, refreshing it when it is about to end and once more on a 401.
+
+    Raises Disconnected, Unreachable (Busy for a 429) or store.StorageUnavailable (a locked keychain)."""
+    credential = bearer(origin)
     response = _request(origin, method, path, bearer=credential.access_token)
     if response.status_code == 401 and _answer(response).get("error") == "invalid_token":
-        credential = _refresh(origin, credential)
+        credential = refreshed(origin, credential)
         response = _request(origin, method, path, bearer=credential.access_token)
         if response.status_code == 401:
-            _disconnect()
+            disconnect()
             raise Disconnected
     return response
 

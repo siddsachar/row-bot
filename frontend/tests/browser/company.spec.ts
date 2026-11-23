@@ -6,6 +6,7 @@ import {
   screenshot,
   test,
 } from './evidence';
+import { clickNewChat } from './unified-helpers';
 
 // Settings › Company (Row-Bot for Teams, C1b): Join, the browser sign-in,
 // joined, Leave, and the disconnected and unreachable states. The company
@@ -152,4 +153,125 @@ test('Settings › Company: disconnected, unreachable and a refused address', as
     ),
   ).toBeVisible({ timeout: 15_000 });
   await shoot(page, info, 'company-error');
+});
+
+// Company models (C2): the joined company's models in the composer's picker
+// as their own group, Settings › Company's line, and their group in
+// Settings › Models. The model list and the company's catalog page are
+// answered here; nothing reaches a company server.
+
+const companyModels = [
+  ['qwen3-32b', 'Qwen3 32B'],
+  ['claude-team', 'Claude for the team'],
+].map(([id, name]) => ({
+  provider_id: 'company',
+  model_ref: `model:company:${id}`,
+  label: `${name} - ${COMPANY}`,
+  available: true,
+  unavailable_reason: null,
+  billing: null,
+  personal: false,
+  chat_only: false,
+}));
+
+const catalogRow = {
+  provider_id: 'company',
+  model_id: 'qwen3-32b',
+  selection_ref: 'model:company:qwen3-32b',
+  display_name: 'Qwen3 32B',
+  provider_display_name: COMPANY,
+  categories: ['chat'],
+  input_modalities: ['text'],
+  output_modalities: ['text'],
+  tool_calling: true,
+  reasoning: null,
+  context_window: 131072,
+  installed: true,
+  configured: true,
+  runtime_ready: true,
+  status_reason: '',
+  runtime_mode: 'agent',
+  source: 'company_catalog',
+  runtime_state: 'ready',
+  offered: false,
+  favourite_rank: null,
+};
+
+async function companyModelRoutes(page: Page) {
+  await page.route('**/api/v1/handshake', async (route: Route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.models = [...(body.models ?? []), ...companyModels];
+    await route.fulfill({ response, json: body });
+  });
+  await page.route('**/api/v1/settings/models/catalog?*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('provider_id') !== 'company')
+      return route.fallback();
+    await route.fulfill({
+      status: 200,
+      json: {
+        schema_version: 1,
+        revision: 'company',
+        generated_at: null,
+        freshness: 'unavailable',
+        items: [catalogRow],
+        total: 1,
+        next_cursor: null,
+      },
+    });
+  });
+}
+
+test('company models: their own group in the picker, the Company line and Settings › Models', async ({
+  page,
+}, info) => {
+  const state = {
+    view: {
+      ...joined,
+      model_count: 2,
+      suggested_model_ref: 'model:company:qwen3-32b',
+      suggested_model_name: 'Qwen3 32B',
+    } as View,
+    asked: [] as string[],
+  };
+  await companyRoutes(page, state);
+  await companyModelRoutes(page);
+
+  await page.goto('/app-v2/');
+  await clickNewChat(page);
+  const pill = page.getByRole('button', { name: 'Model', exact: true });
+  const plus = page.getByRole('button', { name: 'Add files and more' });
+  await expect(pill.or(plus).first()).toBeVisible({ timeout: 15_000 });
+  // A phone opens it from the model under the chat's title.
+  if (await pill.isVisible()) await pill.click();
+  else
+    await page
+      .locator('header.conversation-heading')
+      .getByRole('button', { name: /^(Model: |Choose a model$)/ })
+      .click();
+  const list = page.getByRole('listbox', { name: 'Models' });
+  await expect(list).toBeVisible();
+  const group = list.getByRole('group', { name: new RegExp(COMPANY) });
+  await expect(group.getByRole('option', { name: /^Qwen3 32B/ })).toBeVisible();
+  await expect(
+    group.getByRole('option', { name: /^Claude for the team/ }),
+  ).toBeVisible();
+  await shoot(page, info, 'company-models-picker');
+  await page.keyboard.press('Escape');
+
+  await page.goto('/app-v2/settings/company');
+  await expect(page.getByText(`2 models from ${COMPANY}`)).toBeVisible({
+    timeout: 15_000,
+  });
+  await shoot(page, info, 'company-models-line');
+
+  await page
+    .getByRole('link', { name: `See ${COMPANY}’s models in Models` })
+    .click();
+  await expect(page.getByRole('heading', { name: COMPANY })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText('Qwen3 32B').first()).toBeVisible();
+  await shoot(page, info, 'company-models-settings');
 });

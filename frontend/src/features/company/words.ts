@@ -65,6 +65,15 @@ export function leaveWords(company: string): string {
   return `This Row-Bot stops using ${company}’s models and rules. Your own chats and memory stay on this computer.`;
 }
 
+/** The provider id of the company's models (`model:company:<id>`). */
+export const COMPANY_PROVIDER = 'company';
+
+/** Settings › Company's line on the company's models (C2). */
+export function modelsWords(count: number, company: string): string {
+  if (count === 0) return `No models from ${company} yet`;
+  return `${count} model${count === 1 ? '' : 's'} from ${company}`;
+}
+
 /** Why Join is off on a phone or another computer. */
 export function elsewhereWords(computer: string): string {
   return `Join from Row-Bot on ${computer}: the sign-in opens in that computer’s browser.`;

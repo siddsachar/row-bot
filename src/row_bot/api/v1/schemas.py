@@ -2899,6 +2899,11 @@ class CompanyView(WireModel):
     notice: Literal["left", "left_offline"] | None
     # False on another device (a phone): Join and Sign in again open this computer's browser.
     on_this_computer: bool
+    # Company models (C2): how many the company offers this person, None until its catalog is read; and the
+    # one it suggests to a person who hasn't chosen a model.
+    model_count: int | None = Field(default=None, ge=0, le=512)
+    suggested_model_ref: str | None = Field(default=None, max_length=280)
+    suggested_model_name: str | None = Field(default=None, max_length=256)
 
 
 class CompanyJoinRequest(WireModel):

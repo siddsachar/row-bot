@@ -63,7 +63,8 @@ def test_an_ended_access_token_is_refreshed_and_the_new_pair_saved_before_it_is_
     assert view["state"] == "joined" and company_server.refreshes == 1
     new = store.read_credential()
     assert new.refresh_token != old.refresh_token and old.refresh_token not in company_server.refresh
-    assert saved_first == [True]  # The keychain held the new pair when it was first presented.
+    # The keychain held the new pair when it was first presented (/api/me, then the company's models).
+    assert saved_first and all(saved_first)
 
 
 def test_two_calls_that_need_a_refresh_share_one(company_server, monkeypatch):

@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type { CompanyView } from '../../api/types';
@@ -223,4 +224,39 @@ it('on a phone or another computer, Join is off and says where to join from', as
   expect(
     screen.getByRole('textbox', { name: 'Your company’s Row-Bot server' }),
   ).toBeDisabled();
+});
+
+it('joined: one line says how many models the company offers, linking to Models', async () => {
+  const company = vi.fn(async () => joined({ model_count: 3 }));
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <CompanySettings
+          controller={{ company } as unknown as ClientController}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText(`3 models from ${COMPANY}`)).toBeVisible();
+  expect(
+    screen.getByRole('link', { name: `See ${COMPANY}’s models in Models` }),
+  ).toHaveAttribute('href', '/settings/models#company-models');
+});
+
+it('joined with no models offered yet, the line says so', async () => {
+  const company = vi.fn(async () => joined({ model_count: 0 }));
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <CompanySettings
+          controller={{ company } as unknown as ClientController}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+
+  expect(
+    await screen.findByText(`No models from ${COMPANY} yet`),
+  ).toBeVisible();
 });

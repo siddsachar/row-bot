@@ -5,7 +5,8 @@ import {
   useState,
   type FormEvent,
 } from 'react';
-import { Building2, Globe, LogOut, RefreshCw, Unplug } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Building2, Cpu, Globe, LogOut, RefreshCw, Unplug } from 'lucide-react';
 import type { ClientController } from '../../api/controller';
 import type {
   CompanyAction,
@@ -30,6 +31,7 @@ import {
   failureWords,
   joinedWords,
   leaveWords,
+  modelsWords,
   noticeWords,
   personWords,
 } from './words';
@@ -212,6 +214,23 @@ export default function CompanySettings({
         >
           {error && <StatusLine tone="danger">{error}</StatusLine>}
         </SettingsItem>
+        {view.model_count != null && (
+          <SettingsItem
+            label={modelsWords(view.model_count, company)}
+            icon={<Cpu size={16} aria-hidden />}
+            tone="neutral"
+            bind={false}
+            control={
+              <Link
+                className="button ghost small"
+                to="/settings/models#company-models"
+                aria-label={`See ${company}’s models in Models`}
+              >
+                Models
+              </Link>
+            }
+          />
+        )}
       </SettingsGroup>
     );
 

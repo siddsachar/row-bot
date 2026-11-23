@@ -50,6 +50,7 @@ import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
 import YourModels from './YourModels';
 import LocalModelsSettings from '../local-runtime/LocalModelsSettings';
+import CompanyModels from '../company/CompanyModels';
 
 /** A star puts a model in your models, which every picker lists; the Catalog below has the rest. */
 const LISTED_NOTE =
@@ -926,6 +927,13 @@ export default function ModelsPanel({
           await reload();
           setCatalogRefresh((value) => value + 1);
         }}
+      />
+      <CompanyModels
+        controller={controller}
+        refreshSignal={catalogRefresh}
+        defaults={defaults}
+        onDefault={catalogDefault}
+        onChanged={reload}
       />
       {connections?.((card) => (
         <ModelCatalog

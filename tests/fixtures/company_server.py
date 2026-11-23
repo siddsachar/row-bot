@@ -1,8 +1,10 @@
-"""A fake Row-Bot company server (C1a's device routes) and a fake browser, for the app's company tests.
+"""A fake Row-Bot company server (C1a's device routes, S4's catalog and gateway) and a fake browser, for the
+app's company tests.
 
 The server is an ``httpx.MockTransport``: nothing leaves the process. The browser follows the app's sign-in
 address the way a person pressing Connect would, then visits Row-Bot's loopback address for real (loopback
-only). Tokens are shaped like the server's (``rboc_``, ``rboa_``, ``rbor_`` and 43 characters).
+only). Tokens are shaped like the server's (``rboc_``, ``rboa_``, ``rbor_`` and 43 characters). The gateway
+answers both wires, whole or streamed, the way S4's does (its refusals in the caller's wire format).
 """
 
 from __future__ import annotations
@@ -25,12 +27,84 @@ import pytest
 
 from row_bot import secret_store
 from row_bot.application import client_company
-from row_bot.company import client, sign_in
+from row_bot.company import client, provider, sign_in, store
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
 ORIGIN = "https://rowbot.example.test"
+COMPANY = "rowbot.example.test"
 PERSON = {"id": "00000000-0000-4000-8000-000000000001", "display_name": "Fixture Person",
           "email": "person@example.test", "status": "active", "groups": ["staff"], "admin": False}
+# S4's GET /api/models: two chat models (one on each wire, the first the company's default) and an embedding one.
+CATALOG = [
+    {"id": "qwen3-32b", "display_name": "Qwen3 32B", "kind": "chat", "api": "openai", "context_window": 131072,
+     "default": True},
+    {"id": "claude-team", "display_name": "Claude for the team", "kind": "chat", "api": "anthropic",
+     "context_window": 200000, "default": False},
+    {"id": "bge-m3", "display_name": "BGE M3", "kind": "embeddings", "api": "openai", "context_window": 8192,
+     "default": False},
+]
+REPLY = "Hello from the company"
+GATEWAY_OPENAI = "/api/gateway/openai/v1/chat/completions"
+GATEWAY_ANTHROPIC = "/api/gateway/anthropic/v1/messages"
+
+
+def _sse(events: list[tuple[str | None, dict | str]]) -> bytes:
+    lines = []
+    for event, data in events:
+        if event:
+            lines.append(f"event: {event}")
+        lines.append(f"data: {data if isinstance(data, str) else json.dumps(data)}")
+        lines.append("")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _openai_answer(model: str, stream: bool) -> httpx.Response:
+    if not stream:
+        return httpx.Response(200, json={
+            "id": "chatcmpl-1", "object": "chat.completion", "model": model,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": REPLY}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 4, "total_tokens": 9}})
+    words = REPLY.split(" ")
+    chunks = [(None, {"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": model,
+                      "choices": [{"index": 0, "delta": {"content": (" " if index else "") + word},
+                                   "finish_reason": None}]}) for index, word in enumerate(words)]
+    chunks.append((None, {"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": model,
+                          "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                          "usage": {"prompt_tokens": 5, "completion_tokens": 4, "total_tokens": 9}}))
+    chunks.append((None, "[DONE]"))
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=_sse(chunks))
+
+
+def _anthropic_answer(model: str, stream: bool) -> httpx.Response:
+    if not stream:
+        return httpx.Response(200, json={
+            "id": "msg_1", "type": "message", "role": "assistant", "model": model,
+            "content": [{"type": "text", "text": REPLY}], "stop_reason": "end_turn", "stop_sequence": None,
+            "usage": {"input_tokens": 5, "output_tokens": 4}})
+    events: list[tuple[str | None, dict | str]] = [
+        ("message_start", {"type": "message_start", "message": {
+            "id": "msg_1", "type": "message", "role": "assistant", "model": model, "content": [],
+            "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 5, "output_tokens": 0}}}),
+        ("content_block_start", {"type": "content_block_start", "index": 0,
+                                 "content_block": {"type": "text", "text": ""}}),
+    ]
+    for index, word in enumerate(REPLY.split(" ")):
+        events.append(("content_block_delta", {"type": "content_block_delta", "index": 0,
+                                               "delta": {"type": "text_delta", "text": (" " if index else "") + word}}))
+    events += [
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                           "usage": {"output_tokens": 4}}),
+        ("message_stop", {"type": "message_stop"}),
+    ]
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=_sse(events))
+
+
+def gateway_error(wire: str, status: int, code: str, message: str) -> httpx.Response:
+    """A gateway refusal in the caller's wire format (S4's ``upstream.error_body``)."""
+    body = ({"type": "error", "error": {"type": code, "message": message}} if wire == "anthropic"
+            else {"error": {"message": message, "type": code, "code": code}})
+    return httpx.Response(status, json=body)
 _REDIRECT = re.compile(r"^http://127\.0\.0\.1:[1-9][0-9]{0,4}/[A-Za-z0-9._~/-]*$")
 
 
@@ -60,6 +134,10 @@ class FakeCompanyServer:
         self.limited = False  # The token endpoint answers 429.
         self.refresh_gate: tuple[threading.Event, threading.Event] | None = None  # (entered, release)
         self.on_bearer: Callable[[str], None] | None = None
+        self.catalog: list[dict] = [dict(model) for model in CATALOG]
+        self.gateway: list[httpx.Request] = []  # Every request that reached a gateway route.
+        # The gateway's answer to the next calls instead of the model's: (status, code, message).
+        self.refusal: tuple[int, str, str] | None = None
         self._numbers = itertools.count(1)
         self._lock = threading.Lock()
         self.transport = httpx.MockTransport(self.handle)
@@ -94,6 +172,44 @@ class FakeCompanyServer:
         with self._lock:
             self._end_tokens(device_id)
 
+    def end_access(self) -> None:
+        """Every access token is refused from now on (its hour is up early); refresh tokens still work."""
+        with self._lock:
+            self.access.clear()
+
+    def join_here(self) -> store.Record:
+        """A Row-Bot joined to this server, as a finished sign-in leaves it, without the browser."""
+        device_id = str(uuid.uuid4())
+        with self._lock:
+            self.devices[device_id] = {"name": "Fixture laptop", "platform": "windows", "app_version": None,
+                                       "revoked": False}
+            issued = self._issue(device_id)
+        store.save_credential(store.Credential(issued["access_token"], issued["refresh_token"],
+                                               client.now() + issued["expires_in"]))
+        record = store.Record(origin=ORIGIN, device_id=device_id, company=COMPANY, name="Fixture Person",
+                              email="person@example.test", device_name="Fixture laptop",
+                              joined_at="2026-11-23T09:00:00+00:00")
+        store.write_record(record)
+        return record
+
+    def _gateway(self, request: httpx.Request) -> httpx.Response:
+        # A copy: a request sent again after a 401 is the same object, its Authorization changed.
+        self.gateway.append(httpx.Request(request.method, request.url, headers=request.headers.copy(),
+                                          content=request.content))
+        if self._bearer(request) is None:
+            return httpx.Response(401, json={"error": "invalid_token"},
+                                  headers={"WWW-Authenticate": 'Bearer error="invalid_token"'})
+        wire = {GATEWAY_OPENAI: "openai", GATEWAY_ANTHROPIC: "anthropic"}.get(request.url.path)
+        if wire is None or request.method != "POST":
+            return httpx.Response(404, json={"detail": "Not Found"})
+        if self.refusal is not None:
+            return gateway_error(wire, *self.refusal)
+        body = json.loads(request.content or b"{}")
+        model = str(body.get("model") or "")
+        if not any(item["id"] == model and item["api"] == wire for item in self.catalog):
+            return gateway_error(wire, 403, "model_not_allowed", "This model isn't available to you.")
+        return (_openai_answer if wire == "openai" else _anthropic_answer)(model, body.get("stream") is True)
+
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         response = self._route(request)
@@ -127,6 +243,12 @@ class FakeCompanyServer:
                 return httpx.Response(401, json={"error": "invalid_token"})
             self.revoke(self.access[token])
             return httpx.Response(204)
+        if (request.method, path) == ("GET", "/api/models"):
+            if self._bearer(request) is None:
+                return httpx.Response(401, json={"error": "invalid_token"})
+            return httpx.Response(200, json={"models": self.catalog})
+        if path.startswith("/api/gateway/"):
+            return self._gateway(request)
         return httpx.Response(404, json={"error": "not_found"})
 
     def _token_endpoint(self, body: dict) -> httpx.Response:
@@ -226,6 +348,9 @@ def company_state(monkeypatch) -> None:
                         "_fresh_next": False}.items():
         monkeypatch.setattr(client_company, name, value)
     monkeypatch.setattr(client, "_backoff_until", 0.0)
+    # No company catalog read by another test.
+    for name, value in {"_models": (), "_origin": None, "_read_at": None, "_reading": None}.items():
+        monkeypatch.setattr(provider, name, value)
 
 
 @pytest.fixture
@@ -237,3 +362,4 @@ def company_server(tmp_path, monkeypatch, keychain, company_state) -> Iterator[F
     monkeypatch.setattr(sign_in, "open_browser", server.browse)
     yield server
     client_company.cancel()
+    provider.settle()  # A background catalog read ends here, while the fake server still answers it.

@@ -85,6 +85,9 @@ def status() -> dict[str, Any]:
         failure = None if join else (_unreachable if state == "unreachable" and _unreachable != "offline"
                                      else _failure)
         origin = record.origin if record else (join.origin if join else None)
+        from row_bot.company import provider
+
+        suggested = provider.suggestion(record)
         return {
             "schema_version": 1,
             "state": state,
@@ -97,6 +100,11 @@ def status() -> dict[str, Any]:
             "rejoining": bool(join and join.device_id),
             "failure": failure,
             "notice": None if join or record else _notice,
+            # Company models (C2): how many the company offers (None until its catalog is read) and the one
+            # it suggests to a person who hasn't chosen a model.
+            "model_count": provider.model_count(record),
+            "suggested_model_ref": suggested.ref if suggested else None,
+            "suggested_model_name": suggested.name if suggested else None,
         }
 
 
@@ -230,6 +238,10 @@ def _finish(join: _Join) -> None:
         elif join.device_id and failure != "denied":
             _fresh_next = True
     logger.info("Joining a company %s", f"didn't finish ({failure})" if failure else "finished")
+    if failure is None:
+        from row_bot.company import provider
+
+        provider.after_join()  # Its models, in every model list.
 
 
 def cancel() -> dict[str, Any]:
@@ -253,6 +265,8 @@ def check() -> dict[str, Any]:
         return status()
     from row_bot.company import client
 
+    from row_bot.company import provider
+
     reach: str | None = None
     try:
         name, email = client.me(record.origin)
@@ -260,6 +274,11 @@ def check() -> dict[str, Any]:
         if (current and current.device_id == record.device_id and not current.disconnected
                 and (current.name, current.email) != (name, email)):
             store.write_record(replace(current, name=name, email=email))
+        try:
+            provider.refresh()  # Settings opened: the company's models, read again.
+        except client.Unreachable as error:
+            logger.info("The company's models couldn't be read (%s); the lists keep what they had",
+                        type(error).__name__)
     except client.Disconnected:
         pass
     except client.Busy:
@@ -294,6 +313,9 @@ def leave() -> dict[str, Any]:
             told = False
     store.delete_credential()
     store.delete_record()
+    from row_bot.company import provider
+
+    provider.forget()  # Its models leave every model list.
     with _LOCK:
         _notice, _left = ("left" if told else "left_offline"), record.company
         _failure = _unreachable = None
