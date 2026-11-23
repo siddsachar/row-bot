@@ -44,6 +44,7 @@ import { announceSaved } from '../shell/save-file';
 import { editLive } from '../shell/video-edits';
 import { LivePreview } from './LivePreview';
 import { acquire, release } from './media-urls';
+import { PublishKit } from './PublishKit';
 import { StoryboardCard } from './StoryboardCard';
 import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
@@ -341,10 +342,12 @@ export default function VideoPanel({
 
   // The desktop app's Save dialog (Exports while it reconnects), or a browser download.
   async function download(edit = view?.edit) {
-    if (!edit?.media_ref) return;
-    const name = edit.output_name || 'video.mp4';
+    if (edit?.media_ref)
+      await saveFile(edit.media_ref, edit.output_name || 'video.mp4');
+  }
+  async function saveFile(ref: string, name: string) {
     const result = await platform
-      .save(edit.media_ref, name)
+      .save(ref, name)
       .catch((): CapabilityResult<SavedFile> =>
         unavailable('operation_failed'),
       );
@@ -352,7 +355,7 @@ export default function VideoPanel({
     if (result.status !== 'ok') {
       setError(
         result.reason === 'user_gesture_required'
-          ? 'Press Download again to save the video.'
+          ? 'Press Download again to save it.'
           : `Couldn't download ${name}. Try again.`,
       );
       return;
@@ -941,6 +944,20 @@ export default function VideoPanel({
               );
             })}
           </ul>
+          <PublishKit
+            view={view}
+            busy={busy}
+            onAsk={(text) => void ask(text)}
+            onSave={(ref, name) => void saveFile(ref, name)}
+            onCopy={(text, what) =>
+              void writeClipboardText(text, platform.writeClipboard).then(
+                (done) =>
+                  done
+                    ? setNotice(`${what} copied.`)
+                    : setError(`Couldn't copy the ${what.toLowerCase()}.`),
+              )
+            }
+          />
         </section>
       )}
       <Disclosure

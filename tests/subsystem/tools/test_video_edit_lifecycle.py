@@ -340,3 +340,43 @@ def test_a_real_caption_is_as_large_as_its_frame_is_tall(studio, tmp_path):
     wide, (tall, bottom) = caption_rows("16:9", "640x360")[0], caption_rows("9:16", "360x640")
     assert tall > 1.4 * wide, (wide, tall)
     assert bottom < 1920 * 0.8, "above a phone app's own buttons and caption"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_portrait_post_is_4_5_and_keeps_what_is_said_for_its_subtitles(studio, tmp_path):
+    """C10 for real: a wide clip made as a 4:5 portrait post fills 1080×1350, cropped to fill; the edit keeps its
+    shape and what's said in time, saved with it, which the subtitles come from; and a thumbnail's still is read
+    from the clip itself."""
+    import av
+
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.application.attachments import read_attachment
+    from row_bot.media_sources import resolve
+    from row_bot.video_editing import Look, SceneCut, Step
+    from row_bot.video_publish import still, subtitle_cues
+
+    real = ffmpeg_runtime.find()
+    edits = studio["edits"]
+    clip = tmp_path / "wide.mp4"
+    subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "testsrc2=size=640x360:rate=30:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)],
+                   check=True)
+    studio["register"](studio["chat"], "wide.mp4", clip.read_bytes())
+    step = Step(op="scenes", aspect="4:5", style="caption", look=Look(captions="box"),
+                scenes=[SceneCut(input=0, end=2.0, line="Half price.", words=((0.2, 0.8, "Half"), (0.8, 1.6, "price.")))])
+    edit = edits.start(edits.Request(conversation_id=studio["chat"], kind="video",
+                                     sources=resolve("wide.mp4", studio["chat"]), steps=[step],
+                                     output_name="Post.mp4", role="draft", scene_cache=tmp_path / "scenes"))
+    assert edits.wait(edit, 300) and edit.status == "saved", edit.detail
+    made = tmp_path / "post.mp4"
+    made.write_bytes(read_attachment(edit.media_ref)[1])
+    with av.open(str(made)) as reader:
+        frame = next(frame.to_image() for frame in reader.decode(video=0))
+    assert frame.size == (1080, 1350)
+    kept = edits._load(edits._record_path(edit))
+    assert kept.shape == "4:5" and [word for _start, _end, word in kept.words] == ["Half", "price."]
+    assert subtitle_cues(kept.words) == [(0.2, 2.0, "Half price.")]
+
+    project = video_projects.create(studio["chat"], "Post", [{"source": "wide.mp4", "end": 2.0}])
+    picture, number = still(project, project.latest)
+    assert number == 1 and picture.size == (640, 360), "a frame of the clip itself, at its own size"
