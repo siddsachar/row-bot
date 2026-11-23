@@ -84,6 +84,8 @@ class ChatOpenAICompatible(BaseChatModel):
     reasoning_plan: Any | None = None
     context_captured: bool = False
     captured_context_size: int | None = None
+    # The longest reply, unless a call asks for its own (``runtime.with_reply_limit``).
+    max_tokens: int | None = None
 
     @model_validator(mode="after")
     def _personal_models_as_trained(self) -> ChatOpenAICompatible:
@@ -452,6 +454,8 @@ class ChatOpenAICompatible(BaseChatModel):
         for key in ("temperature", "top_p", "max_tokens", "presence_penalty", "frequency_penalty"):
             if key in kwargs and kwargs[key] is not None:
                 body[key] = kwargs[key]
+        if self.max_tokens:
+            body.setdefault("max_tokens", self.max_tokens)
         if str(self.endpoint.get("profile") or "").lower() == "llama_cpp":
             body.setdefault("max_tokens", LLAMA_CPP_REPLY_TOKEN_LIMIT)
         if stream and _endpoint_stream_usage_supported(self.endpoint):

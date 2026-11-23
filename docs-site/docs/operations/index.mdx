@@ -15,6 +15,8 @@ Use [Docker And VPS Operations](/docs/operations/docker) for pull-first Compose 
 
 Use [Hosting Row-Bot](/docs/operations/hosting) to run the image as one container, the way a hosting service does: its settings, the secret-store key, sizes and updates.
 
+Use [Headless Runs](/docs/operations/headless-run) to give Row-Bot one task from a script, CI job or benchmark harness with `row-bot run`: no window or server, a throwaway data folder, an ATIF trajectory and an exit code.
+
 Remote access remains off by default in ordinary desktop launches. Server operators should back up access state with the rest of the active data directory, keep one worker, publish one canonical origin, terminate remote traffic with HTTPS, and trust only the exact reverse proxy that connects to Row-Bot.
 
 ## Back Up
