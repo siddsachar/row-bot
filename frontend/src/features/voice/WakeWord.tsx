@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Ear, EarOff } from 'lucide-react';
 import { useOptionalRuntime, useRuntime } from '../../runtime';
+import { useBackgroundReady } from '../../shell-settled';
 import { usePhone } from '../../ui/on-your-computer';
 import { Button, Hint, IconButton } from '../../ui/primitives';
 import {
@@ -46,9 +47,14 @@ export function useWakeWordAvailable(): boolean | null {
 /**
  * Mount once in the workspace. While the wake word is on (and this window can
  * use it), one listener runs; hearing it starts Row-Bot Voice in the open
- * chat, or in a new chat as Home's Talk does.
+ * chat, or in a new chat as Home's Talk does. It reads nothing until the
+ * first screen is up.
  */
-export function WakeWordHost({
+export function WakeWordHost(props: { startInNewChat(): Promise<unknown> }) {
+  return useBackgroundReady() ? <WakeWordListening {...props} /> : null;
+}
+
+function WakeWordListening({
   startInNewChat,
 }: {
   startInNewChat(): Promise<unknown>;

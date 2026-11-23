@@ -47,6 +47,7 @@ function host({
 }: { reason?: string; saved?: boolean } = {}) {
   const sockets: FakeSocket[] = [];
   const controller = {
+    firstScreenSettled: true,
     dictationCapability: vi.fn(async () => ({ wake_reason: reason })),
     settingsSnapshot: vi.fn(async () => ({
       voice: { runtime: { wake_word: saved } },
