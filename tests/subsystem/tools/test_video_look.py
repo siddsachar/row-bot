@@ -85,8 +85,8 @@ def test_each_grade_changes_the_footage_as_its_name_says_and_natural_changes_not
     assert all(colourful(shown["vivid"], index) > colourful(swatches, index) * 1.15 for index in range(3)), \
         "more colour"
     assert all(colourful(shown["bw"], index) <= 3 for index in range(3)), "black and white"
-    assert warmth(shown["cinematic"], 0) < warmth(swatches, 0) and warmth(shown["cinematic"], 1) > warmth(
-        swatches, 1), "film's teal shadows and warm skin"
+    assert warmth(shown["cinematic"], 1) - warmth(shown["cinematic"], 0) > \
+        warmth(swatches, 1) - warmth(swatches, 0) + 10, "film's warm skin against cooler shadows"
 
 
 def _tone(colour: tuple[int, int, int], spread: float, pixels: int = 1000) -> list[float]:
