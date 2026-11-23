@@ -179,6 +179,9 @@ BROWSER_SMOKE_SPECS = (
     # Presence and control (V7): the microphone and speaker picker with devices plugged in and pulled out, the
     # Windows app's hold-to-talk key, Talk from Home, the iPhone's listening limits. Appended likewise.
     "voice-presence",
+    # The wake word (V10): off until turned on in Settings, its mark while it listens, hearing it (a stand-in
+    # model) starts Row-Bot Voice, one click stops it; absent on a phone; desktop and phone, light and dark.
+    "wake-word",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

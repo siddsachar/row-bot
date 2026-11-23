@@ -125,7 +125,8 @@ MODELS = {name: getattr(schemas, name) for name in (
 # checked against its HTTP routes. Each one is authenticated and origin-checked by
 # the access middleware and bound by a ticket from an authenticated POST.
 WEBSOCKETS = (
-    ("/voice/stream", "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down."),
+    ("/voice/stream", "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down. "
+     "In its wake mode (desktop only), 16 kHz PCM up and wake events down."),
     ("/voice/live", "Live voice: the ticket first, then the session's events both ways and a relayed front's audio."),
 )
 
@@ -204,6 +205,7 @@ OPERATIONS = (
     ("delete", "/subscriptions/{subscription_id}", None, "Unsubscribed"),
     ("get", "/choices", None, "Choices"),
     ("get", "/voice/dictation/capability", None, "DictationCapability"),
+    ("post", "/voice/wake", None, "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/dictation", "DictationStart", "DictationSnapshot"),
     ("get", "/conversations/{conversation_id}/voice/dictation/{lease_id}", None, "DictationSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/dictation/{lease_id}/transcribe", "bytes", "DictationResult"),
@@ -2155,6 +2157,8 @@ export async function transcribeDictation(base: string, proof: SessionProof, han
   if (!response.ok) throw validateWire<Problem>('Problem', value);
   return validateWire<DictationResult>('DictationResult', value);
 }
+export const wakeTicket = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<VoiceTicket> =>
+  jsonRequest(base, '/voice/wake', 'VoiceTicket', proof, 'POST', {}, undefined, signal);
 export const startTalk = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<TalkStarted> =>
   jsonRequest(base, `/conversations/${id(conversation)}/voice/talk`, 'TalkStarted', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
 export const stopTalk = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<TalkSnapshot> => {

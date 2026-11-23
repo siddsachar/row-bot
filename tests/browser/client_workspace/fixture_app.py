@@ -1038,6 +1038,15 @@ def _install_voice_engine_fixture() -> None:
 
     attachment_context.prepared_attachments = prepared_seeing
 
+    # "Hey Row-Bot" with the loudness stand-in (tests/fixtures/wake_standin.py) in place of the
+    # shipped model: a loud tone says it. The switch is this profile's own, off until a spec turns it on.
+    import tempfile
+
+    from row_bot.voice import wake
+    from tests.fixtures.wake_standin import write_standin
+
+    wake.MODEL_PATH = write_standin(Path(tempfile.mkdtemp(prefix="row-bot-wake-")))
+
 
 class SyntheticRequestDiagnostics:
     """Observe lifecycle only; never read or serialize authentication/content."""

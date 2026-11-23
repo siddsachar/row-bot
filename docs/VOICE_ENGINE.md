@@ -531,3 +531,66 @@ screen off; the Windows push-to-talk hotkey on a real keyboard with another
 app in front; Live voice and the cloud speech parts with real keys (first
 audio, captions, barge-in), and OpenAI Realtime's direct WebRTC call from a
 phone over the remote-access tunnel.
+
+## The wake word (V10)
+
+"Hey Row-Bot" is opt-in, desktop only and off by default: Settings › Voice ›
+Wake word (`runtime.wake_word`, not changeable from a chat). The host never
+opens a microphone. The app window on the computer running Row-Bot captures
+with Row-Bot Voice's worklet and, while the person has it on, streams 16 kHz
+frames over the wake mode of `WS /api/v1/voice/stream` (a single-use ticket
+from `POST /api/v1/voice/wake`, which only this computer may call, over
+loopback). The host runs `row_bot.voice.wake` and sends `wake` when it hears
+the phrase; the window then closes its wake microphone and starts an ordinary
+Row-Bot Voice session, in the open chat or in a new one as Home's Talk does.
+Audio is kept only until its 80 ms step is full, never written anywhere and
+never sent on.
+
+Guards: a score threshold (0.5, calibrated in training to a target false
+accept rate), a 2 s refractory period after a detection, and silence while any
+voice session or dictation holds the microphone's lease (the window closes its
+wake microphone; the host drops frames as well). Closing the window ends
+listening. A hidden window may have its microphone muted by the system (WebKit
+on macOS); the window watches the track's mute state and its mark says
+"Wake word paused".
+
+### The model and its licence
+
+`src/row_bot/voice/hey_row_bot.onnx` is a LiveKit WakeWord v2 streaming model
+(a 1280-sample `chunk` and its state tensors in; score and next state out),
+run by Row-Bot's own 60-line runtime on onnxruntime (already a dependency),
+one thread, CPU only. Neither `livekit-wakeword` nor `openwakeword` is a
+dependency. openWakeWord was ruled out: its pre-trained models and its
+negative feature set are CC BY-NC-SA, and its package requires `tflite-runtime`
+on Linux, which has no wheel for Python 3.12 or 3.13.
+
+The model starts from LiveKit's pretrained encoders (Apache-2.0 per LiveKit's
+NOTICE) and was fine-tuned only on permissive or generated data: Kokoro v1.0
+voices (Apache-2.0) and blends of them, LibriSpeech dev and test sets
+(CC BY 4.0), MS-SNSD's Freesound noise clips (CC0; its DEMAND recordings,
+CC BY-SA, are left out), and generated coloured noise and rooms. No Common
+Voice, MUSAN, ACAV100M, AudioSet, FMA, MIT room recordings or other
+non-commercial data. The model is Apache-2.0, credited in NOTICE.
+
+"Row-Bot" and "robot" sound the same, so "hey robot" wakes it too; the near
+misses it is taught to reject include "robot" alone, "hey Rob", "row boat"
+and "hey Siri".
+
+### Reproducing the training
+
+The scripts are in `scripts/wake_word/`; keep every folder and cache on a
+drive with room (about 5 GB of downloads).
+
+1. `python scripts/wake_word/sources.py <src> --yes --noise` downloads the
+   pinned inputs (sizes and hashes checked).
+2. `python scripts/wake_word/speech.py <src> <clips>` (Row-Bot's environment,
+   CPU) makes the synthetic speech; a fifth of the Kokoro voices is held out.
+3. In a throwaway environment (`uv venv` plus `livekit-wakeword[train]==2.1.3`
+   and a CUDA torch): `LIVEKIT_WAKEWORD_ENCODERS=<src>/encoders HF_HUB_OFFLINE=1
+   python scripts/wake_word/train.py <src> <clips> <out>/hey_row_bot.onnx`.
+   LiveKit's training loop, with every data source replaced by the local ones;
+   it needs a GPU.
+4. `python scripts/wake_word/evaluate.py <out>/hey_row_bot.onnx <src> <clips>`
+   (Row-Bot's environment) reports false accepts per hour on held-out real
+   speech (clean and noisy), recall on the held-out voices, detection latency,
+   CPU and memory.

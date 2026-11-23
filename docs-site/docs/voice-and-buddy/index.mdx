@@ -55,6 +55,12 @@ With Row-Bot Voice, nothing is streamed: when you finish saying something, Row-B
 
 Gemini Live sees what you share as well: it is shown a still about every two seconds while you share, so it can talk about it, and its disclosure says so. OpenAI Realtime and Grok Voice don't take pictures in a live session, so they offer no sharing.
 
+## Wake Word
+
+Turn on **Hey Row-Bot** in Settings › Voice, under **Wake word**, to start talking without a tap. It is there only in the Row-Bot app on the computer running Row-Bot. While a Row-Bot window is open, the window listens for "Hey Row-Bot" and the computer running Row-Bot recognises it with a small model that ships with Row-Bot. Nothing is recorded, saved or sent anywhere. When it hears the phrase, Row-Bot Voice starts in the open chat, or in a new chat if none is open.
+
+While it listens, the navigation shows **Listening for "Hey Row-Bot"**. Click it to stop listening in that window, and click again to start again. While voice is on, the wake word waits and its microphone is closed. Closing the window stops it. If your computer stops the microphone while the window is hidden, the mark says so and listening resumes when the window is back. "Hey robot" sounds the same, so Row-Bot wakes to that too.
+
 ## Choosing A Mode
 
 Use Dictate when accuracy and review matter. Use Talk when you want a conversation. Use local voice when privacy and offline-style behavior matter. Whisper remains the default local transcription engine; a faster speech model makes Talk quicker. SenseVoice is an optional alternative on Windows, Linux, and Apple Silicon macOS; Intel macOS continues to use Whisper. A cloud speech service (**Listen with**) or a cloud voice (**Speak with**) in Settings › Voice keeps Row-Bot Voice but uses that company, with your key. Use Live voice for the most natural conversation when you accept that audio goes to the provider you choose, at its price.
@@ -127,6 +133,7 @@ What you say becomes chat text, and goes to the chat's model like anything you t
 - **A cloud voice** under **Speak with** (ElevenLabs, Cartesia or Google): the text of each sentence Row-Bot says goes to that company, for Talk, Read aloud and chat-app voice notes. **Describe a voice** sends only your description, never a recording.
 - **Live voice** (OpenAI, Google or xAI): your voice, the chat's recent messages, the agent profile's name and a few related memories (none in an incognito chat) go to that provider while you talk, and so do Row-Bot's answers and short progress lines, which it says for Row-Bot; Gemini Live is also shown what you share on camera or screen.
 - **Camera or screen**: captured only after you start sharing. With Row-Bot Voice, one still per thing you say leaves the page, saved in your message like an attached image, and goes where your images go (the chat's model or its Vision model).
+- **Wake word** (if you turn it on): the Row-Bot window on the computer running Row-Bot listens for "Hey Row-Bot", and that computer recognises it. Nothing it hears is kept or sent anywhere.
 - **Downloads**: speech models download only when you press **Download** or **Install**: Whisper from Hugging Face, Kokoro and the faster speech models from GitHub, SenseVoice from ModelScope. Installing SenseVoice sends no audio, prompts or usage data; inference stays local after installation.
 - **Devices and controls**: the microphone and speaker you choose are kept in your browser and never sent to Row-Bot. The system's media controls show only **Row-Bot · Listening** (or what voice is doing).
 

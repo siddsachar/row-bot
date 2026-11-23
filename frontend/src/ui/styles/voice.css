@@ -507,11 +507,54 @@
     opacity: 0;
   }
 }
+/* "Hey Row-Bot" while it listens: the accent ear with a quiet pulse. */
+.wake-word-indicator {
+  position: relative;
+}
+.wake-word-indicator[data-state='listening'],
+.wake-word-indicator[data-state='starting'] {
+  color: var(--accent-solid);
+}
+.wake-word-indicator[data-state='listening']::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  animation: wake-word-pulse 2.4s ease-in-out infinite;
+}
+.wake-word-indicator[data-state='failed'],
+.wake-word-indicator[data-state='hidden'] {
+  color: var(--status-warning-text);
+}
+/* The expanded navigation's row: its icon carries the state, the dot sits on the ear. */
+.navigation .nav-row.wake-word-indicator[data-state='listening'] > svg,
+.navigation .nav-row.wake-word-indicator[data-state='starting'] > svg {
+  color: var(--accent-solid);
+}
+.navigation .nav-row.wake-word-indicator[data-state='failed'] > svg,
+.navigation .nav-row.wake-word-indicator[data-state='hidden'] > svg {
+  color: var(--status-warning-text);
+}
+.nav-row.wake-word-indicator[data-state='listening']::after {
+  top: 6px;
+  right: auto;
+  left: 20px;
+}
+@keyframes wake-word-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .voice-bar,
   .voice-orb-core,
   .voice-orb-ring,
-  .voice-share-dot {
+  .voice-share-dot,
+  .wake-word-indicator::after {
     animation: none !important;
   }
 }

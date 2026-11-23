@@ -401,6 +401,19 @@ export class ClientController {
       throw { code: 'capability_unavailable' };
     return this.transport.openVoiceSocket();
   }
+  /** "Hey Row-Bot": a ticket for the voice socket's wake mode, and the socket. */
+  async wakeTicket(signal?: AbortSignal) {
+    if (!this.transport.wakeTicket || !this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    const result = await this.transport.wakeTicket(signal);
+    validateWire('VoiceTicket', result);
+    return result;
+  }
+  openWakeSocket() {
+    if (!this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    return this.transport.openVoiceSocket();
+  }
   async startRealtime(
     scope: DictationScope,
     body: import('./types').TalkStart,
