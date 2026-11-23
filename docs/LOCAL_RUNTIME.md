@@ -113,6 +113,13 @@ is recommended only on a Mac with room to spare: 24 GB gets the 2-bit, 32 GB the
 processor and one with 16 GB Qwen3.5 4B; with less, none is recommended, but every model that fits
 can still be chosen.
 
+**Thinking.** Every request says whether the model thinks (`chat_template_kwargs.enable_thinking`),
+rather than leaving it to the template. Every model thinks for now, as its template does by default;
+Qwen3.5 9B and 4B are to answer straight away instead once a local measurement confirms that small
+models do better that way in a 32K window. A chat's
+Thinking choice (On or Off, also `/reasoning on|off`) overrides that for its own requests
+(`Model.thinks` in `local_runtime/models.py`).
+
 ## Network behaviour
 
 **Row-Bot's downloads.** Only after the person presses Download (the button names the size, and
@@ -160,7 +167,11 @@ work doesn't start the server; the person's own chat does (Learning's lease then
 It is the custom endpoint `llamacpp` (provider id `custom_openai_llamacpp`, model refs such as
 `model:custom_openai_llamacpp:qwen3.8-27b-q2`), saved with `execution_location: local` and a
 loopback address (kept while the server is stopped), so every "is this model local?" check treats it
-as a model on this computer, Learning's `spending.is_local_provider` included.
+as a model on this computer, Learning's `spending.is_local_provider` included, and so do the prompt
+tiers: up to 128K it gets the local middle tier, as Ollama's models do (`models.is_local_custom_endpoint`,
+which counts any custom endpoint saved as local except Learning's personal models). It is still
+reached over the OpenAI-compatible transport, and Settings' context control still treats its window
+as the server's.
 
 A caller outside chat that needs the server running, such as Learning's evaluation worker (another
 process), calls `local_runtime.server.ensure_started(model_ref)`: it starts the server if needed,

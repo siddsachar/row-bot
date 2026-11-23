@@ -49,6 +49,42 @@ class AttachmentError(ValueError):
         super().__init__(code)
 
 
+# What a file a tool made is to the person (finals first): a final they're shown, a draft they're asked to look
+# at, or a working file made on the way (a recording, frames, a contact sheet, a voice line). A file the person
+# brought has none. With it, a light lineage: the output it is a version of, which version, and what it was made
+# from.
+ROLES = frozenset({"final", "draft", "working"})
+_RECORD_KEYS = frozenset({"attachment_ref", "name", "mime_type", "size_bytes", "revision", "sha256"})
+_LINEAGE_KEYS = frozenset({"role", "output_id", "version", "made_from"})
+_OUTPUT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+MAX_MADE_FROM = 8
+
+
+def _lineage(role: str, output_id: str, version: int, made_from: tuple[str, ...] | list[str]) -> dict:
+    """The role and lineage a record keeps; nothing for a file without a role."""
+    if not role:
+        return {}
+    sources = [str(item)[:80] for item in made_from if str(item or "").strip()][:MAX_MADE_FROM]
+    if (role not in ROLES or not _OUTPUT_ID.fullmatch(output_id) or type(version) is not int
+            or not 1 <= version <= 100_000):
+        raise AttachmentError("invalid_command")
+    return {"role": role, "output_id": output_id, "version": version, "made_from": sources}
+
+
+def _valid_lineage(metadata: dict) -> bool:
+    keys = set(metadata) - _RECORD_KEYS
+    if not keys:
+        return True
+    if keys != _LINEAGE_KEYS or not isinstance(metadata["output_id"], str) or not isinstance(
+            metadata["made_from"], list) or not all(isinstance(item, str) for item in metadata["made_from"]):
+        return False
+    try:
+        return _lineage(metadata["role"], metadata["output_id"], metadata["version"],
+                        metadata["made_from"]) == {key: metadata[key] for key in _LINEAGE_KEYS}
+    except AttachmentError:
+        return False
+
+
 def _conversation(conversation_id: str) -> None:
     from row_bot import threads
     from row_bot.runtime import admissions
@@ -141,11 +177,16 @@ def _numbered(name: str, taken: set[str]) -> str:
 
 
 def register_attachment(conversation_id: str, name: str, data: bytes,
-                        mime_type: str = "application/octet-stream") -> dict:
+                        mime_type: str = "application/octet-stream", *, role: str = "", output_id: str = "",
+                        version: int = 1, made_from: tuple[str, ...] | list[str] = ()) -> dict:
     """Persist one bounded immutable file and its reference in thread media.
 
-    Each file in a chat has its own name: one whose name is taken is kept as name-2, name-3, … (the
-    returned ``name`` says which), so five generated videos are five files a tool can name.
+    Each output in a chat has its own name: a file whose name another output holds is kept as name-2,
+    name-3, … (the returned ``name`` says which), so five generated videos are five files a tool can name.
+
+    A file a tool made has a *role* (``ROLES``) and is a *version* of an output (*output_id*, its own id
+    when none is given), *made_from* the files it names. A new version of an output keeps its output's
+    name: versions are told apart by their number, never by their names.
     """
     from row_bot import threads
     if not data or len(data) > MAX_ATTACHMENT_BYTES:
@@ -153,6 +194,7 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
     if (not name or len(name.encode("utf-8")) > 240 or name in {".", ".."}
             or any(c in name for c in '/\\:\x00\r\n')):
         raise AttachmentError("invalid_command")
+    _lineage(role, output_id or "file", version, made_from)  # Checked before anything is written.
     with _LOCK:
         _conversation(conversation_id)
         media_root = threads._MEDIA_DIR
@@ -161,7 +203,8 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         folder.mkdir(parents=True, exist_ok=True)
         _safe_path(media_root, folder)
         # Under the lock, so two tools finishing at once in one chat never take the same name.
-        name = _numbered(name, {str(item["name"]).casefold() for item in _named_files(conversation_id)})
+        name = _numbered(name, {str(item["name"]).casefold() for item in _named_files(conversation_id)
+                                if not output_id or item["output_id"] != output_id})
         attachment_id = str(uuid4())
         ref = f"{conversation_id}:{attachment_id}"
         filename = f"attachment_{attachment_id}.bin"
@@ -193,49 +236,14 @@ def register_attachment(conversation_id: str, name: str, data: bytes,
         )
         metadata = {"attachment_ref": ref, "name": name, "mime_type": detected,
                     "size_bytes": len(data), "revision": "1",
-                    "sha256": hashlib.sha256(data).hexdigest()}
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    **_lineage(role, output_id or attachment_id, version, made_from)}
         _safe_path(media_root, folder / filename)
         _write(media_root, folder / filename, data)
         _conversation(conversation_id)
         _safe_path(media_root, folder / metadata_name)
         _write(media_root, folder / metadata_name, json.dumps(metadata).encode())
         return {key: value for key, value in metadata.items() if key != "sha256"}
-
-
-def list_generated_outputs(conversation_id: str, *, limit: int = 20) -> list[dict[str, str]]:
-    """Recover generated output references from the conversation's immutable media owner."""
-    from row_bot import threads
-
-    _conversation(conversation_id)
-    root = _managed_root(threads._MEDIA_DIR)
-    folder = root / conversation_id
-    _safe_path(root, folder)
-    if not folder.is_dir():
-        return []
-    candidates = []
-    for path in folder.glob("attachment_*.json"):
-        try:
-            candidates.append((path.stat().st_mtime_ns, path))
-        except OSError:
-            continue
-    candidates.sort(reverse=True)
-    outputs: list[dict[str, str]] = []
-    for _, path in candidates[:200]:
-        try:
-            _safe_path(root, path)
-            with _open(root, path) as source:
-                metadata = json.load(source)
-            ref = str(metadata.get("attachment_ref") or "")
-            mime = str(metadata.get("mime_type") or "")
-            if (ref.startswith(conversation_id + ":")
-                    and str(metadata.get("name") or "").startswith("generated-")
-                    and mime in {"image/png", "image/jpeg", "video/mp4"}):
-                outputs.append({"media_ref": ref, "mime_type": mime})
-                if len(outputs) >= limit:
-                    break
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            continue
-    return list(reversed(outputs))
 
 
 def list_conversation_files(conversation_id: str, *, limit: int = 200) -> list[dict]:
@@ -246,10 +254,26 @@ def list_conversation_files(conversation_id: str, *, limit: int = 200) -> list[d
     return _named_files(conversation_id)[:limit]
 
 
-def _named_files(conversation_id: str) -> list[dict]:
-    """All the conversation's files, newest first, each under a name no other file in the chat has.
+def output_versions(conversation_id: str, output_id: str) -> list[dict]:
+    """The chat's files that are versions of one output, newest first, each with its ``version`` and ``sha256``."""
+    from row_bot import threads
 
-    ``register_attachment`` gives every new file a free name. Files kept before that may share one (every
+    found = []
+    for item in _named_files(conversation_id):
+        if item["output_id"] != output_id:
+            continue
+        attachment_id = str(item["attachment_ref"]).rsplit(":", 1)[1]
+        metadata = _metadata(threads._MEDIA_DIR, threads._MEDIA_DIR / conversation_id, attachment_id,
+                             str(item["attachment_ref"]))
+        found.append({**item, "sha256": metadata["sha256"]})
+    return found
+
+
+def _named_files(conversation_id: str) -> list[dict]:
+    """All the conversation's files, newest first, each under a name no other output in the chat has (the
+    versions of one output share its name).
+
+    ``register_attachment`` gives every new output a free name. Files kept before that may share one (every
     generated video was "generated-video.mp4"): the newest keeps the name, so it still finds what it found
     before, and the older ones are told apart as name-2, name-3, … from newest to oldest. Their records stay
     as they are, and a file that never shared its name keeps it.
@@ -278,13 +302,16 @@ def _named_files(conversation_id: str) -> list[dict]:
                                     signature)
         except (AttachmentError, ValueError):
             continue
-        files.append(dict(zip(("attachment_ref", "name", "mime_type", "size_bytes"), record)))
+        files.append(dict(zip(("attachment_ref", "name", "mime_type", "size_bytes", "role", "output_id", "version"),
+                              record)))
     taken = {str(item["name"]).casefold() for item in files}
-    kept: set[str] = set()
+    kept: dict[str, str] = {}
     for item in files:
         key = str(item["name"]).casefold()
         if key not in kept:
-            kept.add(key)  # The newest with a name keeps it.
+            kept[key] = item["output_id"]  # The newest with a name keeps it, and so do its output's versions.
+            continue
+        if item["output_id"] and item["output_id"] == kept[key]:
             continue
         item["name"] = _numbered(str(item["name"]), taken)
         taken.add(item["name"].casefold())
@@ -293,14 +320,17 @@ def _named_files(conversation_id: str) -> list[dict]:
 
 @lru_cache(maxsize=16384)
 def _listed_record(root: Path, folder: Path, attachment_id: str, reference: str,
-                   signature: tuple[int, int, int]) -> tuple[str, str, str, int]:
-    """A file's checked record (reference, name, type, size), checked again only when its record file changes.
+                   signature: tuple[int, int, int]) -> tuple[str, str, str, int, str, str, int]:
+    """A file's checked record (reference, name, type, size, role, output, version), checked again only when its
+    record file changes.
 
-    Records are written once and never change, so each new file costs one check rather than every file on
-    every listing (each new file reads the chat's names). Reading a file checks it in full every time.
+    Records change only when a file's role does (``set_role``), so each new file costs one check rather than
+    every file on every listing (each new file reads the chat's names). Reading a file checks it in full every
+    time.
     """
     metadata = _metadata(root, folder, attachment_id, reference)
-    return metadata["attachment_ref"], metadata["name"], metadata["mime_type"], metadata["size_bytes"]
+    return (metadata["attachment_ref"], metadata["name"], metadata["mime_type"], metadata["size_bytes"],
+            metadata.get("role", ""), metadata.get("output_id", ""), metadata.get("version", 0))
 
 
 def read_native_selection(path: Path) -> tuple[str, bytes]:
@@ -359,7 +389,7 @@ def _metadata(root: Path, folder: Path, attachment_id: str, reference: str) -> d
             raise ValueError()
         metadata = json.loads(raw)
         if (not isinstance(metadata, dict)
-                or set(metadata) != {"attachment_ref", "name", "mime_type", "size_bytes", "revision", "sha256"}
+                or not _RECORD_KEYS <= set(metadata) or not _valid_lineage(metadata)
                 or metadata["attachment_ref"] != reference
                 or type(metadata["size_bytes"]) is not int
                 or not 1 <= metadata["size_bytes"] <= MAX_ATTACHMENT_BYTES
@@ -376,6 +406,60 @@ def _metadata(root: Path, folder: Path, attachment_id: str, reference: str) -> d
         return metadata
     except (OSError, ValueError, TypeError):
         raise AttachmentError("not_found") from None
+
+
+def _reference_parts(reference: str) -> tuple[str, str]:
+    try:
+        conversation_id, value = reference.rsplit(":", 1)
+        return conversation_id, str(UUID(value))
+    except (ValueError, AttributeError):
+        raise AttachmentError("not_found") from None
+
+
+def attachment_lineage(reference: str) -> dict:
+    """A file's role and lineage (``role``, ``output_id``, ``version``, ``made_from``); empty when it has none."""
+    from row_bot import threads
+    conversation_id, attachment_id = _reference_parts(reference)
+    with _LOCK:
+        _conversation(conversation_id)
+        metadata = _metadata(threads._MEDIA_DIR, threads._MEDIA_DIR / conversation_id, attachment_id, reference)
+    return {key: metadata[key] for key in _LINEAGE_KEYS if key in metadata}
+
+
+def set_role(reference: str, role: str, *, output_id: str = "", version: int = 0) -> dict:
+    """Give a file of this chat a new role (a version the agent presents becomes ``final``); its new lineage.
+
+    Its record is written again in place, its time kept, so the chat's files keep their order and names.
+    """
+    from row_bot import threads
+    conversation_id, attachment_id = _reference_parts(reference)
+    with _LOCK:
+        _conversation(conversation_id)
+        root = threads._MEDIA_DIR
+        folder = root / conversation_id
+        metadata = _metadata(root, folder, attachment_id, reference)
+        lineage = _lineage(role, output_id or metadata.get("output_id") or attachment_id,
+                           version or metadata.get("version") or 1, metadata.get("made_from") or ())
+        record = {**{key: metadata[key] for key in _RECORD_KEYS}, **lineage}
+        if record != metadata:
+            path = folder / f"attachment_{attachment_id}.json"
+            _safe_path(root, path)
+            before = path.stat()
+            staged = folder / f"attachment_{attachment_id}.{uuid4().hex}.part"
+            _write(root, staged, json.dumps(record).encode())
+            for attempt in range(5):  # On Windows a record open for reading refuses the replace for a moment.
+                try:
+                    os.replace(staged, path)
+                    break
+                except PermissionError:
+                    time.sleep(0.05 * (attempt + 1))
+                except OSError:
+                    break
+            if staged.exists():
+                staged.unlink(missing_ok=True)
+                raise AttachmentError("resource_unavailable")
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        return lineage
 
 
 def read_attachment(reference: str) -> tuple[dict, bytes]:
@@ -444,7 +528,8 @@ def copy_attachment(reference: str, conversation_id: str) -> dict:
         folder.mkdir(parents=True, exist_ok=True)
         _safe_path(media_root, folder)
         if not (folder / f"attachment_{attachment_id}.json").exists():
-            record = {**metadata, "attachment_ref": copied, "sha256": hashlib.sha256(data).hexdigest()}
+            record = {**metadata, **attachment_lineage(reference), "attachment_ref": copied,
+                      "sha256": hashlib.sha256(data).hexdigest()}
             _safe_path(media_root, folder / f"attachment_{attachment_id}.bin")
             _write(media_root, folder / f"attachment_{attachment_id}.bin", data)
             _safe_path(media_root, folder / f"attachment_{attachment_id}.json")

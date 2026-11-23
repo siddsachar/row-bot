@@ -222,8 +222,12 @@ export const test = base.extend<{
         'Unexplained JavaScript page exceptions',
       ).toEqual([]);
       expect(
-        evidence.webSockets,
-        'The new client uses authenticated SSE and must not open WebSockets',
+        evidence.webSockets.filter(
+          (socket) =>
+            socket.path !== '/api/v1/voice/stream' &&
+            socket.path !== '/api/v1/voice/live',
+        ),
+        'The client uses authenticated SSE; its only WebSockets are the voice sockets (Row-Bot Voice, Live voice)',
       ).toEqual([]);
       assertConsoleEvidence(evidence, testInfo);
       expect(

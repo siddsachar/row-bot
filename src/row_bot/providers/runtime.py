@@ -1163,8 +1163,8 @@ def _validated_runtime_reasoning_plan(
 
 
 def _local_reasoning_default(runtime_model: str) -> dict[str, Any]:
-    """A local model saved as non-thinking (a personal model, O24) is asked not to think unless
-    the conversation chose otherwise (the plan's own setting is applied after this)."""
+    """A local model saved as non-thinking (a personal model, O24) is asked not to think. The transport
+    keeps it so whatever the conversation chose (``RowBotChatOllama``)."""
     try:
         from row_bot.models import local_model_settings
 
@@ -1280,6 +1280,7 @@ def _infer_provider(model_name: str) -> str:
 
 
 def openai_model_uses_responses_api(model_name: str) -> bool:
-    """Return True for direct OpenAI models that are not chat-completions native."""
-    bare = str(model_name or "").split("/")[-1].strip().lower()
-    return bare.startswith("gpt-5")
+    """Return True for direct OpenAI models that are not chat-completions native: GPT-5 and later."""
+    from row_bot.providers.models import gpt_generation
+
+    return gpt_generation(model_name) >= 5

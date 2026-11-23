@@ -351,7 +351,12 @@ def process_plugin_channel_attachment(
         from row_bot.channels import media
 
         if _is_audio(kind, content_type, filename):
-            text = media.transcribe_audio(data, file_ext=pathlib.Path(filename).suffix or ".bin")
+            try:
+                text = media.transcribe_audio(data, file_ext=pathlib.Path(filename).suffix or ".bin")
+            except media.SpeechModelMissing:
+                return ChannelAttachmentResult(
+                    content_type=content_type, kind="audio", error=media.VOICE_NOTES_NEED_A_MODEL,
+                )
             if not text:
                 return ChannelAttachmentResult(
                     content_type=content_type,

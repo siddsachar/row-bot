@@ -31,7 +31,7 @@ When Row-Bot runs out of memory, the server restarts it. Home's **Needs you** an
 Local speech-to-text uses the most. With the search model and Row-Bot's browser, it needs about 3.2 GB. Do one of these:
 
 - **Make the pod 4 GB in PikaPods,** or on Railway raise the service's memory limit to 4 GB in **Settings › Deploy**. The notice's **How to resize** explains it, and its link to your host (**Manage your pod in PikaPods**, **Manage your service in Railway**) opens the host's own page. The notice goes once the server is bigger.
-- **Use cloud speech-to-text.** The notice's **Use cloud speech-to-text** opens **Settings › Voice**: choose **OpenAI Realtime** under **Listen with**, and on a server under 4 GB turn off **Fall back to Whisper on your Row-Bot server** too.
+- **Use cloud speech-to-text.** The notice's **Use cloud speech-to-text** opens **Settings › Voice**: choose a cloud speech service under **Listen with** (such as **Deepgram Nova-3**) and add its key, or talk with Live voice. Dictate and chat-app voice notes still use local speech-to-text.
 
 **Dismiss** hides the notice until it happens again.
 

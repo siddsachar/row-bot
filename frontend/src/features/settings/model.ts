@@ -503,13 +503,31 @@ export const settingsRows: SettingsRow[] = [
     leaf: 'voice',
     anchor: 'talk',
     label: 'Talk',
-    keywords: 'realtime microphone listen',
+    keywords: 'listen with microphone deepgram assemblyai cloud speech to text',
   },
   {
     leaf: 'voice',
     anchor: 'runtime.captions_enabled',
     label: 'Live captions',
     keywords: 'subtitles talk',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'runtime.turn_eagerness',
+    label: 'When you pause',
+    keywords: 'turn taking interrupts answers too soon talk',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'runtime.push_to_talk',
+    label: 'Push to talk',
+    keywords: 'hold to talk space hotkey hold a key',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'devices',
+    label: 'Microphone and speaker',
+    keywords: 'input output headset headphones audio device',
   },
   { leaf: 'voice', anchor: 'dictation', label: 'Dictation' },
   {
@@ -522,7 +540,27 @@ export const settingsRows: SettingsRow[] = [
     leaf: 'voice',
     anchor: 'read-aloud',
     label: 'Read aloud',
-    keywords: 'text to speech tts kokoro voice',
+    keywords:
+      'text to speech tts kokoro voice elevenlabs cartesia gemini describe a voice',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'runtime.speech_output_provider',
+    label: 'Speak with',
+    keywords: 'cloud voice text to speech elevenlabs cartesia',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'language',
+    label: 'Language',
+    keywords: 'language detect automatically voice notes',
+  },
+  {
+    leaf: 'voice',
+    anchor: 'live-voice',
+    label: 'Live voice',
+    keywords:
+      'openai realtime gemini live grok speech to speech realtime voice model',
   },
   {
     leaf: 'knowledge',

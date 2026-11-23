@@ -75,6 +75,8 @@ def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     # Inline PDF attachments: same-origin blob frames only, no plugins.
     assert directives['frame-src'].split() == ["'self'", 'blob:', 'https://www.youtube-nocookie.com']
     assert directives['object-src'].split() == ["'none'"]
+    # The page reaches only its own origin: Live voice providers are relayed by the host.
+    assert directives['connect-src'].split() == ["'self'"]
     assert host.get("/app-v2/conversations/fixture", headers={"Accept": "text/html"}).content == shell.content
     assert host.head("/app-v2/").content == b""
     assert host.head("/app-v2/").headers["content-length"] == str(len(shell.content))

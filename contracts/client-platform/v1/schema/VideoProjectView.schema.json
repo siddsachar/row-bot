@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "VideoCastMember": {
+      "additionalProperties": false,
+      "description": "A character who speaks in a video, and the voice its lines are said in (C6).",
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "voice": {
+          "maxLength": 64,
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "voice"
+      ],
+      "title": "VideoCastMember",
+      "type": "object"
+    },
     "VideoEditView": {
       "additionalProperties": false,
       "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
@@ -260,6 +283,11 @@
       "additionalProperties": false,
       "description": "One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line.",
       "properties": {
+        "approved": {
+          "default": false,
+          "title": "Approved",
+          "type": "boolean"
+        },
         "at": {
           "anyOf": [
             {
@@ -277,6 +305,20 @@
           "title": "Card",
           "type": "string"
         },
+        "cue": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Cue",
+          "type": "string"
+        },
+        "effects": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Effects",
+          "type": "array"
+        },
         "end": {
           "anyOf": [
             {
@@ -288,6 +330,23 @@
             }
           ],
           "title": "End"
+        },
+        "footage": {
+          "default": "clip",
+          "enum": [
+            "clip",
+            "picture",
+            "ai",
+            "card",
+            "screen"
+          ],
+          "title": "Footage",
+          "type": "string"
+        },
+        "has_frame": {
+          "default": false,
+          "title": "Has Frame",
+          "type": "boolean"
         },
         "length": {
           "anyOf": [
@@ -306,9 +365,25 @@
           "title": "Line",
           "type": "string"
         },
+        "made": {
+          "default": "",
+          "enum": [
+            "",
+            "new",
+            "reused"
+          ],
+          "title": "Made",
+          "type": "string"
+        },
         "scene_id": {
           "pattern": "^s[0-9a-f]{6}$",
           "title": "Scene Id",
+          "type": "string"
+        },
+        "shows": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Shows",
           "type": "string"
         },
         "source": {
@@ -328,6 +403,12 @@
           ],
           "default": null,
           "title": "Source Ref"
+        },
+        "speaker": {
+          "default": "",
+          "maxLength": 40,
+          "title": "Speaker",
+          "type": "string"
         },
         "speed": {
           "maximum": 4,
@@ -448,12 +529,20 @@
       "title": "Captions",
       "type": "boolean"
     },
+    "cast": {
+      "items": {
+        "$ref": "#/$defs/VideoCastMember"
+      },
+      "maxItems": 200,
+      "title": "Cast",
+      "type": "array"
+    },
     "changed": {
       "items": {
         "pattern": "^s[0-9a-f]{6}$",
         "type": "string"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "title": "Changed",
       "type": "array"
     },
@@ -505,9 +594,27 @@
       "title": "Latest",
       "type": "integer"
     },
+    "logline": {
+      "default": "",
+      "maxLength": 160,
+      "title": "Logline",
+      "type": "string"
+    },
     "music": {
       "maxLength": 200,
       "title": "Music",
+      "type": "string"
+    },
+    "music_mood": {
+      "default": "",
+      "enum": [
+        "",
+        "calm",
+        "upbeat",
+        "focused",
+        "warm"
+      ],
+      "title": "Music Mood",
       "type": "string"
     },
     "music_volume": {
@@ -526,6 +633,11 @@
       "minimum": 1,
       "title": "Number",
       "type": "integer"
+    },
+    "on_beat": {
+      "default": false,
+      "title": "On Beat",
+      "type": "boolean"
     },
     "problem": {
       "maxLength": 400,
@@ -547,7 +659,7 @@
       "items": {
         "$ref": "#/$defs/VideoScene"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "title": "Scenes",
       "type": "array"
     },

@@ -155,6 +155,12 @@ class TappedChoice(WireModel):
     label: str | None = Field(default=None, min_length=1, max_length=40)
 
 
+class VideoPanelRequest(WireModel):
+    """The Video panel's request sent as the person's message (C1): a comment on a storyboard card, a swap of its
+    footage, a new take, or making a storyboard whose footage Row-Bot makes first."""
+    action: Literal["comment", "swap", "new_take", "make"]
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -167,6 +173,8 @@ class SubmitPayload(WireModel):
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
     # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
     tapped_choice: TappedChoice | None = None
+    # The Video panel's request (C1): which of its buttons sent the person's words.
+    video_panel: VideoPanelRequest | None = None
     # The sending device's IANA zone ("Europe/London"): "local time" in this turn means it (M10).
     time_zone: str | None = Field(default=None, max_length=64)
 
@@ -818,11 +826,17 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     dictation_model: str = Field(max_length=128)
     speech_output_provider: str = Field(max_length=64)
     speech_output_model: str = Field(max_length=128)
-    speech_output_voice: str = Field(max_length=64)
+    # Live voice's OpenAI Realtime: its model and voice.
+    realtime_model: str = Field(default="gpt-realtime-2", max_length=128)
     realtime_voice: str = Field(max_length=32)
     captions_enabled: bool
-    talk_auto_start: bool
-    realtime_fallback_to_local: bool
+    # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.
+    turn_eagerness: Literal["relaxed", "normal", "eager"] = "normal"
+    push_to_talk: bool = False
+    # What the person speaks: a language code, or "auto" (detect it).
+    speech_language: str = Field(default="auto", min_length=2, max_length=8)
+    # "Hey Row-Bot" on the desktop: off until the person turns it on.
+    wake_word: bool = False
 
 
 class VoiceLocalSettingsSnapshot(WireModel):
@@ -832,12 +846,96 @@ class VoiceLocalSettingsSnapshot(WireModel):
     runtime_state: Literal["cached_unknown"]
 
 
+class KokoroLanguageVoices(WireModel):
+    es: str = Field(max_length=32)
+    fr: str = Field(max_length=32)
+    hi: str = Field(max_length=32)
+    it: str = Field(max_length=32)
+    pt: str = Field(max_length=32)
+
+
+class VoiceLanguageVoiceOptions(WireModel):
+    language: str = Field(min_length=2, max_length=8)
+    label: str = Field(max_length=64)
+    options: list[SettingsChoice] = Field(max_length=16)
+
+
+class VoiceLanguageNotice(WireModel):
+    """An engine in use that can't understand the language chosen, or the one it keeps hearing."""
+
+    use: Literal["talk", "dictation"]
+    engine: str = Field(max_length=64)
+    understands: list[str] = Field(max_length=8)
+    language: str = Field(min_length=2, max_length=8)
+    language_label: str = Field(max_length=64)
+    # True: the language was heard often with Detect automatically; False: it is the one chosen.
+    heard: bool
+    alternatives: list[str] = Field(max_length=4)
+    switch_field: Literal["runtime.talk_model", "runtime.dictation_model"]
+    switch_value: str = Field(max_length=128)
+
+
+class VoiceLanguageSnapshot(WireModel):
+    options: list[SettingsChoice] = Field(max_length=64)
+    # The languages the chosen voice speaks: Kokoro, or a cloud voice with its key saved.
+    spoken: list[str] = Field(max_length=64)
+    voice_options: list[VoiceLanguageVoiceOptions] = Field(max_length=16)
+    notices: list[VoiceLanguageNotice] = Field(max_length=4)
+
+
 class VoiceTtsSettingsSnapshot(WireModel):
+    """Kokoro, the voice that speaks Read aloud and Talk's replies: its voice and speed."""
+
     installed: bool
-    enabled: bool
     voice: str = Field(max_length=32)
     speed: float = Field(ge=0.5, le=2.0)
-    auto_speak: bool
+    # The voice for each other language Kokoro speaks (picked, or its preset).
+    language_voices: KokoroLanguageVoices
+
+
+LiveVoiceId = Literal["openai", "gemini", "grok"]
+LiveVoiceTransport = Literal["openai_realtime", "gemini_live", "grok_voice"]
+
+
+class LiveVoiceProvider(WireModel):
+    """A Live voice option: who hears the audio, its approximate price, and whether its key is saved."""
+
+    id: LiveVoiceId
+    label: str = Field(max_length=64)
+    company: str = Field(max_length=64)
+    price: str = Field(max_length=64)
+    price_checked: str = Field(max_length=32)
+    available: bool
+    reason: Literal["available", "realtime_key_missing", "host_unavailable"]
+    # The front sees what the person shares on camera or screen (and is sent it).
+    shares: bool = False
+
+
+CloudSpeechId = Literal["deepgram", "assemblyai", "openai_transcribe", "gemini_transcribe", "elevenlabs", "cartesia",
+                        "gemini_tts"]
+
+
+class CloudSpeechOption(WireModel):
+    """A cloud listening or speaking option for Row-Bot Voice: who gets the audio (listen) or the
+    text (speak), its approximate price, and whether its key is saved (never the key)."""
+
+    id: CloudSpeechId
+    part: Literal["listen", "speak"]
+    label: str = Field(max_length=64)
+    company: str = Field(max_length=64)
+    price: str = Field(max_length=96)
+    price_checked: str = Field(max_length=32)
+    key_saved: bool
+    # The Voice setting that holds its key ("deepgram.credential"); None when its key is in Providers.
+    key_field: str | None = Field(default=None, max_length=64)
+    key: SettingsCredentialState | None = None
+    # Speaking: its voices and the chosen one; how a voice can be described ("style" or "design").
+    voices: list[SettingsChoice] = Field(default_factory=list, max_length=16)
+    voice: str = Field(default="", max_length=64)
+    describe: Literal["", "style", "design"] = ""
+    description: str = Field(default="", max_length=300)
+    # ElevenLabs: a voice was made from the description.
+    designed: bool = False
 
 
 class VoiceSettingsSnapshot(WireModel):
@@ -845,13 +943,15 @@ class VoiceSettingsSnapshot(WireModel):
     runtime: VoiceRuntimeSettingsSnapshot
     local: VoiceLocalSettingsSnapshot
     tts: VoiceTtsSettingsSnapshot
-    openai_realtime_credential: SettingsCredentialState
+    live_providers: list[LiveVoiceProvider] = Field(max_length=8)
+    cloud_speech: list[CloudSpeechOption] = Field(default_factory=list, max_length=16)
     talk_providers: list[SettingsChoice] = Field(max_length=8)
     dictation_providers: list[SettingsChoice] = Field(max_length=8)
     speech_output_providers: list[SettingsChoice] = Field(max_length=8)
     whisper_options: list[SettingsChoice] = Field(max_length=8)
     realtime_voice_options: list[SettingsChoice] = Field(max_length=16)
     tts_voice_options: list[SettingsChoice] = Field(max_length=32)
+    language: VoiceLanguageSnapshot
 
 
 class SettingsWorkspaceSnapshot(WireModel):
@@ -2755,6 +2855,8 @@ class LocalServersSnapshot(WireModel):
 class LocalServerConnectRequest(WireModel):
     kind: LocalServerKind
     port: int = Field(ge=1, le=65535)
+    # The model the person chose, which is checked once connected (as adding the endpoint by hand does).
+    model: str | None = Field(default=None, max_length=256)
 
 
 class LocalServerConnection(WireModel):
@@ -2772,6 +2874,68 @@ class LocalModelInstallRequest(WireModel):
 class LocalModelRemoveRequest(WireModel):
     # One model; absent: the runtime and every model.
     model_id: LocalModelId | None = None
+
+
+SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
+
+
+class SpeechModelOption(WireModel):
+    """One pinned streaming speech-to-text model Row-Bot Voice can download (VD3)."""
+
+    id: SpeechModelId
+    name: str = Field(max_length=128)
+    # The saved Talk engine id that chooses it ("Speech model" in Settings › Voice).
+    engine_id: str = Field(max_length=128)
+    # The download, and the space it takes once unpacked.
+    size_bytes: int = Field(ge=0)
+    installed_bytes: int = Field(ge=0)
+    # What pressing Download would fetch now (a stopped download resumes); 0 when installed.
+    download_bytes: int = Field(ge=0)
+    installed: bool
+    # The model's language (BCP 47), or None when it detects the language itself.
+    language: str | None = Field(default=None, max_length=16)
+    licence: str = Field(max_length=64)
+    source: str = Field(max_length=256)
+    runs_best_on: Literal["gpu", "cpu"]
+
+
+class SpeechModelDownload(WireModel):
+    model_id: SpeechModelId
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class SpeechModelsView(WireModel):
+    """Settings › Voice: the streaming speech models, the one picked for this computer, the download."""
+
+    schema_version: Literal[1]
+    # unavailable: the speech runtime (the voice extra) isn't installed.
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "failed"]
+    computer: str = Field(max_length=256)
+    recommended: SpeechModelId
+    # Why: "gpu" (an NVIDIA card the runtime uses), "cpu", "mac", or "no_gpu_runtime" (an NVIDIA
+    # card, but the installed speech runtime runs on the processor only).
+    reason: Literal["gpu", "cpu", "mac", "no_gpu_runtime"]
+    models: list[SpeechModelOption] = Field(max_length=8)
+    download: SpeechModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    # The saved Talk engine id now in use.
+    talk_engine: str = Field(max_length=128)
+    disk_bytes: int = Field(ge=0)
+    freed_bytes: int | None = Field(default=None, ge=0)
+
+
+class SpeechModelInstallRequest(WireModel):
+    model_id: SpeechModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class SpeechModelRemoveRequest(WireModel):
+    model_id: SpeechModelId
 
 
 class ModelTestResult(WireModel):
@@ -2792,6 +2956,14 @@ class ProviderKeyCheck(WireModel):
     detail: str = Field(max_length=512)
 
 
+class MonitorVoiceLatency(WireModel):
+    """Row-Bot Voice's recent spoken replies: time from the end of speech to the first audio."""
+
+    turns: int = Field(ge=1, le=50)
+    first_audio_p50_ms: int = Field(ge=0, le=600000)
+    first_audio_p90_ms: int = Field(ge=0, le=600000)
+
+
 class MonitorSnapshot(WireModel):
     schema_version: Literal[1]
     dream_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -2802,6 +2974,8 @@ class MonitorSnapshot(WireModel):
     dream_journal: list[MonitorDreamJournalEntry] = Field(max_length=20)
     dream_journal_availability: MonitorAvailability
     logs: MonitorLogs
+    # Only once Row-Bot Voice has spoken a reply since the server started.
+    voice: MonitorVoiceLatency | None = None
 
 
 ActivitySurface = Literal["chat", "workflow", "agent", "goal", "channel", "proactive", "developer"]
@@ -3508,7 +3682,7 @@ class ChannelSource(WireModel):
 class ChannelFieldStatus(WireModel):
     key: OpaqueId
     label: str = Field(max_length=160)
-    field_type: Literal["text", "password", "number", "slider"]
+    field_type: Literal["text", "password", "number", "slider", "toggle"]
     storage: Literal["env", "config"]
     help_text: str = Field(max_length=512)
     configured: bool | None
@@ -3516,6 +3690,8 @@ class ChannelFieldStatus(WireModel):
     fingerprint: str = Field(max_length=128)
     externally_managed: bool
     writable: bool
+    # A switch's current value (field_type "toggle" only); other fields never show theirs.
+    value: bool | None = None
 
 
 class PairedChannelIdentity(WireModel):
@@ -3577,7 +3753,7 @@ class ChannelActionRequest(WireModel):
     revision: KnowledgeRevision
     operation: ChannelOperation
     field_key: OpaqueId | None
-    value: str | int | float | None
+    value: bool | str | int | float | None
     identity_id: KnowledgeRevision | None
 
 
@@ -6324,6 +6500,7 @@ class VideoEditPage(WireModel):
 
 VideoProjectId = Annotated[str, StringConstraints(pattern=r"^vid-[0-9a-f]{8}$")]
 VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
+VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
 
 
 class VideoScene(WireModel):
@@ -6347,6 +6524,19 @@ class VideoScene(WireModel):
     # What the live preview plays: its video and its voice line, by reference (None when there's none to play).
     source_ref: str | None = Field(default=None, max_length=512)
     voice_ref: str | None = Field(default=None, max_length=512)
+    # Its storyboard card (C1): its footage type (with no source, footage still to make, unless a card), what it
+    # shows, its music cue, whether the person approved it, whether it has a frame to show (its frame route), and
+    # how the made video got it: drawn now ("new"), unchanged from before ("reused"), or "" (a card, or not made).
+    footage: VideoFootage = "clip"
+    shows: str = Field(default="", max_length=200)
+    cue: str = Field(default="", max_length=80)
+    approved: bool = False
+    has_frame: bool = False
+    made: Literal["", "new", "reused"] = ""
+    # Its sound (C6): who says its line (a character, in its own voice; "" the narrator), and its effects and
+    # ambience (built-in names such as "whoosh" or "rain", or sound files in the chat by name).
+    speaker: str = Field(default="", max_length=40)
+    effects: list[str] = Field(default_factory=list, max_length=4)
 
 
 class VideoSceneWrite(WireModel):
@@ -6359,6 +6549,19 @@ class VideoSceneWrite(WireModel):
     zoom: list[float] | None = Field(default=None, min_length=4, max_length=4)
     card: str = Field(default="", max_length=120)
     line: str = Field(default="", max_length=300)
+    # Its storyboard card: left out, a scene keeps its own.
+    footage: VideoFootage | None = None
+    shows: str | None = Field(default=None, max_length=200)
+    frame: str | None = Field(default=None, max_length=512)
+    cue: str | None = Field(default=None, max_length=80)
+    speaker: str | None = Field(default=None, max_length=40)
+    effects: list[Annotated[str, StringConstraints(max_length=120)]] | None = Field(default=None, max_length=4)
+
+
+class VideoCastMember(WireModel):
+    """A character who speaks in a video, and the voice its lines are said in (C6)."""
+    name: str = Field(min_length=1, max_length=40)
+    voice: str = Field(max_length=64)
 
 
 class VideoVersionView(WireModel):
@@ -6389,12 +6592,14 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
-    # Footage on the backdrop or edge to edge; a camera that follows what was done or stays still.
-    framing: Literal["framed", "full"] = "framed"
+    # Footage edge to edge (the default) or inset on the backdrop; a camera that follows what was done or stays still.
+    framing: Literal["framed", "full"] = "full"
     camera: Literal["follow", "still"] = "follow"
     # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
+    # Every video's mix is brought to this loudness (LUFS): -14 for social video.
+    loudness: float = Field(default=-14.0, ge=-24, le=-10)
 
 
 class VideoProjectView(WireModel):
@@ -6406,16 +6611,24 @@ class VideoProjectView(WireModel):
     # Every kept version, newest first.
     versions: list[VideoVersionView] = Field(max_length=50)
     number: int = Field(ge=1)
-    scenes: list[VideoScene] = Field(max_length=60)
+    # The storyboard's one line: what the video is ("" none).
+    logline: str = Field(default="", max_length=160)
+    scenes: list[VideoScene] = Field(max_length=200)
     # The scenes this version added or changed against the one before it.
-    changed: list[VideoSceneId] = Field(max_length=60)
+    changed: list[VideoSceneId] = Field(max_length=200)
+    # A music file, "fit" (music made to fit the cut, in ``music_mood``: the version's own, else the brand kit's) or
+    # "" none; and the cuts on its beat.
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
+    music_mood: Literal["", "calm", "upbeat", "focused", "warm"] = ""
+    on_beat: bool = False
+    # The voice each character who speaks is said in.
+    cast: list[VideoCastMember] = Field(default_factory=list, max_length=200)
     # One voice file said over the whole video ("" none): its scenes' lines then aren't said one by one.
     narration: str = Field(default="", max_length=200)
     captions: bool
     voice_lines: bool
-    # draft (not made yet), voicing, rendering, made, failed or stopped.
+    # draft (a storyboard: not made yet), voicing, rendering, made, failed or stopped.
     status: Literal["draft", "voicing", "rendering", "made", "failed", "stopped"]
     problem: str = Field(max_length=400)
     # The edit that makes (or made) this version's video.
@@ -6438,13 +6651,22 @@ class VideoProjectView(WireModel):
 class VideoProjectChange(WireModel):
     """The person's change in the Video panel, made on version ``base``: a new version, then its video."""
     base: int = Field(ge=1)
-    scenes: list[VideoSceneWrite] = Field(min_length=1, max_length=60)
+    scenes: list[VideoSceneWrite] = Field(min_length=1, max_length=200)
     title: str = Field(default="", max_length=80)
     music_volume: float | None = Field(default=None, ge=0, le=1)
     captions: bool | None = None
     brand: bool | None = None
     voice: str | None = Field(default=None, max_length=64)
+    # A voice for a character who speaks (kept with a saved character in Library › Media).
+    cast: list[VideoCastMember] | None = Field(default=None, max_length=200)
     note: str = Field(default="", max_length=200)
+
+
+class VideoSceneApproval(WireModel):
+    """The person approves storyboard scenes of version ``base`` as they are, or takes that back (C1)."""
+    base: int = Field(ge=1)
+    scene_ids: list[VideoSceneId] = Field(min_length=1, max_length=200)
+    approved: bool
 
 
 class VideoProjectRestore(WireModel):
@@ -6519,7 +6741,7 @@ class WaitView(WireModel):
     wait_id: str = Field(pattern=r"^[0-9a-f]{12}$")
     conversation_id: OpaqueId
     conversation_title: str = Field(max_length=160)
-    kind: Literal["process", "check", "time", "conversation", "watch"]
+    kind: Literal["process", "check", "time", "conversation", "watch", "video"]
     label: str = Field(min_length=1, max_length=120)
     # "checks every 5 min" or "watching"; a watch's "every 10 min" or "every 5–60 min"; "" for a time wait.
     how: str = Field(max_length=40)
@@ -6964,13 +7186,15 @@ DeliveryId = Annotated[str, StringConstraints(pattern=r"^send-[0-9a-f]{8}$")]
 
 class DeliveryFile(WireModel):
     """One file a delivery sent, or tried to (F7): its name and size, never where it came from."""
-    index: int = Field(ge=0, le=9)
+    index: int = Field(ge=0, le=49)  # A send holds up to file_deliveries.MAX_FILES (50) files.
     name: str = Field(min_length=1, max_length=120)
     size_bytes: int = Field(ge=0)
     mime_type: str = Field(max_length=128)
     sent: bool
     # Sent to the person's devices and not expired: the download works with their session.
     downloadable: bool
+    # Sent to the person's devices as the chat's own file: the card plays it inline, after the link expires too.
+    media_ref: str | None = Field(default=None, max_length=512)
 
 
 class DeliveryView(WireModel):
@@ -6992,7 +7216,7 @@ class DeliveryView(WireModel):
     detail: str = Field(max_length=600)
     # The size limit that applied, when the problem is size.
     limit_bytes: int | None = Field(ge=0)
-    files: list[DeliveryFile] = Field(max_length=10)
+    files: list[DeliveryFile] = Field(max_length=50)
     created_at: str = Field(max_length=80)
     # When the downloads end (devices only).
     expires_at: str | None = Field(max_length=80)
@@ -7072,6 +7296,51 @@ class MediaTagsWrite(WireModel):
 class MediaTags(WireModel):
     ref: str = Field(min_length=3, max_length=300)
     tags: list[MediaTag] = Field(max_length=12)
+
+
+# What a file is to the person (W1): a final, a draft, a working file made on the way, or a file they added.
+OutputRole = Literal["final", "draft", "working", "upload"]
+
+
+class OutputVersionView(WireModel):
+    """One version of an output: a file in its chat."""
+    ref: str = Field(min_length=3, max_length=300)
+    version: int = Field(ge=1, le=100_000)
+    role: OutputRole
+    file_name: str = Field(min_length=1, max_length=240)
+    mime_type: str = Field(max_length=64)
+    size: int = Field(ge=1)
+    created_at: str = Field(max_length=40)
+
+
+class OutputView(OutputVersionView):
+    """One thing in a chat's outputs (W3): the version shown (its final, else its latest draft), its versions
+    newest first, and how many working files were made for it on the way."""
+    id: str = Field(pattern=r"^[0-9a-f]{24}$")
+    conversation_id: str = Field(min_length=1, max_length=256)
+    conversation_title: str = Field(default="", max_length=256)
+    name: str = Field(min_length=1, max_length=240)
+    kind: Literal["video", "image", "audio", "document", "file"]
+    versions: list[OutputVersionView] = Field(min_length=1, max_length=50)
+    version_count: int = Field(ge=1)
+    working_count: int = Field(ge=0)
+    updated_at: str = Field(max_length=40)
+    tags: list[MediaTag] = Field(default_factory=list, max_length=12)
+
+
+class OutputCounts(WireModel):
+    """How many outputs each filter lists in one chat."""
+    made: int = Field(ge=0)
+    uploads: int = Field(ge=0)
+    working: int = Field(ge=0)
+
+
+class OutputPage(WireModel):
+    """A chat's outputs, or every chat's (Library › Media, the phone's Files): newest first."""
+    items: list[OutputView] = Field(max_length=500)
+    counts: OutputCounts | None = None
+    # The page after this one (pass it as ``before``); None on the last page.
+    next: str | None = Field(default=None, max_length=64)
 
 
 class PageTheme(WireModel):
@@ -9525,6 +9794,11 @@ class MediaAvailable(WireModel):
     ]
     # The prompt a media tool made it from, on one line (5.3.3): it names the output in the chat's Outputs.
     prompt: str = Field(default="", max_length=1000)
+    # What it is to the person (finals first): a final (presented, or AI-made), a draft to look at, or a
+    # working file made on the way, which the chat folds away; "" for one from before roles.
+    role: Literal["", "final", "draft", "working"] = ""
+    # A presented final's name in the chat's files.
+    name: str = Field(default="", max_length=240)
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
 
@@ -9756,7 +10030,8 @@ class CommandReceipt(WireModel):
     revision: Revision | None = None
     approval_id: OpaqueId | None = None
     attachment_ref: Reference | None = None
-    saved_name: str | None = Field(default=None, max_length=128)
+    # media.save: where the file was saved, inside the workspace ("Saved outputs/Birthday montage.mp4").
+    saved_name: str | None = Field(default=None, max_length=300)
     # conversation.link.start (5.3.1 C): the conversation the person started from a proposal.
     linked_conversation_id: OpaqueId | None = None
     # conversation.fork (B5): the new conversation, and for "edit" the edited message's files, copied into it.
@@ -10022,6 +10297,10 @@ class TraceMediaReference(WireModel):
     mime_type: str = Field(max_length=128)
     # The prompt a media tool made it from, on one line (5.3.3); empty for older chats and other tools.
     prompt: str = Field(default="", max_length=1000)
+    # What it is to the person (finals first): final, draft or working; "" in chats from before roles.
+    role: Literal["", "final", "draft", "working"] = ""
+    # A presented final's name in the chat's files.
+    name: str = Field(default="", max_length=240)
 
 
 class TraceAppRef(WireModel):
@@ -10879,7 +11158,6 @@ class ConversationWorkspace(WireModel):
     model_status: ConversationModelStatus | None = None
     profiles: list[ProfileChoice] = Field(max_length=256)
     resources: list[ResourceView] = Field(max_length=200)
-    generated_outputs: list[MediaAvailable] = Field(default_factory=list, max_length=20)
     writer_status: str = Field(default="", max_length=40)
     actions: list[ActionReadiness] = Field(max_length=6)
     context_usage: ContextUsageView | None = None
@@ -11296,6 +11574,12 @@ class DictationCapability(WireModel):
     realtime_available: bool = False
     talk_reason: str = Field(default="host_unavailable", max_length=128)
     realtime_reason: str = Field(default="host_unavailable", max_length=128)
+    # Read aloud on a reply: "available", or the code saying what it needs (kokoro_model_missing).
+    read_aloud_reason: str = Field(default="host_unavailable", max_length=128)
+    live_providers: list[LiveVoiceProvider] = Field(default_factory=list, max_length=8)
+    # "Hey Row-Bot": "available" in the desktop app on this computer, or why not
+    # (not_this_computer, wake_model_missing, host_unavailable).
+    wake_reason: str = Field(default="host_unavailable", max_length=128)
 
 
 class DictationStart(WireModel):
@@ -11336,49 +11620,37 @@ class TalkStart(WireModel):
     conversation_revision: Revision
     model_selection: ModelSelection
     write_targets: list[WriteTarget] = Field(max_length=2)
+    # Live voice only: the front to talk to (Row-Bot Voice ignores it).
+    live_provider: LiveVoiceId = "openai"
 
 
 class TalkSnapshot(WireModel):
-    schema_version: Literal[1]
+    """A Row-Bot Voice lease; its live states travel over the voice socket."""
+
+    schema_version: Literal[2]
     handle: DictationHandle
-    state: Literal[
-        "listening",
-        "receiving",
-        "transcribing",
-        "thinking",
-        "speaking",
-        "stopping",
-        "stopped",
-    ]
+    state: Literal["starting", "listening", "stopping", "stopped"]
     quiesced: bool
     expires_in_ms: int = Field(ge=0, le=360000)
-    run_id: OpaqueId | None
-    transport: Literal["browser_local"]
-    max_audio_bytes: Literal[33554432]
-    max_utterance_ms: Literal[300000]
+    transport: Literal["row_bot_voice"]
 
 
-class TalkResult(WireModel):
+class TalkStarted(WireModel):
     snapshot: TalkSnapshot
-    utterance_id: UUID
-    outcome: Literal["submitted", "no_speech"]
-    text: str = Field(max_length=4000)
-    run_id: OpaqueId | None
+    # Single use, for the first message on /api/v1/voice/stream.
+    ticket: str = Field(min_length=20, max_length=128)
+    ticket_expires_in_ms: int = Field(ge=0, le=30000)
 
 
-class VoiceRunView(WireModel):
-    handle: DictationHandle
-    run_id: OpaqueId | None
-    state: Literal[
-        "idle", "running", "stopping", "completed", "stopped", "failed", "interrupted"
-    ]
-    output_id: OpaqueId | None
-    text: str | None = Field(max_length=4000)
+class VoiceTicket(WireModel):
+    ticket: str = Field(min_length=20, max_length=128)
+    expires_in_ms: int = Field(ge=0, le=30000)
 
 
-class TalkOutputRequest(DictationIdentity):
-    run_id: OpaqueId
-    output_id: OpaqueId
+class ReadAloudRequest(WireModel):
+    """Which part of a saved reply to speak; the reply's words are read on the server, never sent."""
+
+    part: int = Field(ge=0, le=9999)
 
 
 class RealtimeSnapshot(WireModel):
@@ -11388,57 +11660,16 @@ class RealtimeSnapshot(WireModel):
     quiesced: bool
     expires_in_ms: int = Field(ge=0, le=120000)
     run_id: OpaqueId | None
-    transport: Literal["openai_realtime"]
+    transport: LiveVoiceTransport
 
 
 class RealtimeStart(WireModel):
     snapshot: RealtimeSnapshot
-    client_secret: str | None = Field(max_length=4096)
-    secret_expires_in_ms: int = Field(ge=0, le=60000)
+    # OpenAI Realtime: the host exchanges the call's SDP with an ephemeral secret it keeps.
     exchange_available: bool = False
-
-
-class RealtimeEvent(WireModel):
-    event_id: UUID
-    type: Literal[
-        "connected",
-        "disconnected",
-        "fatal_error",
-        "speech_started",
-        "speech_stopped",
-        "transcript_final",
-        "assistant_transcript_final",
-        "function_call_ready",
-        "consult_fallback_needed",
-        "output_started",
-        "output_item_started",
-        "response_done",
-        "response_cancelled",
-        "output_audio_done",
-        "barge_in_cancelled",
-    ]
-    generation_id: str = Field(default="", max_length=128)
-    response_id: str = Field(default="", max_length=128)
-    output_item_id: str = Field(default="", max_length=128)
-    item_id: str = Field(default="", max_length=128)
-    call_id: str = Field(default="", max_length=128)
-    name: str = Field(default="", max_length=128)
-    arguments: str = Field(default="", max_length=8192)
-    text: str = Field(default="", max_length=4000)
-
-
-class RealtimeEventRequest(DictationIdentity):
-    event: RealtimeEvent
-
-
-class RealtimeEventResult(WireModel):
-    snapshot: RealtimeSnapshot
-    event_id: UUID
-    accepted: bool
-    caption: str = Field(max_length=4000)
-    call_id: str = Field(max_length=128)
-    function_output: str = Field(max_length=8192)
-    silent: bool
+    # Single use, for the first message on /api/v1/voice/live (events, and a relayed front's audio).
+    ticket: str = Field(min_length=20, max_length=128)
+    ticket_expires_in_ms: int = Field(ge=0, le=60000)
 
 
 class StreamReset(WireModel):

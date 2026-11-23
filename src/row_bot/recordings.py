@@ -4,7 +4,7 @@ Each recording belongs to the conversation that started it. Starting one goes th
 approval gate (the tools ask); stopping one never needs approval. A recording stops when it's
 asked to, at its time limit, before its video outgrows what a chat can hold, when its
 conversation is deleted and when Row-Bot quits. The finished video (H.264 MP4) is saved to the
-conversation's files, where the chat shows it with a preview; the working files go.
+conversation's files as a working file (``present`` shows it to the person); the capture's own files go.
 
 The backends do the capturing: ``browser.recording`` records the conversation's page in the
 managed browser, ``computer_use.recording`` records the main display through Cua Driver. A
@@ -314,7 +314,8 @@ def finished(record: Recording, reason: str, video: Path | None) -> None:
                 data = video.read_bytes()
                 name = "generated-recording.mp4" if record.kind == "browser" else "generated-screen-recording.mp4"
                 try:
-                    saved = register_attachment(record.conversation_id, name, data)
+                    saved = register_attachment(record.conversation_id, name, data, role="working",
+                                                output_id=record.recording_id)
                 except AttachmentError:
                     problem = "not_saved"  # The conversation is gone or can't take files now.
                 else:
@@ -498,8 +499,13 @@ def summary(record: Recording) -> str:
     if record.status == "saved":
         beats = "; ".join(f"{clock_words(at)} {kind}{f' ({note})' if note else ''}"
                           for at, kind, note, *_line in record.beats)
-        return (f"Recording {record.recording_id}: saved {clock_words(record.duration_seconds)} of {what} "
-                f"({size_words(record.size_bytes)}) to this chat's files; the person sees it in the chat."
+        from row_bot.media_sources import identity_of
+
+        # Its output first (W4): history masking keeps a result's first line.
+        named = identity_of(record.media_ref)
+        return (f"Recording {record.recording_id}: " + (f"{named}\nSaved" if named else "saved")
+                + f" {clock_words(record.duration_seconds)} of {what} ({size_words(record.size_bytes)}) to this "
+                "chat's files: present shows it to the person."
                 + (f" Beats: {beats}. The video tool makes scenes from them (recording={record.recording_id})."
                    if beats else ""))
     reason = {

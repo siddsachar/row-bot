@@ -59,6 +59,7 @@ from row_bot.learning.capture import (
     _Sink,
 )
 from row_bot.learning.contracts import Decision, Episode, Job
+from row_bot.learning.corrections import is_voice_front
 from row_bot.learning.store import LearningStore, LearningStoreError
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,8 @@ def _conversation_records(
         for index in range(start + 1, end):
             message = messages[index]
             kind = str(getattr(message, "type", "") or "")
+            if kind == "ai" and is_voice_front(message):
+                continue  # Live voice's own line (V4): context in the requests after it, never a reply to learn
             if kind == "ai":
                 for call in getattr(message, "tool_calls", None) or []:
                     if isinstance(call, dict) and call.get("id"):
@@ -354,7 +357,9 @@ def _conversation_records(
             status="completed", ended_at=turn_at, fidelity="partial", historical=True,
             follows_decision_id=previous_reply if _person_started(messages[start]) else None,
         ))
-        previous_reply = last_reply or previous_reply
+        replies = [message for message in messages[start + 1:end] if str(getattr(message, "type", "") or "") == "ai"]
+        # The person's next message answers a Live voice line the turn ended on, not a reply read here.
+        previous_reply = None if replies and is_voice_front(replies[-1]) else last_reply or previous_reply
     return records
 
 

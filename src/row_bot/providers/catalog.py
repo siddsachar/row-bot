@@ -4,7 +4,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from row_bot.providers.capabilities import endpoint_values
-from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderDefinition, TransportMode
+from row_bot.providers.models import (
+    AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderDefinition, TransportMode, gpt_generation)
 from row_bot.providers.presets import PRESETS, preset_definition
 
 PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
@@ -143,7 +144,13 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
 }
 
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
-_OPENAI_VISION_PREFIXES = ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4")
+_OPENAI_VISION_PREFIXES = ("gpt-4o", "gpt-4.1", "o3", "o4")  # and every GPT-5 or later
+
+
+def _openai_name_suggests_vision(model_id: str) -> bool:
+    return model_id.lower().startswith(_OPENAI_VISION_PREFIXES) or gpt_generation(model_id) >= 5
+
+
 _ANTHROPIC_VISION_PREFIXES = ("claude-3", "claude-sonnet-4", "claude-opus-4")
 _LOCAL_VISION_MARKERS = (
     "bakllava",
@@ -523,7 +530,7 @@ def classify_model_capabilities(
             capabilities = {"text", "embedding"}
             tool_calling = False
 
-    if provider_id == "openai" and bare.startswith("gpt-5"):
+    if provider_id == "openai" and gpt_generation(bare) >= 5:
         default_transport = TransportMode.OPENAI_RESPONSES
         tasks = {ModelTask.RESPONSES.value}
         endpoint_compatibility = {TransportMode.OPENAI_RESPONSES}
@@ -602,7 +609,7 @@ def classify_model_capabilities(
         inferred_vision = bool(metadata.get("vision"))
     else:
         inferred_vision = (
-            (provider_id in {"openai", "codex"} and bare.startswith(_OPENAI_VISION_PREFIXES))
+            (provider_id in {"openai", "codex"} and _openai_name_suggests_vision(bare))
             or (provider_id == "google" and bare.startswith("gemini"))
             or (provider_id == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
             or (provider_id.startswith("custom_openai_") and _name_suggests_vision_model(model_id))
@@ -611,7 +618,7 @@ def classify_model_capabilities(
                 and (
                     (upstream == "google" and bare.startswith("gemini"))
                     or (upstream == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
-                    or (upstream == "openai" and bare.startswith(_OPENAI_VISION_PREFIXES))
+                    or (upstream == "openai" and _openai_name_suggests_vision(bare))
                 )
             )
         )
@@ -646,7 +653,10 @@ def classify_model_capabilities(
             capabilities.add("image_edit")
         tool_calling = False
         streaming = False
-    elif declares_video or any(part in lower for part in ("veo", "video")):
+    elif declares_video or any(part in lower for part in ("veo", "video")) or (
+        # Gemini Omni makes clips through the Interactions API (video_gen_tool), not chat.
+        provider_id == "google" and bare.startswith("gemini-omni")
+    ):
         tasks = {ModelTask.VIDEO_GENERATION.value}
         output_modalities = {ModelModality.VIDEO.value}
         capabilities = {"video_generation"}

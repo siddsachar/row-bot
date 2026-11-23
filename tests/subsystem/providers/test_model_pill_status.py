@@ -28,7 +28,7 @@ def service():
 def _no_vision_lookup(monkeypatch, tmp_path):
     from row_bot.providers import saved_model_settings
 
-    monkeypatch.setattr(workspace_setup, "_sees_images", lambda _ref: None)
+    monkeypatch.setattr(workspace_setup, "sees_images", lambda _ref: None)
     monkeypatch.setattr(saved_model_settings, "SETTINGS_PATH", tmp_path / "model_settings.json")
 
 

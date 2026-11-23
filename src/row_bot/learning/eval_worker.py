@@ -304,6 +304,7 @@ def gather(arms: Sequence[WorkerArm]) -> tuple[list[Credential], dict[str, Any],
     endpoints: dict[str, dict[str, Any]] = {}
     local_settings: dict[str, dict[str, Any]] = {}
     unsupported: list[str] = []
+    learning_server = built_in_server = False
     for arm in arms:
         provider = _provider_of(arm.model_ref)
         model_id = arm.model_ref.split(":", 2)[-1] if arm.model_ref.count(":") >= 2 else ""
@@ -317,6 +318,8 @@ def gather(arms: Sequence[WorkerArm]) -> tuple[list[Credential], dict[str, Any],
             continue
         if provider.startswith("custom_openai_"):
             endpoint = custom.get_custom_endpoint(provider) or {}
+            learning_server = learning_server or endpoint.get("managed") == "learning"
+            built_in_server = built_in_server or endpoint.get("managed") == "local"
             live = custom.managed_connection(endpoint) if endpoint.get("managed") else None
             if not endpoint or (endpoint.get("managed") and live is None):
                 unsupported.append(arm.name)
@@ -363,6 +366,12 @@ def gather(arms: Sequence[WorkerArm]) -> tuple[list[Credential], dict[str, Any],
             unsupported.append(arm.name)
             continue
         credentials[provider] = Credential(provider, "api_key", {"api_key": key})
+    if learning_server and not built_in_server:
+        # The worker loads the personal arms onto Learning's own server: the built-in one gives the card back
+        # first. When an arm runs on the built-in server itself, its server has to keep running for that arm.
+        from row_bot.learning.training.llama_server import release_local_model_server
+
+        release_local_model_server()
     return list(credentials.values()), {"custom_endpoints": list(endpoints.values()),
                                         "local_model_settings": local_settings}, unsupported
 

@@ -1195,9 +1195,13 @@ def _query_voice() -> str:
         # TTS
         try:
             tts_path = _DATA_DIR / "tts_settings.json"
+            from row_bot.tts import TTSService
+
+            lines.append("- Read aloud and spoken replies: Kokoro, installed" if TTSService().is_installed() else
+                         "- Read aloud and spoken replies: Kokoro, not installed (only the person can start the "
+                         "download: [Voice](/settings/voice#read-aloud))")
             if tts_path.is_file():
                 tts = json.loads(tts_path.read_text(encoding="utf-8"))
-                lines.append(f"- TTS enabled: {'yes' if tts.get('enabled', False) else 'no'}")
                 lines.append(f"- TTS voice: {tts.get('voice', 'af_heart')}")
                 lines.append(f"- TTS speed: {tts.get('speed', 1.0)}")
             else:
@@ -1224,13 +1228,11 @@ def _query_voice() -> str:
             lines.append(f"- Dictation model: {runtime.dictation_model}")
             lines.append(f"- Speech output provider: {runtime.speech_output_provider}")
             lines.append(f"- Speech output model: {runtime.speech_output_model}")
-            lines.append(f"- Speech output voice: {runtime.speech_output_voice}")
             lines.append(f"- Captions: {'on' if runtime.captions_enabled else 'off'}")
-            lines.append(f"- Realtime fallback: {'on' if runtime.realtime_fallback_to_local else 'off'}")
         except Exception:
             lines.append("- Voice runtime: error reading settings")
         try:
-            from row_bot.voice.openai_realtime import OpenAIRealtimeProvider
+            from row_bot.voice.live_voice import PROVIDERS_LINK as LIVE_VOICE_PROVIDERS_LINK, live_voice_readiness
             from row_bot.voice.agent_bridge import (
                 REALTIME_ALLOWED_BRIDGE_TOOLS,
                 REALTIME_DIRECT_TOOL_POLICY,
@@ -1238,15 +1240,25 @@ def _query_voice() -> str:
                 VOICE_BRAIN_STRATEGY,
             )
 
-            realtime = OpenAIRealtimeProvider().status()
-            lines.append(f"- OpenAI Realtime: {'ready' if realtime.ready else 'not configured'}")
+            rows = live_voice_readiness()
+            ready = [row["label"] for row in rows if row["available"]]
+            missing = [row["label"] for row in rows if not row["available"]]
+
+            def names(labels: list[str]) -> str:
+                return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+
+            parts = [f"{names(ready)} ready"] if ready else []
+            if missing:
+                parts.append(f"{names(missing)} {'needs' if len(missing) == 1 else 'need'} a key "
+                             f"(the person adds it in [Providers]({LIVE_VOICE_PROVIDERS_LINK}))")
+            lines.append(f"- Live voice: {'; '.join(parts)}")
             lines.append(f"- Realtime brain strategy: {VOICE_BRAIN_STRATEGY}")
             lines.append(f"- Realtime direct normal-tool access: {REALTIME_DIRECT_TOOL_POLICY}")
             lines.append(f"- Realtime bridge tools: {', '.join(REALTIME_ALLOWED_BRIDGE_TOOLS)}")
             lines.append(f"- Realtime quiet idle tool: {REALTIME_WAIT_TOOL}")
             lines.append("- Realtime credential safety: browser receives ephemeral client secrets only; long-lived provider keys stay server-side")
         except Exception:
-            lines.append("- OpenAI Realtime: unavailable")
+            lines.append("- Live voice: unavailable")
         try:
             from row_bot.runtime import executions
 

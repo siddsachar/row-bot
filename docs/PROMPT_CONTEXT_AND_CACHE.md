@@ -193,7 +193,13 @@ Compaction does what Claude Code does (`models.context_reserves`,
    | 200K | 150,000 | 167,000 (177,000 input-only) |
    | 1M | 750,000 | 967,000 |
 
-   The user's context cap still sets the window.
+   The user's context cap still sets the window. A custom endpoint whose server
+   doesn't report the model's window, and that has no Native limit, gets its
+   profile's fallback, 32,768 tokens (`capacity_source` `profile_default`,
+   which readiness reports as inferred); a server's report or a Native limit
+   wins, and the cap only trims. Like the 128K fallback for unknown cloud
+   models it is a guess, so compaction runs at it but a request over it is
+   never refused before the server answers.
 3. **A full snapshot after.** The next turn context after a summary is a full
    snapshot, checked on every call, so a compaction made outside the pre-model
    hook (an overflow retry) is followed by one too.
@@ -397,6 +403,16 @@ cache reset each: an MCP server connecting or disconnecting, tool settings or a
 tool switched on or off, an app switched off or on in the chat, the model or
 its window, the approval mode, the agent profile, or a code folder or design
 bound to the conversation.
+
+**Middle tier.** A window of 64K or less, or up to 128K for a model on this
+computer, also offers Row-Bot's self-management (`agent.ON_DEMAND_TOOL_GROUPS`)
+through `tool_search` instead of binding it. On this computer means Ollama's
+own models and a custom endpoint saved with `execution_location: "local"`
+(Run on this computer, a found server, one added by hand;
+`models.is_local_custom_endpoint`), whose whole prompt is processed here.
+Learning's personal-model endpoints (`managed: "learning"` and
+`row-bot-personal-*`) keep the 64K rule they were trained in
+(`learning/training/shape.py`).
 
 **Small-context profile.** A model whose effective window is 32K or less (any
 provider: local Ollama, a custom endpoint, or a model capped that low) gets a

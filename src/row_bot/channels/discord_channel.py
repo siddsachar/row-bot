@@ -1199,7 +1199,7 @@ async def _attachment_turn_text(message, caption: str, channel) -> str | None:
         None, lambda: build_attachment_turn(attachments, caption)
     )
     if not turn.usable:
-        await channel.send("⚠️ I couldn't read that attachment.")
+        await channel.send(turn.notice or "⚠️ I couldn't read that attachment.")
         return None
     return turn.text
 

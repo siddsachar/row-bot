@@ -41,8 +41,12 @@ def _provider(voice_service: Any) -> Any:
     try:
         provider = speech_to_text_provider("dictate", voice_service=voice_service)
     except VoiceProviderError:
+        from row_bot.voice import languages
+        from row_bot.voice.runtime import load_voice_runtime_settings
+
         voice_service.sync_saved_models()
-        provider = LocalWhisperProvider(voice_service)
+        language = languages.requested(load_voice_runtime_settings().speech_language)
+        provider = LocalWhisperProvider(voice_service, language=language)
     return provider
 
 

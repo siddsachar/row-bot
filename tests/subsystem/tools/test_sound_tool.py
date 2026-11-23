@@ -65,11 +65,11 @@ def voice(monkeypatch):
 def test_a_voice_file_reads_the_whole_script_with_its_pronunciations(chat, voice):
     from row_bot.tools.sound_tool import _speak
 
-    script = "Row-Bot runs on Qwen. " * 40  # Far more than a spoken reply's three sentences.
+    script = "Row-Bot runs on Qwen. " * 40
     result = _speak(script, name="scene 1", voice="bf_emma", speed=1.1, pronunciations={"Qwen": "Kwen"})
 
-    assert result.startswith("Voice file scene 1.wav: ") and "voice bf_emma" in result
-    assert voice[0]["truncate"] is False and voice[0]["voice"] == "bf_emma" and voice[0]["speed"] == 1.1
+    assert result.startswith('Output "scene 1" v1 (working) · scene 1.wav\nVoice file: ') and "voice bf_emma" in result
+    assert voice[0]["voice"] == "bf_emma" and voice[0]["speed"] == 1.1
     assert "Qwen" not in voice[0]["text"] and voice[0]["text"].count("Kwen") == 40
     assert _files(chat)["scene 1.wav"]["mime_type"] == "audio/wav"
 
@@ -83,6 +83,58 @@ def test_the_voice_says_row_bot_and_version_numbers_as_people_do(chat, voice):
 
     assert voice[0]["text"] == "Row Bot 5 point 3 point 3 is here, and 5 point 4 point 0 follows."
     assert voice[1]["text"] == "Roe Bot ships today.", "the caller's pronunciation goes first"
+
+
+def test_a_name_taught_once_is_said_right_in_every_later_voice_file_and_video_line(chat, voice, monkeypatch):
+    """M9 (22 Nov): narration needed "Roe-bot" written into the script, and a later file said it wrong again. A
+    pronunciation the person teaches is kept; only the voice hears it, and captions keep the written word."""
+    import threading
+
+    from row_bot import video_edits, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools.sound_tool import _speak
+
+    taught = _speak("Meet Qwen and Ollama.", name="intro", pronunciations={"Qwen": "Kwen"}, remember=True)
+    assert "Saved how to say Qwen for every later voice file and video line." in taught
+    assert "Kwen" not in taught.split("Saved")[0], "the result names the word, never a saved list"
+    _speak("Qwen again, and QWEN.", name="later")
+    _speak("Qwen once more.", name="other", pronunciations={"Qwen": "Chwen"})
+    assert [said["text"] for said in voice] == ["Meet Kwen and Ollama.", "Kwen again, and Kwen.",
+                                                 "Chwen once more."], "saved for later; a call's own goes first"
+
+    register_attachment(chat, "clip.mp4", b"\x00\x00\x00\x18ftypmp42" + b"0" * 64)
+    started: list = []
+    monkeypatch.setattr(video_edits, "start", lambda request: started.append(request) or video_edits.VideoEdit(
+        edit_id="edit-0000000a", conversation_id=chat, kind="video", summary="", output_name="x.mp4", started_at=1.0))
+    project = video_projects.create(chat, "Launch", [{"source": "clip.mp4", "line": "Qwen runs here."}])
+    video_projects.make(project, 1)
+    for _ in range(300):
+        if started:
+            break
+        threading.Event().wait(0.01)
+    assert voice[-1]["text"] == "Kwen runs here.", "a video's line is voiced with the saved pronunciation"
+    assert started[0].steps[0].scenes[0].line == "Qwen runs here.", "its caption keeps the written word"
+
+    forgot = _speak("Qwen at last.", name="plain", pronunciations={"Qwen": ""}, remember=True)
+    assert "Forgot how to say Qwen." in forgot and voice[-1]["text"] == "Qwen at last."
+
+
+def test_a_transcript_of_a_respelled_voice_shows_the_written_word(chat, monkeypatch):
+    from row_bot import sound, voice as voice_module
+    from row_bot.application.attachments import read_attachment, register_attachment
+    from row_bot.tools.sound_tool import _transcribe
+
+    sound.remember_pronunciations({"Qwen": "Kwen"})
+    register_attachment(chat, "intro.wav", _wav(2.0, rate=16_000))
+    heard = [sound.Segment(0.0, 1.5, "Meet Kwen, our model.", ((0.0, 0.4, "Meet"), (0.4, 0.9, "Kwen")))]
+    monkeypatch.setattr(voice_module, "get_voice_service", lambda: SimpleNamespace(
+        whisper_model_available=lambda: True, transcribe_words=lambda pcm: (heard, "en")))
+
+    result = _transcribe("intro.wav")
+
+    assert "[0:00] Meet Qwen, our model." in result and "Kwen" not in result
+    subtitles = read_attachment(_files(chat)["intro-subtitles.srt"]["attachment_ref"])[1].decode()
+    assert "Meet Qwen, our model." in subtitles
 
 
 def test_a_voice_file_needs_a_known_voice(chat, voice):
@@ -124,8 +176,9 @@ def test_without_rowbots_voice_speaking_asks_once_to_download_it(chat, voice, mo
 
     answer["value"] = (None, "Approval: asked; approved by you")
     made = _speak("Hello")
-    assert made.startswith("Approval: asked; approved by you\nVoice file voice.wav: ") and downloads == ["kokoro"]
-    assert _speak("Again").startswith("Voice file "), "once: it's there now, so nothing asks"
+    assert made.startswith('Approval: asked; approved by you\nOutput "voice" v1 (working) · voice.wav\nVoice file: ')
+    assert downloads == ["kokoro"]
+    assert _speak("Again").startswith('Output "voice-2" v1'), "once: it's there now, so nothing asks"
     assert len(cards) == 2
 
 
@@ -163,7 +216,7 @@ def test_music_is_saved_in_the_chat_for_the_videos_length(chat):
 
     result = _make_music(3, mood="upbeat", name="demo music")
 
-    assert result.startswith("Music file demo music.wav: 3.0 seconds, upbeat")
+    assert result.startswith('Output "demo music" v1 (working) · demo music.wav\nMusic file: 3.0 seconds, upbeat')
     saved = _files(chat)["demo music.wav"]
     assert saved["mime_type"] == "audio/wav" and saved["size_bytes"] == 3 * music.SR * 4 + 44
     assert _make_music(0.5).startswith("Not made: music is between 1 second and 20 minutes long")
@@ -195,8 +248,8 @@ def test_a_clip_is_transcribed_with_timings_and_subtitles_are_saved(chat, monkey
 
     result = _transcribe("interview.wav")
 
-    assert result.startswith("Transcript of interview.wav (1:03, 3 words, language en). "
-                             "Subtitles: interview-subtitles.srt.")
+    assert result.startswith('Output "interview-subtitles" v1 (working) · interview-subtitles.srt\n'
+                             "Transcript of interview.wav (1:03, 3 words, language en).")
     assert "[0:00] Welcome to the show.\n[1:01] Thanks for having me." in result
     assert abs(len(given[0]) - 3 * 16_000 * 2) < 2_000, "3 seconds as 16 kHz mono 16-bit for Whisper"
     from row_bot.application.attachments import read_attachment
@@ -227,9 +280,9 @@ def test_without_the_speech_model_transcribing_asks_once_to_download_it(chat, mo
                                     "Hugging Face. Download it now?")
 
     answer["value"] = (None, "Approval: asked; approved by you")
-    assert _transcribe("memo.wav").startswith("Approval: asked; approved by you\nTranscript of memo.wav")
+    assert _transcribe("memo.wav").startswith('Approval: asked; approved by you\nOutput "memo-subtitles" v1')
     assert installed["value"]
-    assert _transcribe("memo.wav").startswith("Transcript of memo.wav"), "once: it's there now, so nothing asks"
+    assert _transcribe("memo.wav").startswith('Output "memo-subtitles-2" v1'), "once: it's there now, so nothing asks"
     assert len(cards) == 2
 
 

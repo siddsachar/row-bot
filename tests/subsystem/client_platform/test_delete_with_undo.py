@@ -98,15 +98,18 @@ def test_a_delete_without_undo_removes_the_conversation_at_once(platform, timers
 def test_a_conversation_removed_while_the_list_is_read_is_left_out_not_the_whole_list(platform, monkeypatch):
     """A workflow's conversation goes with its workflow: one removed between the list's read of its rows and
     of each conversation is left out, and the rest still list (the page never fails with not found)."""
-    from row_bot.application.client_platform import ClientPlatformError
+    import sqlite3
+    from contextlib import closing
 
-    read = platform.get_conversation
+    from row_bot import linked_conversations, threads
 
-    def gone_meanwhile(conversation_id, **kwargs):
-        if conversation_id == "conversation-a":
-            raise ClientPlatformError("not_found")
-        return read(conversation_id, **kwargs)
+    read = linked_conversations.started_from
 
-    monkeypatch.setattr(platform, "get_conversation", gone_meanwhile)
+    def gone_meanwhile(conversation_ids):
+        with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
+            conn.execute("DELETE FROM thread_meta WHERE thread_id='conversation-a'")
+        return read(conversation_ids)
+
+    monkeypatch.setattr(linked_conversations, "started_from", gone_meanwhile)
     listed = _listed(platform)
     assert "conversation-a" not in listed and "conversation-b" in listed

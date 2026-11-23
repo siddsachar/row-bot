@@ -395,7 +395,10 @@ def test_a_configured_channel_is_a_built_in_way_with_its_settings_and_nothing_st
     detail, plan = api.read_item(owner_id=OWNER, item_id=way["id"])
     assert plan is None and detail["entry"]["id"] == "builtin:channel:telegram"
     channel = next(item for item in read_channels()["items"] if item["channel_id"] == "telegram")
-    assert {field["key"]: field["configured"] for field in channel["fields"]} == {"bot_token": True, "user_id": True}
+    fields = {field["key"]: field for field in channel["fields"]}
+    # 5.0.0's saved settings carry over; a switch added since is at its default, not a saved setting.
+    assert {key for key, field in fields.items() if field["configured"]} == {"bot_token", "user_id"}
+    assert (fields["voice_replies"]["configured"], fields["voice_replies"]["value"]) == (False, True)
     assert channel["running"] is False
     assert not any(secret in json.dumps(channel) + json.dumps(detail) for secret in CHANNEL_SECRETS.values())
     assert _owner_files(v5.root) == before

@@ -6,7 +6,7 @@ import {
   type PointerEvent,
 } from 'react';
 import type { VideoScene, VideoSceneWrite } from '../../api/types';
-import { lengthWords } from './video-words';
+import { AMBIENCE, effectWords, lengthWords } from './video-words';
 
 /** Shortest a scene may be trimmed to, in seconds of its own video. */
 const SHORTEST = 0.2;
@@ -39,7 +39,8 @@ type Drag =
 
 /**
  * The timeline (desktop, 5.3.1 B3): the video's scenes as blocks on tracks
- * (video, voice lines, title cards, narration and music), sized by their length. Drag a
+ * (video, voice lines with who says them, title cards, sound effects, narration
+ * and music, in sections where music made to fit changes), sized by their length. Drag a
  * block's edges to trim it, drag a block to move it, click to play from it,
  * and zoom the timeline. Keys: Space plays, J and L step back and on, K
  * pauses, I and O set the selected scene's start and end at the playhead, S
@@ -50,6 +51,7 @@ export function VideoTimeline({
   made,
   narration = '',
   music,
+  sections = [],
   url,
   playhead,
   disabled,
@@ -64,6 +66,8 @@ export function VideoTimeline({
   /** One voice file said over the whole video, instead of each scene's line. */
   narration?: string;
   music: string;
+  /** The scenes where music made to fit changes section (indexes). */
+  sections?: number[];
   url: string;
   /** Seconds into the made video, or null when the edits moved things since. */
   playhead: number | null;
@@ -340,12 +344,18 @@ export function VideoTimeline({
                   <span
                     key={`line-${scene.scene_id || index}`}
                     className="video-line-block"
-                    title={scene.line}
+                    title={
+                      scene.speaker
+                        ? `${scene.speaker}: ${scene.line}`
+                        : scene.line
+                    }
+                    data-speaker={scene.speaker ? 'true' : undefined}
                     style={{
                       left: at(starts[index]),
                       width: at(lengths[index]),
                     }}
                   >
+                    {scene.speaker && <strong>{scene.speaker}: </strong>}
                     {scene.line}
                   </span>
                 ) : null,
@@ -370,6 +380,34 @@ export function VideoTimeline({
               ) : null,
             )}
           </div>
+          {shownScenes.some((scene) => scene.effects?.length) && (
+            <div className="video-track" aria-label="Effects">
+              <span className="video-track-name">Effects</span>
+              {shownScenes.map((scene, index) =>
+                (scene.effects ?? []).map((effect, place) => {
+                  const under = AMBIENCE.has(effect);
+                  return (
+                    <span
+                      key={`effect-${scene.scene_id || index}-${effect}`}
+                      className="video-effect-block"
+                      data-ambience={under ? 'true' : undefined}
+                      title={effectWords(effect)}
+                      style={{
+                        left: at(starts[index] + (under ? 0 : place * 0.4)),
+                        width: at(
+                          under
+                            ? lengths[index]
+                            : Math.min(0.8, lengths[index]),
+                        ),
+                      }}
+                    >
+                      {effectWords(effect)}
+                    </span>
+                  );
+                }),
+              )}
+            </div>
+          )}
           {narration && (
             <div className="video-track" aria-label="Narration">
               <span className="video-track-name">Narration</span>
@@ -385,13 +423,24 @@ export function VideoTimeline({
           {music && (
             <div className="video-track" aria-label="Music">
               <span className="video-track-name">Music</span>
-              <span
-                className="video-music-block"
-                title={music}
-                style={{ left: 0, width: at(total) }}
-              >
-                {music}
-              </span>
+              {[0, ...sections].map((first, part, all) => {
+                const next = all[part + 1] ?? shownScenes.length;
+                const from = first ? (starts[first] ?? total) : 0;
+                const until = next < shownScenes.length ? starts[next] : total;
+                return (
+                  <span
+                    key={`music-${first}`}
+                    className="video-music-block"
+                    title={part ? `${music} · from scene ${first + 1}` : music}
+                    style={{
+                      left: at(from),
+                      width: at(Math.max(0, until - from)),
+                    }}
+                  >
+                    {part ? `Scene ${first + 1}` : music}
+                  </span>
+                );
+              })}
             </div>
           )}
         </div>
