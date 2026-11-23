@@ -63,6 +63,27 @@ def test_an_ollama_models_sheet_reads_and_saves_its_own_settings(store):
     assert _saved(store) == {"qwen3:8b": {"context": 32_768, "reasoning": "off", "reply_limit": 8_192}}
 
 
+def test_the_persons_sampling_is_saved_kept_by_other_changes_and_refused_out_of_range(store):
+    ref = "model:ollama:qwen3.5:9b"
+    client, _, _ = client_app()
+    with client:
+        _, headers = bootstrap(client)
+        card = client.get(ROUTE, params={"model_ref": ref}, headers=headers).json()["sampling"]
+        saved = client.post(ROUTE, headers=headers, json={
+            "model_ref": ref, "sampling": "custom", "sampling_values": {"temperature": 0.4, "top_k": 30}})
+        # A change that doesn't name sampling (an older client) keeps it.
+        kept = client.post(ROUTE, headers=headers, json={"model_ref": ref, "reply_limit": 8_192})
+        refused = client.post(ROUTE, headers=headers, json={
+            "model_ref": ref, "sampling": "custom", "sampling_values": {"temperature": 2.5}})
+
+    assert card["value"] == "auto" and card["card"]["non_thinking"]["temperature"] == 0.7
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["sampling"]["custom"] == {"temperature": 0.4, "top_k": 30}
+    assert kept.json()["sampling"]["value"] == "custom"
+    assert refused.status_code == 422
+    assert _saved(store) == {"qwen3.5:9b": {"reply_limit": 8_192, "sampling": {"temperature": 0.4, "top_k": 30}}}
+
+
 def test_a_size_the_sheet_doesnt_offer_is_refused(store):
     client, _, _ = client_app()
     with client:

@@ -140,8 +140,11 @@ def test_ollama_keeps_a_callers_own_values(ollama):
 def test_ollama_personal_models_and_unknown_families_get_nothing(ollama):
     from row_bot import models
 
-    models.set_local_model_settings("qwen3.5:9b", context=16_384, reasoning="off")  # as Learning saves them
+    models.set_local_model_settings("qwen3.5:9b", context=16_384, reasoning="off", owner="learning")
+    models.save_person_local_model_settings("ollama", "qwen3.8:27b", context=32_768)  # the person's own
 
     assert _sampling(_ollama_options(ollama, "qwen3.5:9b")) == {}
     assert _sampling(_ollama_options(ollama, "row-bot-personal-v2:abcd1234")) == {}
     assert _sampling(_ollama_options(ollama, "llama3.1:8b")) == {}
+    # Only Learning's marker withholds the preset: a person's saved settings never do.
+    assert _sampling(_ollama_options(ollama, "qwen3.8:27b")) == QWEN38_THINKING

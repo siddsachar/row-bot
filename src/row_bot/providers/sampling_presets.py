@@ -9,6 +9,9 @@ So a chat request to a model on this computer (Ollama, Run on this computer, or 
 runs) carries its family's values for the mode it runs in: thinking or not. A value the caller or the
 endpoint's ``extra_body`` sets is never replaced. Families not listed here get nothing, and so do
 Learning's personal models and evaluation arms, which are served the way they were trained.
+
+A person may override the preset in a model's settings sheet (U1, D2): the engine's own sampling, or
+their own values, sent in the preset's place (the caller and ``extra_body`` still win).
 """
 
 from __future__ import annotations
@@ -68,6 +71,30 @@ def preset_for(model_id: str, *, thinking: bool | None) -> dict[str, float | int
     return dict(PRESETS[family]["non_thinking" if thinking is False else "thinking"])
 
 
+def values_for(provider_id: str, model_id: str, *, thinking: bool | None) -> dict[str, float | int]:
+    """What a request to a local model samples with, where the caller set nothing: the person's own choice in
+    the model's settings (their values, or ``{}`` for the engine's own), else the family's preset."""
+    from row_bot.models import local_sampling
+
+    own = local_sampling(provider_id, model_id) if provider_id and model_id else None
+    return preset_for(model_id, thinking=thinking) if own is None else own
+
+
+def unlisted_fields(profile: str) -> frozenset[str]:
+    """Sampling fields a server of this kind isn't sent."""
+    return _UNLISTED_FIELDS.get(str(profile or "").strip().lower(), frozenset())
+
+
+def card_values(model_id: str, profile: str = "") -> dict[str, dict[str, float | int]] | None:
+    """The family's preset for a reply that thinks and one that doesn't, as this server is sent it (the
+    model's settings sheet shows them), or None for a family without one."""
+    if family_of(model_id) is None:
+        return None
+    unlisted = unlisted_fields(profile)
+    return {mode: {key: value for key, value in preset_for(model_id, thinking=thinks).items() if key not in unlisted}
+            for mode, thinks in (("thinking", True), ("non_thinking", False))}
+
+
 def _fill(target: dict[str, Any], preset: Mapping[str, Any]) -> None:
     for key, value in preset.items():
         target.setdefault(key, value)
@@ -101,8 +128,8 @@ def apply_to_openai_compatible(body: dict[str, Any], endpoint: Mapping[str, Any]
         return
     if withheld(endpoint.get("provider_id") or endpoint.get("id"), model_id):
         return
-    preset = preset_for(model_id, thinking=_request_thinks(body))
-    for field in _UNLISTED_FIELDS.get(str(endpoint.get("profile") or "").strip().lower(), ()):
+    preset = values_for(str(endpoint.get("provider_id") or ""), model_id, thinking=_request_thinks(body))
+    for field in unlisted_fields(str(endpoint.get("profile") or "")):
         preset.pop(field, None)
     _fill(body, preset)
 
@@ -118,14 +145,14 @@ def apply_to_ollama(options: dict[str, Any], model_id: str, think: Any) -> None:
     """
     if _personal_ollama_model(model_id):
         return
-    _fill(options, preset_for(model_id, thinking=None if think is None else think is not False))
+    _fill(options, values_for("ollama", model_id, thinking=None if think is None else think is not False))
 
 
 def _personal_ollama_model(model_id: str) -> bool:
     """One of Learning's models on Ollama: a personal model's reserved name, or a model Learning saved
-    serving settings for (a personal model, or an evaluation arm's model)."""
+    serving settings for (marked ``owner: "learning"``; a person's own settings never count)."""
     if withheld("ollama", model_id):
         return True
-    from row_bot.models import local_model_settings
+    from row_bot.models import is_learning_local_entry, local_model_settings, local_settings_key
 
-    return bool(local_model_settings(model_id))
+    return is_learning_local_entry(local_settings_key("ollama", model_id), local_model_settings(model_id))

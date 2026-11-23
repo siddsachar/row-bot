@@ -12,7 +12,9 @@ import {
   Button,
   Disclosure,
   ErrorState,
+  Field,
   IconButton,
+  Input,
   Menu,
   Segmented,
   SettingRow,
@@ -21,6 +23,56 @@ import {
 import { StatusLine } from '../settings/anatomy';
 
 type Thinking = LocalModelSettingsView['thinking']['value'];
+type Sampling = LocalModelSettingsView['sampling'];
+type SamplingField = Sampling['fields'][number];
+type SamplingValues = NonNullable<Sampling['custom']>;
+
+/** Each sampling value's name, range and step, in the order the sheet shows them. */
+const SAMPLING_FIELDS: Record<
+  SamplingField,
+  {
+    label: string;
+    /** A shorter visible label where the full one would wrap in a narrow field. */
+    visible?: string;
+    short: string;
+    min: number;
+    max: number;
+    step: number;
+  }
+> = {
+  temperature: {
+    label: 'Temperature',
+    short: 'temperature',
+    min: 0,
+    max: 2,
+    step: 0.05,
+  },
+  top_p: { label: 'Top-p', short: 'top-p', min: 0, max: 1, step: 0.05 },
+  top_k: { label: 'Top-k', short: 'top-k', min: 0, max: 1000, step: 1 },
+  min_p: { label: 'Min-p', short: 'min-p', min: 0, max: 1, step: 0.01 },
+  presence_penalty: {
+    label: 'Presence penalty',
+    visible: 'Presence',
+    short: 'presence penalty',
+    min: -2,
+    max: 2,
+    step: 0.1,
+  },
+};
+
+/** "temperature 0.7 · top-p 0.8 · top-k 20" for the values a reply is sent. */
+function samplingWords(values: SamplingValues, fields: SamplingField[]) {
+  return fields
+    .filter((field) => values[field] != null)
+    .map((field) => `${SAMPLING_FIELDS[field].short} ${values[field]}`)
+    .join(' · ');
+}
+
+/** The values a reply gets unless a chat chooses: the card's for thinking or not. */
+function cardValues(sampling: Sampling): SamplingValues | null {
+  if (!sampling.card) return null;
+  return sampling.thinks ? sampling.card.thinking : sampling.card.non_thinking;
+}
 
 /** "64K" for 65,536 tokens. */
 export function windowWords(tokens: number): string {
@@ -153,6 +205,8 @@ export function LocalModelSheet({
   const [message, setMessage] = useState('');
   const [reloadAt, setReloadAt] = useState<number | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Custom chosen for a model without card values: the fields show before anything is saved.
+  const [customPending, setCustomPending] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -185,8 +239,11 @@ export function LocalModelSheet({
         context: view.context.chosen ?? null,
         thinking: view.thinking.value,
         reply_limit: view.reply_limit.value ?? null,
+        sampling: view.sampling.value,
+        sampling_values: view.sampling.custom ?? null,
         ...change,
       });
+      setCustomPending(false);
       setView(next);
       setMessage(appliedWords(next));
     } catch (cause) {
@@ -233,9 +290,27 @@ export function LocalModelSheet({
     ? `Reads ${windowWords(context.current)}${memory ? ` · ${memory}` : ''}`
     : '';
   const automaticReply = view?.reply_limit.automatic
-    ? `Automatic · up to ${windowWords(view.reply_limit.automatic)}`
+    ? `Automatic · up to ${windowWords(view.reply_limit.automatic)} tokens`
     : 'Automatic · the server’s own limit';
   const where = place.kind === 'this_computer' ? 'this computer' : place.name;
+  const sampling = view?.sampling;
+  const samplingChoice = customPending ? 'custom' : (sampling?.value ?? 'auto');
+
+  function chooseSampling(value: string) {
+    if (!sampling) return;
+    if (value !== 'custom') {
+      setCustomPending(false);
+      void save({
+        sampling: value as Sampling['value'],
+        sampling_values: null,
+      });
+      return;
+    }
+    // Custom starts from the values a reply gets now, where the card has them.
+    const start = cardValues(sampling);
+    if (start) void save({ sampling: 'custom', sampling_values: start });
+    else setCustomPending(true);
+  }
 
   return (
     <ModalTask
@@ -375,11 +450,13 @@ export function LocalModelSheet({
             <Disclosure
               summary="More"
               className="local-model-sheet-more"
-              defaultOpen={view.reply_limit.value != null}
+              defaultOpen={
+                view.reply_limit.value != null || view.sampling.value !== 'auto'
+              }
             >
               <SettingRow
                 label="Reply length"
-                description="How much one reply may write. A limit stops a reply that runs on."
+                description="The longest reply it may write, in tokens (a token is about three quarters of a word). A limit stops a reply that runs on."
                 control={
                   <SizePicker
                     label="Reply length"
@@ -394,12 +471,96 @@ export function LocalModelSheet({
                       { value: 'auto', label: automaticReply },
                       ...view.reply_limit.choices.map((size) => ({
                         value: String(size),
-                        label: windowWords(size),
+                        label: `${windowWords(size)} tokens`,
+                        description: `About ${(Math.round((size * 0.75) / 1000) * 1000).toLocaleString('en')} words`,
                       })),
                     ]}
                   />
                 }
               />
+              {sampling && (
+                <SettingRow
+                  label="Sampling"
+                  description={
+                    <>
+                      How freely it picks each word.
+                      {samplingChoice === 'auto' && sampling.card ? (
+                        view.thinking.available ? (
+                          <>
+                            <StatusLine>
+                              {`Thinking: ${samplingWords(sampling.card.thinking, sampling.fields)}`}
+                            </StatusLine>
+                            <StatusLine>
+                              {`Not thinking: ${samplingWords(sampling.card.non_thinking, sampling.fields)}`}
+                            </StatusLine>
+                          </>
+                        ) : (
+                          <StatusLine>
+                            {samplingWords(
+                              sampling.card.thinking,
+                              sampling.fields,
+                            )}
+                          </StatusLine>
+                        )
+                      ) : samplingChoice === 'custom' ? (
+                        <StatusLine>
+                          Your values, whether it thinks or not.
+                        </StatusLine>
+                      ) : (
+                        <StatusLine>
+                          {`${view.engine_name} uses its own values.`}
+                        </StatusLine>
+                      )}
+                    </>
+                  }
+                  control={
+                    <SizePicker
+                      label="Sampling"
+                      value={samplingChoice}
+                      disabled={busy}
+                      onChange={chooseSampling}
+                      options={[
+                        sampling.card
+                          ? {
+                              value: 'auto',
+                              label: 'Model card',
+                              description: 'The values its makers recommend',
+                            }
+                          : {
+                              value: 'auto',
+                              label: 'Automatic',
+                              description: `${view.engine_name} decides`,
+                            },
+                        ...(sampling.card
+                          ? [
+                              {
+                                value: 'engine',
+                                label: 'Engine’s own',
+                                description: `${view.engine_name} decides`,
+                              },
+                            ]
+                          : []),
+                        {
+                          value: 'custom',
+                          label: 'Custom',
+                          description: 'Values you set',
+                        },
+                      ]}
+                    />
+                  }
+                />
+              )}
+              {sampling && samplingChoice === 'custom' && (
+                <SamplingFields
+                  key={JSON.stringify(sampling.custom ?? {})}
+                  sampling={sampling}
+                  disabled={busy}
+                  onProblem={setMessage}
+                  onSave={(values) =>
+                    void save({ sampling: 'custom', sampling_values: values })
+                  }
+                />
+              )}
             </Disclosure>
             <p className="local-model-sheet-message" role="status">
               {message}
@@ -408,6 +569,90 @@ export function LocalModelSheet({
         )}
       </div>
     </ModalTask>
+  );
+}
+
+/**
+ * The person's own sampling values, one field each. A field saves when it is
+ * left or Enter is pressed; an empty one is the engine's own.
+ */
+function SamplingFields({
+  sampling,
+  disabled,
+  onSave,
+  onProblem,
+}: {
+  sampling: Sampling;
+  disabled: boolean;
+  onSave: (values: SamplingValues) => void;
+  onProblem: (words: string) => void;
+}) {
+  const start = sampling.custom ?? {};
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      sampling.fields.map((field) => [field, String(start[field] ?? '')]),
+    ),
+  );
+
+  function commit() {
+    const values: SamplingValues = {};
+    for (const field of sampling.fields) {
+      const text = (draft[field] ?? '').trim();
+      if (!text) continue;
+      const value = Number(text);
+      const { label, min, max } = SAMPLING_FIELDS[field];
+      if (
+        !Number.isFinite(value) ||
+        value < min ||
+        value > max ||
+        (field === 'top_k' && !Number.isInteger(value))
+      ) {
+        onProblem(`${label} is between ${min} and ${max}.`);
+        return;
+      }
+      values[field] = value;
+    }
+    if (Object.keys(values).length === 0) {
+      onProblem('Enter a value, or choose Automatic.');
+      return;
+    }
+    const changed = sampling.fields.some(
+      (field) => (values[field] ?? null) !== (sampling.custom?.[field] ?? null),
+    );
+    if (changed) onSave(values);
+  }
+
+  return (
+    <div className="local-model-sheet-sampling">
+      {sampling.fields.map((field) => {
+        const { label, visible, min, max, step } = SAMPLING_FIELDS[field];
+        return (
+          <Field key={field} label={visible ?? label}>
+            <Input
+              type="number"
+              inputMode="decimal"
+              min={min}
+              max={max}
+              step={step}
+              placeholder="Engine’s own"
+              aria-label={visible ? label : undefined}
+              value={draft[field] ?? ''}
+              disabled={disabled}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  [field]: event.target.value,
+                }))
+              }
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commit();
+              }}
+            />
+          </Field>
+        );
+      })}
+    </div>
   );
 }
 

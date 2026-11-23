@@ -1314,7 +1314,9 @@ def set_context_size_auto() -> None:
 # holds only what was chosen; a field left out is Automatic:
 #   ``context``      the window in tokens (Ollama's ``num_ctx``; the built-in runtime's served ``ctx-size``);
 #   ``reasoning``    "on" or "off", the model's own Thinking unless a chat chooses (the sheet's Thinking);
-#   ``reply_limit``  the most tokens a reply may take.
+#   ``reply_limit``  the most tokens a reply may take;
+#   ``sampling``     "engine" (the engine's own sampling) or the person's own values (``SAMPLING_FIELDS``), in
+#                    place of the model card's preset (``providers.sampling_presets``, D2).
 # Learning saves entries for its personal models (L2c), served the way they were trained: at their own context
 # (O30) and, for a non-thinking model, with thinking off (O24). Those carry ``owner: "learning"``; one saved
 # before the marker existed is known by its reserved name (``row-bot-personal``). The person's settings never
@@ -1324,10 +1326,35 @@ LEARNING_OWNER = "learning"
 _LOCAL_REASONING = frozenset({"on", "off"})
 MIN_REPLY_LIMIT = 1_024
 MAX_REPLY_LIMIT = 262_144
+# The sampling values a person may set for a local model, with their ranges (OpenAI's and Ollama's names).
+SAMPLING_FIELDS: dict[str, tuple[float, float]] = {
+    "temperature": (0.0, 2.0), "top_p": (0.0, 1.0), "top_k": (0, 1000), "min_p": (0.0, 1.0),
+    "presence_penalty": (-2.0, 2.0),
+}
+ENGINE_SAMPLING = "engine"
 
 
 def _size_field(value: object, low: int, high: int) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and low <= value <= high else None
+
+
+def _clean_sampling(value: object) -> str | dict[str, float | int] | None:
+    """A saved sampling choice: ``"engine"``, the person's values (those in range), or None for Automatic."""
+    if value == ENGINE_SAMPLING:
+        return ENGINE_SAMPLING
+    if not isinstance(value, dict):
+        return None
+    found: dict[str, float | int] = {}
+    for name, (low, high) in SAMPLING_FIELDS.items():
+        number = value.get(name)
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not low <= number <= high:
+            continue
+        if name == "top_k":
+            if int(number) == number:
+                found[name] = int(number)
+        else:
+            found[name] = float(number)
+    return found or None
 
 
 def _clean_local_model_settings(raw: object) -> dict[str, dict]:
@@ -1346,6 +1373,9 @@ def _clean_local_model_settings(raw: object) -> dict[str, dict]:
         reply_limit = _size_field(value.get("reply_limit"), MIN_REPLY_LIMIT, MAX_REPLY_LIMIT)
         if reply_limit is not None:
             entry["reply_limit"] = reply_limit
+        sampling = _clean_sampling(value.get("sampling"))
+        if sampling is not None:
+            entry["sampling"] = sampling
         if entry and value.get("owner") == LEARNING_OWNER:
             entry["owner"] = LEARNING_OWNER
         if entry:
@@ -1451,9 +1481,11 @@ def set_local_model_settings(model_name: str, *, context: int | None = None, rea
 
 
 def save_person_local_model_settings(provider_id: str, model_id: str, *, context: int | None = None,
-                                     reasoning: str | None = None, reply_limit: int | None = None) -> dict:
-    """Save the person's settings of a local model (None is Automatic; all None removes its entry). Refuses a
-    model Learning serves. Returns the saved entry."""
+                                     reasoning: str | None = None, reply_limit: int | None = None,
+                                     sampling: str | dict | None = None) -> dict:
+    """Save the person's settings of a local model (None is Automatic; all None removes its entry). ``sampling``
+    is ``"engine"`` or the person's own values (``SAMPLING_FIELDS``). Refuses a model Learning serves. Returns
+    the saved entry."""
     global _llm_instance
     from row_bot.providers.model_visibility import withheld
 
@@ -1473,6 +1505,12 @@ def save_person_local_model_settings(provider_id: str, model_id: str, *, context
         if _size_field(reply_limit, MIN_REPLY_LIMIT, MAX_REPLY_LIMIT) is None:
             raise ValueError(f"A reply limit is between {MIN_REPLY_LIMIT:,} and {MAX_REPLY_LIMIT:,} tokens.")
         entry["reply_limit"] = reply_limit
+    if sampling is not None:
+        cleaned = _clean_sampling(sampling)
+        given = sampling if isinstance(sampling, dict) else {}
+        if cleaned is None or (isinstance(cleaned, dict) and set(cleaned) != set(given)):
+            raise ValueError("Sampling is automatic, the engine's own, or values within their ranges.")
+        entry["sampling"] = cleaned
     _write_local_model_entry(key, entry)
     _llm_instance = None  # made again on its next use, with the new settings
     if str(provider_id or "") in {"", "ollama", "local"}:
@@ -1491,6 +1529,15 @@ def local_thinking(provider_id: str, model_id: str) -> bool | None:
     """The person's Thinking for a local model (True on, False off), or None for Automatic."""
     value = person_local_model_settings(provider_id, model_id).get("reasoning")
     return None if value is None else value == "on"
+
+
+def local_sampling(provider_id: str, model_id: str) -> dict[str, float | int] | None:
+    """The person's sampling for a local model: their own values, ``{}`` for the engine's own, or None for
+    Automatic (the model card's preset)."""
+    value = person_local_model_settings(provider_id, model_id).get("sampling")
+    if value is None:
+        return None
+    return {} if value == ENGINE_SAMPLING else dict(value)
 
 
 def clear_local_model_settings(model_name: str) -> None:

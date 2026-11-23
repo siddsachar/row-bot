@@ -7870,8 +7870,36 @@ class LocalModelReplyLimitSettings(WireModel):
     choices: list[int] = Field(max_length=16)
 
 
+class LocalModelSamplingValues(WireModel):
+    """Sampling values for a local model's replies; a value left out is the engine's own."""
+
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    top_k: int | None = Field(default=None, ge=0, le=1000)
+    min_p: float | None = Field(default=None, ge=0, le=1)
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+
+
+class LocalModelSamplingCard(WireModel):
+    """The model card's values for the model's family, for a reply that thinks and one that doesn't."""
+
+    thinking: LocalModelSamplingValues
+    non_thinking: LocalModelSamplingValues
+
+
+class LocalModelSamplingSettings(WireModel):
+    # "auto": the model card's values (none for a family without a card); "engine": the engine's own; "custom".
+    value: Literal["auto", "engine", "custom"]
+    custom: LocalModelSamplingValues | None = None
+    card: LocalModelSamplingCard | None = None
+    # Whether a reply thinks unless a chat chooses, so which of the card's values it gets.
+    thinks: bool
+    # The values this server is sent (LM Studio has no min_p).
+    fields: list[Literal["temperature", "top_p", "top_k", "min_p", "presence_penalty"]] = Field(max_length=5)
+
+
 class LocalModelSettingsView(WireModel):
-    """One local model's settings sheet (U1): its window, Thinking and reply limit."""
+    """One local model's settings sheet (U1): its window, Thinking, reply limit and sampling."""
 
     schema_version: Literal[1] = 1
     model_ref: str = Field(min_length=1, max_length=647)
@@ -7882,6 +7910,7 @@ class LocalModelSettingsView(WireModel):
     context: LocalModelContextSettings
     thinking: LocalModelThinkingSettings
     reply_limit: LocalModelReplyLimitSettings
+    sampling: LocalModelSamplingSettings
     # Row-Bot's own server after a window change: from its next start, restarted now, or once it is idle.
     applied: Literal["next_start", "restarted", "when_idle"] | None = None
     # LM Studio's answer to a reload, in words.
@@ -7894,6 +7923,10 @@ class LocalModelSettingsMutation(WireModel):
     context: int | None = Field(default=None, ge=1024, le=4194304)
     thinking: Literal["auto", "on", "off"] = "auto"
     reply_limit: int | None = Field(default=None, ge=1024, le=262144)
+    # Absent: the sampling saved stays.
+    sampling: Literal["auto", "engine", "custom"] | None = None
+    # The person's values with "custom".
+    sampling_values: LocalModelSamplingValues | None = None
 
 
 class LocalModelReloadRequest(WireModel):

@@ -9861,6 +9861,8 @@ def create_router(
                 context=body.context,
                 thinking=body.thinking,
                 reply_limit=body.reply_limit,
+                sampling=body.sampling or "keep",
+                sampling_values=body.sampling_values.model_dump() if body.sampling_values else None,
                 validate=dispatch_validation(request, current),
             )
         except ValueError as exc:

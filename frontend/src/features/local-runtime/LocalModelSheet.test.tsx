@@ -17,6 +17,27 @@ const GIB = 2 ** 30;
 const KV = 34_816; // the 27B's cache per token
 /** What the 27B 4-bit takes loaded at a window: file, cache and working memory. */
 const need = (tokens: number) => 16_564_259_744 + KV * tokens + 700 * 2 ** 20;
+const FIELDS: LocalModelSettingsView['sampling']['fields'] = [
+  'temperature',
+  'top_p',
+  'top_k',
+  'min_p',
+  'presence_penalty',
+];
+const THINKING = {
+  temperature: 1,
+  top_p: 0.95,
+  top_k: 20,
+  min_p: 0,
+  presence_penalty: 0,
+};
+const NOT_THINKING = {
+  temperature: 0.7,
+  top_p: 0.8,
+  top_k: 20,
+  min_p: 0,
+  presence_penalty: 1.5,
+};
 
 function builtIn(
   extra: Partial<LocalModelSettingsView['context']> = {},
@@ -51,6 +72,13 @@ function builtIn(
       automatic: 32_768,
       choices: [4096, 8192, 16_384, 32_768],
     },
+    sampling: {
+      value: 'auto',
+      custom: null,
+      card: { thinking: THINKING, non_thinking: NOT_THINKING },
+      thinks: true,
+      fields: FIELDS,
+    },
     applied: null,
     notice: null,
   };
@@ -78,6 +106,13 @@ function lmStudio(): LocalModelSettingsView {
     },
     thinking: { available: false, value: 'auto' },
     reply_limit: { value: null, automatic: null, choices: [4096, 8192] },
+    sampling: {
+      value: 'auto',
+      custom: null,
+      card: null,
+      thinks: true,
+      fields: FIELDS.filter((field) => field !== 'min_p'),
+    },
   };
 }
 
@@ -133,6 +168,8 @@ it('says what the model and its context take of the card, and saves a size that 
     context: 32_768,
     thinking: 'auto',
     reply_limit: null,
+    sampling: 'auto',
+    sampling_values: null,
   });
   expect(
     screen.getByText(
@@ -199,13 +236,89 @@ it('saves Thinking and, under More, the reply length', async () => {
   fireEvent.click(screen.getByText('More'));
   expect(
     screen.getByRole('button', {
-      name: 'Reply length: Automatic · up to 32K',
+      name: 'Reply length: Automatic · up to 32K tokens',
     }),
   ).toBeTruthy();
-  await pick(/^Reply length:/, '8K');
+  await pick(/^Reply length:/, '8K tokens');
   await waitFor(() =>
     expect(mock.controller.saveLocalModelSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ reply_limit: 8192 }),
+    ),
+  );
+});
+
+it('shows the model card’s sampling and lets the person set their own', async () => {
+  open(builtIn());
+  await screen.findByRole('button', { name: /^Context:/ });
+  fireEvent.click(screen.getByText('More'));
+
+  expect(
+    screen.getByText(
+      'Thinking: temperature 1 · top-p 0.95 · top-k 20 · min-p 0 · presence penalty 0',
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(
+      'Not thinking: temperature 0.7 · top-p 0.8 · top-k 20 · min-p 0 · presence penalty 1.5',
+    ),
+  ).toBeTruthy();
+  const custom = builtIn();
+  custom.sampling = { ...custom.sampling, value: 'custom', custom: THINKING };
+  mock.controller.saveLocalModelSettings.mockResolvedValue(custom);
+
+  // Custom starts from what a reply gets now: the card's thinking values.
+  await pick(/^Sampling:/, 'Custom');
+  await waitFor(() =>
+    expect(mock.controller.saveLocalModelSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sampling: 'custom',
+        sampling_values: THINKING,
+      }),
+    ),
+  );
+  const temperature = await screen.findByLabelText('Temperature');
+  fireEvent.change(temperature, { target: { value: '0.4' } });
+  fireEvent.blur(temperature);
+
+  await waitFor(() =>
+    expect(mock.controller.saveLocalModelSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sampling: 'custom',
+        sampling_values: { ...THINKING, temperature: 0.4 },
+      }),
+    ),
+  );
+  fireEvent.change(temperature, { target: { value: '3' } });
+  fireEvent.blur(temperature);
+  expect(
+    await screen.findByText('Temperature is between 0 and 2.'),
+  ).toBeTruthy();
+  expect(mock.controller.saveLocalModelSettings).toHaveBeenCalledTimes(2);
+});
+
+it('a model without card values gets the engine’s own until the person enters one', async () => {
+  open(lmStudio());
+  await screen.findByText(/LM Studio loaded it at 32K\./);
+  fireEvent.click(screen.getByText('More'));
+  expect(screen.getByText('LM Studio uses its own values.')).toBeTruthy();
+  expect(
+    screen.getByRole('button', { name: 'Sampling: Automatic' }),
+  ).toBeTruthy();
+
+  await pick(/^Sampling:/, 'Custom');
+  expect(mock.controller.saveLocalModelSettings).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('Min-p')).toBeNull(); // LM Studio isn't sent it
+  mock.controller.saveLocalModelSettings.mockResolvedValue(lmStudio());
+  const temperature = screen.getByLabelText('Temperature');
+  fireEvent.change(temperature, { target: { value: '0.8' } });
+  fireEvent.keyDown(temperature, { key: 'Enter' });
+
+  await waitFor(() =>
+    expect(mock.controller.saveLocalModelSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sampling: 'custom',
+        sampling_values: { temperature: 0.8 },
+      }),
     ),
   );
 });

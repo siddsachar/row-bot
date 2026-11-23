@@ -265,6 +265,83 @@ def test_lm_studio_is_never_asked_for_more_than_the_model_reads(store):
     assert view["notice"] == "This model reads at most 131,072 tokens. Choose a smaller size."
 
 
+# ── Sampling (D2: the model card's preset, which the person may override) ────
+
+SAMPLING = ("temperature", "top_p", "top_k", "min_p", "presence_penalty")
+OWN = {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "min_p": 0.05, "presence_penalty": 0.5}
+
+
+def _sampling(values: dict) -> dict:
+    return {key: values[key] for key in SAMPLING if key in values}
+
+
+def _save_sampling(ref: str, sampling: str, values: dict | None = None) -> dict:
+    from row_bot.application.client_local_model_settings import save_local_model_settings
+
+    return save_local_model_settings(ref, context=None, thinking="auto", reply_limit=None, sampling=sampling,
+                                     sampling_values=values, validate=lambda: None)
+
+
+def test_the_sheet_shows_the_model_cards_values_and_the_persons_own_replace_them_on_ollama(ollama, store):
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+
+    sheet = read_local_model_settings(REF)["sampling"]
+    assert sheet["value"] == "auto" and sheet["thinks"] is True
+    assert sheet["card"] == {"thinking": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0,
+                                         "presence_penalty": 1.5},
+                             "non_thinking": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
+                                              "presence_penalty": 1.5}}
+    assert _sampling(_ollama_request(ollama)["options"]) == sheet["card"]["thinking"]  # what was sent
+
+    view = _save_sampling(REF, "custom", {**OWN, "min_p": None})
+    assert view["sampling"]["value"] == "custom"
+    assert _sampling(_ollama_request(ollama)["options"]) == {key: OWN[key] for key in OWN if key != "min_p"}
+
+    _save_sampling(REF, "engine")
+    assert _sampling(_ollama_request(ollama)["options"]) == {}  # Ollama's own sampling
+
+    view = _save_sampling(REF, "auto")
+    assert view["sampling"]["value"] == "auto" and store.local_model_settings(MODEL) == {}
+    assert _sampling(_ollama_request(ollama)["options"]) == sheet["card"]["thinking"]
+
+
+def test_a_servers_own_sampling_beats_the_persons_and_lm_studio_is_offered_no_min_p(store):
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+
+    with fake_provider_http([ANSWER, ANSWER]) as server:
+        provider = _endpoint("mine", f"{server.url}/v1", extra_body={"top_k": 64})
+        _save_sampling(f"model:{provider}:qwen3.5-9b", "custom", OWN)
+        body = _sent(server, provider)
+        studio = _endpoint("lmstudio-1234", f"{server.url}/v1", profile="lmstudio")
+        studio_ref = f"model:{studio}:qwen3.5-9b"
+        sheet = read_local_model_settings(studio_ref)["sampling"]
+
+    assert _sampling(body) == {**OWN, "top_k": 64}  # the endpoint's extra_body still wins
+    assert "min_p" not in sheet["fields"] and "min_p" not in sheet["card"]["thinking"]
+    with pytest.raises(ValueError, match="invalid_command"):
+        _save_sampling(studio_ref, "custom", {"min_p": 0.1})  # LM Studio isn't sent it
+    with pytest.raises(ValueError, match="invalid_command"):
+        _save_sampling(studio_ref, "custom", {})  # Custom names a value
+    with pytest.raises(ValueError, match="invalid_command"):
+        _save_sampling(studio_ref, "custom", {"temperature": 3.0})
+    assert store.person_local_model_settings(studio, "qwen3.5-9b") == {}
+
+
+def test_a_family_without_a_card_gets_nothing_until_the_person_sets_values(store):
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+
+    with fake_provider_http([ANSWER, ANSWER]) as server:
+        provider = _endpoint("mine", f"{server.url}/v1", model="gemma-4")
+        ref = f"model:{provider}:gemma-4"
+        assert read_local_model_settings(ref)["sampling"]["card"] is None
+        assert _sampling(_sent(server, provider, "gemma-4")) == {}
+
+        _save_sampling(ref, "custom", {"temperature": 1.0, "top_k": 64})
+        body = _sent(server, provider, "gemma-4")
+
+    assert _sampling(body) == {"temperature": 1.0, "top_k": 64}
+
+
 # ── The Cloud reading limit ──────────────────────────────────────────────────
 
 def test_the_cloud_reading_limit_trims_cloud_models_only(store, monkeypatch):

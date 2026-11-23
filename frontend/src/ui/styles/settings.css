@@ -5553,11 +5553,26 @@ button.settings-mcp-server-name:hover {
 .local-model-sheet-more .ui-setting-row:first-child {
   padding-top: 8px;
 }
+.local-model-sheet-body .settings-row-status-line + .settings-row-status-line {
+  margin-top: 2px;
+}
+/* The person's own sampling values, under the Sampling row. */
+.local-model-sheet-sampling {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  align-items: end;
+  gap: 8px 10px;
+  padding-bottom: 12px;
+}
+.local-model-sheet-sampling .field-label {
+  font-size: var(--text-12);
+}
 .local-model-sheet-message {
   min-height: 1.4em;
   margin: 8px 0 0;
   color: var(--text-secondary);
   font-size: var(--text-13);
+}
 /* Settings › Voice › Talk: streaming speech models (VD3). */
 .voice-speech-model-list {
   display: grid;

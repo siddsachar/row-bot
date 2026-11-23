@@ -6,7 +6,8 @@ import { onPhone, PHONES } from './phone-helpers';
 // sheet. Row-Bot's own llama.cpp (Qwen3.5 9B on a synthetic 12 GB card) offers
 // the windows that fit, with their memory; LM Studio's window is its own,
 // shown with the way to load it again; the old "Advanced context" is now the
-// Cloud reading limit. The fixture runs nothing: a choice rewrites the
+// Cloud reading limit. Under More, Sampling shows the model card's values and
+// takes the person's own. The fixture runs nothing: a choice rewrites the
 // endpoint, as it does while no server runs. Screens at desktop and phone
 // width, light and dark, are saved for the UX review.
 
@@ -75,7 +76,7 @@ test('a model Row-Bot runs offers the windows that fit, with their memory, and s
     dialog.getByRole('button', { name: 'Close dialog' }),
   ).not.toBeFocused();
   await expect(dialog).toContainText(
-    'Reads 128K · model and context about 8.1 GB of your card’s 12 GB',
+    'Reads 128K · model and context about 8.4 GB of your card’s 12 GB',
   );
   await expect(
     dialog.getByRole('radiogroup', { name: 'Thinking' }),
@@ -90,7 +91,6 @@ test('a model Row-Bot runs offers the windows that fit, with their memory, and s
     /^32K/,
     /^64K/,
     /^128K/,
-    /^256K/,
   ]);
   await screenshotMenu(page, testInfo, 'desktop-built-in-context-menu');
   await menu.getByRole('menuitem', { name: /^64K/ }).click();
@@ -104,7 +104,30 @@ test('a model Row-Bot runs offers the windows that fit, with their memory, and s
   await expect(
     dialog.getByRole('button', { name: /^Reply length:/ }),
   ).toBeVisible();
+  // The 9B answers without thinking unless a chat turns it on (D3); the card
+  // has values for both.
+  await expect(dialog).toContainText(
+    'Not thinking: temperature 0.7 · top-p 0.8 · top-k 20 · min-p 0 · presence penalty 1.5',
+  );
   await bothSchemes(page, testInfo, 'desktop-built-in-sheet-saved');
+
+  // Custom starts from the card's values for how it answers now.
+  await dialog.getByRole('button', { name: 'Sampling: Model card' }).click();
+  await page.getByRole('menuitem', { name: 'Custom' }).click();
+  const temperature = dialog.getByLabel('Temperature');
+  await expect(temperature).toHaveValue('0.7');
+  await temperature.fill('0.5');
+  await temperature.press('Enter');
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Saved. It applies from the next message.',
+  );
+  await expect(dialog).toContainText('Your values, whether it thinks or not.');
+  await accessibility(page, testInfo, 'built-in-sheet-sampling-axe');
+  await bothSchemes(page, testInfo, 'desktop-built-in-sheet-sampling');
+  await dialog.getByRole('button', { name: 'Sampling: Custom' }).click();
+  await screenshotMenu(page, testInfo, 'desktop-built-in-sampling-menu');
+  await page.getByRole('menuitem', { name: 'Model card' }).click();
+  await expect(dialog.getByLabel('Temperature')).toHaveCount(0);
 
   // The choice is what the model reads: the Local row says so after closing.
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
@@ -165,6 +188,14 @@ for (const phone of PHONES.slice(0, 1)) {
       await dialog.locator('summary', { hasText: 'More' }).click();
       await assertNoOverflow(page);
       await bothSchemes(page, testInfo, 'phone-built-in-sheet');
+      await dialog
+        .getByRole('button', { name: 'Sampling: Model card' })
+        .click();
+      await page.getByRole('menuitem', { name: 'Custom' }).click();
+      await expect(dialog.getByLabel('Temperature')).toHaveValue('0.7');
+      await dialog.getByLabel('Presence penalty').scrollIntoViewIfNeeded();
+      await assertNoOverflow(page);
+      await bothSchemes(page, testInfo, 'phone-built-in-sheet-sampling');
       // On a phone the size menu rises as a sheet of its own.
       await dialog.getByRole('button', { name: /^Context:/ }).click();
       await expect(page.getByRole('menuitem', { name: /^64K/ })).toBeVisible();

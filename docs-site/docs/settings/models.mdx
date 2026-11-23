@@ -56,7 +56,8 @@ Each model on this computer has one settings sheet. Open it with the sliders ico
 - **Context** is how much of the chat the model reads at once. **Automatic** shows the size it picks and, for Row-Bot's download, what it takes on the graphics card (for example "64K · about 2 GB on your card"). A fixed size lists only the sizes that fit this computer. On a Mac, sizes above 32K say "slow first reply on long chats". On Ollama the next message uses the new size; Row-Bot's own server starts again with it when nothing is being answered.
 - For a server you run (LM Studio, llama.cpp, vLLM, SGLang), the server sets the context: the sheet shows what it loaded and where to change it. For LM Studio, **Reload in LM Studio at _size_** loads the model again at another size.
 - **Thinking** (Automatic, On or Off) is shown for models that can turn thinking on or off. A chat's own Thinking choice still wins.
-- **More › Reply length** limits how long one reply may be. **Automatic** keeps the engine's own limit.
+- **More › Reply length** limits how long one reply may be, in tokens (about three quarters of a word each). **Automatic** keeps the engine's own limit.
+- **More › Sampling** is how freely the model picks each word. For Qwen3.5 and Qwen3.8, **Model card** sends the values their makers recommend, for a reply that thinks and one that doesn't, and the sheet shows them. **Engine's own** sends none, so the engine's defaults apply. **Custom** sends your own temperature, top-p, top-k, min-p and presence penalty (LM Studio has no min-p), whether the model thinks or not; an empty field is the engine's own. A value in the endpoint's **Extra request JSON** still wins.
 
 Ollama models without their own context keep the size chosen before this sheet existed (Automatic is 64K); the old setting moved once to the model that was in use. Learning's personal models have no sheet: they run as they were trained.
 

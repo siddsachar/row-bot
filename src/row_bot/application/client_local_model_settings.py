@@ -1,4 +1,4 @@
-"""Each local model's settings sheet (U1): its window, its Thinking and its reply limit, whatever runs it.
+"""Each local model's settings sheet (U1): its window, its Thinking, its reply limit and its sampling, whatever runs it.
 
 One store keeps them (``models.local_model_settings``, keyed by provider and model). Each engine applies them its
 own way:
@@ -12,6 +12,10 @@ own way:
 - **A server the person runs** (LM Studio, llama.cpp, vLLM, SGLang): the window is the server's, shown read-only
   with where to change it; LM Studio can load the model again at another size when the person asks. Thinking and
   the reply limit go with each request.
+
+Sampling goes with each request on every engine: the model card's preset for its family
+(``providers.sampling_presets``, D2) unless the person chose the engine's own or their own values; a caller's value and
+the endpoint's ``extra_body`` still win.
 
 Learning's personal models are never shown here (their settings are Learning's). Reading never touches the network.
 """
@@ -113,6 +117,28 @@ def _built_in_context(model_id: str) -> dict[str, Any]:
             "native": model.native_context}
 
 
+def _sampling(provider_id: str, model_id: str, profile: str, saved: dict[str, Any], thinking: bool) -> dict[str, Any]:
+    """The sheet's Sampling: the person's choice, the model card's values this server is sent, and which of them a
+    reply gets unless a chat chooses (thinking or not)."""
+    from row_bot.models import ENGINE_SAMPLING, SAMPLING_FIELDS
+    from row_bot.providers import sampling_presets
+    from row_bot.providers.reasoning import resolve_reasoning_capabilities
+
+    own = saved.get("sampling")
+    thinks = True  # without a Thinking control the request doesn't say, and the card's thinking values go
+    if thinking:
+        try:
+            thinks = resolve_reasoning_capabilities(provider_id, model_id).default_enabled is not False
+        except Exception:  # noqa: BLE001 - the model's own default: thinking, as every family here
+            thinks = True
+    unlisted = sampling_presets.unlisted_fields(profile)
+    return {"value": "engine" if own == ENGINE_SAMPLING else "custom" if isinstance(own, dict) else "auto",
+            "custom": dict(own) if isinstance(own, dict) else None,
+            "card": sampling_presets.card_values(model_id, profile),
+            "thinks": thinks,
+            "fields": [name for name in SAMPLING_FIELDS if name not in unlisted]}
+
+
 def read_local_model_settings(model_ref: str, *, validate: Callable[[], None] = lambda: None) -> dict[str, Any]:
     """The sheet for one local model: what it reads and why, and what may be chosen. No network."""
     validate()
@@ -163,15 +189,18 @@ def read_local_model_settings(model_ref: str, *, validate: Callable[[], None] = 
                      "value": {"on": "on", "off": "off"}.get(saved.get("reasoning") if thinking else "", "auto")},
         "reply_limit": {"value": saved.get("reply_limit"), "automatic": automatic_reply,
                         "choices": [size for size in REPLY_LIMITS if not window or size < window]},
+        "sampling": _sampling(provider_id, model_id, profile, saved, thinking),
     }
     validate()
     return result
 
 
 def save_local_model_settings(model_ref: str, *, context: int | None, thinking: str, reply_limit: int | None,
-                              validate: Callable[[], None]) -> dict[str, Any]:
+                              validate: Callable[[], None], sampling: str = "keep",
+                              sampling_values: dict[str, float | int | None] | None = None) -> dict[str, Any]:
     """Save the sheet (None and "auto" are Automatic) and apply it: Ollama and a server the person runs from the
-    next request; Row-Bot's own server from its next start."""
+    next request; Row-Bot's own server from its next start. ``sampling`` is "auto" (the model card), "engine",
+    "custom" (``sampling_values``) or "keep" (what is saved)."""
     validate()
     from row_bot import models
 
@@ -184,10 +213,26 @@ def save_local_model_settings(model_ref: str, *, context: int | None, thinking: 
         raise ValueError("invalid_command")
     if reply_limit is not None and reply_limit not in view["reply_limit"]["choices"]:
         raise ValueError("invalid_command")
-    before = models.person_local_model_settings(provider_id, model_id).get("context")
-    models.save_person_local_model_settings(provider_id, model_id, context=context,
-                                            reasoning=None if thinking == "auto" else thinking,
-                                            reply_limit=reply_limit)
+    saved = models.person_local_model_settings(provider_id, model_id)
+    if sampling == "keep":
+        own_sampling = saved.get("sampling")
+    elif sampling == "auto":
+        own_sampling = None
+    elif sampling == "engine":
+        own_sampling = models.ENGINE_SAMPLING
+    elif sampling == "custom":
+        own_sampling = {name: value for name, value in (sampling_values or {}).items() if value is not None}
+        if not own_sampling or set(own_sampling) - set(view["sampling"]["fields"]):
+            raise ValueError("invalid_command")
+    else:
+        raise ValueError("invalid_command")
+    before = saved.get("context")
+    try:
+        models.save_person_local_model_settings(provider_id, model_id, context=context,
+                                                reasoning=None if thinking == "auto" else thinking,
+                                                reply_limit=reply_limit, sampling=own_sampling)
+    except ValueError as error:
+        raise ValueError("invalid_command") from error
     applied = None
     if engine == "built_in" and before != context:
         from row_bot.local_runtime import server
