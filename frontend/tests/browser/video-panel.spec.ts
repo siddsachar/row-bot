@@ -72,6 +72,24 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await kit.getByRole('button', { name: 'Save brand kit' }).click();
   await expect(panel).toContainText('Brand kit saved');
 
+  // Its look (C5): a grade and film grain, chosen beside the storyboard, then put back as they were.
+  const look = panel.getByRole('group', { name: 'Look' });
+  const grain = look.getByRole('button', { name: 'Film grain' });
+  await look.getByLabel('Grade').selectOption('cinematic');
+  await grain.click();
+  await expect(grain).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.move(0, 0);
+  await page.evaluate(() =>
+    (document.activeElement as HTMLElement | null)?.blur(),
+  );
+  await views(page, info, 'c5-look', look);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c5-look-phone', look);
+  await page.setViewportSize(DESKTOP);
+  await look.getByLabel('Grade').selectOption('natural');
+  await grain.click();
+  await expect(grain).toHaveAttribute('aria-pressed', 'false');
+
   // Its sound (C6): a line given to a character, who joins the voices, and an effect added to the scene.
   await panel.getByLabel('Scene 2: who says its line').fill('Maya');
   const cast = panel.getByRole('group', { name: 'Voices' });

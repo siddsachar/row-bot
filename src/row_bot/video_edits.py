@@ -699,7 +699,7 @@ def _on_beat(step: Any, inputs: list[Any], request: Request, sounds: dict[str, s
     from dataclasses import replace
 
     from row_bot import music, video_sound
-    from row_bot.video_editing import BOOKEND_SECONDS, on_the_beat
+    from row_bot.video_editing import BOOKEND_SECONDS, CROSSFADE, on_the_beat
 
     if request.score:
         beats = video_sound.grid(music.STYLES[request.score].bpm, music.MAX_SECONDS)
@@ -710,8 +710,9 @@ def _on_beat(step: Any, inputs: list[Any], request: Request, sounds: dict[str, s
         path = Path(sounds[track])
         beats = video_sound.file_beats(path if path.is_absolute() else folder / path)
     offset = BOOKEND_SECONDS if step.look is not None and step.look.intro else 0.0
+    fading = step.finish is not None and step.finish.transition == "crossfade" and len(step.scenes) > 1
     cut = on_the_beat(step.scenes, [item.info.duration for item in inputs], [item.info.still for item in inputs],
-                      beats, offset=offset)
+                      beats, offset=offset, overlap=CROSSFADE if fading else 0.0)
     return replace(step, scenes=cut)
 
 

@@ -172,6 +172,8 @@ class Step:
     look: "Look | None" = None
     fill: tuple[int, int, int, int] | None = None
     plain: bool = False
+    # scenes: the video's own finish (its grade, grain, letterbox and transitions), with or without the brand kit.
+    finish: "Finish | None" = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +205,10 @@ class SceneCut:
     # made to fit the cut changes section where the cue does.
     effects: tuple[str, ...] = ()
     cue: str = ""
+    # Its colour matched to the video's other footage (C5): a clip, an AI shot or a picture takes part, never a
+    # screen recording (``matched``); ``tone`` is the match the studio pass found, each channel's gain then offset.
+    matched: bool = False
+    tone: tuple[float, ...] = ()
 
 
 CARD_SECONDS = 3.0
@@ -256,10 +262,11 @@ SHORTEST_ON_BEAT = 0.5
 
 
 def on_the_beat(scenes: list[SceneCut], lengths: list[float], stills: list[bool], beats: list[float], *,
-                offset: float = 0.0) -> list[SceneCut]:
+                offset: float = 0.0, overlap: float = 0.0) -> list[SceneCut]:
     """A montage's cuts on the music's beat (C6): each scene ends on the beat nearest where it would end, never
     shorter than its line and a breath (or ``SHORTEST_ON_BEAT``), and footage never past its video's end. A card or
-    a picture takes any length; *offset* is where the first scene starts on the video (after an intro)."""
+    a picture takes any length; *offset* is where the first scene starts on the video (after an intro). With
+    crossfades (*overlap*, C5) each scene runs on that much more, so the next starts fading in on the beat."""
     from bisect import bisect_left
 
     if not beats:
@@ -281,13 +288,13 @@ def on_the_beat(scenes: list[SceneCut], lengths: list[float], stills: list[bool]
         needed = scene.voice_seconds + LINE_PAD if scene.voice and scene.voice_seconds > 0 else 0.0
         shortest = max(SHORTEST_ON_BEAT, needed)
         first = bisect_left(beats, at + shortest - 1e-6)
-        fits = [beat for beat in beats[max(0, first):] if beat <= at + longest + 1e-6]
+        fits = [beat for beat in beats[max(0, first):] if beat <= at + longest - overlap + 1e-6]
         if natural < 0.05 or not fits:
             cut.append(scene)
-            at += max(natural, 0.0)
+            at += max(natural - overlap, 0.0)
             continue
-        ends = min(fits, key=lambda beat: (abs(beat - (at + natural)), beat))
-        seconds = ends - at
+        ends = min(fits, key=lambda beat: (abs(beat - (at + natural - overlap)), beat))
+        seconds = ends - at + overlap
         cut.append(replace(scene, start=round(start, 3), end=round(start + seconds * (speed if footage else 1.0), 3)))
         at = ends
     return cut
@@ -308,6 +315,89 @@ class Look:
     # rounded, shadowed); and whether the camera follows what was done ("follow") or stays still ("still").
     framing: str = "full"
     camera: str = "follow"
+    # The typeface of every word (``FONTS``) and how titles, lower thirds and the end card look (``TITLE_STYLES``).
+    font: str = "sans"
+    titles: str = "studio"
+
+
+# A video's grade (C5), each a few of ffmpeg's own colour filters on the footage (never the cards): warm, the
+# teal and orange of film, more colour, or none.
+GRADES = ("natural", "warm", "cinematic", "vivid", "bw")
+TRANSITIONS = ("cut", "crossfade")
+# A crossfade between two scenes lasts this long (the next starts this much before the last ends), at most a third
+# of the shorter one.
+CROSSFADE = 0.5
+LETTERBOX = 2.39
+
+
+@dataclass(frozen=True)
+class Finish:
+    """A video's finish (C5): its grade, film grain, a 2.39 letterbox (wide videos) and how its scenes change."""
+
+    grade: str = "natural"
+    grain: bool = False
+    letterbox: bool = False
+    transition: str = "cut"
+
+
+# Rec. 709's share of each channel in what the eye sees as light: a picture's saturation turns around it.
+_LUMA = (0.2126, 0.7152, 0.0722)
+# Each grade: (split toning for colorbalance, saturation, a contrast curve for curves' master).
+_GRADE_FILTERS: dict[str, tuple[str, float, str]] = {
+    "natural": ("", 1.0, ""),
+    "warm": ("rs=0.03:bs=-0.04:rm=0.06:gm=0.01:bm=-0.06:rh=0.05:bh=-0.05", 1.06, ""),
+    "cinematic": ("rs=-0.08:gs=0.01:bs=0.08:rh=0.06:gh=0.01:bh=-0.05", 0.9,
+                  "0/0.02 0.25/0.21 0.5/0.5 0.75/0.8 1/0.97"),
+    "vivid": ("", 1.3, "0/0 0.25/0.22 0.75/0.79 1/1"),
+    "bw": ("", 0.0, "0/0 0.25/0.2 0.75/0.82 1/1"),
+}
+
+
+def _saturation(amount: float) -> str:
+    """colorchannelmixer's matrix that turns a picture's saturation by *amount* (0 grey, 1 as it is)."""
+    rows = []
+    for out, prefix in enumerate("rgb"):
+        rows += [f"{prefix}{channel}={weight * (1 - amount) + (amount if index == out else 0):.4f}"
+                 for index, (channel, weight) in enumerate(zip("rgb", _LUMA))]
+    return ":".join(rows)
+
+
+def look_filters(grade: str, tone: tuple[float, ...] = ()) -> str:
+    """The filters that match a scene's colour (``tone``: each channel's gain, then its offset in 0-255) and grade
+    it, in RGB from the video's BT.709 and back; "" when they'd change nothing."""
+    toning, saturation, curve = _GRADE_FILTERS.get(grade, _GRADE_FILTERS["natural"])
+    chain: list[str] = []
+    if tone:
+        gains, offsets = tone[:3], tone[3:6]
+        chain.append("lutrgb=" + ":".join(f"{channel}='clip(val*{gain:.4f}{offset:+.2f},0,255)'"
+                                           for channel, gain, offset in zip("rgb", gains, offsets)))
+    if toning:
+        chain.append(f"colorbalance={toning}")
+    if saturation != 1.0:
+        chain.append(f"colorchannelmixer={_saturation(saturation)}")
+    if curve:
+        chain.append(f"curves=all='{curve}'")
+    if not chain:
+        return ""
+    return ",".join(["scale=in_color_matrix=bt709:in_range=tv", "format=gbrp", *chain,
+                     f"scale={TO_HD_COLOUR}", "format=yuv420p"])
+
+
+# Film grain: moving noise in the light, not the colour, gently.
+GRAIN = "noise=c0s=7:c0f=t"
+
+
+def letterbox_filters(width: int, height: int) -> str:
+    """Black bars above and below a wide picture so what shows is 2.39 to 1; "" for one that isn't wide."""
+    if width / max(1, height) < 1.2:
+        return ""
+    bar = _even((height - width / LETTERBOX) / 2) if height > width / LETTERBOX + 4 else 0
+    if not bar:
+        return ""
+    return (f"drawbox=x=0:y=0:w=iw:h={bar}:color=black:t=fill,"
+            f"drawbox=x=0:y=ih-{bar}:w=iw:h={bar}:color=black:t=fill")
+
+
 ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
 # Room kept clear of text at each edge of a tall or square video (left, top, right, bottom; fractions of the
 # frame): a phone app lays its own buttons, name and caption over a short (9:16), and a feed rounds or crops a square.
@@ -503,25 +593,46 @@ _FONTS = (
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
 )
-_FONT_CACHE: dict[int, Any] = {}
+_FONT_CACHE: dict[tuple[str, int], Any] = {}
+# The brand kit's typefaces (C5): the system's bold sans, else one of the fonts Row-Bot ships (``static/fonts``), the
+# same on every computer: a geometric sans, a serif for films, a tall condensed one for shorts and thumbnails.
+FONTS: dict[str, str] = {"sans": "", "modern": "montserrat/montserrat-700.woff2",
+                         "serif": "playfair-display/playfair-display-700.woff2", "display": "anton/anton-400.woff2"}
+# How titles, lower thirds and the end card look: a card on the brand's colour (studio), white words over the picture
+# and title cards on black (minimal), or large words on solid colour (bold).
+TITLE_STYLES = ("studio", "minimal", "bold")
 
 
-def font(size: int) -> Any:
-    """A bold sans-serif font of this size: the system's, else Pillow's own."""
+def font(size: int, family: str = "sans") -> Any:
+    """A bold font of this size in one of the brand kit's typefaces (``FONTS``): the system's sans, else Pillow's
+    own."""
     from PIL import ImageFont
 
     size = max(8, int(size))
-    if size not in _FONT_CACHE:
+    family = family if family in FONTS else "sans"
+    if (family, size) not in _FONT_CACHE:
         chosen = None
-        for candidate in _FONTS:
+        if FONTS[family]:
+            from row_bot.runtime_paths import static_dir
+
+            try:
+                chosen = ImageFont.truetype(str(static_dir() / "fonts" / FONTS[family]), size)
+            except OSError:
+                chosen = None
+            try:  # A variable font (one file, every weight) starts at its lightest: drawn bold.
+                if chosen is not None:
+                    chosen.set_variation_by_axes([700])
+            except (OSError, ValueError):
+                pass
+        for candidate in () if chosen else _FONTS:
             try:
                 if Path(candidate).is_file():
                     chosen = ImageFont.truetype(candidate, size)
                     break
             except OSError:
                 continue
-        _FONT_CACHE[size] = chosen or ImageFont.load_default(size=size)
-    return _FONT_CACHE[size]
+        _FONT_CACHE[family, size] = chosen or ImageFont.load_default(size=size)
+    return _FONT_CACHE[family, size]
 
 
 def _wrap(draw: Any, text: str, typeface: Any, max_width: int, max_lines: int) -> list[str]:
@@ -568,7 +679,7 @@ def _letter_size(style: str, plain: bool, frame_width: int, frame_height: int) -
     return max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
 
 
-def phrase_limit(captions: str, frame_width: int, frame_height: int) -> int:
+def phrase_limit(captions: str, frame_width: int, frame_height: int, family: str = "sans") -> int:
     """The characters of a phrase that fit on one line in a caption look, measured in the typeface this computer
     draws with (they differ in width): fewer, the larger its letters."""
     from PIL import Image, ImageDraw
@@ -576,22 +687,22 @@ def phrase_limit(captions: str, frame_width: int, frame_height: int) -> int:
     style = "title" if captions == "title" else "caption"
     size = _letter_size(style, captions in {"bold", "title"}, frame_width, frame_height)
     sample = "Row-Bot opens the shop's orders and drafts a note to each customer."
-    each = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textlength(sample, font=font(size)) / len(sample)
+    each = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textlength(sample, font=font(size, family)) / len(sample)
     # A tenth to spare: a phrase of wide letters still fits.
     return max(16, min(PHRASE_CHARACTERS, int(frame_width * 0.86 * 0.9 / each)))
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
                 fill: tuple[int, int, int, int] | None = None, plain: bool = False,
-                shadow: bool = False) -> tuple[bytes, int, int]:
+                shadow: bool = False, family: str = "sans", scale: float = 1.0) -> tuple[bytes, int, int]:
     """Draw text as a picture: a rounded dark badge, a large title, or a caption box; in a brand's colour
     (``fill``), or ``plain``: no box, the letters outlined so they read on any picture, or with a soft
-    ``shadow`` instead (a title card's own backdrop)."""
+    ``shadow`` instead (a title card's own backdrop); in a typeface of ``FONTS``, *scale* times its style's size."""
     from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
-    size = _letter_size(style, plain, frame_width, frame_height)
-    typeface = font(size)
+    size = max(12, round(_letter_size(style, plain, frame_width, frame_height) * scale))
+    typeface = font(size, family)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
     lines = _wrap(probe, text, typeface, max_width, 3 if style != "badge" else 2) or [" "]
@@ -644,35 +755,51 @@ def card_backdrop(colour: tuple[int, int, int], width: int, height: int) -> byte
     return output.getvalue()
 
 
-def lower_third(text: str, colour: tuple[int, int, int], frame_width: int, frame_height: int) -> Overlay:
-    """A scene's title over its picture, as a studio's are: white words on a card of the brand's colour, lit from
-    the left, with a light edge and a soft shadow, in the lower left."""
+def lower_third(text: str, colour: tuple[int, int, int], frame_width: int, frame_height: int, *,
+                style: str = "studio", family: str = "sans") -> Overlay:
+    """A scene's title over its picture, in the lower left, as the brand kit's title style has it (``TITLE_STYLES``):
+    white words on a card of the brand's colour lit from the left, with a light edge (studio); white words with a
+    soft shadow over a short rule of its colour (minimal); or larger words on its solid colour (bold)."""
     from PIL import Image, ImageDraw, ImageFilter
 
     # Sized by the frame's shorter side: as large on a tall phone video as on a wide one, and wider there.
-    size = max(12, round(min(frame_width, frame_height) * 0.045))
-    typeface = font(size)
+    size = max(12, round(min(frame_width, frame_height) * 0.045 * {"bold": 1.2, "minimal": 1.15}.get(style, 1.0)))
+    typeface = font(size, family)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     lines = _wrap(probe, text, typeface, int(frame_width * (0.42 if frame_width > frame_height else 0.8)), 2) or [" "]
     pad_x, pad_y, line_height = round(size * 0.9), round(size * 0.6), round(size * 1.25)
-    edge = max(3, round(size * 0.16))
+    edge = max(3, round(size * 0.16)) if style == "studio" else 0
     width = edge + 2 * pad_x + max(math.ceil(probe.textlength(line, font=typeface)) for line in lines)
     height = line_height * len(lines) + 2 * pad_y
     blur = round(size * 0.5)
     picture = Image.new("RGBA", (width + 2 * blur, height + 2 * blur), (0, 0, 0, 0))
-    radius = round(size * 0.35)
-    shadow = Image.new("L", picture.size, 0)
-    ImageDraw.Draw(shadow).rounded_rectangle((blur, blur + blur // 3, blur + width, blur + blur // 3 + height),
-                                             radius=radius, fill=110)
-    picture.putalpha(shadow.filter(ImageFilter.GaussianBlur(blur / 2)))
-    light = tuple(min(255, round(value * 1.25 + 24)) for value in colour)
-    across = Image.linear_gradient("L").rotate(90).resize((width, height))
-    card = Image.composite(Image.new("RGBA", (width, height), (*colour, 240)),
-                           Image.new("RGBA", (width, height), (*light, 240)), across)
-    shape = Image.new("L", (width, height), 0)
-    ImageDraw.Draw(shape).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
-    ImageDraw.Draw(card).rectangle((0, 0, edge - 1, height), fill=(255, 255, 255, 235))
-    picture.paste(card, (blur, blur), shape)
+    radius = round(size * 0.35) if style == "studio" else round(size * 0.12)
+    if style == "minimal":  # The words' own soft shadow, and the brand's colour as a short rule under them.
+        soft = Image.new("RGBA", picture.size, (0, 0, 0, 0))
+        shade = ImageDraw.Draw(soft)
+        for index, line in enumerate(lines):
+            shade.text((blur + pad_x, blur + pad_y + index * line_height + (line_height - size) / 2),
+                       line, font=typeface, fill=(0, 0, 0, 170))
+        picture.alpha_composite(soft.filter(ImageFilter.GaussianBlur(max(2, size * 0.12))))
+        rule = max(3, round(size * 0.12))
+        ImageDraw.Draw(picture).rectangle((blur + pad_x, blur + height - rule, blur + pad_x + round(size * 2.4),
+                                           blur + height), fill=(*colour, 255))
+    else:
+        shadow = Image.new("L", picture.size, 0)
+        ImageDraw.Draw(shadow).rounded_rectangle((blur, blur + blur // 3, blur + width, blur + blur // 3 + height),
+                                                 radius=radius, fill=110)
+        picture.putalpha(shadow.filter(ImageFilter.GaussianBlur(blur / 2)))
+        if style == "bold":
+            card = Image.new("RGBA", (width, height), (*colour, 255))
+        else:
+            light = tuple(min(255, round(value * 1.25 + 24)) for value in colour)
+            across = Image.linear_gradient("L").rotate(90).resize((width, height))
+            card = Image.composite(Image.new("RGBA", (width, height), (*colour, 240)),
+                                   Image.new("RGBA", (width, height), (*light, 240)), across)
+            ImageDraw.Draw(card).rectangle((0, 0, edge - 1, height), fill=(255, 255, 255, 235))
+        shape = Image.new("L", (width, height), 0)
+        ImageDraw.Draw(shape).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
+        picture.paste(card, (blur, blur), shape)
     draw = ImageDraw.Draw(picture)
     for index, line in enumerate(lines):
         draw.text((blur + edge + pad_x, blur + pad_y + index * line_height + (line_height - size) / 2 - size * 0.1),
@@ -740,9 +867,10 @@ def place(position: str, width: int, height: int, frame_width: int, frame_height
     return max(0, x), max(0, y)
 
 
-def text_overlay(step: Step, frame_width: int, frame_height: int) -> Overlay:
+def text_overlay(step: Step, frame_width: int, frame_height: int, family: str = "sans") -> Overlay:
     style = step.style or "badge"
-    png, width, height = render_text(step.text, style, frame_width, frame_height, fill=step.fill, plain=step.plain)
+    png, width, height = render_text(step.text, style, frame_width, frame_height, fill=step.fill, plain=step.plain,
+                                     family=family)
     default = {"badge": "top-right", "title": "center", "caption": "bottom"}[style]
     x, y = place(step.position or default, width, height, frame_width, frame_height)
     return Overlay(png, width, height, x, y, step.start, step.end)
@@ -761,6 +889,21 @@ def logo_overlay(png: bytes, corner: str, frame_width: int, frame_height: int) -
     picture.resize((width, height), Image.LANCZOS).save(output, format="PNG", optimize=True)
     x, y = place(corner, width, height, frame_width, frame_height)
     return Overlay(output.getvalue(), width, height, x, y, None, None)
+
+
+def end_logo(png: bytes, words: Overlay, frame_width: int, frame_height: int) -> Overlay:
+    """The end card's logo (C5): larger than in its corner, centred above the card's words."""
+    from PIL import Image
+
+    picture = Image.open(io.BytesIO(png)).convert("RGBA")
+    height = max(16, round(frame_height * 0.18))
+    width = max(16, round(picture.width * height / max(1, picture.height)))
+    if width > frame_width // 2:
+        width, height = frame_width // 2, max(16, round(picture.height * (frame_width // 2) / max(1, picture.width)))
+    output = io.BytesIO()
+    picture.resize((width, height), Image.LANCZOS).save(output, format="PNG", optimize=True)
+    y = max(0, words.y - height - round(frame_height * 0.03))
+    return Overlay(output.getvalue(), width, height, (frame_width - width) // 2, y)
 
 
 # ── The plan ────────────────────────────────────────────────────────────────
@@ -1202,9 +1345,15 @@ class _Builder:
             cuts.append((offsets[scene.input] + start, offsets[scene.input] + end))
             lengths.append((end - start) / scene.speed + holds[len(cuts) - 1])
         look = step.look or Look()
+        finish = step.finish or Finish()
         videos, sounds = self._pieces(cuts, audio=True) if cuts else ([], [])
         footage = [scene for scene in step.scenes if scene.input is not None]
         for index, (scene, hold) in enumerate(zip(footage, holds)):
+            graded = look_filters(finish.grade, scene.tone)
+            if graded:  # Matched to the other footage, then graded (C5); the cards keep the brand's colour.
+                video = self.label("v")
+                self.add(f"{videos[index]}{graded}{video}")
+                videos[index] = video
             if abs(scene.speed - 1) > 1e-3:  # Its own piece at its speed (a card keeps its length).
                 fast = self.label("v")
                 self.add(f"{videos[index]}setpts=PTS/{scene.speed:.6g}{fast}")
@@ -1222,11 +1371,17 @@ class _Builder:
                     self.add(f"{sounds[index]}apad=pad_dur={_seconds_text(hold)}{sound}")
                     sounds[index] = sound
         pieces = iter(zip(videos, sounds or [None] * len(videos)))
-        joined = [self._blank(look.colour, length) if scene.input is None else next(pieces)
+        joined = [self._blank(look.colour, length, look.titles) if scene.input is None else next(pieces)
                   for scene, length in zip(step.scenes, lengths)]
-        self._join([video for video, _ in joined], [sound for _, sound in joined if sound])
-        self.duration = sum(lengths)
-        self.marks = [round(sum(lengths[:index]), 3) for index in range(len(lengths) + 1)]
+        overlap = min(CROSSFADE, min(lengths) / 3) if finish.transition == "crossfade" and len(lengths) > 1 else 0.0
+        if overlap:
+            self._dissolve(joined, lengths, overlap)
+        else:
+            self._join([video for video, _ in joined], [sound for _, sound in joined if sound])
+        self.duration = sum(lengths) - overlap * (len(lengths) - 1)
+        # Where each scene starts: with crossfades, as it starts fading in.
+        self.marks = [round(sum(lengths[:index]) - overlap * index, 3) for index in range(len(lengths))]
+        self.marks.append(round(self.duration, 3))
         for index, scene in enumerate(step.scenes):
             if scene.zoom:
                 x, y, width, height = scene.zoom
@@ -1234,24 +1389,29 @@ class _Builder:
                                width=width, height=height))
         if look.intro or look.outro:
             self._bookends(look)
+        finishing = ",".join(part for part in (GRAIN if finish.grain else "",
+                                               letterbox_filters(self.width, self.height) if finish.letterbox
+                                               else "") if part)
+        if finishing:  # Grain over the whole picture, then the bars, clean, under every word.
+            video = self.label("v")
+            self.add(f"{self.video}{finishing}{video}")
+            self.video = video
         # A sped-up scene carries no "2.5×" badge: in a finished demo it reads as a leftover label (U26). A speed
         # step still shows one when asked.
         for index, scene in enumerate(step.scenes):
             begin, end = self.marks[index], self.marks[index + 1]
             if scene.input is None and scene.card:  # The whole scene, on its own backdrop (no box).
-                png, width, height = render_text(scene.card, "title", self.width, self.height, plain=True,
-                                                 shadow=True)
-                x, y = place("center", width, height, self.width, self.height)
-                self.video = self.lay(self.video, Overlay(png, width, height, x, y), start=begin, end=end,
+                self.video = self.lay(self.video, self._card_words(scene.card, look), start=begin, end=end,
                                       kind="card")
             elif scene.card:  # Over a picture, a lower third: the middle is where the action is.
                 shown = (begin + min(TITLE_DELAY, (end - begin) / 4), min(end, begin + TITLE_DELAY + TITLE_SECONDS))
-                self.video = self.lay(self.video, lower_third(scene.card, look.colour, self.width, self.height),
+                self.video = self.lay(self.video, lower_third(scene.card, look.colour, self.width, self.height,
+                                                              style=look.titles, family=look.font),
                                       start=shown[0], end=shown[1], slide=True, kind="title")
             if scene.line and step.style == "caption":
                 # One phrase at a time, each for its share of the line's time: never a paragraph.
                 said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
-                parts = phrases(scene.line, phrase_limit(look.captions, self.width, self.height))
+                parts = phrases(scene.line, phrase_limit(look.captions, self.width, self.height, look.font))
                 at = begin
                 for part in parts:
                     until = at + (said - begin) * len(part) / max(1, sum(len(each) for each in parts))
@@ -1259,8 +1419,9 @@ class _Builder:
                                if look.captions == "title" else
                                Step(op="text", text=part, style="caption", position="bottom",
                                     plain=look.captions == "bold"))
-                    self.video = self.lay(self.video, text_overlay(caption, self.width, self.height), start=at,
-                                          end=until if part != parts[-1] else max(until, said), kind="caption")
+                    self.video = self.lay(self.video, text_overlay(caption, self.width, self.height, look.font),
+                                          start=at, end=until if part != parts[-1] else max(until, said),
+                                          kind="caption")
                     at = until
             if scene.voice:
                 self.voice_cues.append((begin, scene.voice))
@@ -1269,22 +1430,62 @@ class _Builder:
             if index and cue and cue != step.scenes[index - 1].cue.strip().casefold():
                 self.sections.append(begin)
         self.review += _slide_show(step.scenes, self.marks) + _waiting(step.scenes, self.marks)
-        for text, start in ((look.intro, 0.0), (look.outro, self.duration - BOOKEND_SECONDS)):
+        ending = self.duration - BOOKEND_SECONDS
+        for text, start, last in ((look.intro, 0.0, False), (look.outro, ending, True)):
             if text:
-                title = Step(op="text", text=text, style="title", position="center", plain=True)
-                self.video = self.lay(self.video, text_overlay(title, self.width, self.height), start=start,
-                                      end=start + BOOKEND_SECONDS, kind="card")
-        if look.logo:
+                words = self._card_words(text, look)
+                self.video = self.lay(self.video, words, start=start, end=start + BOOKEND_SECONDS, kind="card")
+                if look.logo and last:  # The end card: the logo above its words.
+                    self.video = self.lay(self.video, end_logo(look.logo, words, self.width, self.height),
+                                          start=start, end=start + BOOKEND_SECONDS, kind="logo")
+        if look.logo:  # In its corner, but not over the end card, which shows it already.
             self.video = self.lay(self.video, logo_overlay(look.logo, look.logo_corner, self.width, self.height),
-                                  kind="logo")
+                                  end=ending if look.outro else None, kind="logo")
 
-    def _blank(self, colour: tuple[int, int, int], length: float) -> tuple[str, str | None]:
-        """A picture of one colour, *length* seconds long, with silence when the video has sound."""
+    def _card_words(self, text: str, look: Look) -> Overlay:
+        """A title card's words, centred, as the title style has them (``TITLE_STYLES``): with a soft shadow on the
+        brand's lit colour (studio), a little smaller on black (minimal), larger on its solid colour (bold)."""
+        scale = {"minimal": 0.85, "bold": 1.25}.get(look.titles, 1.0)
+        png, width, height = render_text(text, "title", self.width, self.height, plain=True,
+                                         shadow=look.titles != "minimal", family=look.font, scale=scale)
+        x, y = place("center", width, height, self.width, self.height)
+        return Overlay(png, width, height, x, y)
+
+    def _dissolve(self, pieces: list[tuple[str, str | None]], lengths: list[float], overlap: float) -> None:
+        """The scenes one after another, each fading into the next over *overlap* seconds (C5's crossfades): the next
+        starts that much before the last ends, its sound too."""
+        fps = _seconds_text(self.fps)
+        timed = []
+        for video, _sound in pieces:  # One frame rate and clock for xfade, a card's and a clip's alike.
+            label = self.label("v")
+            self.add(f"{video}fps={fps}{label}")
+            timed.append(label)
+        video, at = timed[0], lengths[0]
+        for label, length in zip(timed[1:], lengths[1:]):
+            out = self.label("v")
+            self.add(f"{video}{label}xfade=transition=fade:duration={_seconds_text(overlap)}:"
+                     f"offset={_seconds_text(at - overlap)}{out}")
+            video, at = out, at + length - overlap
+        self.video = video
+        sounds = [sound for _video, sound in pieces if sound]
+        if sounds and len(sounds) == len(pieces):
+            audio = sounds[0]
+            for sound in sounds[1:]:
+                out = self.label("a")
+                self.add(f"{audio}{sound}acrossfade=d={_seconds_text(overlap)}{out}")
+                audio = out
+            self.audio = audio
+
+    def _blank(self, colour: tuple[int, int, int], length: float, titles: str = "studio") -> tuple[str, str | None]:
+        """A title card's picture, *length* seconds long, with silence when the video has sound: the brand's colour
+        lit softly (studio), black (minimal) or the colour flat (bold)."""
         seconds = _seconds_text(length)
         flat = self.label("v")
-        self.add(f"color=c=0x{colour[0]:02x}{colour[1]:02x}{colour[2]:02x}:s={self.width}x{self.height}:"
+        shown = (12, 12, 14) if titles == "minimal" else colour
+        self.add(f"color=c=0x{shown[0]:02x}{shown[1]:02x}{shown[2]:02x}:s={self.width}x{self.height}:"
                  f"r={_seconds_text(self.fps)}:d={seconds},setsar=1{flat}")
-        lit = self.lay(flat, Overlay(card_backdrop(colour, self.width, self.height), self.width, self.height, 0, 0))
+        lit = flat if titles in ("minimal", "bold") else self.lay(
+            flat, Overlay(card_backdrop(colour, self.width, self.height), self.width, self.height, 0, 0))
         video = self.label("v")
         self.add(f"{lit}format=yuv420p{video}")
         if not self.audio:
@@ -1297,7 +1498,7 @@ class _Builder:
         """The intro and outro: cards of the brand's colour before the first scene and after the last."""
 
         def card() -> tuple[str, str | None]:
-            return self._blank(look.colour, BOOKEND_SECONDS)
+            return self._blank(look.colour, BOOKEND_SECONDS, look.titles)
 
         pieces = ([card()] if look.intro else []) + [(self.video, self.audio)] + ([card()] if look.outro else [])
         self._join([video for video, _ in pieces], [sound for _, sound in pieces if sound])

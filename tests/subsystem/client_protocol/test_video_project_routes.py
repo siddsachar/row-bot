@@ -192,6 +192,40 @@ def test_the_panel_gives_lines_to_characters_their_voices_and_scenes_their_effec
         assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "loudness": -30}).status_code == 422
 
 
+def test_the_panel_sets_a_videos_look_and_the_brand_kit_its_type_and_titles(service, studio):  # noqa: F811
+    """C5: the panel reads a video's look as it's made (its recipe's, else its own) and changes one choice, which
+    makes it again; the kit keeps its font and title style."""
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Trip", seed_default_skills=False)
+    register_attachment(chat, "beach.mp4", _MP4)
+    project = video_projects.create(chat, "Trip", [{"source": "beach.mp4", "end": 3}], look={"recipe": "film"})
+    video_projects.make(project, 1)
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        view = _made(client, headers, project.project_id)
+        assert (view["recipe"], view["grade"], view["grain"], view["letterbox"], view["transitions"]) == (
+            "film", "cinematic", True, True, "cut")
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in view["scenes"]]
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes, "grade": "bw",
+                                                          "letterbox": False})
+        assert changed.status_code == 200, changed.text
+        again = _made(client, headers, project.project_id)
+        assert (again["number"], again["grade"], again["grain"], again["letterbox"]) == (2, "bw", True, False)
+        assert client.put(path, headers=headers, json={"base": 2, "scenes": scenes, "grade": "sepia"}
+                          ).status_code == 422
+
+        kit = client.get("/api/v1/video-brand", headers=headers).json()
+        assert (kit["font"], kit["titles"]) == ("sans", "studio")
+        saved = client.put("/api/v1/video-brand", headers=headers, json={**kit, "font": "serif", "titles": "minimal"})
+        assert (saved.json()["font"], saved.json()["titles"]) == ("serif", "minimal")
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "font": "comic"}).status_code == 422
+
+
 def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_nothing(service, studio):  # noqa: F811
     """C1: the panel's cards. Approving marks scenes on their version; each card's frame is its own route; a change
     to a storyboard stays a storyboard (making it is the person's call), and footage still to make can't be made."""

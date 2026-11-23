@@ -44,10 +44,13 @@ tags: []
 - Phone demos: browser_viewport phone before recording (taps show as
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
-  framing, camera, voice, speed, music mood, loudness) sets every video, and a
-  video may choose its own voice and voice_speed. When the person says how their
-  videos should look ("full screen", a voice, a mood), save it with video
-  action brand, so the next video starts that way.
+  framing, camera, font, title style, voice, speed, music mood, loudness) sets
+  every video, and a video may choose its own voice and voice_speed. When the
+  person says how their videos should look ("full screen", a voice, a mood),
+  save it with video action brand, so the next video starts that way.
+- Give each new video its recipe (the kind of video): it sets the grade,
+  grain, letterbox and transitions. Set those yourself only when the person
+  asks for a look ("make it black and white").
 - Sound: music 'fit' is made to the video's length in the brand kit's mood
   (or music_mood), changing where the music cue does, so make_music isn't
   needed. A scene's speaker says its line in that character's voice (a voice

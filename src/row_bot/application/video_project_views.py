@@ -57,7 +57,9 @@ def change_video_project(project_id: str, body: dict[str, Any]) -> dict[str, Any
                                         captions=body.get("captions"), brand=body.get("brand"),
                                         voice=body.get("voice"), note=body.get("note") or "Edited in the panel",
                                         cast=None if body.get("cast") is None
-                                        else {item["name"]: item["voice"] for item in body["cast"]})
+                                        else {item["name"]: item["voice"] for item in body["cast"]},
+                                        look={key: body.get(key) for key in ("grade", "grain", "letterbox",
+                                                                             "transitions")})
     except ProjectError as error:
         raise ProjectRefused("video_project_stale" if error.stale else "video_project_invalid") from None
     if making:

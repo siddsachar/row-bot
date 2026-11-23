@@ -90,6 +90,16 @@ class _VideoInput(BaseModel):
                                                                   'chose, e.g. {"Maya": "bf_emma"}; a saved character '
                                                                   "keeps it in every video.")
     on_beat: bool | None = Field(default=None, description="create, change: cut scenes on the music's beat.")
+    recipe: Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"] | None = Field(
+        default=None, description="create, change: the kind of video; it sets the look below (a short is 9:16).")
+    grade: Literal["", "natural", "warm", "cinematic", "vivid", "bw"] | None = Field(
+        default=None, description="create, change: the colour grade ('' the recipe's). Clips and AI shots are "
+                                  "matched to one look first.")
+    grain: bool | None = Field(default=None, description="create, change: film grain.")
+    letterbox: bool | None = Field(default=None, description="create, change: 2.39 letterbox bars (16:9).")
+    transitions: Literal["", "cut", "crossfade"] | None = Field(
+        default=None, description="create, change: between scenes ('' the recipe's: crossfades for a montage, "
+                                  "else cuts).")
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
                                   "each scene reframed on its zoom, or a GIF.")
@@ -98,6 +108,11 @@ class _VideoInput(BaseModel):
                                   "(framed, only when asked).")
     caption_style: Literal["box", "bold", "title"] | None = Field(
         default=None, description="brand: how captions look when a video has them.")
+    font: Literal["sans", "modern", "serif", "display"] | None = Field(
+        default=None, description="brand: the typeface of every title and caption.")
+    title_style: Literal["studio", "minimal", "bold"] | None = Field(
+        default=None, description="brand: titles, lower thirds and the end card: on a card of the brand colour, "
+                                  "white words (title cards on black), or large on solid colour.")
     music_mood: Literal["calm", "upbeat", "focused", "warm"] | None = Field(
         default=None, description="create, change: the mood of 'fit' music (default the kit's); brand: the mood of "
                                   "music made for a video.")
@@ -283,13 +298,16 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            shape: str | None = None, brand: bool | None = None, voice: str | None = None,
            voice_speed: float | None = None, framing: str | None = None, caption_style: str | None = None,
            music_mood: str | None = None, logline: str | None = None, cast: dict | None = None,
-           on_beat: bool | None = None, loudness: float | None = None) -> str:
+           on_beat: bool | None = None, loudness: float | None = None, recipe: str | None = None,
+           grade: str | None = None, grain: bool | None = None, letterbox: bool | None = None,
+           transitions: str | None = None, font: str | None = None, title_style: str | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
     if action == "brand":
         return _brand(framing=framing, captions=caption_style, music_mood=music_mood, voice=voice,
-                      voice_speed=voice_speed, loudness=loudness)
+                      voice_speed=voice_speed, loudness=loudness, font=font, titles=title_style)
+    look = {"recipe": recipe, "grade": grade, "grain": grain, "letterbox": letterbox, "transitions": transitions}
     conversation = _conversation()
     if not conversation:
         return "Video projects need a conversation."
@@ -307,7 +325,8 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
                                           note=note, voice=voice or "", voice_speed=voice_speed,
                                           logline=logline or "", approvals=(approved := []), cast=cast,
-                                          music_mood=music_mood or "", on_beat=bool(on_beat), kept=(kept := []))
+                                          music_mood=music_mood or "", on_beat=bool(on_beat), kept=(kept := []),
+                                          look=look)
             # A new video of several scenes: its storyboard first (G6), but a workflow's run has nobody to approve it.
             if len(found.latest.scenes) > 1 and not _workflow_run(conversation):
                 return _with(approved, video_projects.summary(found) + _kept(kept))
@@ -322,7 +341,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                             captions=captions, voice_lines=voice_lines, aspect=aspect,
                                             brand=brand, voice=voice, voice_speed=voice_speed, logline=logline,
                                             approvals=(approved := []), cast=cast, music_mood=music_mood,
-                                            on_beat=on_beat, kept=(kept := []))
+                                            on_beat=on_beat, kept=(kept := []), look=look)
             if storyboard:  # A storyboard stays one until it's made.
                 return _with(approved, video_projects.summary(found, changed.number) + _kept(kept))
             return _make(found, changed.number, approved) + _kept(kept)
@@ -366,7 +385,8 @@ def _brand(**changes: object) -> str:
     except video_brand.BrandError as error:
         return str(error)
     shown = {key: value for key, value in asdict(kit).items() if key in {"framing", "captions", "music_mood",
-                                                                      "voice", "voice_speed", "loudness"}}
+                                                                      "voice", "voice_speed", "loudness", "font",
+                                                                      "titles"}}
     return ("Saved in the brand kit (the Video panel’s Brand kit); every new video starts this way: "
             + ", ".join(f"{key} {value or 'default'}" for key, value in shown.items()) + ".")
 
@@ -389,7 +409,8 @@ def langchain_tool():
             "video comes with its checks, by scene and time: fix what they list and make it again; it's ready to "
             "share only when they pass (no analyze_image passes of your own). undo goes back one version; export "
             "makes the same version in another shape or a GIF; brand saves how every video should look (framing, "
-            "caption style, music mood, voice, loudness). For one quick edit use edit_video. A title or end card is a "
+            "caption style, font, title style, music mood, voice, loudness). For one quick edit use edit_video. A "
+            "title or end card is a "
             "scene without a video: never make background videos or other working files in the person's workspace "
             "for it."
         ),

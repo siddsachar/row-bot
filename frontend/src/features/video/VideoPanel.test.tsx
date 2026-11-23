@@ -634,6 +634,38 @@ it('each character’s voice is chosen beside the storyboard, and only a changed
   );
 });
 
+it('the look is set beside the storyboard, and only the choices changed are sent', async () => {
+  // A version no other test edits: the panel keeps unsaved edits per version.
+  const { controller } = setup(
+    view({
+      number: 7,
+      latest: 7,
+      versions: [{ number: 7, at: AT, by: 'row-bot', note: 'Film look' }],
+      recipe: 'film',
+      grade: 'cinematic',
+      grain: true,
+      letterbox: true,
+    }),
+  );
+  const look = await screen.findByRole('group', { name: 'Look' });
+  expect(within(look).getByLabelText('Grade')).toHaveValue('cinematic');
+  expect(
+    within(look).getByRole('button', { name: 'Film grain' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await userEvent.selectOptions(
+    within(look).getByLabelText('Grade'),
+    'Black and white',
+  );
+  await userEvent.click(
+    within(look).getByRole('button', { name: 'Crossfade between scenes' }),
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  const change = vi.mocked(controller.changeVideoProject).mock.calls[0][1];
+  expect(change).toMatchObject({ grade: 'bw', transitions: 'crossfade' });
+  expect(change).not.toHaveProperty('grain');
+  expect(change).not.toHaveProperty('letterbox');
+});
+
 it('a new character given a line joins the voices, picked for them until chosen', async () => {
   setup(view());
   expect(

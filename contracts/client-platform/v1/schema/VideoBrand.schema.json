@@ -25,6 +25,17 @@
       "title": "Colour",
       "type": "string"
     },
+    "font": {
+      "default": "sans",
+      "enum": [
+        "sans",
+        "modern",
+        "serif",
+        "display"
+      ],
+      "title": "Font",
+      "type": "string"
+    },
     "framing": {
       "default": "full",
       "enum": [
@@ -74,6 +85,16 @@
     "outro": {
       "maxLength": 120,
       "title": "Outro",
+      "type": "string"
+    },
+    "titles": {
+      "default": "studio",
+      "enum": [
+        "studio",
+        "minimal",
+        "bold"
+      ],
+      "title": "Titles",
       "type": "string"
     },
     "voice": {

@@ -114,6 +114,24 @@ export function musicSections(scenes: { cue?: string | null }[]): number[] {
   return at;
 }
 
+/** A video's grades (C5), as the panel names them. */
+export const GRADES = {
+  natural: 'Natural',
+  warm: 'Warm',
+  cinematic: 'Cinematic',
+  vivid: 'Vivid',
+  bw: 'Black and white',
+} as const;
+export type Grade = keyof typeof GRADES;
+
+/** A video's look as it's made (C5): its grade, grain, letterbox and transitions. */
+export type VideoLook = {
+  grade: Grade;
+  grain: boolean;
+  letterbox: boolean;
+  transitions: 'cut' | 'crossfade';
+};
+
 export type VideoDraft = {
   scenes: VideoSceneWrite[];
   captions: boolean;
@@ -121,13 +139,38 @@ export type VideoDraft = {
   voice: string;
   /** Each character's voice: name -> voice. */
   cast: Record<string, string>;
+  look: VideoLook;
 };
+
+/** A version's look, as the panel shows it. */
+export function lookOf(view: VideoProjectView): VideoLook {
+  return {
+    grade: view.grade ?? 'natural',
+    grain: view.grain ?? false,
+    letterbox: view.letterbox ?? false,
+    transitions: view.transitions ?? 'cut',
+  };
+}
+
+/** Only the look's choices the person changed: the rest stay the version's own, or its recipe's. */
+export function lookChanges(
+  view: VideoProjectView,
+  look: VideoLook,
+): Partial<VideoLook> {
+  const before = lookOf(view);
+  return Object.fromEntries(
+    Object.entries(look).filter(
+      ([key, value]) => before[key as keyof VideoLook] !== value,
+    ),
+  );
+}
 
 /** The scenes as the panel edits them, from a version. */
 export function draftOf(view: VideoProjectView): VideoDraft {
   return {
     captions: view.captions,
     brand: view.brand,
+    look: lookOf(view),
     voice: view.voice ?? '',
     cast: Object.fromEntries(
       (view.cast ?? []).map((member) => [member.name, member.voice]),
