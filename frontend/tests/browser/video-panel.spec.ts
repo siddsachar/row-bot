@@ -82,7 +82,11 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await page.getByRole('menuitem', { name: /^Whoosh/ }).click();
   const effects = panel.getByRole('list', { name: 'Scene 2 sound effects' });
   await expect(effects.getByRole('listitem')).toHaveCount(2);
-  await page.mouse.move(0, 0); // The add button's tooltip closes.
+  // The add button keeps focus after its menu closes: blur it so its tooltip isn't in the picture.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() =>
+    (document.activeElement as HTMLElement | null)?.blur(),
+  );
   await cast.scrollIntoViewIfNeeded();
   await views(page, info, 'video-panel-sound', cast);
   await page.setViewportSize(PHONE);
