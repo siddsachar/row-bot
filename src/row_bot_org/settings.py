@@ -53,6 +53,8 @@ GATEWAY_KEY_ENV = ENV_PREFIX + GATEWAY_KEY_SUFFIX
 SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV, HMAC_PEPPER_ENV, IDP_CLIENT_SECRET_ENV,
                     GATEWAY_KEY_ENV)
 MIN_PEPPER_LENGTH = 32
+# The admin console's two documents (frontend/vite.console.config.ts builds them).
+CONSOLE_DOCUMENTS = ("console.html", "console-not-admin.html")
 _PR_SET_DUMPABLE = 4
 
 
@@ -97,6 +99,8 @@ class OrgSettings:
     gateway_key: bytes | None = dataclass_field(default=None, repr=False)
     # Gateway calls at once for a person under a hard budget, per process.
     gateway_budgeted_calls: int = DEFAULT_BUDGETED_CALLS
+    # The built admin console (frontend/dist-console), served at /console/; without it there is no console.
+    console_dir: Path | None = None
 
 
 class _Invalid(Exception):
@@ -184,6 +188,16 @@ def _pepper(raw: str) -> str:
     return raw
 
 
+def _console_dir(raw: str) -> Path:
+    try:
+        folder = Path(raw.strip()).resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise _Invalid("must be the folder of the built console") from None
+    if not all((folder / name).is_file() for name in CONSOLE_DOCUMENTS):
+        raise _Invalid("must be the folder of the built console (with " + " and ".join(CONSOLE_DOCUMENTS) + ")")
+    return folder
+
+
 def _json_text(raw: str) -> str:
     return raw.strip()
 
@@ -239,6 +253,7 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     BUDGETED_CALLS_SUFFIX: ("gateway_budgeted_calls", _gateway(parse_budgeted_calls)),
     "SIGN_IN_RATE_LIMIT": ("sign_in_rate_limit", _rate_limit),
     "TRUSTED_PROXIES": ("trusted_proxies", _trusted_proxies),
+    "CONSOLE_DIR": ("console_dir", _console_dir),
     # Combined after the loop: the provider needs its client secret.
     "IDP": ("idp", _json_text),
     "IDP_CLIENT_SECRET": ("idp_client_secret", _client_secret),
@@ -352,7 +367,7 @@ def keep_environment_private() -> None:
 
 
 __all__ = [
-    "DATABASE_URL_ENV", "ENV_PREFIX", "GATEWAY_KEY_ENV", "HMAC_PEPPER_ENV", "IDP_CLIENT_SECRET_ENV", "IDP_ENV",
+    "CONSOLE_DOCUMENTS", "DATABASE_URL_ENV", "ENV_PREFIX", "GATEWAY_KEY_ENV", "HMAC_PEPPER_ENV", "IDP_CLIENT_SECRET_ENV", "IDP_ENV",
     "MIGRATION_DATABASE_URL_ENV", "PUBLIC_URL_ENV", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings",
     "SettingsError", "keep_environment_private", "load_settings", "remove_secret_variables",
 ]

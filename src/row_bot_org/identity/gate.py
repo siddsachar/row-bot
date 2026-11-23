@@ -7,6 +7,8 @@
 - **Deny by default.** Only health, readiness, the two sign-in steps (and ``/openapi.json`` when it is
   published) are open. Any other path, a route that doesn't exist included, needs a live server
   session: 401 without one, so nobody learns which routes exist without signing in.
+  The one exception is the admin console's pages (``pages``, when the console is served): a browser
+  opening one without a session is sent to sign in (``/auth/login?next=<the path>``) instead.
 - **The access log (F-3):** one JSON line per request with the method, the route's template (never the
   path as sent, never the query string), the status, the duration and the principal's id. No cookie,
   code, state or token reaches it.
@@ -21,11 +23,12 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import cookie_parser
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import BaseRoute, Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -83,11 +86,13 @@ class Gate:
     """Pure ASGI middleware: the same-origin rule, then deny by default (see the module docstring)."""
 
     def __init__(self, app: ASGIApp, *, open_paths: frozenset[str], origin: str | None,
-                 resolve: SessionResolver | None) -> None:
+                 resolve: SessionResolver | None, pages: Callable[[str], bool] | None = None) -> None:
         self.app = app
         self.open_paths = open_paths
         self.origin = origin
         self.resolve = resolve
+        # Paths a browser opens as a page, which send someone not signed in to sign in rather than 401.
+        self.pages = pages
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "websocket":
@@ -105,6 +110,11 @@ class Gate:
             if token is not None and self.resolve is not None:
                 principal = await run_in_threadpool(self.resolve, token)
             if principal is None:
+                if scope["method"] in ("GET", "HEAD") and self.pages is not None and self.pages(scope["path"]):
+                    path = quote(scope["path"], safe="/")
+                    await RedirectResponse("/auth/login?next=" + quote(path, safe=""), status_code=303)(
+                        scope, receive, send)
+                    return
                 await _refuse(401, "sign_in_required")(scope, receive, send)
                 return
             scope[_SCOPE_KEY] = principal

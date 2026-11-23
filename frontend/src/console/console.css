@@ -1,0 +1,437 @@
+/*
+ * The admin console: the app's fonts, tokens and shared primitives, then the
+ * console's own layout (the side navigation, pages, filters, the usage table
+ * and the policy's save bar). Colours, type, space and radii are the app's
+ * tokens only.
+ */
+@import '../ui/styles/fonts.css';
+@import '../ui/styles/tokens.css';
+@import '../ui/styles.css';
+@import '../ui/styles/primitives.css';
+
+body {
+  color: var(--text-primary);
+}
+
+/* -- the shell ------------------------------------------------------------ */
+.console-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.console-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4) var(--space-3);
+  overflow-y: auto;
+  border-right: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.console-brand {
+  display: grid;
+  gap: 2px;
+  padding: 0 var(--space-2);
+}
+.console-brand .brand-glyph {
+  width: 28px;
+  height: 28px;
+}
+.console-brand-label {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.console-nav ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.console-nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+.console-nav-link:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.console-nav-link[aria-current='page'] {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+}
+.console-nav-link[aria-current='page'] svg {
+  color: var(--accent-solid);
+}
+.console-me {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-hairline);
+}
+.console-me-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.console-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--canvas);
+}
+.console-state {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: var(--space-6) 16px;
+}
+.console-state .state-message {
+  max-width: 52ch;
+}
+
+/* -- pages ---------------------------------------------------------------- */
+.console-page {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-12);
+}
+.console-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.console-page-header > div:first-child {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 64ch;
+}
+.console-page-header p,
+.console-section-header p {
+  color: var(--text-secondary);
+}
+.console-page-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.console-page .tab-content {
+  padding: var(--space-4) 0 0;
+}
+.console-search {
+  position: relative;
+  display: block;
+  width: min(320px, 100%);
+}
+.console-search svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.console-search .input {
+  padding-left: 36px;
+}
+.console-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.console-filters .field {
+  min-width: 160px;
+}
+.console-section {
+  display: grid;
+  gap: var(--space-3);
+}
+.console-section.surface {
+  gap: 0;
+}
+.console-section-header {
+  display: grid;
+  gap: 2px;
+  padding-bottom: var(--space-2);
+}
+.console-section-header h2 {
+  font-size: var(--text-17);
+  line-height: var(--leading-17);
+}
+.console-section-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.console-skeleton {
+  min-height: 160px;
+}
+.console-notice {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-info-border);
+  border-radius: var(--radius-card);
+  background: var(--status-info-background);
+  color: var(--status-info-text);
+}
+.console-notice[data-tone='warning'] {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+}
+.console-notice > svg {
+  margin-top: 2px;
+}
+.console-notice-body {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.console-notice-body ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.console-footnote,
+.console-setting-note {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.console-more {
+  justify-self: center;
+}
+.console-details {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.console-details > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.console-details dt {
+  min-width: 120px;
+  color: var(--text-muted);
+}
+.console-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* Rows here carry several facts (email, groups, last sign-in): they wrap. */
+.console-page .entity-row-meta {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.console-page .entity-row-title,
+.console-page .entity-row-meta > span:not(.status-indicator) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* An action unavailable here keeps its tooltip, which says why. */
+.button.icon-action[aria-disabled='true'] {
+  color: var(--text-disabled);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* -- the usage table ------------------------------------------------------ */
+.console-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+.console-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.console-table th,
+.console-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-hairline);
+  text-align: right;
+  white-space: nowrap;
+}
+.console-table th:first-child {
+  text-align: left;
+  font-weight: var(--weight-medium);
+}
+.console-table thead th {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+}
+.console-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+/* -- forms and the policy ------------------------------------------------- */
+.console-form {
+  display: grid;
+  gap: var(--space-4);
+}
+.console-form-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+.console-form-error {
+  color: var(--status-danger-text);
+}
+/* Save stays in view while a long form scrolls in its dialog. */
+.console-form-actions {
+  position: sticky;
+  bottom: -24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: 0 -24px -24px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface);
+}
+.console-policy {
+  display: grid;
+  gap: var(--space-4);
+}
+.console-setting-stack {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.console-setting-stack .input {
+  width: min(320px, 100%);
+}
+.console-number.input {
+  width: 96px;
+}
+.console-checklist {
+  display: grid;
+  gap: var(--space-1);
+  width: min(320px, 100%);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.console-checklist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.console-adds {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 18px;
+}
+.console-override-rows {
+  display: grid;
+}
+.console-savebar {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-overlay);
+}
+.console-savebar > span {
+  margin-right: auto;
+  color: var(--text-secondary);
+}
+
+/* -- phones and narrow windows -------------------------------------------- */
+@media (max-width: 767px) {
+  .console-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .console-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) 16px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .console-brand {
+    order: 1;
+    padding: 0;
+  }
+  .console-brand-label {
+    display: none;
+  }
+  .console-me {
+    order: 2;
+    margin: 0 0 0 auto;
+    padding: 0;
+    border: 0;
+  }
+  .console-nav nav {
+    order: 3;
+    flex-basis: 100%;
+    overflow-x: auto;
+  }
+  .console-nav ul {
+    display: flex;
+    gap: var(--space-1);
+  }
+  .console-nav-link {
+    padding: 6px var(--space-2);
+    white-space: nowrap;
+  }
+  .console-page {
+    padding: var(--space-4) 16px var(--space-12);
+  }
+  .console-filters > *,
+  .console-filters .field,
+  .console-search {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .console-page-action:has(.console-search) {
+    width: 100%;
+  }
+  .console-setting-stack {
+    justify-items: stretch;
+  }
+  .console-setting-stack .input,
+  .console-checklist {
+    width: 100%;
+  }
+}

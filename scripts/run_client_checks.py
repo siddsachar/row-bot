@@ -25,6 +25,8 @@ def check_commands(quality_only: bool = False) -> tuple[tuple[str, ...], ...]:
         ("node_modules/vite/bin/vite.js", "build"),
         ("scripts/asset-manifest.mjs",),
         ("scripts/verify-build.mjs",),
+        # The Company Server's admin console: its own bundle in dist-console/.
+        ("node_modules/vite/bin/vite.js", "build", "--config", "vite.console.config.ts"),
     )
 
 

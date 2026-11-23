@@ -18,7 +18,10 @@
     "build:verify": "node scripts/verify-build.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test:browser": "playwright test",
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build"
+    "console:build": "vite build --config vite.console.config.ts",
+    "console:check": "tsc --noEmit && vitest run src/console && npm run console:build",
+    "test:console-browser": "playwright test --config playwright.console.config.ts",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run build && npm run console:build"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",

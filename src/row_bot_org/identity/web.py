@@ -11,8 +11,13 @@ browser (login CSRF) or replayed finds nothing. Both steps are limited per clien
 (``identity.limits``), before anything reaches the database.
 
 A sign-in ends with a new session (rotated: the browser's previous session is revoked), in the
-``__Host-`` session cookie with the same attributes, and lands on ``/admin/``. The database keeps only
-the session's verifier.
+``__Host-`` session cookie with the same attributes, and lands on ``/admin/`` (which sends an admin on to the
+console, when it is served), or on ``next``: ``/auth/login?next=/console/people`` comes back to that path.
+``next`` must be a path on this server (``return_path``), or the sign-in is refused before it starts; it waits
+in its own ``__Host-`` cookie for the callback, which checks it again. The database keeps only the session's
+verifier.
+
+``GET /api/me`` is the caller: ``id``, ``display_name``, ``email``, ``status``, ``groups`` and ``admin``.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from psycopg_pool import ConnectionPool
 from row_bot.audit import Action, Outcome
 from row_bot_org import audit
 from row_bot_org.db.rls import principal_transaction
-from row_bot_org.identity import store
+from row_bot_org.identity import roles, store
 from row_bot_org.identity.gate import SESSION_COOKIE, SIGN_IN_COOKIE, RequestPrincipal, request_principal
 from row_bot_org.identity.limits import WINDOW_SECONDS, AddressRateLimit
 from row_bot_org.identity.oidc import OidcProvider, SignInError
@@ -48,7 +53,10 @@ CALLBACK_PATH = "/auth/callback"
 # Where a sign-in lands: the admin console's address (until the console exists, a JSON "signed in").
 LANDING_PATH = "/admin/"
 SIGN_IN_COOKIE_SECONDS = int(store.SIGN_IN_LIFETIME.total_seconds())
+# Where the sign-in in progress returns to (``next``): a path on this server.
+RETURN_COOKIE = "__Host-row_bot_org_return"
 MAX_CODE_LENGTH = 4096
+MAX_RETURN_PATH = 1024
 # Failures the provider (or its configuration) causes, rather than the browser.
 _PROVIDER_FAILURES = {"idp_unavailable", "idp_misconfigured", "token_exchange_failed"}
 
@@ -92,6 +100,15 @@ def principal_connection(request: Request,
         yield conn
 
 
+def return_path(value: str | None) -> str | None:
+    """``value`` when it is a path on this server (``/console/people``), else None: not another site
+    (``//host``, ``https://...``, a backslash), and nothing but printable ASCII without a query or fragment."""
+    if (not value or len(value) > MAX_RETURN_PATH or not value.startswith("/") or value.startswith("//")
+            or any(not 33 <= ord(char) <= 126 or char in "\\?#" for char in value)):
+        return None
+    return value
+
+
 def _client_address(request: Request) -> str:
     return request.client.host if request.client else ""
 
@@ -108,6 +125,7 @@ def _clear_cookie(response: Response, name: str) -> None:
 def _failed(reason: str, status: int = 400) -> JSONResponse:
     response = JSONResponse({"error": "sign_in_failed", "reason": reason}, status_code=status)
     _clear_cookie(response, SIGN_IN_COOKIE)
+    _clear_cookie(response, RETURN_COOKIE)
     return response
 
 
@@ -123,9 +141,12 @@ def identity_router(service: IdentityService) -> APIRouter:
     kind = provider.config.kind
 
     @router.get("/auth/login")
-    def login(request: Request) -> Response:
+    def login(request: Request, next: str | None = None) -> Response:
         if not service.limit.allow(_client_address(request)):
             return _too_many()
+        back = return_path(next)
+        if next is not None and back is None:
+            return JSONResponse({"error": "invalid_return_path"}, status_code=400)
         state, nonce, browser, code_verifier = new_secret(), new_secret(), new_secret(), new_secret()
         try:
             location = provider.authorization_url(redirect_uri=service.redirect_uri, state=state, nonce=nonce,
@@ -138,6 +159,10 @@ def identity_router(service: IdentityService) -> APIRouter:
                             nonce=service.verifier("sign-in-nonce", nonce), code_verifier=code_verifier)
         response = RedirectResponse(location, status_code=302)
         _set_cookie(response, SIGN_IN_COOKIE, browser, SIGN_IN_COOKIE_SECONDS)
+        if back is None:
+            _clear_cookie(response, RETURN_COOKIE)
+        else:
+            _set_cookie(response, RETURN_COOKIE, back, SIGN_IN_COOKIE_SECONDS)
         return response
 
     @router.get(CALLBACK_PATH)
@@ -181,9 +206,11 @@ def identity_router(service: IdentityService) -> APIRouter:
             logger.warning("sign-in refused: principal %s is %s", principal_id, status)
             return _failed("principal_suspended", 403)
         logger.info("principal %s signed in with %s", principal_id, kind)
-        response = RedirectResponse(service.origin + LANDING_PATH, status_code=303)
+        back = return_path(request.cookies.get(RETURN_COOKIE)) or LANDING_PATH
+        response = RedirectResponse(service.origin + back, status_code=303)
         _set_cookie(response, SESSION_COOKIE, token, settings.session_lifetime)
         _clear_cookie(response, SIGN_IN_COOKIE)
+        _clear_cookie(response, RETURN_COOKIE)
         return response
 
     @router.post("/auth/logout")
@@ -202,14 +229,15 @@ def identity_router(service: IdentityService) -> APIRouter:
         found = store.current_principal(conn, principal.principal_id)
         if found is None:
             return JSONResponse({"error": "sign_in_required"}, status_code=401)
-        return JSONResponse(found)
+        return JSONResponse({**found, "admin": roles.is_admin(conn, principal, settings)})
 
     @router.get(LANDING_PATH)
-    def landing(principal: RequestPrincipal = Depends(request_principal)) -> JSONResponse:
-        # The admin console (S6) takes this address over.
+    def landing(principal: RequestPrincipal = Depends(request_principal)) -> Response:
+        if settings.console_dir is not None:
+            return RedirectResponse("/console/", status_code=303)
         return JSONResponse({"status": "signed_in"})
 
     return router
 
 
-__all__ = ["CALLBACK_PATH", "LANDING_PATH", "IdentityService", "identity_router", "principal_connection"]
+__all__ = ["CALLBACK_PATH", "LANDING_PATH", "RETURN_COOKIE", "IdentityService", "return_path", "identity_router", "principal_connection"]

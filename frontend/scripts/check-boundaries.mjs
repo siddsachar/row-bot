@@ -11,7 +11,11 @@ export function violations(path, source) {
     true,
     ts.ScriptKind.TSX,
   );
-  const transport = path.startsWith('src/api/');
+  // The admin console (src/console) is its own client: its api.ts is its
+  // one network module, and it shares only the UI primitives with the app.
+  const adminConsole = path.startsWith('src/console/');
+  const transport =
+    path.startsWith('src/api/') || path === 'src/console/api.ts';
   const platform = path.startsWith('src/platform/');
   function imported(target) {
     const resolved = target.startsWith('.')
@@ -26,6 +30,14 @@ export function violations(path, source) {
       result.push('UI primitive imports a feature');
     if (transport && /^src\/(?:features|ui)(?:\/|$)/.test(resolved))
       result.push('protocol imports presentation');
+    if (!adminConsole && /^src\/console(?:\/|$)/.test(resolved))
+      result.push('app imports the admin console');
+    if (
+      adminConsole &&
+      /^src\//.test(resolved) &&
+      !/^src\/(?:ui|console)(?:\/|$)/.test(resolved)
+    )
+      result.push('admin console imports the app');
   }
   function visit(node) {
     if (
@@ -96,18 +108,25 @@ const forbidden = [
   ['src/features/fixture.ts', 'const board = navigator["clipboard"]'],
   ['src/api/fixture.ts', 'crypto["subtle"].digest("SHA-256", data)'],
   ['src/api/fixture.ts', 'const { subtle } = globalThis.crypto'],
+  ['src/features/fixture.ts', 'import App from "../console/App"'],
+  ['src/console/fixture.ts', 'import { x } from "../features/x"'],
+  ['src/console/fixture.ts', 'import { client } from "../api"'],
+  ['src/console/fixture.ts', 'fetch("/api/me")'],
 ];
 for (const [path, source] of forbidden) {
   if (!violations(path, source).length)
     throw new Error(`Boundary self-test failed: ${path}`);
 }
-for (const [path, source] of [
+const allowed = [
   ['src/features/x.ts', 'import { client } from "../../api"'],
   ['src/ui/x.ts', 'import { Button } from "./primitives"'],
   ['src/api/x.ts', 'const request = fetch; request("/api/v1")'],
   ['src/platform/x.ts', 'navigator.clipboard.readText()'],
   ['src/platform/x.ts', 'crypto.subtle.digest("SHA-256", data)'],
-]) {
+  ['src/console/x.ts', 'import { Button } from "../ui/primitives"'],
+  ['src/console/api.ts', 'fetch("/api/me")'],
+];
+for (const [path, source] of allowed) {
   if (violations(path, source).length)
     throw new Error(`Allowed boundary self-test failed: ${path}`);
 }
@@ -120,7 +139,7 @@ for await (const path of files('src')) {
     errors.push(`${name}: ${message}`);
 }
 console.log(
-  `TypeScript import/network boundary: ${count} source files, ${errors.length} violations; ${forbidden.length} negative and 5 allowed fixtures passed`,
+  `TypeScript import/network boundary: ${count} source files, ${errors.length} violations; ${forbidden.length} negative and ${allowed.length} allowed fixtures passed`,
 );
 if (errors.length) {
   console.error(errors.join('\n'));

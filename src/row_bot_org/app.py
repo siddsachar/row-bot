@@ -13,6 +13,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from row_bot_org.console import ASSETS_PATH, CONSOLE_CSP, is_console_path
 from row_bot_org.health import Readiness, health_router
 from row_bot_org.identity.gate import OPEN_PATHS, AccessLog, Gate
 from row_bot_org.settings import OrgSettings
@@ -20,7 +21,7 @@ from row_bot_org.settings import OrgSettings
 if TYPE_CHECKING:
     from psycopg_pool import ConnectionPool
 
-# The server answers JSON to programs, never pages to browsers.
+# The server answers JSON to programs; its one set of pages, the admin console, gets CONSOLE_CSP instead.
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
@@ -32,21 +33,27 @@ SECURITY_HEADERS = {
 
 
 class _SecurityHeaders:
-    """Adds ``SECURITY_HEADERS`` to every HTTP response, errors and 404s included."""
+    """Adds ``SECURITY_HEADERS`` to every HTTP response, errors and 404s included (with the console's own CSP
+    on the console's paths, when it is served)."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, console: bool = False) -> None:
         self.app = app
+        self.console = console
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
+        console = self.console and is_console_path(scope["path"])
+
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 for name, value in SECURITY_HEADERS.items():
                     headers[name] = value
+                if console:
+                    headers["Content-Security-Policy"] = CONSOLE_CSP
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
@@ -69,6 +76,10 @@ async def _admin_required(_request: Request, _error: Exception) -> JSONResponse:
     return JSONResponse({"error": "admin_required"}, status_code=403)
 
 
+def _console_page(path: str) -> bool:
+    return is_console_path(path) and not path.startswith(ASSETS_PATH)
+
+
 def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> FastAPI:
     """The server for ``settings``: health, readiness and, with identity providers, sign-in.
 
@@ -76,8 +87,9 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
     and ``settings.idp`` it serves sign-in (``row_bot_org.identity``), the policy routes
     (``row_bot_org.policy``), people (``row_bot_org.identity.people``), the audit log (``row_bot_org.audit.web``)
-    and devices (``row_bot_org.devices``), and with ``settings.gateway_key``
-    too the model catalog and gateway (``row_bot_org.gateway``). Every other path needs a server
+    and devices (``row_bot_org.devices``), with ``settings.gateway_key``
+    too the model catalog and gateway (``row_bot_org.gateway``), and with ``settings.console_dir`` the admin
+    console (``row_bot_org.console``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
 
     ``X-Forwarded-For`` and ``X-Forwarded-Proto`` count only from ``settings.trusted_proxies`` (uvicorn's
@@ -140,15 +152,21 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         from row_bot_org.gateway.web import gateway_router
 
         routers.append(gateway_router(gateway))
+    console = service is not None and settings.console_dir is not None
+    if console:
+        from row_bot_org.console import console_router
+
+        routers.append(console_router(settings.console_dir))
     for router in routers:
         app.include_router(router)
     open_paths = OPEN_PATHS | ({"/openapi.json"} if settings.openapi else set())
     # Outermost last: the headers on every response, the access log of every request (refusals
     # included), then the gate. The log matches the routers' own routes: the app's are wrapped.
     app.add_middleware(Gate, open_paths=open_paths, origin=settings.public_url,
-                       resolve=service.resolve if service is not None else None)
+                       resolve=service.resolve if service is not None else None,
+                       pages=_console_page if console else None)
     app.add_middleware(AccessLog, routes=[route for router in routers for route in router.routes])
-    app.add_middleware(_SecurityHeaders)
+    app.add_middleware(_SecurityHeaders, console=console)
     if settings.trusted_proxies:
         # Outermost: the log, the sign-in limit and the session's address see the forwarded client.
         app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=list(settings.trusted_proxies))

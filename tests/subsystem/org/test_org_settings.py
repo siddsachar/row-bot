@@ -208,3 +208,20 @@ def test_the_secret_variables_leave_the_environment_and_the_rest_stay() -> None:
     remove_secret_variables(environ)
 
     assert environ == {"ROW_BOT_ORG_PORT": "9000", "PATH": "unrelated"}
+
+
+def test_the_console_folder_must_hold_a_built_console(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError) as refused:
+        load_settings({"ROW_BOT_ORG_CONSOLE_DIR": str(tmp_path)})
+    assert refused.value.problems == [
+        "ROW_BOT_ORG_CONSOLE_DIR must be the folder of the built console (with console.html and "
+        "console-not-admin.html)"]
+    with pytest.raises(SettingsError):
+        load_settings({"ROW_BOT_ORG_CONSOLE_DIR": str(tmp_path / "missing")})
+
+
+def test_the_console_folder_is_a_setting(tmp_path: Path) -> None:
+    for name in ("console.html", "console-not-admin.html"):
+        (tmp_path / name).write_text("<!doctype html>", encoding="utf-8")
+    assert load_settings({"ROW_BOT_ORG_CONSOLE_DIR": str(tmp_path)}).console_dir == tmp_path.resolve()
+    assert load_settings({}).console_dir is None

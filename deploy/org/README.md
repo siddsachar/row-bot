@@ -90,9 +90,11 @@ only says `ok` or `failing` for it, never where it is.
 
 People sign in with OpenID Connect (authorization code with PKCE) at `/auth/login`, with the server's one
 identity provider; the provider sends them back to `<public URL>/auth/callback`, which you register with
-it as the redirect URI, and they land on `/admin/`. Every route but `/healthz`, `/readyz` and the two
-sign-in steps needs a session: without one, 401. Requests that change something must come from the
-public URL's origin.
+it as the redirect URI, and they land on `/admin/` (the admin console, when it is served), or back on the
+page they came from: `/auth/login?next=/console/policy` returns to that path, and a `next` that isn't a path
+on this server is refused. Every route but `/healthz`, `/readyz` and the two sign-in steps needs a session:
+without one, 401 (the console's pages send the browser to sign in instead). Requests that change something
+must come from the public URL's origin. `/api/me` says who is signed in, and whether they are an admin.
 
 - `ROW_BOT_ORG_PUBLIC_URL`: the origin browsers use, `https://org.example.com` (http only on loopback).
 - `ROW_BOT_ORG_IDP`: the provider, a JSON object, for example
@@ -184,13 +186,28 @@ connected Row-Bots call models through it, so the endpoints' keys never reach a 
 Admins keep one company policy and optional overrides per group (`/api/admin/policy`); each signed-in
 Row-Bot fetches its person's merged policy from `/api/policy/effective`. The settings, their defaults and
 the merge rules are in `contracts/policy/v1/`. An override can only widen the company policy: restrictions
-go in the company policy.
+go in the company policy. A write that names catalog models that don't exist (yet) is kept, and its answer
+lists them as `unknown_models`.
 
 **An override follows the group's name, so name only groups nobody can give themselves.** Set `group_map`
 in `ROW_BOT_ORG_IDP` from the provider's immutable group ids (Entra object ids) or admin-managed group
 names to the names the overrides use; never write an override for a display name people can create or rename
 themselves (self-service groups). `row-bot-org check-config` warns when overrides exist without a
 `group_map`.
+
+## Admin console
+
+Admins run the server from a browser at `<public URL>/console/`: people (make or remove admins, suspend and
+resume), devices (revoke), models (endpoints, catalog, budgets, usage), the policy (the company policy in
+plain words, group overrides and history) and the audit log (search, integrity check, JSON Lines export). It
+uses the admin API above and nothing else.
+
+- `ROW_BOT_ORG_CONSOLE_DIR`: the folder of the built console, `frontend/dist-console` after
+  `npm --prefix frontend run console:build` (the server image will carry it). Unset, there is no console and
+  `/console/` is an unknown path.
+- Someone not signed in is sent to sign in and back; a signed-in member who isn't an admin gets a page saying
+  they need to be one. The console's pages have their own Content-Security-Policy: only the console's own
+  scripts, styles, fonts and requests, nothing inline, never in a frame.
 
 ## Audit
 
