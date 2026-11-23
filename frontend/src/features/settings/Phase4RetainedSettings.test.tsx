@@ -93,6 +93,13 @@ const snapshot = {
       installed: true,
       voice: 'af_heart',
       speed: 1,
+      language_voices: {
+        es: 'ef_dora',
+        fr: 'ff_siwis',
+        hi: 'hf_alpha',
+        it: 'if_sara',
+        pt: 'pf_dora',
+      },
     },
     live_providers: [
       {
@@ -123,6 +130,36 @@ const snapshot = {
     whisper_options: [{ value: 'base', label: 'Base' }],
     realtime_voice_options: [{ value: 'alloy', label: 'Alloy' }],
     tts_voice_options: [{ value: 'af_heart', label: 'Heart' }],
+    language: {
+      options: [
+        { value: 'auto', label: 'Detect automatically' },
+        { value: 'ar', label: 'Arabic' },
+        { value: 'en', label: 'English' },
+        { value: 'fr', label: 'French' },
+        { value: 'de', label: 'German' },
+        { value: 'hi', label: 'Hindi' },
+        { value: 'it', label: 'Italian' },
+        { value: 'pt', label: 'Portuguese' },
+        { value: 'es', label: 'Spanish' },
+      ],
+      spoken: ['en', 'es', 'fr', 'hi', 'it', 'pt'],
+      voice_options: [
+        {
+          language: 'es',
+          label: 'Spanish',
+          options: [
+            { value: 'ef_dora', label: 'Dora (female)' },
+            { value: 'em_alex', label: 'Alex (male)' },
+          ],
+        },
+        {
+          language: 'fr',
+          label: 'French',
+          options: [{ value: 'ff_siwis', label: 'Siwis (female)' }],
+        },
+      ],
+      notices: [],
+    },
   },
   system: {
     availability: 'available',
@@ -2553,6 +2590,117 @@ it('offers a speech model choice for Talk and Dictation only once there is one',
   expect(screen.getByLabelText('Dictation listens with')).toBeVisible();
   // Read aloud always speaks with Kokoro: nothing to choose.
   expect(screen.queryByLabelText(/Read-aloud model/)).toBeNull();
+});
+
+function showLanguage(voice: Partial<SettingsSnapshot['voice']> = {}) {
+  mutation.page = 'voice';
+  return render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <VoiceSnapshotPanel
+          snapshot={{ ...snapshot.voice, ...voice }}
+          conversationId={null}
+          mutation={mutation}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+}
+
+it('Language detects what you speak by default, and a chosen one saves at once (V8)', async () => {
+  showLanguage();
+  const language = screen.getByRole('combobox', { name: 'Language' });
+  expect(language).toHaveValue('auto');
+  expect(
+    within(language).getByRole('option', { name: 'Detect automatically' }),
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      'Kokoro speaks English, Spanish, French, Hindi, Italian and Portuguese. Answers in other languages stay on screen.',
+    ),
+  ).toBeVisible();
+  fireEvent.change(language, { target: { value: 'fr' } });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.speech_language',
+        value: 'fr',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('an English-only Talk model says so for another language and switches to Whisper only when asked (V8)', async () => {
+  showLanguage({
+    runtime: {
+      ...snapshot.voice.runtime,
+      talk_model: 'local-moonshine-base-en',
+      speech_language: 'fr',
+    },
+    language: {
+      ...snapshot.voice.language,
+      notices: [
+        {
+          use: 'talk',
+          engine: 'Moonshine Base',
+          understands: ['English'],
+          language: 'fr',
+          language_label: 'French',
+          heard: false,
+          alternatives: ['Whisper'],
+          switch_field: 'runtime.talk_model',
+          switch_value: 'local-whisper',
+        },
+      ],
+    },
+  });
+  expect(
+    screen.getByText(
+      'Moonshine Base understands English only; for French, use Whisper.',
+    ),
+  ).toBeVisible();
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use Whisper for Talk' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_model',
+        value: 'local-whisper',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(await notice('Talk now listens with Whisper')).toBeVisible();
+});
+
+it('each other language Kokoro speaks has its voice, and one it can’t speak says so (V8)', async () => {
+  const view = showLanguage();
+  const spanish = screen.getByLabelText('Spanish voice');
+  expect(spanish).toHaveValue('ef_dora');
+  // French has one voice: it is named, not offered as a choice.
+  expect(screen.getByText('Siwis (female)')).toBeVisible();
+  expect(screen.queryByLabelText('French voice')).toBeNull();
+  fireEvent.change(spanish, { target: { value: 'em_alex' } });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'tts.language_voices.es',
+        value: 'em_alex',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+  view.unmount();
+  showLanguage({
+    runtime: { ...snapshot.voice.runtime, speech_language: 'de' },
+  });
+  expect(
+    screen.getByText(
+      'Kokoro can’t speak German yet, so answers in German stay on screen.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByLabelText('Spanish voice')).toBeNull();
 });
 
 const GB = 2 ** 30;

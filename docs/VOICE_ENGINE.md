@@ -159,7 +159,7 @@ The archive is then deleted. A finished download becomes what Talk listens
 with (`talk_model`), unless Talk is set to Realtime. Remove deletes the folder
 and puts Talk back on Whisper if it used it. The language reported with each
 transcript is the model's own (`TranscriptUpdate.language`); a model that
-detects languages would report what it heard (V8 adds language settings).
+detects languages would report what it heard; see Languages (V8) below.
 
 ### Runtime review: sherpa-onnx 2.0.1
 
@@ -296,6 +296,48 @@ for the processor, which is why the pick needs a runtime that uses the card.
 Raw decode speed, outside the engine: Nemotron RTF 0.24 with 4 threads (0.36
 with 2), final 120 ms after the last word; Moonshine Base reads 4 s of speech
 in 55-77 ms and 8 s in 120-164 ms.
+
+## Languages (V8)
+
+Settings › Voice › Language (`speech_language` in `voice_runtime_settings.json`:
+`auto`, the default, or a code from `voice/languages.py`) applies to Talk,
+Dictate, chat-app voice notes and narration. `providers.speech_to_text_provider`
+builds each engine with it (None to detect), and a Talk session opens every
+utterance with it through `StreamingSpeechToText.open(language=...)`. No path
+hard-codes English any more.
+
+- **Whisper** takes the language or detects it (one extra decoder step on the
+  first 30 s window; the encoder output is reused). **SenseVoice** is asked for
+  Chinese, English, Japanese or Korean when that is the setting, else `auto`,
+  and reports the language tag it heard. **Moonshine Base** and **Nemotron**
+  are English only and report `en`.
+- A provider reports the language with each transcript through
+  `transcribe_heard(audio, language=...)` (`provider_base.LanguageSpeechToText`);
+  one without it (a cloud adapter) is asked through `transcribe_bytes` and
+  reports none. The final caption carries it (`language`), the bar's details
+  show it, and it is the hint for the voice that answers.
+- **No silent fallback.** An English-only Talk engine with another language
+  chosen keeps listening in English; Settings says so (the snapshot's
+  `voice.language.notices`) and offers Whisper. With Detect automatically, the
+  last ten detected languages (in memory only) raise the same notice once
+  another language was heard three times.
+- **Speaking it.** Kokoro picks a voice per sentence
+  (`languages.kokoro_voice_for`): the sentence's own language when it is clear
+  (a script check, then common words, which needs two marker words, or one in
+  three words or fewer, and must beat every other language), else the
+  language the person was heard speaking when Kokoro speaks it, else the
+  person's own voice's language. The person's voice speaks its own language;
+  Spanish, French, Hindi, Italian and Brazilian Portuguese get the voice
+  picked in Settings or a preset. Kokoro's Japanese and Mandarin voices need
+  the misaki G2P package, which Row-Bot does not ship, so those (and every
+  other language) are not spoken: `SynthesizedSpeech.unspoken` names the
+  language, the session sends the caption with `spoken: false` and an
+  `unspoken` event, Read aloud answers `voice_language_unspoken`, and a
+  chat-app reply goes as text. A hint alone never silences a sentence.
+- **Cost.** Guessing a sentence's language takes about 30 µs (on a processor
+  at 100% load); nothing is loaded and nothing is kept but the ten codes.
+- No multilingual streaming model is offered: sherpa-onnx's streaming models
+  are each one language (or Chinese with English). Qwen3-TTS is a follow-up.
 
 ## Transport: why a WebSocket, not WebRTC
 

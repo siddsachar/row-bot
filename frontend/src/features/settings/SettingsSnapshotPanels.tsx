@@ -1876,6 +1876,176 @@ function voiceProviderLabel(
   return option.label;
 }
 
+/** "English", "Chinese and English", "Chinese, English and Japanese". */
+function wordList(items: string[], last = 'and') {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} ${last} ${items[items.length - 1]}`;
+}
+
+type VoiceLanguageNotice =
+  SettingsSnapshot['voice']['language']['notices'][number];
+
+/** An engine in use that can't understand the person's language, said plainly, with a way to switch (V8). */
+function LanguageNotice({
+  mutation,
+  notice,
+  current,
+}: {
+  mutation: SettingsMutationIO;
+  notice: VoiceLanguageNotice;
+  current: string;
+}) {
+  const use = notice.use === 'talk' ? 'Talk' : 'Dictation';
+  const only = `${notice.engine} understands ${wordList(notice.understands)} only`;
+  const message = notice.heard
+    ? `You often speak ${notice.language_label}, but ${use} listens with ${notice.engine}, which understands ${wordList(notice.understands)} only. For ${notice.language_label}, use ${wordList(notice.alternatives, 'or')}.`
+    : `${only}; for ${notice.language_label}, use ${wordList(notice.alternatives, 'or')}.`;
+  return (
+    <SavedSetting
+      mutation={mutation}
+      field={notice.switch_field}
+      label={use}
+      value={current}
+      savedMessage={() => `${use} now listens with Whisper`}
+      row={{
+        status: <StatusLine tone="warning">{message}</StatusLine>,
+        bind: false,
+      }}
+    >
+      {({ setValue, disabled }) => (
+        <Button
+          aria-label={`Use Whisper for ${use}`}
+          disabled={disabled}
+          onClick={() => setValue(notice.switch_value)}
+        >
+          Use Whisper
+        </Button>
+      )}
+    </SavedSetting>
+  );
+}
+
+/**
+ * Settings › Voice › Language (V8): what the person speaks in Talk, Dictate
+ * and chat-app voice notes; engines that can't understand it say so; and the
+ * voice that speaks answers in each other language Kokoro knows.
+ */
+function VoiceLanguageGroup({
+  snapshot,
+  mutation,
+}: {
+  snapshot: SettingsSnapshot['voice'];
+  mutation: SettingsMutationIO;
+}) {
+  const language = snapshot.language;
+  const chosen = snapshot.runtime.speech_language ?? 'auto';
+  const name = (code: string) =>
+    language.options.find((option) => option.value === code)?.label ?? code;
+  const kokoro =
+    snapshot.tts.installed &&
+    snapshot.runtime.speech_output_provider === 'local';
+  const spoken = wordList(language.spoken.map(name));
+  const voices = language.voice_options.filter(
+    (row) => chosen === 'auto' || row.language === chosen,
+  );
+  const unspoken =
+    chosen !== 'auto' && !language.spoken.includes(chosen) ? name(chosen) : '';
+  return (
+    <SettingsGroup
+      title="Language"
+      anchor="language"
+      note="What you speak in Talk, Dictate and voice notes from chat apps."
+    >
+      <SelectSetting
+        mutation={mutation}
+        field="runtime.speech_language"
+        label="Language"
+        hint={
+          chosen === 'auto'
+            ? 'Row-Bot hears which language you speak. Choose one if it guesses wrong.'
+            : 'Row-Bot listens for this language only.'
+        }
+        value={chosen}
+        options={language.options}
+        savedMessage={(next) =>
+          next === 'auto'
+            ? 'Row-Bot detects your language'
+            : `Row-Bot listens for ${name(String(next))}`
+        }
+      />
+      {language.notices.map((notice) => (
+        <LanguageNotice
+          key={notice.use}
+          mutation={mutation}
+          notice={notice}
+          current={
+            notice.use === 'talk'
+              ? snapshot.runtime.talk_model
+              : snapshot.runtime.dictation_model
+          }
+        />
+      ))}
+      {kokoro && unspoken && (
+        <SettingsItem
+          label="Spoken answers"
+          bind={false}
+          status={
+            <StatusLine>
+              Kokoro can’t speak {unspoken} yet, so answers in {unspoken} stay
+              on screen.
+            </StatusLine>
+          }
+        />
+      )}
+      {kokoro &&
+        voices.map((row) =>
+          row.options.length > 1 ? (
+            <SelectSetting
+              key={row.language}
+              mutation={mutation}
+              field={`tts.language_voices.${row.language}`}
+              label={`${row.label} voice`}
+              hint={
+                chosen === 'auto'
+                  ? `Speaks answers in ${row.label}.`
+                  : `Speaks Row-Bot’s answers.`
+              }
+              value={
+                snapshot.tts.language_voices[
+                  row.language as keyof typeof snapshot.tts.language_voices
+                ]
+              }
+              options={row.options}
+            />
+          ) : (
+            <SettingsItem
+              key={row.language}
+              label={`${row.label} voice`}
+              help={`Speaks answers in ${row.label}.`}
+              bind={false}
+              control={
+                <span className="settings-row-value">
+                  {row.options[0]?.label}
+                </span>
+              }
+            />
+          ),
+        )}
+      {kokoro && chosen === 'auto' && (
+        <SettingsItem
+          label="Other languages"
+          bind={false}
+          status={
+            <StatusLine>
+              Kokoro speaks {spoken}. Answers in other languages stay on screen.
+            </StatusLine>
+          }
+        />
+      )}
+    </SettingsGroup>
+  );
+}
+
 export function VoiceSnapshotPanel({
   snapshot,
   conversationId,
@@ -2212,6 +2382,7 @@ export function VoiceSnapshotPanel({
           </>
         )}
       </SettingsGroup>
+      <VoiceLanguageGroup snapshot={snapshot} mutation={mutation} />
       <SettingsAdvanced meta="Live voice, other speech models, diagnostics">
         {/* Live voice: a cloud speech-to-speech front per provider, chosen from a chat's Talk menu. */}
         <SettingsGroup

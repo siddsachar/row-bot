@@ -39,6 +39,8 @@ function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
     latency: null,
     approval: null,
     error: '',
+    heard: null,
+    unspoken: null,
     share: null,
     canShare: 'no',
     ...initial,
@@ -176,7 +178,7 @@ it('the phone bar expands into a full-screen focus and back', () => {
 it('timing stays behind its button, which waits for the first spoken reply', () => {
   const { session, update } = fakeSession();
   bar(session);
-  expect(screen.getByRole('button', { name: 'No timing yet' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'No details yet' })).toBeDisabled();
   expect(
     screen.queryByText(/Replied in|No timing yet/, { selector: 'p' }),
   ).toBeNull();
@@ -187,8 +189,48 @@ it('timing stays behind its button, which waits for the first spoken reply', () 
     },
   });
   expect(screen.queryByText('Replied in 0.6 s')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Show timing' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
   expect(screen.getByText('Replied in 0.6 s')).toBeVisible();
+});
+
+it('the details name the language Row-Bot heard, quietly beside the timing', () => {
+  const { session, update } = fakeSession({ heard: 'fr' });
+  bar(session);
+  fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+  expect(screen.getByText('French')).toBeVisible();
+  update({
+    latency: {
+      last: { voice_to_voice: 640 },
+      summary: { turns: 1, stages: { voice_to_voice: { p50: 640, p90: 640 } } },
+    },
+  });
+  expect(screen.getByText('Replied in 0.6 s · French')).toBeVisible();
+});
+
+it('captions in a right-to-left script read right to left, in their language', () => {
+  const { session } = fakeSession({
+    you: { text: 'مرحبا، كيف حالك؟', final: true, language: 'ar' },
+    rowBot: { text: 'שלום, מה שלומך?', final: true, kind: 'answer' },
+  });
+  bar(session);
+  const you = screen.getByText('مرحبا، كيف حالك؟');
+  expect(you).toHaveAttribute('dir', 'auto');
+  expect(you).toHaveAttribute('lang', 'ar');
+  expect(screen.getByText('שלום, מה שלומך?')).toHaveAttribute('dir', 'auto');
+});
+
+it('an answer in a language the voice can not speak stays on screen, and the bar says why', () => {
+  const { session, update } = fakeSession({
+    rowBot: { text: 'Es ist drei Uhr.', final: true, kind: 'answer' },
+    unspoken: 'de',
+  });
+  bar(session);
+  expect(screen.getByText('Es ist drei Uhr.')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Row-Bot’s voice can’t speak German, so its answers stay on screen.',
+  );
+  update({ unspoken: null });
+  expect(screen.queryByText(/can’t speak German/)).toBeNull();
 });
 
 it('timing reads as one plain line', () => {
