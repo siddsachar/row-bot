@@ -182,6 +182,9 @@ BROWSER_SMOKE_SPECS = (
     # The wake word (V10): off until turned on in Settings, its mark while it listens, hearing it (a stand-in
     # model) starts Row-Bot Voice, one click stops it; absent on a phone; desktop and phone, light and dark.
     "wake-word",
+    # Eyes (V6): share the camera or screen during voice, a still goes with the spoken turn and shows in the
+    # person's message; the sharing controls at desktop and phone width, light and dark. Appended likewise.
+    "voice-share",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (
