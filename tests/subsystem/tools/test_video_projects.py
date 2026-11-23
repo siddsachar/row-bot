@@ -965,8 +965,8 @@ def test_a_storyboard_plans_every_kind_of_footage_and_makes_nothing_until_its_fo
             '"The fox knew first."') in lines[3]
     assert 'signup.mp4 0–2 s, shows "the town waking up"' in lines[4]
     assert lines[5] == ("Storyboard, nothing made yet: show it to the person (the Video panel shows each scene as "
-                        "a card to approve, change or comment on). Make it with action make once they approve. Make "
-                        "it at once only when they said to skip the storyboard.")
+                        "a card to approve, change or comment on). Make it with action make once they approve, or now "
+                        "when they said to make the video.")
     assert lines[6].startswith('No footage yet: scene 2 (AI shot: a fox crossing deep snow at dawn).')
     assert studio["started"] == [] and studio["said"] == [], "nothing is voiced or made"
     [project] = video_projects.list_projects("conversation-a")
@@ -1045,6 +1045,23 @@ def test_a_make_that_drew_only_the_changed_scenes_says_so(studio):
     project = video_projects.get(project.project_id)
     assert "Drew 1 changed scene again and reused 1 unchanged." in video_projects.summary(project)
     assert [scene["made"] for scene in video_projects.view(project)["scenes"]] == ["reused", "new"]
+
+
+def test_a_workflows_video_of_several_scenes_is_made_at_once_with_no_storyboard_to_wait_on(studio, monkeypatch):
+    """A workflow's run has nobody to approve a storyboard: its message is the person's instruction, so it's made."""
+    from row_bot import ffmpeg_runtime, tasks
+    from row_bot.tools import video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 0.0)
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    monkeypatch.setattr(tasks, "active_run_for_conversation",
+                        lambda thread_id: {"id": "run-1"} if thread_id == "conversation-a" else None)
+
+    result = video_project_tool._video(action="create", title="Weekly changes", scenes=SCENES)
+
+    assert "(storyboard)" not in result.splitlines()[0] and "Storyboard, nothing made yet" not in result
+    assert studio["said"], "its lines are voiced: the video is being made"
 
 
 def test_a_storyboard_cards_frame_is_its_picture_or_a_frame_of_its_clip_and_a_card_has_none(studio, tmp_path):

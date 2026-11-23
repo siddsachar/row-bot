@@ -1339,8 +1339,8 @@ def summary(project: Project, number: int | None = None) -> str:
         lines.append(f"{index}. [{scene['scene_id']}] {what} {span}{', ' + extra if extra else ''}{line}")
     if data["status"] == "draft" and shown is not None:
         lines.append("Storyboard, nothing made yet: show it to the person (the Video panel shows each scene as a "
-                     "card to approve, change or comment on). Make it with action make once they approve. Make it at "
-                     "once only when they said to skip the storyboard.")
+                     "card to approve, change or comment on). Make it with action make once they approve, or now when "
+                     "they said to make the video.")
         if planned(shown):
             lines.append(planned_words(planned(shown)))
     makes = [scene["made"] for scene in data["scenes"]]
