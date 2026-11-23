@@ -81,6 +81,7 @@ const snapshot = {
       dictation_model: 'base',
       speech_output_provider: 'local',
       speech_output_model: 'kokoro',
+      realtime_model: 'gpt-realtime-2-mini',
       realtime_voice: 'alloy',
       captions_enabled: true,
     },
@@ -121,10 +122,7 @@ const snapshot = {
         reason: 'realtime_key_missing',
       },
     ],
-    talk_providers: [
-      { value: 'local', label: 'Local' },
-      { value: 'openai_realtime', label: 'OpenAI Realtime' },
-    ],
+    talk_providers: [{ value: 'local', label: 'Local' }],
     dictation_providers: [{ value: 'local', label: 'Local' }],
     speech_output_providers: [{ value: 'local', label: 'Local' }],
     whisper_options: [{ value: 'base', label: 'Base' }],
@@ -551,7 +549,13 @@ it('renders real voice controls without probing a device or provider', async () 
     screen.getByText('Download the speech model to talk on this computer'),
   ).toBeVisible();
   expect(screen.getByLabelText('Speech model')).toHaveValue('base');
-  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
+  // Listen with offers speech-to-text only: OpenAI Realtime is Live voice's.
+  expect(
+    within(screen.getByLabelText('Listen with'))
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual(['Whisper · on this computer']);
+  expect(document.body).not.toHaveTextContent('Realtime Talk online');
   expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
   expect(screen.queryByLabelText('Start automatically')).toBeNull();
   expect(screen.queryByLabelText('Provider voice')).toBeNull();
@@ -583,17 +587,18 @@ it('renders real voice controls without probing a device or provider', async () 
       name: /OpenAI Realtime API key/,
     }),
   ).toBeNull();
-  fireEvent.change(screen.getByLabelText('Listen with'), {
-    target: { value: 'openai_realtime' },
-  });
+  // OpenAI Realtime's voice and model sit under Live voice, whatever Talk listens with.
   expect(screen.getByLabelText('Realtime voice')).toBeVisible();
-  expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
-  // A choice saves at once (decision 19); nothing probes a device.
+  const model = screen.getByLabelText('Realtime model');
+  expect(model).toHaveValue('gpt-realtime-2-mini');
+  fireEvent.change(model, { target: { value: 'gpt-realtime-2' } });
+  fireEvent.blur(model);
+  // Nothing probes a device.
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
       expect.objectContaining({
-        field: 'runtime.talk_provider',
-        value: 'openai_realtime',
+        field: 'runtime.realtime_model',
+        value: 'gpt-realtime-2',
       }),
       expect.any(AbortSignal),
     ),
@@ -604,17 +609,13 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(document.body).not.toHaveTextContent('must-not-render');
 });
 
-it('shows Realtime-only voice controls only for Realtime and hides uninstalled local TTS controls', () => {
+it('keeps OpenAI Realtime’s voice under Live voice and hides uninstalled local TTS controls', () => {
   mutation.page = 'voice';
   render(
     <MemoryRouter>
       <VoiceSnapshotPanel
         snapshot={{
           ...snapshot.voice,
-          runtime: {
-            ...snapshot.voice.runtime,
-            talk_provider: 'openai_realtime',
-          },
           tts: { ...snapshot.voice.tts, installed: false },
         }}
         conversationId="conversation-a"
@@ -623,9 +624,8 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
     </MemoryRouter>,
   );
   expect(screen.getByLabelText('Live captions')).toBeChecked();
+  expect(screen.getByLabelText('When you pause')).toHaveValue('normal');
   expect(screen.getByLabelText('Realtime voice')).toHaveValue('alloy');
-  // Which realtime model Talk uses stays a choice (the saved talk model names it).
-  expect(screen.getByLabelText('Realtime model')).toHaveValue('gpt-realtime-2');
   // Kokoro's install is a text action in the Read aloud row's status line.
   expect(screen.getByText('Kokoro isn’t installed yet')).toBeVisible();
   expect(screen.getByText('Kokoro voice')).toBeVisible();
@@ -2471,6 +2471,14 @@ it.each<SettingsLeafId>([
   async (leaf) => {
     const everyRow = {
       ...snapshot,
+      // A cloud voice is offered, so Read aloud shows Speak with.
+      voice: {
+        ...snapshot.voice,
+        speech_output_providers: [
+          { value: 'local', label: 'Local' },
+          { value: 'elevenlabs', label: 'ElevenLabs Flash' },
+        ],
+      },
       tools: {
         ...snapshot.tools,
         items: [
@@ -2575,8 +2583,11 @@ it('offers a speech model choice for Talk and Dictation only once there is one',
   );
   const view = render(voice(false));
   fireEvent.click(screen.getByText('Advanced'));
-  // Saved ids such as "local-whisper" are never typed in by hand.
-  expect(screen.queryByRole('textbox', { name: /model/i })).toBeNull();
+  // Saved ids such as "local-whisper" are never typed in by hand; only Live voice's OpenAI model is.
+  expect(screen.queryAllByRole('textbox', { name: /model/i })).toHaveLength(1);
+  expect(screen.getByLabelText('Realtime model')).toHaveValue(
+    'gpt-realtime-2-mini',
+  );
   expect(screen.queryByLabelText('Talk listens with')).toBeNull();
   expect(screen.queryByDisplayValue('local-whisper')).toBeNull();
   view.rerender(voice(true));
@@ -2712,6 +2723,7 @@ const GB = 2 ** 30;
 function showVoice(
   talkProvider: string,
   host: SettingsSnapshot['system']['hosted_by'] = null,
+  cloud: Cloud[] = [deepgram, geminiListen],
 ) {
   mutation.page = 'voice';
   return render(
@@ -2721,6 +2733,14 @@ function showVoice(
           snapshot={{
             ...snapshot.voice,
             runtime: { ...snapshot.voice.runtime, talk_provider: talkProvider },
+            cloud_speech: cloud,
+            talk_providers: [
+              { value: 'local', label: 'Local' },
+              ...cloud.map((option) => ({
+                value: option.id,
+                label: option.label,
+              })),
+            ],
           }}
           conversationId={null}
           mutation={mutation}
@@ -2733,7 +2753,7 @@ function showVoice(
 
 it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks before it is chosen (U8)', async () => {
   setMemoryLimit(2 * GB);
-  showVoice('openai_realtime');
+  showVoice('gemini_transcribe');
   // Dictation listens with Whisper here: its quiet pill. Listen with is in the cloud: none.
   expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(1);
 
@@ -2745,12 +2765,16 @@ it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks be
   expect(sheet).toHaveTextContent(
     'This server has 2 GB. Local speech-to-text may make Row-Bot restart.',
   );
-  expect(listen).toHaveValue('openai_realtime');
+  // The cloud way is the service already chosen, with its saved key.
+  expect(sheet).toHaveTextContent(
+    'Cloud speech-to-text listens with Gemini Transcribe Live, with your saved key.',
+  );
+  expect(listen).toHaveValue('gemini_transcribe');
   fireEvent.click(
     within(sheet).getByRole('button', { name: 'Use cloud speech-to-text' }),
   );
   expect(screen.queryByRole('dialog')).toBeNull();
-  expect(listen).toHaveValue('openai_realtime');
+  expect(listen).toHaveValue('gemini_transcribe');
   expect(mutation.review).not.toHaveBeenCalled();
 
   fireEvent.change(listen, { target: { value: 'local' } });
@@ -2772,6 +2796,41 @@ it('on a server under 3.5 GB local speech-to-text says it needs 4 GB and asks be
   expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
 });
 
+it('with no cloud key saved, the small-server sheet picks a cloud service and asks for its key (U8)', async () => {
+  setMemoryLimit(2 * GB);
+  showVoice('local', null, [deepgram]);
+  const listen = screen.getByLabelText('Listen with');
+  fireEvent.change(listen, { target: { value: 'deepgram' } });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_provider',
+        value: 'deepgram',
+      }),
+      expect.anything(),
+    ),
+  );
+  // Without its key Talk still listens here, so the pill stays on Listen with.
+  expect(screen.getAllByText('Needs a 4 GB server')).toHaveLength(2);
+  vi.mocked(mutation.review).mockClear();
+  fireEvent.change(listen, { target: { value: 'local' } });
+  const sheet = screen.getByRole('dialog', {
+    name: 'Use local speech-to-text?',
+  });
+  expect(sheet).toHaveTextContent(
+    'Cloud speech-to-text listens with Deepgram Nova-3 and needs your Deepgram key, which you add next.',
+  );
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Use cloud speech-to-text' }),
+  );
+  expect(listen).toHaveValue('deepgram');
+  expect(screen.getByText(/Until you add it, Talk listens/)).toBeVisible();
+  expect(mutation.review).not.toHaveBeenCalledWith(
+    expect.objectContaining({ value: 'openai_realtime' }),
+    expect.anything(),
+  );
+});
+
 it.each([
   ['with 4 GB', 4 * GB],
   ['on the desktop, with no limit', null],
@@ -2779,7 +2838,7 @@ it.each([
   'local speech-to-text needs no pill or sheet %s (U8)',
   async (_where, limit) => {
     setMemoryLimit(limit);
-    showVoice('openai_realtime');
+    showVoice('gemini_transcribe');
     expect(screen.queryByText('Needs a 4 GB server')).toBeNull();
     fireEvent.change(screen.getByLabelText('Listen with'), {
       target: { value: 'local' },
@@ -2871,7 +2930,7 @@ it.each([
   'on Railway the local speech-to-text sheet links %s (A2, A4)',
   (_what, host, label, url) => {
     setMemoryLimit(2 * GB);
-    showVoice('openai_realtime', host);
+    showVoice('gemini_transcribe', host);
     fireEvent.change(screen.getByLabelText('Listen with'), {
       target: { value: 'local' },
     });
@@ -2886,7 +2945,7 @@ it.each([
 
 it('without the host’s page, the sheet links nowhere (A2)', () => {
   setMemoryLimit(2 * GB);
-  showVoice('openai_realtime', { ...railwayHost, settings_url: null });
+  showVoice('gemini_transcribe', { ...railwayHost, settings_url: null });
   fireEvent.change(screen.getByLabelText('Listen with'), {
     target: { value: 'local' },
   });

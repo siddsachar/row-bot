@@ -26,11 +26,12 @@ VOICE_REPLIES_KEY = "voice_replies"
 VOICE_REPLIES_LABEL = "Reply to voice notes with a voice note"
 _HELP_READY = (
     "When someone sends a voice note, the answer comes back as a voice note too, after its text. "
-    "Uses Row-Bot's own voice (Kokoro), made on this computer."
+    "Spoken with the voice chosen under Speak with in Settings › Voice: Kokoro on this computer, "
+    "or the cloud voice you chose."
 )
 _HELP_NO_KOKORO = (
-    "Needs Row-Bot's voice (Kokoro), which isn't installed: answers stay text until you install it "
-    "in Settings › Voice."
+    "Needs a voice that can speak: install Kokoro, or add your cloud voice's key, in Settings › Voice. "
+    "Until then answers stay text."
 )
 
 # Voice notes are OGG/Opus on both Telegram and WhatsApp: mono, 48 kHz, speech bitrate.

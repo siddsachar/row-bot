@@ -442,7 +442,9 @@ def test_a_chosen_cloud_part_is_used_with_its_key_and_replaced_by_the_local_one_
     keys["DEEPGRAM_API_KEY"] = KEY
     keys["ELEVENLABS_API_KEY"] = KEY
     assert cloud_speech.fallbacks(settings) == []
-    assert speech_to_text_provider("talk", voice_service=voice, settings=settings).provider_id == "cloud_deepgram"
+    # With its key, Talk listens with the cloud service and never touches Whisper.
+    untouched = SimpleNamespace(sync_saved_models=lambda: pytest.fail("Whisper was loaded"))
+    assert speech_to_text_provider("talk", voice_service=untouched, settings=settings).provider_id == "cloud_deepgram"
     assert speech_output_provider(tts_service=SimpleNamespace(), settings=settings).provider_id == "cloud_elevenlabs"
     # The saved language reaches the cloud listener.
     french = VoiceRuntimeSettings(talk_provider="deepgram", speech_language="fr")

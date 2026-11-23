@@ -392,7 +392,7 @@ def test_without_kokoro_a_voice_note_is_answered_as_a_typed_turn_with_text(kokor
     assert not _voice_mode(config)
     assert [kind for kind, _value in seen.chat.sent if kind == "voice"] == []
     assert [kind for kind, _value in seen.chat.sent if kind == "text"]
-    assert "isn't installed" in voice_replies.voice_replies_field().help_text
+    assert "Needs a voice that can speak" in voice_replies.voice_replies_field().help_text
 
 
 def test_a_failed_synthesis_leaves_the_text_alone_without_an_error_message(kokoro, monkeypatch) -> None:

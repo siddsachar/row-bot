@@ -57,7 +57,7 @@ def live_voice_provider(option_id: str) -> Any:
     from row_bot.voice.openai_realtime import OpenAIRealtimeProvider
     from row_bot.voice.runtime import load_voice_runtime_settings
     settings = load_voice_runtime_settings()
-    return OpenAIRealtimeProvider(model=settings.talk_model, voice=settings.realtime_voice)
+    return OpenAIRealtimeProvider(model=settings.realtime_model, voice=settings.realtime_voice)
 
 
 def live_voice_rows(configured: dict[str, bool]) -> list[dict[str, Any]]:

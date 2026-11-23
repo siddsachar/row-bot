@@ -77,17 +77,21 @@ test('a 2 GB hosted server says why Row-Bot restarted, what fits and how to resi
   }
   await expect(page).toHaveURL(/\/settings\/voice/);
   await expect(page.getByText('Needs a 4 GB server').first()).toBeVisible();
-  await listen.select.selectOption('openai_realtime');
+  await listen.select.selectOption('deepgram');
   await listen.cloudSaved();
   await listen.select.selectOption('local');
   const sheet = page.getByRole('dialog', { name: 'Use local speech-to-text?' });
   await expect(sheet).toContainText(
     'This server has 2 GB. Local speech-to-text may make Row-Bot restart.',
   );
+  // The cloud way is a real speech-to-text service: the one chosen, which still needs its key.
+  await expect(sheet).toContainText(
+    'Cloud speech-to-text listens with Deepgram Nova-3 and needs your Deepgram key, which you add next.',
+  );
   await screenshot(page, testInfo, 'memory-voice-sheet');
   await sheet.getByRole('button', { name: 'Use cloud speech-to-text' }).click();
   await expect(sheet).toBeHidden();
-  await expect(listen.select).toHaveValue('openai_realtime');
+  await expect(listen.select).toHaveValue('deepgram');
   // The person's choice stands: local, as it was before this test.
   await listen.select.selectOption('local');
   await sheet.getByRole('button', { name: 'Use local anyway' }).click();
@@ -116,7 +120,7 @@ test('the desktop shows no memory notice, pill or sheet', async ({ page }) => {
   await page.goto('/app-v2/settings/voice');
   await expect(listen.select).toBeVisible();
   await expect(page.getByText('Needs a 4 GB server')).toHaveCount(0);
-  await listen.select.selectOption('openai_realtime');
+  await listen.select.selectOption('deepgram');
   await listen.cloudSaved();
   await listen.select.selectOption('local');
   await expect(page.getByRole('dialog')).toHaveCount(0);
