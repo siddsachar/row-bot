@@ -51,7 +51,19 @@ Open Settings -> Voice, find **SenseVoice** under **Voice models**, and choose *
 
 ## Microphone And Speakers
 
-Row-Bot records and plays voice in your browser, through the microphone and speakers it uses; choose them in the browser or your operating system's sound settings. The browser asks before Row-Bot may use the microphone.
+Row-Bot records and plays voice in your browser. Choose the microphone (and, in Chrome, Edge and the Windows app, the speaker) under **Settings › Voice › Microphone and speaker**, or from the headphones button in the voice bar while you talk. Devices have the names your operating system gives them, a Bluetooth headset included; the browser shows the names once Row-Bot may use the microphone. The choice is kept in that browser only. Safari, iPhone and Firefox play through the system's own output, so they offer no speaker choice.
+
+If the microphone you chose is disconnected while you talk, Row-Bot keeps listening with the default one at once and the bar says so; when it is connected again, Row-Bot goes back to it. The same goes for the speaker.
+
+## Push To Talk
+
+Hands-free is the default: Row-Bot hears when you start and stop. Turn on **Push to talk** under Settings › Voice › Talk to have it listen only while you hold **Hold to talk** in the voice bar, or hold **Space** while you aren't typing in Row-Bot's window. In the Windows app you can also choose a key to hold anywhere, even while another app is in front (**Hold a key to talk**: Ctrl + Alt + Space, Ctrl + Shift + Space or F13). It is off until you choose one, works only while voice is open with push to talk, and Row-Bot listens for that one key only; while it is on, other apps don't get that key. On a Mac this isn't offered yet.
+
+## Home And Phones
+
+Talk and Dictate start from Home's Ask box on a computer too: with nothing typed, its microphone dictates and its Talk button talks in a new chat.
+
+On a phone, Row-Bot keeps the screen on while you talk. A phone stops listening when the screen locks or turns off, or when you switch to another app: on iPhone that includes a Row-Bot added to the Home Screen, and on Android the screen turning off. The voice bar says so once. Where the phone or browser shows media controls (the lock screen, a headset's button), they show **Row-Bot · Listening**; play and pause unmute and mute, and hanging up ends voice.
 
 <Screenshot id="settings-buddy" alt="Row-Bot Buddy settings." caption="Buddy settings control visibility, look, personality, bubbles, motion, and new looks." />
 
@@ -82,7 +94,8 @@ Voice input can become chat text. Live voice sends your audio, the chat's recent
 
 ## Troubleshooting
 
-- If Dictate records nothing, check that the browser may use the microphone, and which microphone it uses.
+- If Dictate records nothing, check that the browser may use the microphone, and which microphone is chosen in Settings › Voice › Microphone and speaker.
+- If a Bluetooth headset sounds muffled while you talk, that is the headset switching to its call mode (a lower sound quality) to use its microphone; choose the computer's own microphone to keep the headset's full sound.
 - If Read aloud says it needs the Kokoro voice, install Kokoro under **Read aloud** in Settings › Voice.
 - If Talk sends too quickly, use Dictate instead.
 - If SenseVoice reports missing packages, install the `voice` extra for a source checkout or repair the packaged app. If its snapshot is missing or incomplete, reinstall it from Voice settings.

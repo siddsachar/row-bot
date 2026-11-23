@@ -403,6 +403,45 @@ and `httpx`; no vendor SDK, so there is no new dependency and no third-party tel
   the provider's own time: the first piece of a sentence is sent the moment it arrives, before
   the rest is made. Real first-audio times need real keys (a hand check).
 
+## Presence and control (V7)
+
+- **Devices.** `features/voice/devices.ts` keeps the chosen microphone and speaker per browser
+  (`localStorage`, '' for the system default; never sent to the host) and lists devices by the
+  names the operating system gives them (`enumerateDevices`, without Chromium's `default` and
+  `communications` stand-ins). The microphone opens with `deviceId: {ideal}`, so a missing one
+  gives the default at once, and `getSettings().deviceId` tells the bar. A track the browser ends
+  (the device went away) reopens the microphone straight away; `devicechange` switches back when
+  the chosen one returns, and listens again when a microphone appears after none was left. The
+  speaker uses `AudioContext.setSinkId` (Chromium engines); where it is missing (WebKit, Firefox)
+  no speaker choice is shown. OpenAI Realtime's call gets the same constraints and its `<audio>`
+  element's `setSinkId`; a change mid-call replaces the sender's track. Dictation opens the chosen
+  microphone too.
+- **Push to talk.** With push to talk on, Space held in the window (not in a text field, a button,
+  a menu or a dialog) sends `hold`. In the Windows app the person may choose a hotkey
+  (`row_bot/voice_hotkey.py`, off by default, kept per computer): the page arms it through the
+  native bridge's `voice_hotkey` operation only while a push-to-talk session is open, and disarms it
+  when the session ends; the window loading or closing disarms it too. It is `RegisterHotKey` for
+  exactly that combination on its own thread (no keyboard hook, so no other keystroke is seen),
+  then `GetAsyncKeyState` of that one key every 20 ms until it is released; presses reach the page
+  as `row-bot-voice-hotkey` events. Checked here with a synthetic F13: press heard in 34 ms,
+  release within one poll. **macOS is not offered**: Carbon's `RegisterEventHotKey` needs no
+  Accessibility or Input Monitoring permission (unlike an event tap), but needs the window
+  process's main run loop and a Mac to check it on (since macOS 15 it also refuses hotkeys whose
+  only modifiers are Option or Shift); a follow-up.
+- **Media Session.** While voice is open, `navigator.mediaSession` (where it exists) shows
+  "Row-Bot · Listening" (or what voice is doing); play and pause unmute and mute, stop and hang up
+  end voice, and `setMicrophoneActive` follows mute. Whether the lock screen or a headset shows
+  them is the system's choice (an audible media element usually decides it).
+- **Phones.** The wake lock keeps the screen on while voice is open. The bar says once
+  (dismissible, remembered per browser) that an iPhone stops listening when the screen locks or
+  the app is backgrounded (a Home Screen web app included) and that Android stops capture with the
+  screen off; Settings › Voice says it too. Background listening would need a native app.
+- **Buddy.** Both voice paths set Buddy's listening state and lip-sync level; Live voice's OpenAI
+  call, which plays its own speech, has its remote stream read by an analyser. The desktop pet
+  is its own window, so the main window shares the two values on a same-origin
+  `BroadcastChannel` (`row-bot-buddy-voice`, about 25 a second while speaking, twice a second
+  while listening; the pet drops "listening" after 2 s without word).
+
 ## Transport: why a WebSocket, not WebRTC
 
 aiortc never offers loopback candidates (it uses LAN, virtual or link-local
@@ -429,5 +468,7 @@ What was verified: the capture constraints, the worklet's framing, playback,
 ducking and flushing in headless Chromium with a synthetic microphone.
 What needs a hand check on real devices: echo on open speakers in WebView2,
 WKWebView, iPhone Safari and Android Chrome; Bluetooth headsets (the HFP
-profile switch); and the phone's lock screen (an installed iPhone web app
-stops listening when locked).
+profile switch drops the headset to call quality and a lower sample rate when
+its microphone opens); the phone's lock screen (an installed iPhone web app
+stops listening when locked) and Media Session controls; Android with the
+screen off.

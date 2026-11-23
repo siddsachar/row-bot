@@ -507,6 +507,8 @@ export async function startRealtimeRuntime(options) {
     audio.autoplay = true;
     audio.style.display = 'none';
     document.body.appendChild(audio);
+    // The speaker chosen in this browser, where it can choose one.
+    if (options.speaker && typeof audio.setSinkId === 'function') audio.setSinkId(options.speaker).catch(() => {});
     runtime.session = {pc, audio};
     pc.ontrack = (event) => {
       audio.srcObject = event.streams[0];
@@ -539,7 +541,7 @@ export async function startRealtimeRuntime(options) {
       });
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+    const stream = await navigator.mediaDevices.getUserMedia({audio: options.microphone || {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
     if (!isCurrent()) { await cleanup({pc, audio, stream}); return; }
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 

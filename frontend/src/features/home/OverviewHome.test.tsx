@@ -2057,6 +2057,49 @@ it('a desktop keeps its Home: the Ask box in the greeting, quick starts, Today, 
   expect(screen.getByRole('group', { name: 'Quick starts' })).toBeVisible();
   expect(sections()).toEqual(['Needs you1', 'Recent', 'Today']);
   expect(document.querySelector('.phone-home-dock')).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Talk' })).toBeNull();
   expect(offer).toHaveBeenCalledWith(1);
+});
+
+it('the desktop Ask box talks or dictates in a new chat, as the phone’s does, and typing offers Start chat', async () => {
+  show({ voice });
+  const controls = () =>
+    within(
+      screen.getByRole('textbox', { name: 'Ask Row-Bot' }).closest('form')!,
+    )
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+  expect(controls()).toEqual([
+    'Add files in a new chat',
+    'Dictate in a new chat',
+    'Talk in a new chat',
+  ]);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Talk in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', {
+    send: false,
+    voice: 'talk',
+  });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Dictate in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', {
+    send: false,
+    voice: 'dictate',
+  });
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Ask Row-Bot' }),
+    'Plan Friday',
+  );
+  expect(controls()).toEqual(['Add files in a new chat', 'Start chat']);
+});
+
+it('the desktop Ask box says when this host can’t talk, and offers no dictation it lacks', () => {
+  show({ voice: { dictate: false, talk: false } });
+  expect(
+    screen.getByRole('button', { name: 'Talk is unavailable on this host.' }),
+  ).toBeDisabled();
+  expect(
+    screen.queryByRole('button', { name: 'Dictate in a new chat' }),
+  ).toBeNull();
 });
