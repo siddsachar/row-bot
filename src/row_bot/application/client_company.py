@@ -47,7 +47,8 @@ _failure: str | None = None
 # After Leave: "left", or "left_offline" when the server couldn't be told; and the company it left.
 _notice: str | None = None
 _left: str | None = None
-# The last check couldn't reach the server: "offline" or "busy" (it asked to wait). The Row-Bot stays joined.
+# The last check couldn't use the server: "offline", "busy" (it asked to wait) or "storage_unavailable" (the
+# keychain was locked). The Row-Bot stays joined.
 _unreachable: str | None = None
 # A Sign in again with the device id didn't finish (the server may refuse that id): the next one joins afresh.
 _fresh_next = False
@@ -81,7 +82,8 @@ def status() -> dict[str, Any]:
             state = "disconnected"
         else:
             state = "unreachable" if _unreachable else "joined"
-        failure = None if join else ("busy" if state == "unreachable" and _unreachable == "busy" else _failure)
+        failure = None if join else (_unreachable if state == "unreachable" and _unreachable != "offline"
+                                     else _failure)
         origin = record.origin if record else (join.origin if join else None)
         return {
             "schema_version": 1,
@@ -264,6 +266,8 @@ def check() -> dict[str, Any]:
         reach = "busy"
     except client.Unreachable:
         reach = "offline"
+    except store.StorageUnavailable:
+        reach = "storage_unavailable"
     with _LOCK:
         _unreachable = reach
     return status()
@@ -286,7 +290,7 @@ def leave() -> dict[str, Any]:
             client.leave(record.origin)
         except client.Disconnected:
             pass  # The server had already let it go.
-        except client.Unreachable:
+        except (client.Unreachable, store.StorageUnavailable):
             told = False
     store.delete_credential()
     store.delete_record()

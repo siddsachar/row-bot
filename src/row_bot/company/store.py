@@ -104,10 +104,12 @@ def storage_available() -> bool:
 
 
 def read_credential() -> Credential | None:
+    """The credential, or None when there is none; raises StorageUnavailable when the keychain can't be read
+    (locked, say), which is not the same as the company letting the device go."""
     try:
         text = secret_store.get_secret(CREDENTIAL, namespace=NAMESPACE)
     except secret_store.SecretStoreError:
-        return None
+        raise StorageUnavailable("the keychain could not be read") from None
     if not text:
         return None
     try:

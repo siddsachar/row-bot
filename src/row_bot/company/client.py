@@ -215,7 +215,9 @@ def _refresh(origin: str, stale: store.Credential) -> store.Credential:
 
 
 def call(origin: str, method: str, path: str) -> httpx.Response:
-    """A call with the device's bearer, refreshing it when it is about to end and once more on a 401."""
+    """A call with the device's bearer, refreshing it when it is about to end and once more on a 401.
+
+    Raises Disconnected, Unreachable (Busy for a 429) or store.StorageUnavailable (a locked keychain)."""
     credential = store.read_credential()
     if credential is None:
         _disconnect()

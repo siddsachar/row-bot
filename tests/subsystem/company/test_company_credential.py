@@ -123,6 +123,18 @@ def test_a_server_that_cant_be_reached_keeps_the_row_bot_joined(company_server, 
     assert client_company.check()["state"] == "joined"
 
 
+def test_a_locked_keychain_keeps_the_row_bot_joined_and_says_so(company_server, keychain):
+    record = _joined(company_server)
+    keychain.fail = True
+
+    view = client_company.check()
+
+    assert (view["state"], view["failure"]) == ("unreachable", "storage_unavailable")
+    keychain.fail = False
+    assert store.read_record() == record and store.read_credential() is not None
+    assert client_company.check()["state"] == "joined"
+
+
 def test_a_removed_device_shows_as_disconnected_and_keeps_no_credential(company_server):
     record = _joined(company_server)
     company_server.revoke(record.device_id)

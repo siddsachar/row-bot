@@ -188,7 +188,9 @@ export default function CompanySettings({
               <StatusLine tone="warning">
                 {view.failure === 'busy'
                   ? `${company} is busy. Row-Bot stays joined; try again in a minute.`
-                  : `Can’t reach ${company} right now. Row-Bot stays joined.`}
+                  : view.failure
+                    ? failureWords(view.failure, company)
+                    : `Can’t reach ${company} right now. Row-Bot stays joined.`}
               </StatusLine>
             )
           }
