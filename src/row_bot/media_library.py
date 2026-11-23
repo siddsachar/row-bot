@@ -422,10 +422,12 @@ def character_voice(name: str) -> str:
 
 
 def keep_character_voice(name: str, voice: str) -> bool:
-    """Keep a voice with a saved character, on its pictures, so its lines in every video use it. False when there's
-    no such character in Library › Media."""
+    """Keep a voice with a saved character, on its pictures, so its lines in every video use it. False when nothing
+    changed: there's no such character in Library › Media, or it already speaks in that voice."""
     kept = False
     for ref, tags in _character_refs(name):
+        if f"voice: {voice}" in tags and not any(_VOICE.fullmatch(tag) and tag != f"voice: {voice}" for tag in tags):
+            continue
         try:
             set_tags(ref, [tag for tag in tags if not _VOICE.fullmatch(tag)] + [f"voice: {voice}"])
             kept = True

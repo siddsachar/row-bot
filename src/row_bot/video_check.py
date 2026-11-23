@@ -525,15 +525,23 @@ def look(sheet: bytes, lines: list[str] | None = None) -> list[Finding]:
 # ── The lines ───────────────────────────────────────────────────────────────
 
 
-def _sound(info: VideoInfo, measures: Measures) -> Finding | None:
-    """The sound line: None when it's fine."""
+# A mix brought to a loudness may land this far under it (its peaks held) and still be as asked.
+TARGET_SLACK = 2.0
+
+
+def _sound(info: VideoInfo, measures: Measures, target: float | None = None) -> Finding | None:
+    """The sound line: None when it's fine. *target*: the loudness the brand kit had this video's mix aim at, so a
+    quiet kit (broadcast, -24) is never called too quiet."""
     loudness, peak = measures.loudness, measures.peak
     if loudness is None:
         return Finding("Sound: none. Add a voice or music if this video should have sound.")
-    if loudness < QUIETEST:
+    quietest = QUIETEST if target is None else min(QUIETEST, target - TARGET_SLACK)
+    if loudness < quietest:
         level = "silent" if loudness == float("-inf") or loudness <= -70 else f"{loudness:.1f} LUFS"
-        return Finding(f"Sound: too quiet ({level}; keep it between {QUIETEST:g} and {LOUDEST:g} LUFS, -14 suits "
-                       "most videos). Turn the voice or music up.")
+        aim = (", -14 suits most videos" if target is None
+               else f"; this video's mix aims at {target:g}, the brand kit's loudness")
+        return Finding(f"Sound: too quiet ({level}; keep it between {quietest:g} and {LOUDEST:g} LUFS{aim}). "
+                       "Turn the voice or music up.")
     if loudness > LOUDEST:
         return Finding(f"Sound: too loud ({loudness:.1f} LUFS; keep it between {QUIETEST:g} and {LOUDEST:g} LUFS). "
                        "Turn it down.")
@@ -544,11 +552,11 @@ def _sound(info: VideoInfo, measures: Measures) -> Finding | None:
 
 
 def checks(info: VideoInfo, measures: Measures, found: list[Finding], *, narrated: bool = False,
-           review: list[str] | None = None) -> Checks:
+           review: list[str] | None = None, target: float | None = None) -> Checks:
     """The check's lines: what needs fixing (with scenes and times), what passed, then what's worth a look. A video
-    passes when nothing needs fixing."""
+    passes when nothing needs fixing. *target*: the brand kit's loudness its mix aimed at (C6), when it had one."""
     lines = [f"Length {clock(info.duration)}, {info.width}×{info.height}."]
-    sound = _sound(info, measures)
+    sound = _sound(info, measures, target)
     fixes = [sound] if sound is not None else []
     # A fade at the very start or end isn't a problem.
     inside = [(a, b) for a, b in measures.black if not (a <= 1.0 and b - a <= 1.5)

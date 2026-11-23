@@ -86,8 +86,9 @@ class _VideoInput(BaseModel):
     voice: str | None = Field(default=None, description="create, change: this video's voice for its lines "
                                                         "('' the brand kit's).")
     voice_speed: float | None = Field(default=None, description="create, change: its speed, 0.9-1.25 (0 the kit's).")
-    cast: dict[str, str] | None = Field(default=None, description="create, change: each character's voice, e.g. "
-                                                                  '{"Maya": "bf_emma"}, kept with a saved character.')
+    cast: dict[str, str] | None = Field(default=None, description="create, change: a character's voice the person "
+                                                                  'chose, e.g. {"Maya": "bf_emma"}; a saved character '
+                                                                  "keeps it in every video.")
     on_beat: bool | None = Field(default=None, description="create, change: cut scenes on the music's beat.")
     shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
         default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "

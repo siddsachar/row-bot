@@ -1206,3 +1206,18 @@ def test_the_video_tool_takes_a_cast_and_says_where_each_voice_is_kept(studio, m
     assert video_project_tool._brand(loudness=-16).endswith("loudness -16.0.")
     assert video_project_tool._brand(loudness=-30).startswith("The loudness is -24 to -10 LUFS")
 
+    again = video_project_tool._video(action="create", title="Later", scenes=DIALOGUE[1:3], cast={"Sam": "bm_george"})
+    assert "Kept each voice" not in again, "Sam already speaks in that voice: nothing was kept, so nothing is said"
+    assert not media_library.keep_character_voice("Sam", "bm_george")
+    assert media_library.keep_character_voice("Sam", "am_puck") and media_library.character_voice("Sam") == "am_puck"
+
+
+def test_cuts_on_the_beat_without_music_say_there_is_no_beat_and_make_as_they_are(studio):
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Montage", [dict(SCENES[0]), dict(SCENES[1])], on_beat=True,
+                                    narration="")
+    assert "No music, so the cuts aren't on a beat." in video_projects.summary(project)
+    scored = video_projects.create("conversation-a", "Montage", [dict(SCENES[0])], on_beat=True, music="fit")
+    assert "No music" not in video_projects.summary(scored)
+

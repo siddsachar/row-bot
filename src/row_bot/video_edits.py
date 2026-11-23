@@ -598,7 +598,8 @@ def _check_video(edit: VideoEdit, ffmpeg: Any, folder: Path, plan: Any, request:
             _check(edit)
             found += video_check.look(sheet, [scene.line or scene.card for scene in step.scenes]
                                       if step is not None and step.op == "scenes" else [])
-    checks = video_check.checks(info, measures, found, narrated=plan.narrated, review=plan.review)
+    checks = video_check.checks(info, measures, found, narrated=plan.narrated, review=plan.review,
+                                target=request.loudness if plan.mix is not None else None)
     _set(edit, checks=checks.lines, checks_passed=checks.passed, detail="")
 
 

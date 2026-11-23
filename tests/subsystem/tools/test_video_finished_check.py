@@ -81,6 +81,23 @@ def test_a_quiet_mix_a_loud_one_and_peaks_that_clip_need_fixing():
     assert not silent.passed and silent.lines[1].startswith("Sound: none.")
 
 
+def test_a_brand_kit_set_quiet_for_broadcast_is_never_called_too_quiet():
+    """C6: a mix brought to the kit's -24 (or -23) lands there, or a little under: that's as asked, not a fix. The
+    remakes it would ask for couldn't fix it."""
+    def sound(integrated: str, target: float | None) -> tuple[bool, list[str]]:
+        result = video_check.checks(MINUTE, video_check.read_measures(_ebur128(integrated, "-3.0"), MINUTE), [],
+                                    target=target)
+        return result.passed, [line for line in result.lines if line.startswith("Sound")]
+
+    assert sound("-24.3", -24) == (True, ["Sound: -24.3 LUFS, peaks -3.0 dBTP."])
+    assert sound("-23.4", -23)[0] and sound("-25.9", -24)[0]
+    assert sound("-30.0", -24) == (False, ["Sound: too quiet (-30.0 LUFS; keep it between -26 and -9 LUFS; this "
+                                           "video's mix aims at -24, the brand kit's loudness). Turn the voice or "
+                                           "music up."])
+    assert sound("-23.4", -14)[0] is False and sound("-23.4", None)[0] is False, "-14 and no kit: as before"
+    assert sound("-14.2", -14) == sound("-14.2", None) == (True, ["Sound: -14.2 LUFS, peaks -3.0 dBTP."])
+
+
 def test_a_frozen_or_black_stretch_and_a_narrations_quiet_gaps_need_fixing():
     """The Release kit's demo said 3 s of each 18 s scene and held the picture for 14 s: "Sound: present" passed it."""
     loud = _ebur128("-16.0", "-2.0")

@@ -1361,6 +1361,8 @@ def summary(project: Project, number: int | None = None) -> str:
                      + (", with the cuts on its beat." if data["on_beat"] else "."))
     elif data["music"] and data["on_beat"]:
         lines.append(f"Cuts on the beat of {data['music']}.")
+    elif data["on_beat"]:
+        lines.append("No music, so the cuts aren't on a beat.")
 
     if shown is not None and shown.brand and video_brand.load().framing == "framed":
         lines.append("Framed: the brand kit sets 16:9 footage inset on its colour. To fill the frame, video action "

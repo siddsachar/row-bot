@@ -48,8 +48,9 @@ tags: []
   action brand, so the next video starts that way.
 - Sound: music 'fit' is made to the video's length in the brand kit's mood
   (or music_mood), changing where the music cue does, so make_music isn't
-  needed. A scene's speaker says its line in that character's voice (cast
-  keeps a voice with a saved character). Effects and ambience go on a scene.
+  needed. A scene's speaker says its line in that character's voice (a voice
+  in cast becomes a saved character's voice in every video, so give one only
+  when the person chose it). Effects and ambience go on a scene.
   A montage cuts on the music's beat with on_beat. A change to the sound
   alone mixes it again; the picture isn't drawn again.
 - Captions only when the person asks for them: a narrated video needs none.
