@@ -1,5 +1,6 @@
 import type {
   VideoProjectView,
+  VideoPublishKit,
   VideoScene,
   VideoSceneWrite,
   VideoVersionView,
@@ -10,7 +11,13 @@ import { shortTime } from '../shell/conversation-groups';
 export const SHAPES = [
   { shape: '16:9', label: 'Wide 16:9', fits: 'X, YouTube', limit: 140 },
   { shape: '9:16', label: 'Tall 9:16', fits: 'Shorts, Reels', limit: 60 },
-  { shape: '1:1', label: 'Square 1:1', fits: 'X, Instagram', limit: 140 },
+  { shape: '1:1', label: 'Square 1:1', fits: 'X, LinkedIn', limit: 140 },
+  {
+    shape: '4:5',
+    label: 'Portrait 4:5',
+    fits: 'Instagram, Facebook',
+    limit: 0,
+  },
   { shape: 'gif', label: 'GIF', fits: 'Anywhere, without sound', limit: 0 },
 ] as const;
 
@@ -142,6 +149,26 @@ export type VideoLook = {
   transitions: 'cut' | 'crossfade';
   caption_style: CaptionStyle;
 };
+
+/** Where a video can go (C10), as the panel names each place. */
+export const PLATFORMS = {
+  youtube: 'YouTube',
+  shorts: 'YouTube Shorts',
+  tiktok: 'TikTok',
+  reels: 'Instagram Reels',
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  x: 'X',
+  linkedin: 'LinkedIn',
+} as const;
+export type Platform = keyof typeof PLATFORMS;
+
+/** A publish kit's description as it's pasted: its words, then a YouTube video's chapters. */
+export function publishDescription(kit: VideoPublishKit): string {
+  return [kit.description, chapterLines(kit.chapters ?? [])]
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 /** "0:00 Intro\n1:05 Pricing": a made video's chapters, as a YouTube description lists them. */
 export function chapterLines(

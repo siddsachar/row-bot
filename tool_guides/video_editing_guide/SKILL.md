@@ -72,6 +72,13 @@ tags: []
   recordings you'll cut into the video are working material for you, not
   something to present. Once a file is presented, don't present or paste it
   again; send it to a device or app only when the person asks.
+- Only when the person names where a video is going (YouTube, Shorts,
+  TikTok, Reels, Instagram, Facebook, X, LinkedIn) or asks for a publish
+  kit: video action publish with those platforms, a title and a
+  description. It makes each platform's shape, thumbnails, chapters and
+  subtitles. For a made thumbnail, generate_image first (no words in it)
+  and pass it as thumbnail; else a still of the video is used. Posting
+  stays with the person's apps.
 - edit_video edits videos the person already has: recordings (rec-…),
   earlier edits (edit-…), files in this chat by name, or workspace paths.
   It never generates video (that is generate_video, when it is on).

@@ -310,3 +310,36 @@ def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_no
         refused = client.post(f"{path}/make", headers=headers)
         assert (refused.status_code, refused.json()["code"]) == (422, "video_project_invalid"), \
             "the AI shot is still to make: Row-Bot makes it"
+
+
+def test_the_panel_exports_a_portrait_post_and_reads_a_videos_publish_kit(service, studio):  # noqa: F811
+    """C10: a made video exports at 4:5 for Instagram, and once a platform was named its publish kit comes with it:
+    the post's words, its thumbnails and its subtitles, by reference."""
+    from row_bot import threads, video_projects, video_publish
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Desk", seed_default_skills=False)
+    register_attachment(chat, "desk.mp4", _MP4)
+    project = video_projects.create(chat, "Desk", [{"source": "desk.mp4", "end": 3, "line": "One sheet."}])
+    video_projects.make(project, 1)
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        view = _made(client, headers, project.project_id)
+        assert view["publish"] is None, "no kit until a platform is named"
+        exported = client.post(f"{path}/export", headers=headers, json={"shape": "4:5"})
+        assert exported.status_code == 200, exported.text
+        deadline = time.monotonic() + 30
+        while "4:5" not in video_projects.get(project.project_id).latest.exports and time.monotonic() < deadline:
+            threading.Event().wait(0.02)
+        edit = video_edits.get(view["edit"]["edit_id"])
+        video_edits._set(edit, words=[(0.2, 0.9, "One"), (0.9, 1.6, "sheet.")], shape="16:9")
+        video_publish.make(video_projects.get(project.project_id), ["youtube"], description="No saw.")
+        read = client.get(path, headers=headers).json()
+        assert [item["shape"] for item in read["exports"]] == ["4:5"]
+        kit = read["publish"]
+        assert kit["platforms"] == ["youtube"] and (kit["title"], kit["description"]) == ("Desk", "No saw.")
+        assert [(item["shape"], item["name"]) for item in kit["thumbnails"]] == [("16:9", "Desk thumbnail 16x9.jpg")]
+        assert [(item["format"], item["name"]) for item in kit["subtitles"]] == [("srt", "Desk.srt"),
+                                                                                 ("vtt", "Desk.vtt")]

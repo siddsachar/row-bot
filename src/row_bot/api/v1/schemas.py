@@ -6587,12 +6587,35 @@ class VideoVersionView(WireModel):
 
 class VideoExportView(WireModel):
     """The same version in another shape, or as a GIF: the edit that makes it."""
-    shape: Literal["16:9", "1:1", "9:16", "gif"]
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"]
     edit: VideoEditView
 
 
 class VideoProjectExport(WireModel):
-    shape: Literal["16:9", "1:1", "9:16", "gif"]
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"]
+
+
+VideoPlatform = Literal["youtube", "shorts", "tiktok", "reels", "instagram", "facebook", "x", "linkedin"]
+
+
+class VideoPublishFile(WireModel):
+    """A file of a publish kit in the chat's files: a thumbnail in a shape, or the subtitles in a format."""
+    name: str = Field(min_length=1, max_length=240)
+    ref: str = Field(min_length=1, max_length=512)
+    shape: Literal["", "16:9", "1:1", "9:16", "4:5"] = ""
+    format: Literal["", "srt", "vtt"] = ""
+
+
+class VideoPublishKit(WireModel):
+    """A made version's publish kit (C10), made when the person named where it's going: the post's title and
+    description (YouTube's limits), a YouTube video's chapters, a thumbnail in each platform's shape, and its
+    subtitles. Each platform's video is the version's own, or its export in that shape."""
+    platforms: list[VideoPlatform] = Field(min_length=1, max_length=8)
+    title: str = Field(max_length=100)
+    description: str = Field(max_length=5000)
+    chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
+    thumbnails: list[VideoPublishFile] = Field(max_length=4)
+    subtitles: list[VideoPublishFile] = Field(max_length=2)
 
 
 class VideoBrand(WireModel):
@@ -6653,8 +6676,8 @@ class VideoProjectView(WireModel):
     checks: list[str] = Field(max_length=12)
     checks_passed: bool | None
     # Its shape ("" keeps its first video's), and its exports in other shapes or as a GIF.
-    aspect: Literal["", "16:9", "1:1", "9:16"]
-    exports: list[VideoExportView] = Field(max_length=4)
+    aspect: Literal["", "16:9", "1:1", "9:16", "4:5"]
+    exports: list[VideoExportView] = Field(max_length=5)
     # Made with the brand kit.
     brand: bool
     # Its own voice and speed for its lines ("" and 0: the brand kit's).
@@ -6672,6 +6695,8 @@ class VideoProjectView(WireModel):
     chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
     # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
     review_sheet: str = Field(default="", max_length=200)
+    # Its publish kit, made when the person named a platform (C10); None none.
+    publish: VideoPublishKit | None = None
 
 
 class VideoProjectChange(WireModel):

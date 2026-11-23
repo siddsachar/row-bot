@@ -64,9 +64,10 @@ class _Scene(BaseModel):
 
 
 class _VideoInput(BaseModel):
-    action: Literal["create", "change", "make", "status", "undo", "export", "brand"] = "status"
+    action: Literal["create", "change", "make", "status", "undo", "export", "brand", "publish"] = "status"
     project: str = Field(default="", description="change, make, status, undo: the project (vid-…).")
-    title: str = Field(default="", description="create: the video's name.")
+    title: str = Field(default="", description="create: the video's name; publish: the post's title (empty: the "
+                                                "video's name).")
     logline: str | None = Field(default=None, description="create, change: what the video is, in one line.")
     recording: str = Field(default="", description="create: make the scenes from a browser recording's beats "
                                                    "(rec-…), each with its title and line: live as it is, work "
@@ -80,7 +81,7 @@ class _VideoInput(BaseModel):
     captions: bool | None = Field(default=None, description="Caption what's said, word by word (a short has them "
                                                              "unless false).")
     voice_lines: bool | None = Field(default=None, description="Say the lines (default true).")
-    aspect: Literal["", "16:9", "1:1", "9:16"] | None = Field(
+    aspect: Literal["", "16:9", "1:1", "9:16", "4:5"] | None = Field(
         default=None, description="create, change: the video's shape ('' keeps its first video's).")
     brand: bool | None = Field(default=None, description="create, change: use the brand kit (default true): "
                                                           "its colour, captions, logo, intro and outro.")
@@ -102,9 +103,9 @@ class _VideoInput(BaseModel):
     transitions: Literal["", "cut", "crossfade"] | None = Field(
         default=None, description="create, change: between scenes ('' the recipe's: crossfades for a montage, "
                                   "else cuts).")
-    shape: Literal["16:9", "1:1", "9:16", "gif"] | None = Field(
-        default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16), "
-                                  "each scene reframed on its zoom, or a GIF.")
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"] | None = Field(
+        default=None, description="export: the same version in this shape (X, YouTube 16:9; Shorts, Reels 9:16; "
+                                  "Instagram 4:5), each scene reframed on its zoom, or a GIF.")
     framing: Literal["full", "framed"] | None = Field(
         default=None, description="brand: footage filling the frame (full, default) or inset on the brand colour "
                                   "(framed, only when asked).")
@@ -123,6 +124,11 @@ class _VideoInput(BaseModel):
                                                              "podcasts; -23 broadcast).")
     note: str = Field(default="", description="create, change: what you changed, in a few words.")
     version: int | None = Field(default=None, description="make, status: a version (default the latest).")
+    platforms: list[Literal["youtube", "shorts", "tiktok", "reels", "instagram", "facebook", "x", "linkedin"]] | None = \
+        Field(default=None, description="publish: where the person said it's going.")
+    description: str = Field(default="", description="publish: the post's description (YouTube's gets its chapters).")
+    thumbnail: str = Field(default="", description="publish: a picture for the thumbnail, with no words in it "
+                                                   "(empty: a still of the video).")
 
 
 def _conversation() -> str:
@@ -294,6 +300,30 @@ def _export(project, shape: str, number: int | None) -> str:
     return with_approval(line, text) if line else text
 
 
+def _publish(project, platforms: list[str], number: int | None, title: str, description: str,
+             thumbnail: str) -> str:
+    """Make a version's publish kit (C10) and wait for its videos in other shapes, like export."""
+    from row_bot import video_projects, video_publish
+    from row_bot.tools.approval_gate import with_approval
+    from row_bot.tools.video_editing_tool import ffmpeg_consent
+
+    shapes = video_publish.shapes_for(platforms)  # A platform named first: nothing is asked or made without one.
+    refusal, line, download = ffmpeg_consent("edit", "video")
+    if refusal:
+        return refusal
+    version = video_publish.make(project, platforms, number, title=title, description=description,
+                                 picture=thumbnail, download=download)
+    deadline = time.monotonic() + MAKE_SECONDS
+    waiting = [shape for shape in shapes if shape != video_publish.own_shape(version)]
+    making = [shape for shape in waiting if not _wait_for(project.project_id, project.conversation_id, version.number,
+                                                          max(0.0, deadline - time.monotonic()), shape)]
+    fresh = video_projects.get(project.project_id, project.conversation_id) or project
+    text = video_projects.summary(fresh, version.number)
+    said = [_check_back(fresh, version.number, shape) for shape in making]
+    text += ("\n" + said[-1]) if said else ""
+    return with_approval(line, text) if line else text
+
+
 def _video(action: str = "status", project: str = "", title: str = "", scenes: list | None = None,
            recording: str = "",
            music: str | None = None, music_volume: float | None = None, narration: str | None = None,
@@ -303,7 +333,8 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            music_mood: str | None = None, logline: str | None = None, cast: dict | None = None,
            on_beat: bool | None = None, loudness: float | None = None, recipe: str | None = None,
            grade: str | None = None, grain: bool | None = None, letterbox: bool | None = None,
-           transitions: str | None = None, font: str | None = None, title_style: str | None = None) -> str:
+           transitions: str | None = None, font: str | None = None, title_style: str | None = None,
+           platforms: list | None = None, description: str = "", thumbnail: str = "") -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
@@ -358,6 +389,8 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             return _make(found, version)
         if action == "export":
             return _export(found, shape or "", version)
+        if action == "publish":
+            return _publish(found, list(platforms or []), version, title, description, thumbnail)
         if action == "status":
             number = version or found.latest.number
             text = video_projects.summary(found, number)
@@ -369,7 +402,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             return text + ("\n" + said[-1] if said else "")
     except ProjectError as error:
         return str(error)
-    return "Use action create, change, make, status, undo, export or brand."
+    return "Use action create, change, make, status, undo, export, publish or brand."
 
 
 def _kept(names: list[str]) -> str:
@@ -412,7 +445,8 @@ def langchain_tool():
             "export wait for the video; a longer one checks back here when it's made: never poll status. Each made "
             "video comes with its checks, by scene and time: fix what they list and make it again; it's ready to "
             "share only when they pass (no analyze_image passes of your own). undo goes back one version; export "
-            "makes the same version in another shape or a GIF; brand saves how every video should look (framing, "
+            "makes the same version in another shape or a GIF; publish makes its publish kit, only when the person "
+            "names a platform or asks; brand saves how every video should look (framing, "
             "caption style, font, title style, music mood, voice, loudness). For one quick edit use edit_video. A "
             "title or end card is a "
             "scene without a video: never make background videos or other working files in the person's workspace "

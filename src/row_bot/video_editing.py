@@ -164,7 +164,7 @@ class Step:
     volume: float | None = None
     duck: bool = True
     # scenes (a video project's, 5.3.1 B3; never the agent's own step): the pieces, in order, and the shape
-    # the video is reframed to ("16:9", "1:1", "9:16"; "" keeps the first input's).
+    # the video is reframed to ("16:9", "1:1", "9:16", "4:5"; "" keeps the first input's).
     scenes: list["SceneCut"] = field(default_factory=list)
     aspect: str = ""
     # scenes: the brand kit's look (cards, badges, captions, intro, outro, logo); text: a card's fill colour
@@ -405,12 +405,13 @@ def letterbox_filters(width: int, height: int) -> str:
             f"drawbox=x=0:y=ih-{bar}:w=iw:h={bar}:color=black:t=fill")
 
 
-ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16}
+ASPECTS = {"16:9": 16 / 9, "1:1": 1.0, "9:16": 9 / 16, "4:5": 4 / 5}
 # Room kept clear of text at each edge of a tall or square video (left, top, right, bottom; fractions of the
-# frame): a phone app lays its own buttons, name and caption over a short (9:16), and a feed rounds or crops a square.
-SAFE_AREAS = {"9:16": (0.06, 0.10, 0.06, 0.20), "1:1": (0.04, 0.04, 0.04, 0.04)}
+# frame): a phone app lays its own buttons, name and caption over a short (9:16), and a feed rounds or crops a square
+# or a portrait post (4:5, C10).
+SAFE_AREAS = {"9:16": (0.06, 0.10, 0.06, 0.20), "1:1": (0.04, 0.04, 0.04, 0.04), "4:5": (0.05, 0.05, 0.05, 0.08)}
 # A video of title cards only has no picture to take its size from.
-CARD_SIZES = {"16:9": (1920, 1080), "1:1": (1080, 1080), "9:16": (1080, 1920)}
+CARD_SIZES = {"16:9": (1920, 1080), "1:1": (1080, 1080), "9:16": (1080, 1920), "4:5": (1080, 1350)}
 
 
 def _number(value: Any, name: str) -> float | None:
@@ -986,7 +987,7 @@ def render_words(words: list[str], active: int | None, frame_width: int, frame_h
 
 
 def shape_of(width: int, height: int) -> str:
-    """The shape a picture of this size is ("16:9", "1:1" or "9:16"), or "" when it's none of them."""
+    """The shape a picture of this size is ("16:9", "1:1", "9:16" or "4:5"), or "" when it's none of them."""
     ratio = width / max(1, height)
     return next((name for name, value in ASPECTS.items() if abs(ratio / value - 1) < 0.03), "")
 
@@ -1157,6 +1158,9 @@ class Plan:
     mix: Any = None
     sections: list[float] = field(default_factory=list)
     effects: list[tuple[str, str, float, float]] = field(default_factory=list)
+    # What's said in it, word by word in time on the finished video (C10's subtitles): each voiced line's words, as
+    # its captions time them, or one narration's.
+    spoken: list[Word] = field(default_factory=list)
 
 
 def overlay_sheet(pictures: list[bytes]) -> tuple[bytes, list[tuple[int, int, int, int]]]:
@@ -1230,6 +1234,7 @@ class _Builder:
         self.effect_cues: list[tuple[float, float, str]] = []
         self.sections: list[float] = []
         self.effects: list[tuple[str, str, float, float]] = []
+        self.spoken: list[Word] = []
         self.mixed: Any = None
 
     def label(self, kind: str) -> str:
@@ -1560,6 +1565,9 @@ class _Builder:
                                       start=shown[0], end=shown[1], slide=True, kind="title")
             said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
             timed = scene.words or (estimated_words(scene.line, said - begin) if look.captions == "word" else ())
+            heard = scene.words or (estimated_words(scene.line, said - begin) if scene.voice else ())
+            self.spoken += [(begin + start, min(end, begin + until), word) for start, until, word in heard
+                            if begin + start < end]
             if step.style == "caption" and not step.words and timed:
                 # Word by word as its voice says them, or as its own footage's speech does (C7).
                 self._word_captions([(begin + start, min(end, begin + until), word) for start, until, word in timed
@@ -1579,6 +1587,8 @@ class _Builder:
             cue = scene.cue.strip().casefold()
             if index and cue and cue != step.scenes[index - 1].cue.strip().casefold():
                 self.sections.append(begin)
+        if step.words:  # One narration over the whole video, with any clip's own speech.
+            self.spoken = sorted(self.spoken + [word for word in step.words if word[0] < self.duration])
         if step.style == "caption" and step.words:  # One narration over the whole video: its words as it says them.
             self._word_captions([word for word in step.words if word[0] < self.duration], look, self.duration)
         self.review += _slide_show(step.scenes, self.marks) + _waiting(step.scenes, self.marks)
@@ -1812,7 +1822,8 @@ def build_plan(
                 has_audio=bool(builder.audio) or mixed is not None, summary=summary, outputs=[output],
                 marks=builder.marks, narrated=builder.narrated, review=builder.review, overlay_sheet=sheet,
                 voices=[(moment, sounds[name]) for moment, name in builder.voice_cues], texts=builder.texts,
-                enlarged=builder.enlarged, mix=mixed, sections=builder.sections, effects=builder.effects)
+                enlarged=builder.enlarged, mix=mixed, sections=builder.sections, effects=builder.effects,
+                spoken=builder.spoken)
 
 
 def final_arguments(picture: str, mixed: str, output: str) -> list[str]:

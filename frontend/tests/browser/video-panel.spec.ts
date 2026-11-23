@@ -59,7 +59,8 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await views(page, info, 'video-panel', panel);
   // The same version in other shapes, each saying where it fits.
   const shapes = panel.getByRole('list', { name: 'Other shapes' });
-  await expect(shapes.getByRole('listitem')).toHaveCount(4);
+  await expect(shapes.getByRole('listitem')).toHaveCount(5);
+  await expect(shapes).toContainText('Portrait 4:5');
   await expect(shapes).toContainText('Tall 9:16');
   await expect(shapes).toContainText('Shorts, Reels');
   await views(page, info, 'video-panel-review', shapes);
@@ -191,6 +192,40 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await expect(timeline.getByRole('button')).toHaveCount(1);
   await page.keyboard.press('Control+z');
   await expect(timeline.getByRole('button')).toHaveCount(2);
+});
+
+test('a made video is got ready to publish: its thumbnail, title, description and subtitles', async ({
+  page,
+}, info) => {
+  await page.setViewportSize(DESKTOP);
+  await newConversation(page);
+  await composer(page).fill('b3 video fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const card = page
+    .getByRole('log', { name: 'Conversation' })
+    .getByRole('group', { name: 'Launch demo · video' });
+  await expect(card).toContainText('Made');
+  await card.getByRole('button', { name: 'Open' }).click();
+  const panel = page.getByRole('region', { name: 'Launch demo video' });
+  const kit = panel.getByRole('region', { name: 'Ready to publish' });
+  await expect(kit.getByRole('list', { name: 'Thumbnails' })).toHaveCount(0);
+  await views(page, info, 'c10-ask', kit);
+  // Nothing is made until the person names where it's going (G9): the panel asks Row-Bot.
+  await kit.getByLabel("Where it's going").selectOption('youtube');
+  await kit.getByRole('button', { name: 'Get it ready for YouTube' }).click();
+  await expect(
+    kit.getByRole('heading', { name: 'Ready to publish · YouTube' }),
+  ).toBeVisible();
+  const thumbnail = kit.getByRole('img', { name: 'Thumbnail, 16:9' });
+  await expect(thumbnail).toHaveAttribute('src', /^blob:/);
+  await expect(kit).toContainText('Sign up for Launch in seconds');
+  await expect(
+    kit.getByRole('button', { name: 'Download subtitles (SRT)' }),
+  ).toBeVisible();
+  await page.mouse.move(0, 0);
+  await views(page, info, 'c10-kit', kit);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c10-kit-phone', kit);
 });
 
 test('a title card scene needs no video: it says how long it shows, with no speed or trim', async ({
