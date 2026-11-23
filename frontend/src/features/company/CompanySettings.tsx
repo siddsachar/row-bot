@@ -156,6 +156,7 @@ export default function CompanySettings({
           }
           icon={<Globe size={16} aria-hidden />}
           tone="accent"
+          bind={false}
           status={
             <StatusLine tone="accent" pulse>
               Waiting for your browser
