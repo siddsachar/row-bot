@@ -87,9 +87,9 @@ class Model:
     native_context: int = NATIVE_CONTEXT
     # The fixed part of its working memory (see :data:`COMPUTE_BYTES_PER_TOKEN`).
     fixed_bytes: int = FIXED_BYTES
-    # Whether it thinks unless the chat says otherwise (D3); every request says so explicitly. Every model
-    # thinks for now, as its template does by default. D3 turns the 9B and 4B off (small models with thinking
-    # on scored poorly in a 32K window, Learning's L2v) once lane E's local measurement confirms it.
+    # Whether it thinks unless the chat says otherwise (D3); every request says so explicitly. The 27B thinks;
+    # the 9B and 4B don't (lane E's local tau2 run, 23 Nov: the 9B with thinking off passed 8 points more
+    # often and was 27% faster).
     thinks: bool = True
 
     @property
@@ -134,13 +134,13 @@ CATALOG: tuple[Model, ...] = (
     Model("qwen3.5-9b", "Qwen3.5 9B", "unsloth/Qwen3.5-9B-GGUF", "3885219b6810b007914f3a7950a8d1b469d598a5",
           "Qwen3.5-9B-Q4_K_M.gguf", 5_680_522_464,
           "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8", 9.0, _KV_SMALL,
-          quantization="4-bit", older=True),
+          quantization="4-bit", older=True, thinks=False),
     Model("qwen3.5-4b", "Qwen3.5 4B", "unsloth/Qwen3.5-4B-GGUF", "e87f176479d0855a907a41277aca2f8ee7a09523",
           "Qwen3.5-4B-Q4_K_M.gguf", 2_740_937_888,
           "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4", 4.0, _KV_SMALL,
           # Its weights on the card and in host memory come to 487 MiB more than its file (llama.cpp's buffer
           # lines: 2,603.5 + 497.3 MiB): its output layer is its embedding table, held in both places.
-          quantization="4-bit", older=True, fixed_bytes=768 * MIB),
+          quantization="4-bit", older=True, fixed_bytes=768 * MIB, thinks=False),
 )
 _BY_ID = {model.id: model for model in CATALOG}
 

@@ -447,8 +447,9 @@ def test_a_start_writes_the_window_and_flags_the_endpoint_says(installed, monkey
     assert _settings(text, "*")["flash-attn"] == "on"
 
 
-def test_each_request_says_the_built_in_model_thinks_and_the_chats_choice_overrides_it(tmp_path, monkeypatch):
-    """D3: each request says whether the model thinks (every built-in model does, for now); the chat's own
+def test_each_request_says_whether_the_built_in_model_thinks_and_the_chats_choice_overrides_it(
+        tmp_path, monkeypatch):
+    """D3: each request says whether the model thinks (the 27B does, the 9B and 4B don't); the chat's own
     choice still decides."""
     from langchain_core.messages import HumanMessage
 
@@ -477,7 +478,7 @@ def test_each_request_says_the_built_in_model_thinks_and_the_chats_choice_overri
             return json.loads(fake.seen[-1].body)["chat_template_kwargs"]["enable_thinking"]
 
         assert [resolve_reasoning_capabilities(local_runtime.PROVIDER_ID, model.id).default_enabled
-                for model in built_in] == [True, True, True]
-        assert [thinks(model.id) for model in built_in] == [True, True, True]
+                for model in built_in] == [True, False, False]
+        assert [thinks(model.id) for model in built_in] == [True, False, False]
         assert [thinks(model.id, "off") for model in built_in] == [False, False, False]
         assert thinks("qwen3.5-9b", "on") is True
