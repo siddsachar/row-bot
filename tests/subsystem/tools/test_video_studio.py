@@ -139,6 +139,7 @@ def test_a_projects_recorded_scenes_reach_the_edit_as_one_drawn_clip_however_man
         "ffmpeg reads the clips as one input, beside the cards' pictures"
 
 
+@pytest.mark.slow
 def test_making_a_video_again_draws_only_the_scenes_whose_inputs_changed(clip, tmp_path, monkeypatch):
     """C1: each scene's clip is kept under a hash of what it was drawn from. Making the video again draws only the
     scenes whose inputs changed; a scene's speed and line are the edit's, so changing them draws nothing; footage

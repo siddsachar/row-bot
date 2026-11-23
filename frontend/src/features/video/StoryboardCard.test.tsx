@@ -118,6 +118,11 @@ it('a planned AI shot says what it shows, its cue and that Row-Bot makes it, wit
     4,
   );
   expect(controller.videoSceneFrame).not.toHaveBeenCalled();
+  // Its card text is words over the shot, not a title card.
+  expect(within(item).getByLabelText('Scene 2 card')).toHaveAttribute(
+    'placeholder',
+    'Text on screen (optional)',
+  );
 });
 
 it('a frame loads only once its card comes near the screen', async () => {

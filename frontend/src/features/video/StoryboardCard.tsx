@@ -369,7 +369,9 @@ export function StoryboardCard({
           <input
             className="input video-scene-card"
             aria-label={`Scene ${number} card`}
-            placeholder="Title card"
+            placeholder={
+              footage === 'card' ? 'Title card' : 'Text on screen (optional)'
+            }
             maxLength={120}
             value={scene.card ?? ''}
             disabled={!editable}
