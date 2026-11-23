@@ -13,6 +13,11 @@ Host to browser: ``ready``, ``state`` (the orb), ``caption``, ``flush``,
 call), ``event_result`` (OpenAI: an event's outcome), ``error``, and binary
 speech frames (``<BI`` 1, segment, then PCM16). Browser to host: binary
 microphone frames, ``event`` (OpenAI), ``mute``, ``stop_speaking``, ``end``.
+
+A front that sees images (Gemini Live) can be shown the person's camera or
+screen: ``share`` starts or stops it, and while it lasts the browser sends a
+still about every two seconds (``still``, its size, then the still as the next
+binary message). The host checks each one and relays at most one a second.
 """
 from __future__ import annotations
 
@@ -31,6 +36,8 @@ _EVENT_FIELDS = ("event_id", "type", "generation_id", "response_id", "output_ite
                  "call_id", "name", "arguments", "text", "origin")
 _SPEAKING_ENDS = {"response_done", "response_cancelled", "output_audio_done", "barge_in_cancelled"}
 _WORKING = {"running", "stopping", "waiting_approval"}
+#: A front is shown at most one still a second (Gemini Live's video rate).
+STILL_INTERVAL_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,7 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
                           connect: Callable[..., Awaitable[Any]] = connect_socket) -> None:
     """Drive one Live voice socket until it ends: the session's events, the relay, Row-Bot's answers."""
     from row_bot.voice.client_realtime import RELAYED, RealtimeEvent, _provider_error
+    from row_bot.voice.engine.stills import SHARE_SOURCES, checked_still
     from row_bot.voice.live_front import RUN_ANSWER, RUN_STATUS, live_outputs
 
     owner, handle = redeemed.owner, redeemed.handle
@@ -63,6 +71,8 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
     relay: Any = None
     stop_requested = False
     flags = {"muted": False, "speaking": False, "working": False, "orb": ""}
+    # Sharing the camera or screen with a front that sees images (independent of mute).
+    share: dict[str, Any] = {"source": None, "expected": 0, "sent_at": None}
     answered: dict[str, str] = {}
     said: set[str] = set()
     finished: set[str] = set()
@@ -140,7 +150,10 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
                 ended.set()
                 return
             if isinstance(message, bytes):
-                if relay is not None and not flags["muted"] and 0 < len(message) <= MAX_FRAME and len(message) % 2 == 0:
+                expected, share["expected"] = share["expected"], 0
+                if expected:
+                    await show(message, expected)
+                elif relay is not None and not flags["muted"] and 0 < len(message) <= MAX_FRAME and len(message) % 2 == 0:
                     await relay.send_audio(message)
                 continue
             kind_of = message.get("type")
@@ -158,6 +171,19 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
             elif kind_of == "mute":
                 flags["muted"] = bool(message.get("muted"))
                 await set_orb()
+            elif kind_of == "share":
+                source = message.get("source")
+                wanted = source if source in SHARE_SOURCES and sees else None
+                if source and wanted is None:
+                    await link.send_event({"type": "error", "code": "voice_share_unavailable"})
+                if wanted != share["source"]:
+                    share["source"] = wanted
+                    await link.send_event({"type": "sharing", "source": wanted})
+            elif kind_of == "still":
+                size = message.get("bytes")
+                if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+                    raise ValueError("voice_still_invalid")
+                share["expected"] = size
             elif kind_of == "stop_speaking":
                 if relay is not None and await relay.stop_speaking():
                     await link.send_event({"type": "flush"})
@@ -165,6 +191,23 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
                 stop_requested = True
                 ended.set()
                 return
+
+    async def show(data: bytes, expected: int) -> None:
+        """A still while sharing, checked, relayed at most once a second; anything else is dropped."""
+        if share["source"] is None:
+            return
+        try:
+            if len(data) != expected:
+                raise ValueError("voice_still_invalid")
+            still = checked_still(data, share["source"])
+        except ValueError:
+            await link.send_event({"type": "error", "code": "voice_still_refused"})
+            return
+        now = loop.time()
+        if share["sent_at"] is not None and now - share["sent_at"] < STILL_INTERVAL_SECONDS:
+            return
+        share["sent_at"] = now
+        await relay.send_image(still)
 
     async def relayed() -> None:
         async for action in relay.actions():
@@ -191,6 +234,7 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
 
     workers: list[asyncio.Task] = []
     waiter: asyncio.Task | None = None
+    sees = False
     try:
         if kind in RELAYED:
             try:
@@ -201,7 +245,9 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
                 await link.send_event({"type": "error", "code": code})
                 return
             await handle_event({"type": "connected"})
-        await link.send_event({"type": "ready", "transport": kind, "output_sample_rate": OUTPUT_RATE})
+            sees = callable(getattr(relay, "send_image", None))
+        await link.send_event({"type": "ready", "transport": kind, "output_sample_rate": OUTPUT_RATE,
+                               "sees_images": sees})
         await set_orb()
         workers = [asyncio.create_task(pump(), name="live-voice-pump"),
                    asyncio.create_task(tick(), name="live-voice-tick"),

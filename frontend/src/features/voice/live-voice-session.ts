@@ -7,7 +7,9 @@
  * audio rides that socket too (16 kHz microphone frames up, 24 kHz speech
  * down, through the same capture and playback as Row-Bot Voice). OpenAI
  * Realtime keeps its WebRTC call for the media (the host exchanged its SDP);
- * the call's events go up the socket.
+ * the call's events go up the socket. A front that sees images (Gemini Live)
+ * can be shown the camera or screen: while it is shared, a still goes up the
+ * socket about every two seconds and the host relays it.
  */
 import { setBuddyListening, setBuddyVoiceLevel } from '../buddy/living/voice';
 import {
@@ -15,6 +17,13 @@ import {
   type RealtimeRuntime,
 } from '../../../../src/row_bot/voice/realtime_runtime.js';
 import { BrowserVoiceAudio, type VoiceAudio } from './voice-audio';
+import {
+  BrowserShare,
+  sendStill,
+  VoiceShare,
+  type ShareCapture,
+  type ShareSource,
+} from './share';
 import {
   microphoneError,
   voiceError,
@@ -40,8 +49,12 @@ export type LiveVoiceDeps = {
   /** OpenAI: the host exchanges the call's SDP. */
   exchange(sdp: string): Promise<string>;
   audio?: VoiceAudio;
+  share?: ShareCapture;
   startRuntime?: typeof startRealtimeRuntime;
 };
+
+/** How often a front that sees images is shown a still while the person shares. */
+export const LIVE_STILL_MS = 2000;
 
 const EVENTS = new Set([
   'connected',
@@ -124,6 +137,8 @@ const INITIAL: VoiceSnapshot = {
   // Live voice answers approvals on their cards only.
   approval: null,
   error: '',
+  share: null,
+  canShare: 'no',
 };
 
 export class LiveVoiceSession {
@@ -138,6 +153,8 @@ export class LiveVoiceSession {
   private ready: (() => void) | null = null;
   private levelAt = 0;
   private stopped: Promise<unknown> = Promise.resolve();
+  private share: VoiceShare;
+  private showing: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private deps: LiveVoiceDeps,
@@ -145,6 +162,13 @@ export class LiveVoiceSession {
     generation: string | null,
   ) {
     this.generation = generation ?? '';
+    this.share = new VoiceShare(deps.share ?? new BrowserShare(), {
+      changed: (share, error) => this.set(error ? { share, error } : { share }),
+      tell: (source) => {
+        this.send({ type: 'share', source });
+        this.showStills(source !== null);
+      },
+    });
   }
 
   private get relayed() {
@@ -262,7 +286,13 @@ export class LiveVoiceSession {
     switch (event.type) {
       case 'ready':
         this.audio?.setOutputRate(Number(event.output_sample_rate) || 24000);
-        this.set({ orb: 'listening' });
+        this.set({
+          orb: 'listening',
+          canShare: event.sees_images === true ? 'yes' : 'no',
+        });
+        if (event.sees_images !== true) this.share.stop('', false);
+        else if (this.share.state)
+          this.send({ type: 'share', source: this.share.state.source });
         this.ready?.();
         this.ready = null;
         break;
@@ -281,6 +311,12 @@ export class LiveVoiceSession {
         break;
       case 'flush':
         this.audio?.flush();
+        break;
+      case 'sharing':
+        if (!event.source) {
+          this.share.stop('', false);
+          this.showStills(false);
+        }
         break;
       case 'say':
         this.say(event);
@@ -339,6 +375,40 @@ export class LiveVoiceSession {
         output,
         this.meta({ silent: Boolean(event.silent) }),
       );
+  }
+
+  /** While sharing, a still now and then about every two seconds (the host relays one a second at most). */
+  private showStills(on: boolean) {
+    if (this.showing) clearInterval(this.showing);
+    this.showing = null;
+    if (!on) return;
+    const show = async () => {
+      const data = await this.share.still();
+      const socket = this.socket;
+      // A slow link keeps its audio: a still waits for the next round.
+      if (
+        data &&
+        socket?.readyState === OPEN &&
+        socket.bufferedAmount < 64 * 1024
+      )
+        sendStill(socket, data);
+    };
+    void show();
+    this.showing = setInterval(() => void show(), LIVE_STILL_MS);
+  }
+
+  startShare(source: ShareSource) {
+    if (this.ended || this.snapshot.canShare !== 'yes')
+      return Promise.resolve();
+    return this.share.start(source);
+  }
+
+  stopShare() {
+    this.share.stop();
+  }
+
+  switchCamera() {
+    return this.share.switchCamera();
   }
 
   private inputLevel(level: number) {
@@ -410,6 +480,8 @@ export class LiveVoiceSession {
       socket.close();
     }
     this.audio?.close();
+    this.showStills(false);
+    this.share.stop('', false);
     void this.runtime?.stop();
     setBuddyVoiceLevel(0);
     this.set({

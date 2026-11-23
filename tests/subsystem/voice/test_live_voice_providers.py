@@ -9,7 +9,8 @@ import pytest
 import requests
 
 from row_bot.voice.agent_bridge import REALTIME_ALLOWED_TOOLS
-from row_bot.voice.gemini_live import GEMINI_LIVE_MODEL, GEMINI_LIVE_URL, GeminiLiveProvider
+from row_bot.voice.engine.stills import Still
+from row_bot.voice.gemini_live import GEMINI_LIVE_MODEL, GEMINI_LIVE_URL, SHARE_LINE, GeminiLiveProvider
 from row_bot.voice.grok_voice import GROK_VOICE_URL, GrokVoiceProvider
 from row_bot.voice.live_front import RUN_ANSWER, RUN_STATUS, front_instructions, live_outputs
 from row_bot.voice.live_relay import LiveOutput
@@ -117,7 +118,8 @@ def test_gemini_relay_opens_from_the_host_with_the_key_sends_the_setup_and_waits
     assert opened == [(GEMINI_LIVE_URL, {"x-goog-api-key": "g_synthetic"})]
     setup = socket.sent[0]["setup"]
     assert setup["model"] == f"models/{GEMINI_LIVE_MODEL}"
-    assert setup["systemInstruction"] == {"parts": [{"text": "Synthetic front"}]}
+    # Gemini sees what the person shares, so it is told it answers about that itself.
+    assert setup["systemInstruction"] == {"parts": [{"text": "Synthetic front\n" + SHARE_LINE}]}
     declarations = setup["tools"][0]["functionDeclarations"]
     assert [item["name"] for item in declarations] == list(REALTIME_ALLOWED_TOOLS)
     assert declarations[0]["behavior"] == "NON_BLOCKING" and declarations[0]["parameters"]["type"] == "OBJECT"
@@ -125,6 +127,10 @@ def test_gemini_relay_opens_from_the_host_with_the_key_sends_the_setup_and_waits
     asyncio.run(relay.send_audio(b"\x01\x00\x02\x00"))
     assert socket.sent[1] == {"realtimeInput": {"audio": {"data": base64.b64encode(b"\x01\x00\x02\x00").decode(),
                                                          "mimeType": "audio/pcm;rate=16000"}}}
+    # A shared still goes up as one video frame.
+    asyncio.run(relay.send_image(Still(b"\xff\xd8\xffsynthetic", "image/jpeg", "camera")))
+    assert socket.sent[2] == {"realtimeInput": {"video": {"data": base64.b64encode(b"\xff\xd8\xffsynthetic").decode(),
+                                                         "mimeType": "image/jpeg"}}}
 
 
 def test_gemini_messages_become_row_bot_events_and_its_consult_is_answered_with_a_tool_response():
@@ -251,3 +257,5 @@ def test_rows_say_who_hears_the_audio_what_it_costs_and_why_unavailable():
     assert not rows["openai"]["available"] and rows["openai"]["reason"] == "realtime_key_missing"
     assert [rows[key]["company"] for key in rows] == ["OpenAI", "Google", "xAI"]
     assert all(row["price"].endswith("a minute") and row["price_checked"] for row in rows.values())
+    # Only a front that takes images in its live session is offered the camera or screen.
+    assert {key: row["shares"] for key, row in rows.items()} == {"openai": False, "gemini": True, "grok": False}

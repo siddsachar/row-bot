@@ -923,6 +923,15 @@ def p4_voice(x_fixture_token: str = Header(default="")) -> dict:
 
 
 VOICE_FIXTURE_REQUEST = "What's on my calendar today?"
+# Chats whose voice sessions see images (V6): a synthetic vision model describes what is shared.
+_voice_vision: set[str] = set()
+
+
+@app.post("/__p4_fixture/voice/vision/{conversation_id}")
+def p4_voice_vision(conversation_id: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    _voice_vision.add(conversation_id)
+    return {"seeing": sorted(_voice_vision)}
 
 
 def _install_voice_engine_fixture() -> None:
@@ -988,6 +997,43 @@ def _install_voice_engine_fixture() -> None:
 
     client_duplex.LocalVoiceEngine.readiness = lambda self: None
     client_duplex.LocalVoiceEngine.build = lambda self: EngineParts(Listen(), Speak(), LoudIsSpeech(), TurnEnds())
+
+    # A chat the spec named sees images: its spoken turns carry the shared still, described synthetically.
+    from contextlib import contextmanager
+
+    from row_bot import vision_runtime
+    from row_bot.application import attachment_context, client_voice
+
+    class SyntheticVision:
+        enabled = True
+
+        def effective_model(self, chat_model=None):
+            return chat_model or ""
+
+        def analyze(self, data, question, *, chat_model=None):
+            _voice_fixture["stills"] = _voice_fixture.get("stills", 0) + 1
+            return "A synthetic camera picture: a blue card with white words."
+
+    sees = client_voice.ClientVoiceAdmission.sees_images
+    client_voice.ClientVoiceAdmission.sees_images = (
+        lambda self, owner: owner.conversation_id in _voice_vision or sees(self, owner))
+    prepared = attachment_context.prepared_attachments
+
+    @contextmanager
+    def prepared_seeing(conversation_id, files, *, model_ref=None):
+        if conversation_id not in _voice_vision:
+            with prepared(conversation_id, files, model_ref=model_ref) as context:
+                yield context
+            return
+        real = vision_runtime.get_vision_service
+        vision_runtime.get_vision_service = SyntheticVision
+        try:
+            with prepared(conversation_id, files, model_ref=model_ref) as context:
+                yield context
+        finally:
+            vision_runtime.get_vision_service = real
+
+    attachment_context.prepared_attachments = prepared_seeing
 
 
 class SyntheticRequestDiagnostics:

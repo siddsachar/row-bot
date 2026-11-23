@@ -73,6 +73,33 @@ token, first sentence, first audio sent, first audio played) are kept as
 durations only; the bar's timing line and `row_bot.voice.engine.latency`
 show them.
 
+## Sharing the camera or screen
+
+The voice bar can share a camera (phones switch front and back) or, where
+`getDisplayMedia` exists, a screen or window. The browser captures nothing
+before the person shares and never streams video to the host. `share`
+(`camera`, `screen` or null) tells the session; while it lasts, the end of
+every spoken turn sends `look`, and the browser answers with one still, scaled
+to at most 768 px on its long side, as JPEG: a `still` message with its size,
+then the still as the next binary message. The host checks it
+(`voice/engine/stills.py`: JPEG or PNG by its bytes, at most 1 MiB and 768 px),
+waits up to 1.5 s for it alongside speech-to-text, and attaches it to that
+turn only: `ClientVoiceAdmission.submit` registers it like a file the person
+attached ("Live camera.jpg" or "Shared screen.jpg") and submits its reference,
+so the chat shows it in the person's message and the agent reads it through
+the normal image path (the Vision model describes it). A still lives only in
+the session's memory until then; stopping sharing, a pause and the end of the
+session drop it. A turn that steers a running answer carries words only. When
+the frozen model is known not to see images (`workspace_setup.sees_images`),
+`ready` says `sees_images: false`, the bar says so and the host refuses `share`.
+Sharing is independent of mute.
+
+Live voice: Gemini Live takes images in its session, so its relay shows it the
+stills (`realtimeInput.video`), which the browser sends about every two seconds
+while sharing and the host forwards at most once a second. OpenAI Realtime
+(its images would go over the browser's data channel, which needs its own
+size handling) and Grok Voice (no image input) offer no sharing.
+
 ## Pipecat review outcome (22 Nov 2026)
 
 Row-Bot depends on `pipecat-ai>=1.16,<1.17` in the `voice` extra, core only:

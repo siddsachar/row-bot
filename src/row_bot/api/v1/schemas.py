@@ -862,6 +862,8 @@ class LiveVoiceProvider(WireModel):
     price_checked: str = Field(max_length=32)
     available: bool
     reason: Literal["available", "realtime_key_missing", "host_unavailable"]
+    # The front sees what the person shares on camera or screen (and is sent it).
+    shares: bool = False
 
 
 class VoiceSettingsSnapshot(WireModel):

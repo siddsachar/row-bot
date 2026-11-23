@@ -894,6 +894,11 @@
           ],
           "title": "Reason",
           "type": "string"
+        },
+        "shares": {
+          "default": false,
+          "title": "Shares",
+          "type": "boolean"
         }
       },
       "required": [

@@ -192,20 +192,26 @@ class FakeLink:
 
 
 class FakeHost:
-    def __init__(self, outcome: Any = None) -> None:
+    def __init__(self, outcome: Any = None, *, sees: bool = True) -> None:
         self.turns: list[str] = []
+        self.stills: list[Any] = []  # the still each turn carried (None for none)
         self.spoken: list[str] = []
         self.outcome = outcome
         self.keepalives = 0
         # A spoken answer to an approval: what the host says back, and what it was asked.
         self.approval_result = "answered"
         self.approvals: list[tuple[str, bool]] = []
+        self.sees = sees
 
-    def take_turn(self, text: str, utterance_id: str) -> Any:
+    def take_turn(self, text: str, utterance_id: str, still: Any = None) -> Any:
         from row_bot.voice.engine.session import TurnOutcome
 
         self.turns.append(text)
+        self.stills.append(still)
         return self.outcome or TurnOutcome("submitted")
+
+    def sees_images(self) -> bool:
+        return self.sees
 
     def drops(self, text: str) -> bool:
         heard = " ".join(text.lower().split())

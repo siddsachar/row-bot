@@ -5,11 +5,26 @@ import {
   render,
   screen,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import VoiceBar, { latencyLine, type VoiceBarSession } from './VoiceBar';
 import type { VoiceSnapshot } from './voice-session';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+/** A browser with a camera, and a screen to share when *screen*. */
+function devices(screen: boolean) {
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    mediaDevices: {
+      getUserMedia: vi.fn(),
+      ...(screen && { getDisplayMedia: vi.fn() }),
+    },
+  });
+}
 
 function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
   let snapshot: VoiceSnapshot = {
@@ -24,6 +39,8 @@ function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
     latency: null,
     approval: null,
     error: '',
+    share: null,
+    canShare: 'no',
     ...initial,
   };
   const listeners = new Set<() => void>();
@@ -38,6 +55,9 @@ function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
     stopSpeaking: vi.fn(),
     resume: vi.fn(async () => undefined),
     end: vi.fn(async () => undefined),
+    startShare: vi.fn(async () => undefined),
+    stopShare: vi.fn(),
+    switchCamera: vi.fn(async () => undefined),
   };
   const update = (patch: Partial<VoiceSnapshot>) =>
     act(() => {
@@ -61,7 +81,11 @@ function bar(
     onEnded: vi.fn(),
     ...extra,
   };
-  render(<VoiceBar {...props} />);
+  render(
+    <MemoryRouter>
+      <VoiceBar {...props} />
+    </MemoryRouter>,
+  );
   return props;
 }
 
@@ -240,4 +264,81 @@ it('the phone focus shows the newest result, opened with one tap, and leaves foc
   expect(
     screen.getByRole('region', { name: 'Voice conversation' }),
   ).not.toHaveAttribute('data-focus');
+});
+
+it('no share control until the host says sharing can work', () => {
+  devices(true);
+  const { session } = fakeSession({ canShare: 'no' });
+  bar(session);
+  expect(screen.queryByRole('button', { name: /Share/ })).toBeNull();
+});
+
+it('a computer shares its camera or a screen from one menu', async () => {
+  devices(true);
+  const { session } = fakeSession({ canShare: 'yes' });
+  bar(session);
+  const trigger = screen.getByRole('button', {
+    name: 'Share camera or screen',
+  });
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+  const items = await screen.findAllByRole('menuitem');
+  expect(items.map((item) => item.textContent)).toEqual([
+    expect.stringContaining('Camera'),
+    expect.stringContaining('Screen or window'),
+  ]);
+  fireEvent.click(items[1]);
+  expect(session.startShare).toHaveBeenCalledWith('screen');
+});
+
+it('where a screen can’t be shared (a phone), one tap shares the camera', () => {
+  devices(false);
+  const { session } = fakeSession({ canShare: 'yes' });
+  bar(session, { phone: true });
+  fireEvent.click(screen.getByRole('button', { name: 'Share camera' }));
+  expect(session.startShare).toHaveBeenCalledWith('camera');
+});
+
+it('while sharing, the bar always says so with a live preview, and one tap stops it', () => {
+  devices(true);
+  const stream = { id: 'synthetic' } as unknown as MediaStream;
+  const { session, update } = fakeSession({
+    canShare: 'yes',
+    share: { source: 'camera', stream, facingUser: true, canSwitch: true },
+  });
+  bar(session);
+  const indicator = screen.getByRole('status');
+  expect(indicator).toHaveTextContent('Camera on');
+  const preview = document.querySelector(
+    'video.voice-share-preview',
+  ) as HTMLVideoElement;
+  expect(preview.srcObject).toBe(stream);
+  expect(preview).toHaveAttribute('data-mirrored', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Switch camera' }));
+  expect(session.switchCamera).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }));
+  expect(session.stopShare).toHaveBeenCalled();
+  update({
+    share: { source: 'screen', stream, facingUser: false, canSwitch: false },
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Sharing your screen');
+  expect(screen.queryByRole('button', { name: 'Switch camera' })).toBeNull();
+  expect(
+    document.querySelector('video.voice-share-preview'),
+  ).not.toHaveAttribute('data-mirrored');
+});
+
+it('a chat whose model can’t see images says so plainly, with the way to one that can', () => {
+  devices(true);
+  const { session } = fakeSession({ canShare: 'blind' });
+  bar(session);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Share camera or screen' }),
+  );
+  expect(session.startShare).not.toHaveBeenCalled();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'This chat’s model can’t see images, so the camera and screen can’t be shared.',
+  );
+  expect(
+    screen.getByRole('link', { name: 'choose a vision model' }),
+  ).toHaveAttribute('href', '/settings/models#vision-model');
 });
