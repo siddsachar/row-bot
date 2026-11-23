@@ -41,6 +41,7 @@ function view(
     model_ref: `model:custom_openai_llamacpp:${id}`,
     size_bytes: size,
     fit: 'gpu' as const,
+    context_tokens: older ? 131_072 : 32_768,
     everyday: size < 5 * GB,
     quantization,
     older,
@@ -139,7 +140,7 @@ it('lists every connected local runtime and Row-Bot’s download as one entry am
   ).toBeVisible();
   expect(
     within(group).getByRole('list', { name: 'Models Row-Bot downloaded' }),
-  ).toHaveTextContent('Qwen3.8 27B · 2-bit9.9 GB');
+  ).toHaveTextContent('Qwen3.8 27B · 2-bit9.9 GB · reads 32K');
   expect(
     within(group).getByRole('link', { name: 'Manage LM Studio in Providers' }),
   ).toHaveAttribute('href', '/settings/providers');

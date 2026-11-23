@@ -395,6 +395,10 @@ def endpoint_configuration_revision(endpoint: dict) -> str:
     value.pop("model_probes", None)
     if value.get("managed"):
         value.pop("base_url", None)  # the server's address now, which its owner gives at each request
+    if value.get("managed") == "local":
+        # Run on this computer sizes each model's window to this computer (its models list carries them), so a
+        # new window, or the endpoint-wide one it used to save, keeps the same models' probe evidence.
+        value.pop("manual_capabilities", None)
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -1461,7 +1465,7 @@ def model_infos_from_openai_compatible_catalog(
         # saves each endpoint at the context its model was trained for).
         context_window = (
             _positive_int(manual.get("context_window")) if isinstance(manual, dict) else 0
-        ) or _metadata_context_window(metadata)
+        ) or _managed_model_context(normalized, model_id) or _metadata_context_window(metadata)
         if context_window:
             metadata["context_window"] = context_window
         results.append(model_info_from_metadata(
@@ -1485,6 +1489,17 @@ def _managed_model_name(endpoint: dict[str, Any], model_id: str) -> str | None:
     from row_bot import local_runtime
 
     return local_runtime.model_label(model_id)
+
+
+def _managed_model_context(endpoint: dict[str, Any], model_id: str) -> int:
+    """The window Run on this computer serves its model at (its presets say so); llama.cpp's router reports
+    nothing for a model it hasn't loaded."""
+
+    if endpoint.get("managed") != "local":
+        return 0
+    from row_bot import local_runtime
+
+    return local_runtime.model_context(model_id) or 0
 
 
 def _catalog_model_items(payload: dict[str, Any]) -> list[Any]:

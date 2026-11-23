@@ -5597,12 +5597,13 @@ _E1_GB = 1_000_000_000
 _e1_state: dict = {"state": "unavailable", "done": 0, "installed": [], "failure": None, "freed": None,
                    "found": []}
 # (id, name, quantization, older, size, fit) as the real catalog lists them for a 12 GB card.
+# What a 12 GB card serves each at (models.context_for): the 2-bit 27B its 32K, the small ones 128K.
 _E1_MODELS = (
-    ("qwen3.8-27b-q4", "Qwen3.8 27B", "4-bit", False, 16_564_259_744, "partial"),
-    ("qwen3.8-27b-q3", "Qwen3.8 27B", "3-bit", False, 13_146_393_504, "partial"),
-    ("qwen3.8-27b-q2", "Qwen3.8 27B", "2-bit", False, 9_948_666_784, "gpu"),
-    ("qwen3.5-9b", "Qwen3.5 9B", "4-bit", True, 5_680_522_464, "gpu"),
-    ("qwen3.5-4b", "Qwen3.5 4B", "4-bit", True, 2_740_937_888, "gpu"),
+    ("qwen3.8-27b-q4", "Qwen3.8 27B", "4-bit", False, 16_564_259_744, "partial", 32_768),
+    ("qwen3.8-27b-q3", "Qwen3.8 27B", "3-bit", False, 13_146_393_504, "partial", 32_768),
+    ("qwen3.8-27b-q2", "Qwen3.8 27B", "2-bit", False, 9_948_666_784, "gpu", 32_768),
+    ("qwen3.5-9b", "Qwen3.5 9B", "4-bit", True, 5_680_522_464, "gpu", 131_072),
+    ("qwen3.5-4b", "Qwen3.5 4B", "4-bit", True, 2_740_937_888, "gpu", 131_072),
 )
 _E1_PICK = "qwen3.8-27b-q2"
 _E1_BUILD = 179_546_112 + 426_314_199
@@ -5615,10 +5616,10 @@ def _e1_view() -> dict:
     installed = set(_e1_state["installed"])
     build = bool(installed)
     rows = [{"id": model_id, "name": name, "model_ref": f"model:custom_openai_llamacpp:{model_id}", "size_bytes": size,
-             "fit": fit, "everyday": model_id == "qwen3.5-4b", "quantization": quant, "older": older,
-             "installed": model_id in installed,
+             "fit": fit, "context_tokens": window, "everyday": model_id == "qwen3.5-4b", "quantization": quant,
+             "older": older, "installed": model_id in installed,
              "download_bytes": 0 if model_id in installed else size + (0 if build else _E1_BUILD)}
-            for model_id, name, quant, older, size, fit in _E1_MODELS]
+            for model_id, name, quant, older, size, fit, window in _E1_MODELS]
     state = _e1_state["state"]
     download = None
     if state == "downloading":
@@ -5709,11 +5710,10 @@ def _e1_save_endpoint() -> None:
 
     custom.save_custom_endpoint({
         "id": "llamacpp", "name": "Row-Bot (llama.cpp)", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
-        "execution_location": "local", "auth_required": False, "managed": "local",
-        "manual_capabilities": {"context_window": 32768},
+        "execution_location": "local", "auth_required": False, "managed": "local", "manual_capabilities": {},
     }, manage_secret=False)
     custom.store_managed_endpoint_models("llamacpp", [
-        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", 32768)
+        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", row[6])
         for row in _E1_MODELS if row[0] in _e1_state["installed"]])
 
 
