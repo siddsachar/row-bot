@@ -22,7 +22,7 @@ from row_bot.providers.selection import model_ref
 from row_bot.providers.transports.ollama_local import RowBotChatOllama
 from tests.helpers.fake_chat_endpoint import MODEL, fake_chat_endpoint, text
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture(autouse=True)
