@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from row_bot.voice import VoiceService
 
 LOCAL_PROVIDER = "local"
-REALTIME_TALK_PROVIDER = "openai_realtime"
 SENSEVOICE_MODEL = "local-funasr-sensevoice"
 
 # "voice_note": a voice note sent on a chat app. It uses Dictate's engine.
@@ -108,10 +107,6 @@ def speech_to_text_provider(
         provider_id, model = settings.dictation_provider, settings.dictation_model
     else:
         provider_id, model = settings.talk_provider, settings.talk_model
-        if provider_id == REALTIME_TALK_PROVIDER:
-            # Browser Talk is then Realtime's local fallback, which listens with
-            # Whisper; talk_model names the realtime model, not a local one.
-            provider_id, model = LOCAL_PROVIDER, ""
         cloud = cloud_speech.option(provider_id, "listen")
         if cloud is not None:
             if cloud_speech.key_saved(cloud):

@@ -509,7 +509,11 @@ def _cloud_speech(runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _voice(root: Path) -> dict[str, Any]:
+    from row_bot.voice.runtime import talk_and_realtime
+
     runtime = _mapping(_read_json(root / "voice_runtime_settings.json", default={}))
+    # An older file's "Listen with: OpenAI Realtime" reads as listening locally (its model kept for Live voice).
+    runtime = {**runtime, **talk_and_realtime(dict(runtime))}
     local = _mapping(_read_json(root / "voice_settings.json", default={}))
     tts = _mapping(_read_json(root / "tts_settings.json", default={}))
     whisper = _text(local.get("whisper_model") or "small", 32)
@@ -550,6 +554,7 @@ def _voice(root: Path) -> dict[str, Any]:
             "speech_output_model": _text(
                 runtime.get("speech_output_model") or "local-kokoro", 128
             ),
+            "realtime_model": _text(runtime["realtime_model"], 128),
             "realtime_voice": realtime_voice,
             "captions_enabled": runtime.get("captions_enabled") is not False,
             "turn_eagerness": runtime.get("turn_eagerness")
@@ -577,7 +582,7 @@ def _voice(root: Path) -> dict[str, Any]:
         "live_providers": _live_providers(),
         "cloud_speech": _cloud_speech(runtime),
         "talk_providers": _choice_rows(
-            {"local": "Local", "openai_realtime": "OpenAI Realtime", **_cloud_labels("listen")}
+            {"local": "Local", **_cloud_labels("listen")}
         ),
         "dictation_providers": _choice_rows({"local": "Local"}),
         "speech_output_providers": _choice_rows({"local": "Local", **_cloud_labels("speak")}),
@@ -1822,6 +1827,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "runtime.dictation_model": "local-whisper",
         "runtime.speech_output_provider": "local",
         "runtime.speech_output_model": "local-kokoro",
+        "runtime.realtime_model": "gpt-realtime-2",
         "runtime.realtime_voice": "marin",
         "runtime.captions_enabled": True,
         "runtime.turn_eagerness": "normal",

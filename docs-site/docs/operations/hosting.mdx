@@ -170,7 +170,7 @@ Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps, in `
 
 - **Row-Bot's browser** closes by itself ten minutes after its last use, when a conversation's idle tabs close anyway, and starts again the next time it's needed, still signed in to sites.
 - **Settings › Documents** suggests **Free memory when idle** below 3.5 GB, so the search model unloads between searches.
-- **Settings › Voice** marks local speech-to-text "Needs a 4 GB server" below 3.5 GB, and asks before it is chosen.
+- **Settings › Voice** marks local speech-to-text "Needs a 4 GB server" below 3.5 GB, and asks before it is chosen. The question's **Use cloud speech-to-text** keeps a cloud speech service under **Listen with** (the one chosen, else one whose key is saved, else Deepgram Nova-3, whose key it then asks for).
 
 If Row-Bot restarts because the server ran out of memory, Home and System Monitor say so, with the server's size, until the owner dismisses it. To fix it, do one of these:
 

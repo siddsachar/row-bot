@@ -144,16 +144,21 @@ def test_download_remove_and_talk_follow_the_person_through_the_api(computer):
         assert _talk_model(computer["root"]) == "local-whisper"
 
 
-def test_a_finished_download_leaves_realtime_talk_alone(computer):
+def test_a_finished_download_after_the_old_realtime_listen_with_keeps_live_voices_model(computer):
+    from row_bot.voice.runtime import load_voice_runtime_settings
+
     root = computer["root"]
     (root / "voice_runtime_settings.json").write_text(json.dumps(
-        {"talk_provider": "openai_realtime", "talk_model": "gpt-realtime-2"}), encoding="utf-8")
+        {"talk_provider": "openai_realtime", "talk_model": "gpt-realtime-2-mini"}), encoding="utf-8")
     small = computer["small"]
 
     client_speech_models.install(small.id, len(computer["archive"]))
     client_speech_models.installer().wait(10)
 
-    assert speech_models.installed(small) and _talk_model(root) == "gpt-realtime-2"
+    settings = load_voice_runtime_settings()
+    assert speech_models.installed(small) and _talk_model(root) == small.engine_id
+    assert (settings.talk_provider, settings.talk_model) == ("local", small.engine_id)
+    assert settings.realtime_model == "gpt-realtime-2-mini"
 
 
 def test_talk_listens_with_a_downloaded_model_and_reports_one_that_is_gone(computer, monkeypatch):

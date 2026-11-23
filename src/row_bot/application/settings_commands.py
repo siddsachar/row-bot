@@ -75,7 +75,7 @@ _SECRET_FIELDS = {
     **{("voice", field): name for field, name in cloud_speech.KEY_FIELDS.items()},
 }
 _ENUMS = {
-    ("voice", "runtime.talk_provider"): {"local", "openai_realtime", *cloud_speech.LISTEN_IDS},
+    ("voice", "runtime.talk_provider"): {"local", *cloud_speech.LISTEN_IDS},
     ("voice", "runtime.dictation_provider"): {"local"},
     ("voice", "runtime.turn_eagerness"): {"relaxed", "normal", "eager"},
     ("voice", "runtime.speech_output_provider"): {"local", *cloud_speech.SPEAK_IDS},
@@ -349,6 +349,13 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
 
         found = cloud_speech.option("elevenlabs", "speak")
         if found is None or value not in cloud_speech.voice_choices(found, load_voice_runtime_settings()):
+            raise SettingsCommandError("invalid_settings_command")
+    elif key == ("voice", "runtime.realtime_model"):
+        # Live voice's OpenAI Realtime model: a gpt-realtime model name.
+        if (
+            type(value) is not str
+            or not re.fullmatch(r"gpt-realtime[A-Za-z0-9._-]{0,115}", value)
+        ):
             raise SettingsCommandError("invalid_settings_command")
     elif key == ("voice", "tts.speed"):
         if (
@@ -675,6 +682,11 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         document = _read_document(path)
         if page == "system" and field.startswith("remote_access."):
             document.setdefault("version", 2)
+        if path.name == "voice_runtime_settings.json":
+            from row_bot.voice.runtime import retire_realtime_listen
+
+            # An older "Listen with: OpenAI Realtime" is rewritten before any voice setting is saved.
+            retire_realtime_listen(document)
         _set_path(document, keys, value)
         _write_document(path, document)
     if page == "preferences" and field == "updates.channel":
