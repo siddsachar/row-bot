@@ -120,6 +120,7 @@ class Action(StrEnum):
     DEVICE_JOINED = "device.joined"
     DEVICE_REMOVED = "device.removed"
     DEVICE_LOCKED_DOWN = "device.locked_down"
+    DEVICE_CREDENTIAL_REUSED = "device.credential_reused"
     MODEL_CALLED = "model.called"
     TOOL_CALLED = "tool.called"
     POLICY_CHANGED = "policy.changed"
@@ -232,6 +233,9 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     # A Row-Bot past its offline lease locked down to local models; it says so when it reaches the server again.
     Action.DEVICE_LOCKED_DOWN: _spec({_P}, {_ORG}, {TargetKind.DEVICE}, frozenset({Outcome.SUCCEEDED}),
                                      offline_days=Detail("int")),
+    # A device's one-time code, or a refresh token already rotated, came back: the server revoked the device's tokens.
+    Action.DEVICE_CREDENTIAL_REUSED: _spec({_S}, {_ORG}, {TargetKind.DEVICE}, frozenset({Outcome.BLOCKED}),
+                                           credential=_enum("code", "refresh_token")),
     Action.MODEL_CALLED: _spec(
         {_P, _S}, {_ORG}, set(), _GATED,
         provider=Detail("id", **_REQ), model=Detail("model", **_REQ), input_tokens=Detail("int", **_REQ),

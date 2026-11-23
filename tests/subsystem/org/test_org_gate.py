@@ -14,7 +14,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from row_bot_org.app import create_app
+from row_bot_org.app import DEVICE_CSP, create_app
 from row_bot_org.identity.limits import MAX_ADDRESSES, WINDOW_SECONDS, AddressRateLimit
 from row_bot_org.logging import configure_logging
 from row_bot_org.settings import load_settings
@@ -87,7 +87,7 @@ def test_a_same_origin_request_gets_past_the_origin_rule_to_the_session_rule(cli
 BEARER = {"Authorization": "Bearer rboa_" + "A" * 43}
 
 
-@pytest.mark.parametrize("authorization", ["Bearer rboa_" + "A" * 43, "Bearer", "Basic dXNlcjpwYXNz",
+@pytest.mark.parametrize("authorization", ["Bearer rboa_" + "A" * 43, "Bearer", "bearer rboa_x",
                                            "Bearer two tokens"])
 def test_a_bearer_that_isnt_live_is_refused_with_a_challenge(client: TestClient, authorization: str) -> None:
     response = client.get("/api/me", headers={"Authorization": authorization})
@@ -112,13 +112,44 @@ def test_a_session_cookie_and_a_bearer_together_are_refused(client: TestClient) 
     assert (response.status_code, response.json()) == (400, {"error": "invalid_request"})
 
 
+@pytest.mark.parametrize("authorization", ["Basic dXNlcjpwYXNz", "Negotiate YIIBhwYGKwYBBQUCoIIBezCC"])
+def test_another_authorization_scheme_is_ignored_and_the_cookie_decides(client: TestClient,
+                                                                       authorization: str) -> None:
+    # A proxy in front (IIS, F5) may add one; it is neither a bearer nor refused with the cookie.
+    client.cookies.set("__Host-row_bot_org_session", "rbos_" + "A" * 43)
+    response = client.get("/api/me", headers={"Authorization": authorization})
+
+    assert (response.status_code, response.json()) == (401, {"error": "sign_in_required"})
+
+
 @pytest.mark.parametrize(("method", "path"), [("GET", "/api/admin/people"), ("POST", "/api/admin/devices/x/revoke"),
+                                              ("GET", "/api/admin"),
                                               ("GET", "/console/"), ("GET", "/admin/"), ("POST", "/auth/logout"),
                                               ("POST", "/auth/device/confirm"), ("GET", "/no/such/route")])
 def test_a_bearer_is_never_taken_outside_the_persons_api(client: TestClient, method: str, path: str) -> None:
     response = client.request(method, path, headers=BEARER)
 
     assert (response.status_code, response.json()) == (403, {"error": "browser_session_required"})
+
+
+@pytest.mark.parametrize("path", ["/auth/device", "/auth/device/confirm", "/auth/device.css"])
+def test_the_device_pages_send_their_origin_with_their_form_and_load_only_their_stylesheet(client: TestClient,
+                                                                                          path: str) -> None:
+    # Under no-referrer a browser posts the confirm form with "Origin: null", which the origin rule refuses.
+    response = client.get(path)
+
+    assert response.headers["referrer-policy"] == "same-origin"
+    assert response.headers["content-security-policy"] == DEVICE_CSP
+    assert "[::1]" not in DEVICE_CSP and "form-action 'self' http://127.0.0.1:*;" in DEVICE_CSP
+    assert client.get("/api/me").headers["referrer-policy"] == "no-referrer"
+
+
+def test_the_token_limit_counts_only_what_it_is_told_to() -> None:
+    limit = AddressRateLimit(2)
+    assert [limit.spent("198.51.100.7") for _ in range(5)] == [False] * 5  # Asking counts nothing.
+    limit.allow("198.51.100.7")
+    limit.allow("198.51.100.7")
+    assert limit.spent("198.51.100.7") is True and limit.spent("198.51.100.8") is False
 
 
 def test_the_device_token_endpoint_is_open_and_outside_the_same_origin_rule(client: TestClient) -> None:

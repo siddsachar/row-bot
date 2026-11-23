@@ -365,12 +365,25 @@ bearer token. A device's token never opens an admin route or the console: admini
 is active, so each takes effect on the device's next request:
 - an admin revokes the device (above): it's done for good; the person joins again to get a new device;
 - an admin suspends the person: all their devices stop, and start working again if they're resumed (a device
-  whose refresh token lapsed meanwhile joins again);
+  whose refresh token lapsed meanwhile signs in again);
 - the person leaves in Row-Bot (`POST /api/device/leave`): the device is revoked with its tokens
   (`device.removed`, reason `left`).
 
-**Token lifetimes** (fixed in this version): an access token lasts 1 hour; Row-Bot then rotates its refresh
-token, which ends after 30 days unused and 180 days after the device joined at the latest, after which the person
-signs in again in the browser. A refresh token presented a second time (a copy) revokes every token of its device.
-The server keeps only HMAC verifiers of codes and tokens. `/auth/device` and `/api/device/token` are limited per
-client address like sign-in: `ROW_BOT_ORG_SIGN_IN_RATE_LIMIT` requests a minute, counted apart from sign-in's.
+**Offboarding means suspending the person in Row-Bot too** (People and admins). Disabling them at the identity
+provider alone stops their devices only when each next signs in through the browser, which happens within 30
+days. Groups, too, are refreshed at each browser sign-in.
+
+**Token lifetimes** (fixed in this version): an access token lasts 1 hour, and Row-Bot then rotates its refresh
+token. A device's refresh tokens end 30 days after it last signed in through the browser, however much they're
+used, so every device goes back through the company sign-in (and the identity provider) at least monthly. Signing
+in again keeps the same device record: Row-Bot sends its device id, its old tokens end, and no new
+`device.joined` is recorded. A refresh token presented a second time is treated as a copy and revokes every token
+of its device (`device.credential_reused`), with one allowance: within 60 seconds of its use, and while nothing
+issued from it has been used, the server assumes its answer was lost and issues a new pair instead. A one-time code
+presented a second time revokes its device's tokens the same way. The server keeps only HMAC verifiers of codes
+and tokens.
+
+**Limits per client address** (`ROW_BOT_ORG_SIGN_IN_RATE_LIMIT` a minute, each counted apart from sign-in's):
+`/auth/device` counts every request; `/api/device/token` counts only refused ones, so an office of Row-Bots
+refreshing behind one address is never held up, while an address that keeps presenting bad codes or tokens waits
+out the minute.

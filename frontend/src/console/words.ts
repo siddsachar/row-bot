@@ -58,6 +58,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'device.joined': 'Device joined',
   'device.removed': 'Device removed or revoked',
   'device.locked_down': 'Device locked down',
+  'device.credential_reused': 'Device credential used twice',
   'model.called': 'Model called',
   'tool.called': 'Tool used',
   'policy.changed': 'Policy changed',
@@ -118,6 +119,8 @@ export function describeEvent(event: AuditEvent, nameOf: Names): string {
         : `${who} removed a device`;
     case 'device.locked_down':
       return `${who}'s device locked down after being offline too long`;
+    case 'device.credential_reused':
+      return 'A device was signed out: its sign-in was used twice';
     case 'model.called':
       return `${who} used ${String(detail.model ?? 'a model')} (${count(
         Number(detail.input_tokens ?? 0) + Number(detail.output_tokens ?? 0),

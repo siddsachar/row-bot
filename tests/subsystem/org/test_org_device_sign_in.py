@@ -2,10 +2,11 @@
 fake model endpoint for the gateway, the server's routes and a real (throwaway) Postgres as the runtime role.
 
 Covers the whole join (sign in, ``/auth/device``, the confirm page, the code, the token, bearer calls to the
-person's API and the gateway, refresh, leave), each refusal (redirect URIs that aren't loopback, ``plain``
-PKCE, a wrong verifier, a reused or expired code, a reused refresh token, a cookie with a bearer, a bearer on
-admin routes, a revoked device, a suspended person, a confirm from another origin, an ingested event naming
-another device), row-level security on codes and tokens, the definer lookups, the per-address limit and the
+person's API and the gateway, refresh, leave), joining again as the same device, each refusal (redirect URIs
+that aren't 127.0.0.1, ``plain`` PKCE, a wrong verifier, a reused or expired code, a reused refresh token
+inside and outside the reuse interval, a cookie with a bearer, a bearer on admin routes, a revoked device, a
+suspended person, a confirm from another origin or submitted twice, an ingested event or a device route naming
+another device), row-level security on codes and tokens, the definer lookups, the per-address limits and the
 logs. Security-sensitive: these run in the pull request lane's Org job.
 """
 
@@ -33,7 +34,7 @@ pytest.importorskip("joserfc", reason="joserfc is not installed: uv sync --locke
 from fastapi.testclient import TestClient  # noqa: E402
 
 from row_bot.audit import Action, Actor, ActorKind, AuditEvent, Target, TargetKind, new_event_id, to_dict  # noqa: E402
-from row_bot_org.app import DEVICE_CSP, create_app  # noqa: E402
+from row_bot_org.app import DEVICE_CSP, DEVICE_REFERRER_POLICY, create_app  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
 from row_bot_org.identity.device import REQUEST_COOKIE  # noqa: E402
@@ -130,7 +131,7 @@ def back_to_app(response) -> dict[str, str]:
     return {name: values[0] for name, values in parse_qs(urlsplit(location).query).items()}
 
 
-def code_for(client: TestClient, code_verifier: str = CODE_VERIFIER, **changes: str) -> str:
+def code_for(client: TestClient, code_verifier: str = CODE_VERIFIER, **changes: str | None) -> str:
     """Connect a new device for the signed-in ``client``: its one-time code."""
     query = back_to_app(confirm(client, form_token(client.get(device_query(code_verifier, **changes)))))
     assert query["state"] == STATE
@@ -146,9 +147,9 @@ def refresh(app: TestClient, refresh_token: str):
     return app.post("/api/device/token", data={"grant_type": "refresh_token", "refresh_token": refresh_token})
 
 
-def join(server: TestClient, client: TestClient) -> dict[str, Any]:
-    """A new device for ``client``'s person, all the way to its tokens."""
-    response = exchange(row_bot(server), code_for(client))
+def join(server: TestClient, client: TestClient, **changes: str | None) -> dict[str, Any]:
+    """A new device for ``client``'s person (or, with ``device_id``, that one again), all the way to its tokens."""
+    response = exchange(row_bot(server), code_for(client, **changes))
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -177,6 +178,14 @@ def refused_as(response, status: int, error: str) -> bool:
     return response.status_code == status and response.json() == {"error": error}
 
 
+def reuse_events(database) -> list[tuple]:
+    return [summary(event) for event in stored_events(database.owner_url, "device.credential_reused")]
+
+
+def reused(device_id: str, credential: str) -> tuple:
+    return ("device.credential_reused", "service", "company-server", device_id, "blocked", {"credential": credential})
+
+
 # -- the whole join -----------------------------------------------------------------------------------
 
 def test_a_row_bot_joins_calls_the_api_and_gateway_refreshes_and_leaves(org_database, idp) -> None:
@@ -192,9 +201,16 @@ def test_a_row_bot_joins_calls_the_api_and_gateway_refreshes_and_leaves(org_data
         page = ada.get(device_query())
         assert "Connect Row-Bot on Ada&#x27;s laptop to org.example.test?" in page.text
         assert "You're signed in as" in page.text and "<script" not in page.text
+        assert "Only connect if you just started this from Row-Bot on this computer." in page.text
         assert page.headers["content-security-policy"] == DEVICE_CSP
-        assert ada.get("/auth/device.css").headers["content-type"].startswith("text/css")
-        code = back_to_app(confirm(ada, form_token(page)))["code"]
+        # same-origin, not no-referrer: a browser then sends the form's POST with its real Origin, not "null".
+        assert page.headers["referrer-policy"] == DEVICE_REFERRER_POLICY == "same-origin"
+        style = ada.get("/auth/device.css")
+        assert style.headers["content-type"].startswith("text/css")
+        assert style.headers["referrer-policy"] == "same-origin"
+        connected = confirm(ada, form_token(page))
+        assert connected.headers["referrer-policy"] == "same-origin"
+        code = back_to_app(connected)["code"]
         assert code.startswith("rboc_")
 
         app = row_bot(server)
@@ -209,6 +225,7 @@ def test_a_row_bot_joins_calls_the_api_and_gateway_refreshes_and_leaves(org_data
 
         # The person's API and the gateway, with the bearer alone: no cookie, no Origin.
         assert app.get("/api/me", headers=bearer(tokens["access_token"])).json()["id"] == ada_id
+        assert app.get("/api/me").headers["referrer-policy"] == "no-referrer"  # The API keeps its own.
         call = app.post(CHAT, headers=bearer(tokens["access_token"]),
                         json={"model": "company-chat", "messages": [{"role": "user", "content": "Hello"}]})
         assert call.status_code == 200, call.text
@@ -271,6 +288,7 @@ def test_someone_not_signed_in_signs_in_first_and_comes_back_to_the_same_request
     {"redirect_uri": "http://127.0.0.1:53682/callback?x=1"},
     {"redirect_uri": "http://127.0.0.1/callback"},
     {"redirect_uri": "http://127.0.0.1:99999/callback"},
+    {"redirect_uri": "http://[::1]:53682/callback"},
     {"redirect_uri": None},
     {"code_challenge_method": "plain"},
     {"code_challenge_method": None},
@@ -279,6 +297,7 @@ def test_someone_not_signed_in_signs_in_first_and_comes_back_to_the_same_request
     {"platform": "android"},
     {"device_name": " padded "},
     {"app_version": "5.4 beta"},
+    {"device_id": "not-a-uuid"},
 ], ids=lambda changes: next(f"{k}={v}" for k, v in changes.items()))
 def test_a_bad_device_request_gets_a_plain_error_page_and_never_a_redirect(org_database, idp, changes) -> None:
     with org_server(org_database, idp) as server:
@@ -296,10 +315,10 @@ def test_a_bad_device_request_gets_a_plain_error_page_and_never_a_redirect(org_d
     assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.devices") == [(0,)]
 
 
-def test_both_loopback_forms_are_accepted(org_database, idp) -> None:
+def test_any_port_and_path_on_127_0_0_1_is_accepted(org_database, idp) -> None:
     with org_server(org_database, idp) as server:
         ada = person(server, idp, "ada")
-        for uri in ("http://127.0.0.1:1/", "http://[::1]:65535/oauth/done"):
+        for uri in ("http://127.0.0.1:1/", "http://127.0.0.1:65535/oauth/done"):
             response = confirm(ada, form_token(ada.get(device_query(redirect_uri=uri))))
             assert response.headers["location"].startswith(uri + "?code=rboc_")
 
@@ -333,6 +352,60 @@ def test_the_confirm_step_needs_the_same_origin_and_its_own_signed_form(org_data
     assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.devices") == [(0,)]
 
 
+def test_a_confirm_form_connects_once(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        ada = person(server, idp, "ada")
+        token = form_token(ada.get(device_query()))
+        first = back_to_app(confirm(ada, token))["code"]
+
+        again = confirm(ada, token)  # A double click, or the back button.
+        assert again.status_code == 400 and "location" not in again.headers
+        assert exchange(row_bot(server), first).status_code == 200
+    assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.devices") == [(1,)]
+    assert len(stored_events(org_database.owner_url, "device.joined")) == 1
+
+
+# -- joining again ------------------------------------------------------------------------------------
+
+def test_a_device_joins_again_as_itself_and_its_old_tokens_end(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        ada = person(server, idp, "ada")
+        app = row_bot(server)
+        first = join(server, ada)
+        device_id = first["device_id"]
+
+        again = join(server, ada, device_id=device_id, device_name="Ada's new laptop", app_version="5.4.1")
+        assert again["device_id"] == device_id
+        assert refused_as(app.get("/api/me", headers=bearer(first["access_token"])), 401, "invalid_token")
+        assert refused_as(refresh(app, first["refresh_token"]), 400, "invalid_grant")
+        assert app.get("/api/me", headers=bearer(again["access_token"])).status_code == 200
+    assert owner_sql(org_database, "SELECT id::text, name, app_version, revoked_at IS NULL FROM row_bot_org.devices") \
+        == [(device_id, "Ada's new laptop", "5.4.1", True)]
+    assert len(stored_events(org_database.owner_url, "device.joined")) == 1
+    assert reuse_events(org_database) == []
+
+
+def test_joining_again_needs_ones_own_live_device(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        ada, bob = person(server, idp, "ada"), person(server, idp, "bob")
+        app = row_bot(server)
+        bobs = join(server, bob)["device_id"]
+        left = join(server, ada)
+        assert app.post("/api/device/leave", headers=bearer(left["access_token"])).status_code == 204
+        unknown = "00000000-0000-4000-8000-000000000000"
+
+        for device_id in (bobs, left["device_id"], unknown):
+            refused = ada.get(device_query(device_id=device_id), follow_redirects=False)
+            assert refused.status_code == 400 and "location" not in refused.headers
+        # Revoked between the page and Connect: refused, and nothing is made.
+        live = join(server, ada)["device_id"]
+        token = form_token(ada.get(device_query(device_id=live)))
+        owner_sql(org_database, "UPDATE row_bot_org.devices SET revoked_at = now() WHERE id = %s", live)
+        assert confirm(ada, token).status_code == 400
+    assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.devices") == [(3,)]
+    assert owner_sql(org_database, "SELECT name FROM row_bot_org.devices WHERE id = %s", bobs) == [("Ada's laptop",)]
+
+
 # -- the code -----------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("wrong", [{"code_verifier": "w" * 43}, {"redirect_uri": "http://127.0.0.1:53683/callback"},
@@ -358,8 +431,9 @@ def test_a_code_used_again_revokes_what_it_gave(org_database, idp) -> None:
         assert refused_as(exchange(app, code), 400, "invalid_grant")
         assert refused_as(app.get("/api/me", headers=bearer(tokens["access_token"])), 401, "invalid_token")
         assert refused_as(refresh(app, tokens["refresh_token"]), 400, "invalid_grant")
-    # The device record stays; only its tokens went.
+    # The device record stays; only its tokens went, and the reuse is on record.
     assert owner_sql(org_database, "SELECT revoked_at IS NULL FROM row_bot_org.devices") == [(True,)]
+    assert reuse_events(org_database) == [reused(tokens["device_id"], "code")]
 
 
 def test_an_expired_code_is_refused(org_database, idp) -> None:
@@ -375,13 +449,48 @@ def test_an_expired_code_is_refused(org_database, idp) -> None:
 
 # -- tokens -------------------------------------------------------------------------------------------
 
-def test_a_refresh_token_used_again_revokes_the_whole_family_but_not_the_device(org_database, idp) -> None:
+def test_a_refresh_answer_lost_on_the_way_is_given_again_within_the_reuse_interval(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        app = row_bot(server)
+        first = join(server, person(server, idp, "ada"))
+        lost = refresh(app, first["refresh_token"]).json()  # The app never saw this answer.
+
+        retried = refresh(app, first["refresh_token"])
+        assert retried.status_code == 200, retried.text
+        again = retried.json()
+        assert again["device_id"] == first["device_id"] and again["refresh_token"] != lost["refresh_token"]
+        # What the lost answer carried is revoked; the new pair works and rotates as usual.
+        assert refused_as(app.get("/api/me", headers=bearer(lost["access_token"])), 401, "invalid_token")
+        assert refused_as(refresh(app, lost["refresh_token"]), 400, "invalid_grant")
+        assert app.get("/api/me", headers=bearer(again["access_token"])).status_code == 200
+        assert refresh(app, again["refresh_token"]).status_code == 200
+    assert reuse_events(org_database) == []
+
+
+def test_a_refresh_token_used_again_once_its_successor_was_used_revokes_the_family(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        app = row_bot(server)
+        first = join(server, person(server, idp, "ada"))
+        second = refresh(app, first["refresh_token"]).json()
+        third = refresh(app, second["refresh_token"]).json()  # The app had the answer: it moved on.
+
+        assert refused_as(refresh(app, first["refresh_token"]), 400, "invalid_grant")
+        assert refused_as(app.get("/api/me", headers=bearer(third["access_token"])), 401, "invalid_token")
+        assert refused_as(refresh(app, third["refresh_token"]), 400, "invalid_grant")
+    assert reuse_events(org_database) == [reused(first["device_id"], "refresh_token")]
+
+
+def test_a_refresh_token_used_again_after_the_interval_revokes_the_family_but_not_the_device(org_database,
+                                                                                           idp) -> None:
     with org_server(org_database, idp) as server:
         ada = person(server, idp, "ada")
         app = row_bot(server)
         first = join(server, ada)
         second = refresh(app, first["refresh_token"]).json()
         assert app.get("/api/me", headers=bearer(second["access_token"])).status_code == 200
+        # The database's clock decides: the first token was used 61 seconds ago, no waiting.
+        owner_sql(org_database, "UPDATE row_bot_org.device_tokens SET used_at = now() - interval '61 seconds'"
+                                " WHERE used_at IS NOT NULL")
 
         assert refused_as(refresh(app, first["refresh_token"]), 400, "invalid_grant")
         for access in (first["access_token"], second["access_token"]):
@@ -390,6 +499,7 @@ def test_a_refresh_token_used_again_revokes_the_whole_family_but_not_the_device(
         # The person joins again as usual.
         assert app.get("/api/me", headers=bearer(join(server, ada)["access_token"])).status_code == 200
     assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.devices WHERE revoked_at IS NULL") == [(2,)]
+    assert reuse_events(org_database) == [reused(first["device_id"], "refresh_token")]
 
 
 def test_expired_tokens_are_refused_and_a_refresh_never_outlives_the_join(org_database, idp) -> None:
@@ -400,13 +510,13 @@ def test_expired_tokens_are_refused_and_a_refresh_never_outlives_the_join(org_da
             org_database, "SELECT extract(epoch FROM expires_at - created_at)::int,"
                           " extract(epoch FROM absolute_expires_at - created_at)::int"
                           " FROM row_bot_org.device_tokens WHERE kind = 'refresh'")
-        # 30 and 180 days (an hour either way where the database's zone changes the clock between).
-        assert abs(idle - 30 * 86400) <= 3600 and abs(absolute - 180 * 86400) <= 3600
+        # 30 days both (an hour either way where the database's zone changes the clock between).
+        assert abs(idle - 30 * 86400) <= 3600 and abs(absolute - 30 * 86400) <= 3600
 
         owner_sql(org_database, "UPDATE row_bot_org.device_tokens SET expires_at = now() - interval '1 second'"
                                 " WHERE kind = 'access'")
         assert refused_as(app.get("/api/me", headers=bearer(tokens["access_token"])), 401, "invalid_token")
-        # Ten minutes left of the join's 180 days: the next refresh token ends then, not 30 days on.
+        # Ten minutes left of the 30 days since the code was traded: the next refresh token ends then.
         owner_sql(org_database, "UPDATE row_bot_org.device_tokens SET absolute_expires_at = now() + interval '10 minutes'"
                                 " WHERE kind = 'refresh'")
         rotated = refresh(app, tokens["refresh_token"]).json()
@@ -460,6 +570,9 @@ def test_a_cookie_and_a_bearer_together_are_refused(org_database, idp) -> None:
         # Each alone works; a browser session can't leave in a device's name.
         assert ada.get("/api/me").status_code == 200
         assert refused_as(ada.post("/api/device/leave"), 403, "device_credential_required")
+        # Another scheme (Basic or Negotiate from a proxy in front) is ignored: the cookie decides.
+        for header in ("Basic dXNlcjpwYXNz", "Negotiate YIIBhwYGKwYBBQUCoIIBezCC"):
+            assert ada.get("/api/me", headers={"Authorization": header}).status_code == 200
 
 
 def test_a_bearer_never_opens_an_admin_route_the_console_or_a_browser_step(org_database, idp) -> None:
@@ -468,12 +581,14 @@ def test_a_bearer_never_opens_an_admin_route_the_console_or_a_browser_step(org_d
         app = row_bot(server)
         tokens = join(server, it)
         with_bearer = bearer(tokens["access_token"])
-        assert app.get("/api/me", headers=with_bearer).status_code == 200
+        # An admin's device isn't an admin: administration is browser-only.
+        assert app.get("/api/me", headers=with_bearer).json()["admin"] is False
+        assert it.get("/api/me").json()["admin"] is True
 
         for method, path in [("GET", "/api/admin/people"), ("GET", "/api/admin/devices"),
                              ("POST", f"/api/admin/devices/{tokens['device_id']}/revoke"), ("GET", "/api/admin/audit"),
                              ("PUT", "/api/admin/policy"), ("GET", "/console/"), ("GET", "/admin/"),
-                             ("POST", "/auth/logout"), ("POST", "/auth/device/confirm")]:
+                             ("POST", "/auth/logout"), ("POST", "/auth/device/confirm"), ("GET", "/api/admin")]:
             response = app.request(method, path, headers=with_bearer, json={})
             assert refused_as(response, 403, "browser_session_required"), (method, path)
         # The admin's browser session still administers.
@@ -511,37 +626,65 @@ def test_a_suspended_persons_devices_stop_and_start_again_when_resumed(org_datab
         assert refresh(app, tokens["refresh_token"]).status_code == 200
 
 
-def test_a_device_reports_audit_events_only_for_itself(org_database, idp) -> None:
+def test_a_device_reports_and_refreshes_only_itself(org_database, idp) -> None:
     with org_server(org_database, idp) as server:
         ada = person(server, idp, "ada")
         app = row_bot(server)
         laptop, desktop = join(server, ada), join(server, ada)
+        with_bearer = bearer(laptop["access_token"])
 
         def send(event: dict):
-            return app.post("/api/audit/events", headers=bearer(laptop["access_token"]), json={"events": [event]})
+            return app.post("/api/audit/events", headers=with_bearer, json={"events": [event]})
 
         other = send(tool_event(device_id=desktop["device_id"]))
         assert (other.status_code, other.json()) == (422, {"error": "device_mismatch", "index": 0})
         assert send(tool_event(device_id=laptop["device_id"])).json() == {"accepted": 1, "duplicates": 0}
-        assert send(tool_event()).json() == {"accepted": 1, "duplicates": 0}
+        assert send(tool_event()).json() == {"accepted": 1, "duplicates": 0}  # Given the bearer's device.
+
+        # The device routes too: a bearer reports in and re-registers as itself only.
+        seen_other = app.post(f"/api/devices/{desktop['device_id']}/seen", headers=with_bearer)
+        assert refused_as(seen_other, 403, "device_mismatch")
+        assert app.post(f"/api/devices/{laptop['device_id']}/seen", headers=with_bearer).status_code == 200
+        again = {"name": "Ada's laptop", "platform": "windows", "app_version": "5.4.1"}
+        assert refused_as(app.post("/api/devices", headers=with_bearer, json={**again, "id": desktop["device_id"]}),
+                          403, "device_mismatch")
+        assert app.post("/api/devices", headers=with_bearer, json={**again, "id": laptop["device_id"]}).status_code \
+            == 200
+        # A browser session still reports in for any of the person's devices.
+        assert ada.post(f"/api/devices/{desktop['device_id']}/seen").status_code == 200
     assert [event.get("device_id") for event in stored_events(org_database.owner_url, "tool.called")] == [
-        laptop["device_id"], None]
+        laptop["device_id"], laptop["device_id"]]
 
 
 # -- the limit, the logs ------------------------------------------------------------------------------
 
-def test_a_flood_of_device_steps_from_one_address_is_refused_before_the_database(org_database, idp) -> None:
+def test_a_flood_of_device_pages_from_one_address_is_refused_before_the_database(org_database, idp) -> None:
     with org_server(org_database, idp, ROW_BOT_ORG_SIGN_IN_RATE_LIMIT="3") as server:
         flooder = browser(server, "198.51.100.7")
         assert [flooder.get(device_query(), follow_redirects=False).status_code for _ in range(3)] == [303] * 3
-        assert flooder.get(device_query(), follow_redirects=False).status_code == 429
-        token = row_bot(server, "198.51.100.7").post("/api/device/token", json={"grant_type": "refresh_token",
-                                                                                "refresh_token": "rbor_" + "A" * 43})
-        assert (token.status_code, token.json(), token.headers["retry-after"]) == (
-            429, {"error": "too_many_requests"}, "60")
-        # The browser sign-in counts apart, and another address joins as usual.
+        flooded = flooder.get(device_query(), follow_redirects=False)
+        assert (flooded.status_code, flooded.headers["retry-after"]) == (429, "60")
+        # The browser sign-in and the token endpoint count apart, and another address joins as usual.
         assert flooder.get("/auth/login", follow_redirects=False).status_code == 302
-        assert exchange(row_bot(server, "198.51.100.8"), code_for(person(server, idp, "ada"))).status_code == 200
+        assert exchange(row_bot(server, "198.51.100.7"), code_for(person(server, idp, "ada"))).status_code == 200
+
+
+def test_the_token_endpoint_limits_an_address_by_its_refused_requests_only(org_database, idp) -> None:
+    with org_server(org_database, idp, ROW_BOT_ORG_SIGN_IN_RATE_LIMIT="3") as server:
+        office = row_bot(server, "203.0.113.20")  # A whole office behind one address.
+        tokens = join(server, person(server, idp, "ada"))
+        for _ in range(8):
+            rotated = refresh(office, tokens["refresh_token"])
+            assert rotated.status_code == 200, rotated.text
+            tokens = rotated.json()
+
+        guesser = row_bot(server, "198.51.100.9")
+        guesses = [refresh(guesser, "rbor_" + secrets.token_urlsafe(32)[:43]) for _ in range(4)]
+        assert [guess.status_code for guess in guesses] == [400, 400, 400, 429]
+        assert guesses[-1].json() == {"error": "too_many_requests"} and guesses[-1].headers["retry-after"] == "60"
+        # Spent: even a good request from that address waits out the minute; the office goes on.
+        assert refresh(guesser, tokens["refresh_token"]).status_code == 429
+        assert refresh(office, tokens["refresh_token"]).status_code == 200
 
 
 @pytest.fixture
@@ -609,10 +752,12 @@ def test_one_person_never_reads_or_changes_anothers_codes_or_tokens(org_database
         f"INSERT INTO row_bot_org.device_tokens (verifier, kind, principal_id, device_id, expires_at)"
         f" VALUES ('\\x{'00' * 32}', 'access', '{ada_id}', '{ada_device}', now() + interval '1 year')",
         # A code for Bob's device, or one that lasts longer than its 60 seconds.
-        f"INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri)"
-        f" VALUES ('{bob_device}', '\\x{'01' * 32}', '{'A' * 43}', 'http://127.0.0.1:1/')",
-        f"INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri, expires_at)"
-        f" VALUES ('{ada_device}', '\\x{'02' * 32}', '{'A' * 43}', 'http://127.0.0.1:1/', now() + interval '1 day')",
+        f"INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri, form_nonce)"
+        f" VALUES ('{bob_device}', '\\x{'01' * 32}', '{'A' * 43}', 'http://127.0.0.1:1/', '\\x{'03' * 32}')",
+        f"INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri, form_nonce,"
+        f" expires_at) VALUES ('{ada_device}', '\\x{'02' * 32}', '{'A' * 43}', 'http://127.0.0.1:1/',"
+        f" '\\x{'04' * 32}', now() + interval '1 day')",
+        "UPDATE row_bot_org.device_tokens SET parent_id = NULL",
     ]
     for sql in refusals:
         with pytest.raises(psycopg.errors.InsufficientPrivilege), principal_transaction(pool, ada_id) as conn:
@@ -633,7 +778,7 @@ def test_the_definer_lookups_return_one_row_for_one_verifier_and_nothing_for_a_g
         join(server, person(server, idp, "bob"))
     access = verifier(PEPPER, "device-access", tokens["access_token"][len("rboa_"):])
     guess = secrets.token_bytes(32)
-    week, month = timedelta(weeks=1), timedelta(days=30)
+    week, month, minute = timedelta(weeks=1), timedelta(days=30), timedelta(seconds=60)
 
     with psycopg.connect(org_database.runtime_url, autocommit=True) as conn:
         assert [str(row[0]) for row in conn.execute(
@@ -643,8 +788,9 @@ def test_the_definer_lookups_return_one_row_for_one_verifier_and_nothing_for_a_g
         # The refresh verifier isn't an access token.
         refresh_verifier = verifier(PEPPER, "device-refresh", tokens["refresh_token"][len("rbor_"):])
         assert conn.execute("SELECT * FROM row_bot_org.resume_device_token(%s)", (refresh_verifier,)).fetchall() == []
-        assert conn.execute("SELECT * FROM row_bot_org.refresh_device_token(%s, %s, %s, %s, %s)",
-                            (guess, secrets.token_bytes(32), secrets.token_bytes(32), week, month)).fetchall() == []
+        assert conn.execute("SELECT * FROM row_bot_org.refresh_device_token(%s, %s, %s, %s, %s, %s)",
+                            (guess, secrets.token_bytes(32), secrets.token_bytes(32), week, month,
+                             minute)).fetchall() == []
         assert conn.execute("SELECT * FROM row_bot_org.redeem_device_code(%s, %s, %s, %s, %s, %s, %s, %s)",
                             (guess, "A" * 43, REDIRECT, secrets.token_bytes(32), secrets.token_bytes(32), week,
                              month, month)).fetchall() == []

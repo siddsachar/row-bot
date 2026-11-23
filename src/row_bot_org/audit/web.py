@@ -18,7 +18,7 @@ For a signed-in person (their Row-Bot's sender, C4):
   session's person), the organisation and the time recorded, and stores the event at the metadata level; a
   ``device_id`` must be one of the person's devices (422 ``unknown_device``, 403 ``device_revoked``), and a
   lockdown names it as its target too (422 ``device_mismatch``). With a device's bearer token, a ``device_id`` must
-  be that device (422 ``device_mismatch``). An event whose id the person already stored is
+  be that device (422 ``device_mismatch``), and an event without one is given it. An event whose id the person already stored is
   skipped (a retry): ``{"accepted": n, "duplicates": m}``; an id stored for anyone else refuses the batch (409
   ``event_id_taken``). The whole batch is stored in one transaction, or none of it.
 """
@@ -154,9 +154,11 @@ def audit_router() -> APIRouter:
             if event.action not in DEVICE_ACTIONS or (
                     event.action == Action.DATA_EXPORTED and event.details.get("scope") != "person"):
                 return _error(422, "action_not_accepted", index=index)
-            # A device's bearer reports for itself only.
-            if principal.device_id is not None and event.device_id not in (None, principal.device_id):
-                return _error(422, "device_mismatch", index=index)
+            # A device's bearer reports for itself only, and names itself when the event doesn't.
+            if principal.device_id is not None:
+                if event.device_id not in (None, principal.device_id):
+                    return _error(422, "device_mismatch", index=index)
+                event = dataclasses.replace(event, device_id=principal.device_id)
             if event.device_id is not None and (state := _device_state(conn, event.device_id)) != "ok":
                 return _error(403, "device_revoked", index=index) if state == "revoked" else _error(
                     422, "unknown_device", index=index)

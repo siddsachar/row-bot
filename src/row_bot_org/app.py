@@ -31,10 +31,13 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
 }
 # The device sign-in's two pages (identity.device): its own stylesheet, and a form that posts here and is then
-# redirected to the app's loopback address (form-action governs a form's redirects too). No script at all.
+# redirected to the app's loopback address (form-action governs a form's redirects too). No script at all. Their
+# Referrer-Policy is same-origin, not no-referrer: under no-referrer a browser sends the form's POST with
+# "Origin: null", which the same-origin rule (rightly) refuses.
 DEVICE_PAGES = frozenset({"/auth/device", "/auth/device/confirm", "/auth/device.css"})
-DEVICE_CSP = ("default-src 'none'; style-src 'self'; form-action 'self' http://127.0.0.1:* http://[::1]:*; "
+DEVICE_CSP = ("default-src 'none'; style-src 'self'; form-action 'self' http://127.0.0.1:*; "
               "base-uri 'none'; frame-ancestors 'none'")
+DEVICE_REFERRER_POLICY = "same-origin"
 
 
 class _SecurityHeaders:
@@ -62,6 +65,7 @@ class _SecurityHeaders:
                     headers["Content-Security-Policy"] = CONSOLE_CSP
                 elif device:
                     headers["Content-Security-Policy"] = DEVICE_CSP
+                    headers["Referrer-Policy"] = DEVICE_REFERRER_POLICY
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
@@ -187,4 +191,4 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     return app
 
 
-__all__ = ["DEVICE_CSP", "DEVICE_PAGES", "SECURITY_HEADERS", "create_app"]
+__all__ = ["DEVICE_CSP", "DEVICE_PAGES", "DEVICE_REFERRER_POLICY", "SECURITY_HEADERS", "create_app"]

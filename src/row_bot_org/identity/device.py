@@ -2,36 +2,42 @@
 
 RFC 8252's native-app flow, with a loopback redirect and PKCE (S256 only):
 
-1. ``GET /auth/device`` in the system browser, with ``redirect_uri`` (``http://127.0.0.1:<port>/<path>`` or
-   ``http://[::1]:<port>/<path>``: no other host, no ``localhost``, no query, fragment or userinfo),
-   ``code_challenge`` and ``code_challenge_method=S256``, ``state`` (1-256 printable characters), and
-   ``device_name``, ``platform`` and ``app_version`` (as ``POST /api/devices`` bounds them). A bad request gets a
-   plain error page, never a redirect.
+1. ``GET /auth/device`` in the system browser, with ``redirect_uri`` (``http://127.0.0.1:<port>/<path>`` only:
+   no other host, no ``localhost`` or ``[::1]``, no query, fragment or userinfo), ``code_challenge`` and
+   ``code_challenge_method=S256``, ``state`` (1-256 printable characters), ``device_name``, ``platform`` and
+   ``app_version`` (as ``POST /api/devices`` bounds them), and, joining again, the ``device_id`` it has. A bad
+   request gets a plain error page, never a redirect.
    - Not signed in: the request waits, signed with the server's pepper, in its own ``__Host-`` cookie for ten
      minutes, and the browser goes through the company sign-in (``/auth/login?next=/auth/device``), which comes
      back to ``GET /auth/device``.
    - Signed in: the confirm page, "Connect Row-Bot on <device> to <server>?", a POST form with Connect and
      Cancel. The request's parameters travel in a signed form token bound to the browser's session (ten
-     minutes), not in fields the server trusts.
+     minutes, one Connect), not in fields the server trusts. A ``device_id`` that isn't one of the person's own
+     live devices gets the error page.
 2. ``POST /auth/device/confirm`` (the session and the same-origin rule, as every browser POST):
    - Cancel: 303 to ``redirect_uri?error=access_denied&state=...``.
-   - Connect: a new device (``devices.create_device``, ``device.joined``) and a one-time authorization code
-     (256 bits, 60 seconds, kept only as its verifier, bound to the challenge, the redirect URI, the person and
-     the device), then 303 to ``redirect_uri?code=...&state=...``.
+   - Connect: a new device (``devices.create_device``, ``device.joined``), or with ``device_id`` that device again
+     (name and version refreshed, its earlier tokens revoked, no new ``device.joined``), and a one-time
+     authorization code (256 bits, 60 seconds, kept only as its verifier, bound to the challenge, the redirect
+     URI, the person and the device), then 303 to ``redirect_uri?code=...&state=...``.
 3. ``POST /api/device/token`` (JSON or a form; no cookie, outside the same-origin rule: it carries no ambient
    credential): ``grant_type=authorization_code`` with ``code``, ``code_verifier`` and ``redirect_uri``, or
    ``grant_type=refresh_token`` with ``refresh_token``. It answers ``{"access_token", "token_type": "Bearer",
    "expires_in", "refresh_token", "device_id"}``, or OAuth's errors (400 ``invalid_request``,
    ``invalid_grant``, ``unsupported_grant_type``) with nothing more. A code works once, and presented again
-   revokes everything issued for its device; a refresh token rotates, and one presented again after it was
-   rotated revokes all its device's tokens (the device record stays).
+   revokes everything issued for its device; a refresh token rotates. A rotated refresh token presented again
+   within ``REUSE_INTERVAL`` of its use, before anything issued from it was used, gets a new pair (its answer was
+   lost); otherwise it revokes all its device's tokens (the device record stays). Each revoking reuse is
+   recorded (``device.credential_reused``) and logged by device id.
 4. ``Authorization: Bearer <access token>`` on the person's API, the gateway and audit ingest (``identity.gate``):
    live only while the token is unexpired, its device unrevoked and its person active, checked on every request.
 5. ``POST /api/device/leave`` (the bearer): the device is revoked (``device.removed``, reason ``left``) with its
    tokens: 204. Again with the same token: 401, since the token died with its device.
 
-``/auth/device`` and the token endpoint share a per-address limit (``identity.limits``, the sign-in setting's
-count a minute). No log line carries a code, a token or the request's state.
+Limits per client address (``identity.limits``, the sign-in setting's count a minute, each counted apart from
+sign-in): ``/auth/device`` has its own count, and the token endpoint counts only its refused requests, so a whole
+office's Row-Bots refreshing behind one address are never held up. No log line carries a code, a token or the
+request's state.
 """
 
 from __future__ import annotations
@@ -44,6 +50,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -56,10 +63,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from row_bot.audit import Action, Target, TargetKind
+from row_bot.audit import Action, Actor, ActorKind, Outcome, Target, TargetKind
 from row_bot_org import audit
 from row_bot_org.db.rls import principal_transaction
-from row_bot_org.devices import DeviceIn, create_device, record_joined
+from row_bot_org.devices import DeviceIn, create_device, record_joined, rejoin_device
 from row_bot_org.identity import store
 from row_bot_org.identity.gate import RequestPrincipal, request_principal, session_cookie
 from row_bot_org.identity.limits import WINDOW_SECONDS, AddressRateLimit
@@ -84,17 +91,22 @@ LEAVE_PATH = "/api/device/leave"
 # The device sign-in waiting for the company sign-in to finish.
 REQUEST_COOKIE = "__Host-row_bot_org_device"
 REQUEST_SECONDS = 600
-# The credential's lifetimes (README "Devices"): an hour of access, a refresh token unused for 30 days ends, and
-# none lasts past 180 days from the join.
+# The credential's lifetimes (README "Devices"): an hour of access; a refresh token ends 30 days after the code was
+# traded however it is used, so a device goes back through the browser and the identity provider at least monthly.
 ACCESS_LIFETIME = timedelta(hours=1)
 REFRESH_IDLE = timedelta(days=30)
-REFRESH_LIFETIME = timedelta(days=180)
-LIFETIMES = store.Lifetimes(ACCESS_LIFETIME, REFRESH_IDLE, REFRESH_LIFETIME)
+REFRESH_LIFETIME = timedelta(days=30)
+# A rotated refresh token still gets a pair this long after its use, as long as nothing issued from it was used.
+REUSE_INTERVAL = timedelta(seconds=60)
+LIFETIMES = store.Lifetimes(ACCESS_LIFETIME, REFRESH_IDLE, REFRESH_LIFETIME, REUSE_INTERVAL)
+# The Company Server, as the actor that refuses a reused credential.
+SERVER = Actor(ActorKind.SERVICE, "company-server")
 MAX_REDIRECT_URI = 512
 MAX_SEALED = 4096
 MAX_FORM_BYTES = 8 * 1024
 MAX_TOKEN_BODY = 16 * 1024
-_REDIRECT_URI = re.compile(r"http://(?:127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})(/[A-Za-z0-9._~/-]*)")
+# Only 127.0.0.1: an IPv6 literal can't be a CSP host-source, so the confirm form could never redirect to [::1].
+_REDIRECT_URI = re.compile(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})(/[A-Za-z0-9._~/-]*)")
 _CHALLENGE = re.compile(r"[A-Za-z0-9_-]{43}")
 _STATE = re.compile(r"[!-~]{1,256}")
 _PLATFORMS = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
@@ -113,6 +125,7 @@ main { width: 100%; max-width: 440px; background: var(--card); border: 1px solid
   padding: 28px 24px; }
 h1 { font-size: 1.25rem; line-height: 1.35; margin: 0 0 12px; overflow-wrap: anywhere; }
 p { margin: 0 0 12px; color: var(--muted); overflow-wrap: anywhere; }
+p.warning { color: var(--ink); font-weight: 600; }
 form { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
 button { flex: 1 1 140px; font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--line); background: transparent; color: var(--ink); }
@@ -123,7 +136,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 @dataclass(frozen=True)
 class DeviceRequest:
-    """A device sign-in, as checked at ``GET /auth/device``."""
+    """A device sign-in, as checked at ``GET /auth/device``. ``nonce`` is the sealed form's own (one Connect)."""
 
     redirect_uri: str
     code_challenge: str
@@ -131,6 +144,8 @@ class DeviceRequest:
     name: str
     platform: str
     app_version: str
+    device_id: str | None = None
+    nonce: str = ""
 
 
 def device_request(params: list[tuple[str, str]]) -> DeviceRequest | None:
@@ -145,12 +160,15 @@ def device_request(params: list[tuple[str, str]]) -> DeviceRequest | None:
     if (port is None or int(port.group(1)) > 65535 or values.get("code_challenge_method") != "S256"
             or not _CHALLENGE.fullmatch(challenge) or not _STATE.fullmatch(state)):
         return None
+    device_id = values.get("device_id")
     try:
         device = DeviceIn(name=values.get("device_name", ""), platform=values.get("platform", ""),
                           app_version=values.get("app_version", ""))
-    except ValidationError:
+        if device_id is not None:
+            device_id = str(uuid.UUID(device_id))
+    except (ValidationError, ValueError):
         return None
-    return DeviceRequest(uri, challenge, state, device.name, device.platform, device.app_version)
+    return DeviceRequest(uri, challenge, state, device.name, device.platform, device.app_version, device_id)
 
 
 def _b64(data: bytes) -> str:
@@ -162,13 +180,15 @@ def _unb64(text: str) -> bytes:
 
 
 class DeviceService:
-    """Device sign-in for one server: the identity service's pool and pepper, and its own per-address limit."""
+    """Device sign-in for one server: the identity service's pool and pepper, and its own per-address limits."""
 
     def __init__(self, identity: IdentityService, clock: Callable[[], float] = time.time) -> None:
         self.identity = identity
         self.pool = identity.pool
         self.host = urlsplit(identity.origin).netloc
-        self.limit = AddressRateLimit(identity.settings.sign_in_rate_limit)
+        # GET /auth/device, every request; the token endpoint, only the refused ones.
+        self.page_limit = AddressRateLimit(identity.settings.sign_in_rate_limit)
+        self.token_failures = AddressRateLimit(identity.settings.sign_in_rate_limit)
         self._clock = clock
 
     def verifier(self, purpose: str, secret: str) -> bytes:
@@ -186,8 +206,8 @@ class DeviceService:
 
     def seal(self, request: DeviceRequest, *, session_id: str | None = None) -> str:
         fields = {"r": request.redirect_uri, "c": request.code_challenge, "s": request.state, "n": request.name,
-                  "p": request.platform, "v": request.app_version, "e": int(self._clock()) + REQUEST_SECONDS,
-                  "t": session_id or ""}
+                  "p": request.platform, "v": request.app_version, "d": request.device_id or "",
+                  "e": int(self._clock()) + REQUEST_SECONDS, "t": session_id or "", "j": new_secret()}
         payload = _b64(json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
         return payload + "." + _b64(self.verifier("device-request", payload))
 
@@ -201,11 +221,28 @@ class DeviceService:
             return None
         try:
             fields = json.loads(_unb64(payload))
-            request = DeviceRequest(fields["r"], fields["c"], fields["s"], fields["n"], fields["p"], fields["v"])
+            request = DeviceRequest(fields["r"], fields["c"], fields["s"], fields["n"], fields["p"], fields["v"],
+                                    fields["d"] or None, fields["j"])
             live = int(fields["e"]) > self._clock() and fields["t"] == (session_id or "")
         except (binascii.Error, KeyError, TypeError, ValueError):
             return None
         return request if live else None
+
+    # -- the token endpoint's trades, each in one transaction with its audit event -------------------------
+
+    def trade(self, credential: str, run: Callable[[psycopg.Connection], store.Traded | None]) -> str | None:
+        """Run one definer trade; the device id when tokens were issued. A reused credential (which revoked the
+        device's tokens) is recorded and logged by device id."""
+        with self.pool.connection() as conn, conn.transaction():
+            traded = run(conn)
+            if traded is not None and traded.reused:
+                audit.emit(conn, Action.DEVICE_CREDENTIAL_REUSED, actor=SERVER, outcome=Outcome.BLOCKED,
+                           target=Target(TargetKind.DEVICE, traded.device_id), device_id=traded.device_id,
+                           details={"credential": credential})
+        if traded is not None and traded.reused:
+            logger.warning("a %s of device %s was used again: the device's tokens are revoked", credential,
+                           traded.device_id)
+        return None if traded is None or traded.reused else traded.device_id
 
 
 def _page(title: str, body: str, status: int = 200) -> HTMLResponse:
@@ -241,6 +278,7 @@ def _confirm_page(service: DeviceService, request: DeviceRequest, form_token: st
         f"<h1>Connect Row-Bot on {device} to {host}?</h1>{who}"
         f"<p>{_PLATFORMS[request.platform]}, Row-Bot {html.escape(request.app_version)}. Row-Bot on this device "
         "will use the company's server as you until you leave or an admin removes it.</p>"
+        '<p class="warning">Only connect if you just started this from Row-Bot on this computer.</p>'
         f'<form method="post" action="{CONFIRM_PATH}">'
         f'<input type="hidden" name="form_token" value="{html.escape(form_token)}">'
         '<button type="submit" name="decision" value="connect">Connect</button>'
@@ -250,6 +288,12 @@ def _confirm_page(service: DeviceService, request: DeviceRequest, form_token: st
 def _back_to_app(request: DeviceRequest, **params: str) -> RedirectResponse:
     return RedirectResponse(request.redirect_uri + "?" + urlencode({**params, "state": request.state}),
                             status_code=303)
+
+
+def _own_live_device(conn: psycopg.Connection, device_id: str) -> bool:
+    """Whether ``device_id`` is one of the current principal's devices (row-level security) and not revoked."""
+    return conn.execute("SELECT 1 FROM row_bot_org.devices WHERE id = %s AND revoked_at IS NULL",
+                        (device_id,)).fetchone() is not None
 
 
 async def _read(request: Request, cap: int) -> bytes | None:
@@ -301,6 +345,10 @@ def _oauth_error(error: str, status: int = 400) -> JSONResponse:
     return JSONResponse({"error": error}, status_code=status, headers={"Pragma": "no-cache"})
 
 
+class _Stale(Exception):
+    """The confirm form was already used, or its device is no longer the person's to join again."""
+
+
 def device_router(service: DeviceService) -> APIRouter:
     router = APIRouter()
     signed_in = Depends(principal_connection, scope="function")
@@ -311,7 +359,7 @@ def device_router(service: DeviceService) -> APIRouter:
 
     @router.get(START_PATH)
     def start(request: Request) -> Response:
-        if not service.limit.allow(_client_address(request)):
+        if not service.page_limit.allow(_client_address(request)):
             return _too_many_pages()
         params = request.query_params.multi_items()
         pending = device_request(params) if params else service.unseal(request.cookies.get(REQUEST_COOKIE))
@@ -326,6 +374,8 @@ def device_router(service: DeviceService) -> APIRouter:
             _set_cookie(response, REQUEST_COOKIE, service.seal(pending), REQUEST_SECONDS)
             return response
         with principal_transaction(service.pool, principal.principal_id, principal.groups) as conn:
+            if pending.device_id is not None and not _own_live_device(conn, pending.device_id):
+                return _refused()
             person = store.current_principal(conn, principal.principal_id)
         response = _confirm_page(service, pending, service.seal(pending, session_id=principal.session_id), person)
         _clear_cookie(response, REQUEST_COOKIE)
@@ -341,21 +391,46 @@ def device_router(service: DeviceService) -> APIRouter:
             return _refused()
         if decision == "cancel":
             return _back_to_app(pending, error="access_denied")
-        device = create_device(conn, name=pending.name, platform=pending.platform, app_version=pending.app_version)
         code = CODE_PREFIX + new_secret()
-        store.issue_device_code(conn, device_id=device["id"], verifier=service.verifier(
-            "device-code", code[len(CODE_PREFIX):]), code_challenge=pending.code_challenge,
-            redirect_uri=pending.redirect_uri)
-        record_joined(conn, principal.principal_id, device)
+        try:
+            # A savepoint: a form used before, or a device no longer joinable, leaves nothing behind.
+            with conn.transaction():
+                device = _connect(conn, pending)
+                store.issue_device_code(
+                    conn, device_id=device["id"], verifier=service.verifier("device-code", code[len(CODE_PREFIX):]),
+                    code_challenge=pending.code_challenge, redirect_uri=pending.redirect_uri,
+                    form_nonce=service.verifier("device-form", pending.nonce))
+                if pending.device_id is None:
+                    record_joined(conn, principal.principal_id, device)
+        except (_Stale, psycopg.errors.UniqueViolation):
+            return _refused()
         logger.info("principal %s connected device %s", principal.principal_id, device["id"])
         return _back_to_app(pending, code=code)
 
+    def _connect(conn: psycopg.Connection, pending: DeviceRequest) -> dict[str, Any]:
+        """The device for a Connect: a new one, or the one joining again with its earlier tokens revoked."""
+        if pending.device_id is None:
+            return create_device(conn, name=pending.name, platform=pending.platform,
+                                 app_version=pending.app_version)
+        device = rejoin_device(conn, pending.device_id, name=pending.name, app_version=pending.app_version)
+        if device is None:
+            raise _Stale
+        store.revoke_device_tokens(conn, device["id"])
+        return device
+
     @router.post(TOKEN_PATH)
     async def token(request: Request) -> Response:
-        if not service.limit.allow(_client_address(request)):
+        address = _client_address(request)
+        if service.token_failures.spent(address):
             return JSONResponse({"error": "too_many_requests"}, status_code=429,
                                 headers={"Retry-After": str(int(WINDOW_SECONDS))})
         params = await _token_params(request)
+        answer = await _token_answer(params)
+        if answer.status_code == 400:  # Only refusals count against the address.
+            service.token_failures.allow(address)
+        return answer
+
+    async def _token_answer(params: dict[str, str] | None) -> Response:
         if params is None:
             return _oauth_error("invalid_request")
         grant = params.get("grant_type")
@@ -368,11 +443,11 @@ def device_router(service: DeviceService) -> APIRouter:
             secret = prefixed_secret(CODE_PREFIX, code)
             if secret is None or not is_code_verifier(code_verifier):
                 return _oauth_error("invalid_grant")
+            trade = {"code": service.verifier("device-code", secret), "challenge": pkce_challenge(code_verifier),
+                     "redirect_uri": redirect_uri, "access": service.verifier("device-access", access),
+                     "refresh": service.verifier("device-refresh", refresh), "lifetimes": LIFETIMES}
             device_id = await run_in_threadpool(
-                store.redeem_device_code, service.pool, code=service.verifier("device-code", secret),
-                challenge=pkce_challenge(code_verifier), redirect_uri=redirect_uri,
-                access=service.verifier("device-access", access), refresh=service.verifier("device-refresh", refresh),
-                lifetimes=LIFETIMES)
+                service.trade, "code", lambda conn: store.redeem_device_code(conn, **trade))
         elif grant == "refresh_token":
             presented = params.get("refresh_token")
             if presented is None:
@@ -380,10 +455,11 @@ def device_router(service: DeviceService) -> APIRouter:
             secret = prefixed_secret(REFRESH_PREFIX, presented)
             if secret is None:
                 return _oauth_error("invalid_grant")
+            trade = {"refresh": service.verifier("device-refresh", secret),
+                     "access": service.verifier("device-access", access),
+                     "new_refresh": service.verifier("device-refresh", refresh), "lifetimes": LIFETIMES}
             device_id = await run_in_threadpool(
-                store.refresh_device_token, service.pool, refresh=service.verifier("device-refresh", secret),
-                access=service.verifier("device-access", access),
-                new_refresh=service.verifier("device-refresh", refresh), lifetimes=LIFETIMES)
+                service.trade, "refresh_token", lambda conn: store.refresh_device_token(conn, **trade))
         else:
             return _oauth_error("invalid_request" if grant is None else "unsupported_grant_type")
         if device_id is None:
@@ -408,5 +484,5 @@ def device_router(service: DeviceService) -> APIRouter:
 
 
 __all__ = ["ACCESS_LIFETIME", "CONFIRM_PATH", "LEAVE_PATH", "LIFETIMES", "REFRESH_IDLE", "REFRESH_LIFETIME",
-           "REQUEST_COOKIE", "START_PATH", "STYLE_PATH", "TOKEN_PATH", "DeviceRequest", "DeviceService",
-           "device_request", "device_router"]
+           "REQUEST_COOKIE", "REUSE_INTERVAL", "SERVER", "START_PATH", "STYLE_PATH", "TOKEN_PATH", "DeviceRequest",
+           "DeviceService", "device_request", "device_router"]

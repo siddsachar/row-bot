@@ -7,7 +7,8 @@ verifier of one kind can never stand for another.
 
 A device's credentials (``identity.device``) are secrets of the same kind with their own prefixes and purposes:
 the one-time authorization code (``rboc_``), the access token (``rboa_``) and the refresh token (``rbor_``).
-``device-request`` labels the MAC that signs a device sign-in request carried through the browser.
+``device-request`` labels the MAC that signs a device sign-in request carried through the browser, and
+``device-form`` the verifier of a confirm form's one-time nonce.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ _SECRET = re.compile(r"^[A-Za-z0-9_-]{43}$")
 # RFC 7636 §4.1: 43 to 128 unreserved characters.
 _CODE_VERIFIER = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 PURPOSES = ("session", "sign-in-state", "sign-in-browser", "sign-in-nonce", "device-code", "device-access",
-            "device-refresh", "device-request")
+            "device-refresh", "device-request", "device-form")
 
 
 def new_secret() -> str:

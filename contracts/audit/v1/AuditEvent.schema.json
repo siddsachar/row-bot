@@ -373,6 +373,70 @@
       "if": {
         "properties": {
           "action": {
+            "const": "device.credential_reused"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "service"
+                ]
+              }
+            }
+          },
+          "category": {
+            "const": "device"
+          },
+          "decided_by": {
+            "type": "null"
+          },
+          "details": {
+            "additionalProperties": false,
+            "properties": {
+              "credential": {
+                "enum": [
+                  "code",
+                  "refresh_token"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "credential"
+            ],
+            "type": "object"
+          },
+          "layer": {
+            "enum": [
+              "org"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "blocked"
+            ]
+          },
+          "target": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "device"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
             "const": "model.called"
           }
         }
@@ -1708,6 +1772,7 @@
         "app.removed",
         "data.deleted",
         "data.exported",
+        "device.credential_reused",
         "device.joined",
         "device.locked_down",
         "device.removed",

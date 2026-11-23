@@ -7,9 +7,10 @@
   token (below).
 - **A device's bearer token** (``Authorization: Bearer rboa_...``, ``identity.device``) authenticates the
   person's API (``/api/...``) but never an admin route (``/api/admin/...``), the console or a browser step
-  (``/auth/...``): those answer 403 ``browser_session_required``. A request with both a session cookie and an
-  ``Authorization`` header is refused (400 ``invalid_request``); a bearer that isn't live is 401
-  ``invalid_token`` with ``WWW-Authenticate: Bearer error="invalid_token"``, so the app knows to refresh.
+  (``/auth/...``): those answer 403 ``browser_session_required``. A request with both a session cookie and a
+  bearer is refused (400 ``invalid_request``); a bearer that isn't live is 401 ``invalid_token`` with
+  ``WWW-Authenticate: Bearer error="invalid_token"``, so the app knows to refresh. An ``Authorization`` header of
+  another scheme (Basic or Negotiate from a proxy in front) is ignored.
 - **Deny by default.** Only health, readiness, the two sign-in steps (and ``/openapi.json`` when it is
   published) are open. Any other path, a route that doesn't exist included, needs a live server
   session: 401 without one, so nobody learns which routes exist without signing in.
@@ -98,6 +99,11 @@ def has_session_cookie(scope: Scope) -> bool:
     return any(SESSION_COOKIE in cookie_parser(header) for header in _header(scope, b"cookie"))
 
 
+def has_bearer(scope: Scope) -> bool:
+    """Whether any ``Authorization`` header uses the Bearer scheme."""
+    return any(value.strip().partition(" ")[0].lower() == "bearer" for value in _header(scope, b"authorization"))
+
+
 def bearer_token(scope: Scope) -> str | None:
     """The token of the one ``Authorization: Bearer <token>`` header, or None (no header, several, or another
     scheme)."""
@@ -111,7 +117,8 @@ def bearer_token(scope: Scope) -> str | None:
 
 def accepts_bearer(path: str) -> bool:
     """The person's API takes a device's bearer token; admin routes, the console and the browser steps never do."""
-    return path.startswith(API_PREFIX) and not path.startswith(ADMIN_API_PREFIX)
+    return path.startswith(API_PREFIX) and not (path.startswith(ADMIN_API_PREFIX)
+                                                or path == ADMIN_API_PREFIX.rstrip("/"))
 
 
 def _refuse(status: int, error: str, headers: dict[str, str] | None = None) -> JSONResponse:
@@ -145,7 +152,7 @@ class Gate:
             await self.app(scope, receive, send)
             return
         path = scope["path"]
-        if path not in self.open_paths and _header(scope, b"authorization"):
+        if path not in self.open_paths and has_bearer(scope):
             await self._with_bearer(scope, receive, send)
             return
         if (scope["method"] not in SAFE_METHODS and path not in CREDENTIAL_PATHS
@@ -169,8 +176,8 @@ class Gate:
         await self.app(scope, receive, send)
 
     async def _with_bearer(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """A request with an ``Authorization`` header: a device's bearer, never with a cookie, only on the
-        person's API. It carries no ambient credential, so the same-origin rule doesn't apply."""
+        """A request with a Bearer ``Authorization``: a device's, never with a cookie, only on the person's API.
+        It carries no ambient credential, so the same-origin rule doesn't apply."""
         if has_session_cookie(scope):
             await _bearer_refusal(400, "invalid_request")(scope, receive, send)
             return
@@ -242,4 +249,4 @@ class AccessLog:
 
 __all__ = ["ADMIN_API_PREFIX", "API_PREFIX", "CREDENTIAL_PATHS", "OPEN_PATHS", "SESSION_COOKIE", "SIGN_IN_COOKIE",
            "AccessLog", "Gate", "RequestPrincipal", "SessionResolver", "accepts_bearer", "bearer_token",
-           "has_session_cookie", "request_principal", "route_template", "same_origin", "session_cookie"]
+           "has_bearer", "has_session_cookie", "request_principal", "route_template", "same_origin", "session_cookie"]

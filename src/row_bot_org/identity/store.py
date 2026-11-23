@@ -106,33 +106,46 @@ class Lifetimes:
     access: timedelta
     refresh_idle: timedelta
     refresh: timedelta
+    # How long after a refresh token's use the same token still gets a pair (its answer was lost).
+    reuse: timedelta
+
+
+@dataclass(frozen=True)
+class Traded:
+    """A token request's outcome: its device, and whether a reused credential revoked its tokens (then nothing
+    was issued)."""
+
+    device_id: str
+    reused: bool
 
 
 def issue_device_code(conn: psycopg.Connection, *, device_id: str, verifier: bytes, code_challenge: str,
-                      redirect_uri: str) -> None:
+                      redirect_uri: str, form_nonce: bytes) -> None:
     """A one-time code for one of the current principal's own devices (``conn`` is inside its
-    principal_transaction); it lasts 60 seconds."""
-    conn.execute("INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri)"
-                 " VALUES (%s, %s, %s, %s)", (device_id, verifier, code_challenge, redirect_uri))
+    principal_transaction); it lasts 60 seconds. A second code for the same form nonce is a UniqueViolation."""
+    conn.execute("INSERT INTO row_bot_org.device_codes (device_id, verifier, code_challenge, redirect_uri, form_nonce)"
+                 " VALUES (%s, %s, %s, %s, %s)", (device_id, verifier, code_challenge, redirect_uri, form_nonce))
 
 
-def redeem_device_code(pool: ConnectionPool, *, code: bytes, challenge: str, redirect_uri: str, access: bytes,
-                       refresh: bytes, lifetimes: Lifetimes) -> str | None:
-    """Trade a code for the two tokens' verifiers: the device's id, or None (and a reused code revokes)."""
-    with pool.connection() as conn:
-        row = conn.execute("SELECT device_id FROM row_bot_org.redeem_device_code(%s, %s, %s, %s, %s, %s, %s, %s)",
-                           (code, challenge, redirect_uri, access, refresh, lifetimes.access,
-                            lifetimes.refresh_idle, lifetimes.refresh)).fetchone()
-    return None if row is None else str(row[0])
+def _traded(row: tuple | None) -> Traded | None:
+    return None if row is None else Traded(str(row[0]), bool(row[1]))
 
 
-def refresh_device_token(pool: ConnectionPool, *, refresh: bytes, access: bytes, new_refresh: bytes,
-                         lifetimes: Lifetimes) -> str | None:
-    """Rotate a refresh token: the device's id, or None (and a reused token revokes the device's tokens)."""
-    with pool.connection() as conn:
-        row = conn.execute("SELECT device_id FROM row_bot_org.refresh_device_token(%s, %s, %s, %s, %s)",
-                           (refresh, access, new_refresh, lifetimes.access, lifetimes.refresh_idle)).fetchone()
-    return None if row is None else str(row[0])
+def redeem_device_code(conn: psycopg.Connection, *, code: bytes, challenge: str, redirect_uri: str, access: bytes,
+                       refresh: bytes, lifetimes: Lifetimes) -> Traded | None:
+    """Trade a code for the two tokens' verifiers; None when nothing matched."""
+    return _traded(conn.execute(
+        "SELECT device_id, reused FROM row_bot_org.redeem_device_code(%s, %s, %s, %s, %s, %s, %s, %s)",
+        (code, challenge, redirect_uri, access, refresh, lifetimes.access, lifetimes.refresh_idle,
+         lifetimes.refresh)).fetchone())
+
+
+def refresh_device_token(conn: psycopg.Connection, *, refresh: bytes, access: bytes, new_refresh: bytes,
+                         lifetimes: Lifetimes) -> Traded | None:
+    """Rotate a refresh token; None when nothing matched."""
+    return _traded(conn.execute(
+        "SELECT device_id, reused FROM row_bot_org.refresh_device_token(%s, %s, %s, %s, %s, %s)",
+        (refresh, access, new_refresh, lifetimes.access, lifetimes.refresh_idle, lifetimes.reuse)).fetchone())
 
 
 def resume_device_token(pool: ConnectionPool, verifier: bytes) -> DevicePrincipal | None:
@@ -142,12 +155,17 @@ def resume_device_token(pool: ConnectionPool, verifier: bytes) -> DevicePrincipa
     return None if row is None else DevicePrincipal(str(row[0]), str(row[1]), tuple(row[2]))
 
 
+def revoke_device_tokens(conn: psycopg.Connection, device_id: str) -> None:
+    """Revoke every token of one of the current principal's devices (``conn`` is inside its principal_transaction)."""
+    conn.execute("UPDATE row_bot_org.device_tokens SET revoked_at = now() WHERE device_id = %s"
+                 " AND revoked_at IS NULL", (device_id,))
+
+
 def leave_device(conn: psycopg.Connection, device_id: str) -> bool:
     """Revoke one of the current principal's devices and its tokens. Whether the device was live."""
     left = conn.execute("UPDATE row_bot_org.devices SET revoked_at = now() WHERE id = %s AND revoked_at IS NULL",
                         (device_id,)).rowcount
-    conn.execute("UPDATE row_bot_org.device_tokens SET revoked_at = now() WHERE device_id = %s"
-                 " AND revoked_at IS NULL", (device_id,))
+    revoke_device_tokens(conn, device_id)
     return left == 1
 
 
@@ -220,7 +238,7 @@ def set_status(conn: psycopg.Connection, principal_id: str, status: str) -> str 
 
 
 __all__ = ["SIGN_IN_LIFETIME", "DevicePrincipal", "Lifetimes", "Person", "SessionPrincipal", "SignInAttempt",
-           "active_admins", "begin_sign_in", "current_principal", "find_people", "get_person", "issue_device_code",
+           "Traded", "active_admins", "begin_sign_in", "current_principal", "find_people", "get_person", "issue_device_code",
            "leave_device", "list_people", "redeem_device_code", "refresh_device_token", "resume_device_token",
-           "resume_session", "revoke_session", "revoke_sessions", "set_role", "set_status", "sign_in",
+           "resume_session", "revoke_device_tokens", "revoke_session", "revoke_sessions", "set_role", "set_status", "sign_in",
            "take_sign_in"]
