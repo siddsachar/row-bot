@@ -621,6 +621,16 @@ def approve(project: Project, scene_ids: list[str], approved: bool, *, base: int
     return latest
 
 
+def footage_of(scene: Scene) -> str:
+    """A scene's footage type: its own, else (a project saved before storyboards) told from its source."""
+    from row_bot.media_sources import IMAGE_SUFFIXES
+
+    if scene.footage or not scene.source:
+        return scene.footage or "card"
+    return ("screen" if scene.source.startswith("rec-")
+            else "picture" if Path(scene.source).suffix.casefold() in IMAGE_SUFFIXES else "clip")
+
+
 def planned(version: Version) -> list[tuple[int, Scene]]:
     """The scenes whose footage is still to make (an AI shot, a picture, a clip or a recording planned on the
     storyboard): (scene number, scene)."""
@@ -1039,7 +1049,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
                     "length": round(marks[index + 1] - marks[index], 3) if marks else None,
                     "source_ref": refs.source(scene.source) if scene.source else None,
                     "voice_ref": refs.voice(scene.voice) if scene.voice and scene.voiced == scene.line else None,
-                    "footage": scene.footage or ("card" if not scene.source else "clip"), "shows": scene.shows,
+                    "footage": footage_of(scene), "shows": scene.shows,
                     "cue": scene.cue, "approved": scene.approved,
                     "has_frame": bool(scene.frame or scene.source),
                     "made": makes[index] if makes else ""}

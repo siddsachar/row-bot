@@ -1072,3 +1072,23 @@ def test_a_storyboard_cards_frame_is_its_picture_or_a_frame_of_its_clip_and_a_ca
     kept = list(video_projects.scene_cache(project).with_name(f"{project.project_id}-frames").iterdir())
     assert len(kept) == 2, "each frame is read once, then kept with the project"
     assert video_projects.scene_frame(project, "s000000") is None
+
+
+def test_a_project_saved_before_storyboards_opens_with_each_scenes_footage_told_from_its_source(studio):
+    import json
+
+    from row_bot import video_projects
+
+    project = video_projects.create("conversation-a", "Launch demo", [STORYBOARD[0], SCENES[0]])
+    path = video_projects._path("conversation-a", project.project_id)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    for scene in saved["versions"][0]["scenes"]:
+        for key in ("footage", "shows", "frame", "cue", "approved"):
+            scene.pop(key)
+    saved["versions"][0].pop("logline")
+    path.write_text(json.dumps(saved), encoding="utf-8")
+
+    view = video_projects.view(video_projects.get(project.project_id))
+    assert [(scene["footage"], scene["approved"]) for scene in view["scenes"]] == [("card", False), ("clip", False)]
+    assert view["logline"] == "" and view["status"] == "draft"
+

@@ -4,10 +4,11 @@ Row-Bot writes the scenes (which piece of which video, its speed, zoom, card and
 the video, reads its checks and changes it on request; the person edits the same project in
 the Video panel beside the chat. A new video of several scenes is a storyboard first (C1):
 create makes nothing, the person approves or comments on its scenes in the panel, and make
-renders it; a video of one scene, and a change to a made video, are made straight away. Every change is a new version with a note of what changed, so
-undo is one step. Making the video voices the lines in the person's chosen voice, renders it
-with the music ducked under the voice, and saves it to the chat's files. The call waits for it
-(``MAKE_SECONDS``); a video that takes longer carries on, and a wait wakes the chat when it's made.
+renders it; a video of one scene, and a change to a made video, are made straight away. Every
+change is a new version with a note of what changed, so undo is one step. Making the video
+voices the lines in the person's chosen voice, renders it with the music ducked under the voice,
+and saves it to the chat's files. The call waits for it (``MAKE_SECONDS``); a video that takes
+longer carries on, and a wait wakes the chat when it's made.
 
 Approvals: downloading ffmpeg the first time, as in edit_video. Reading the chat's files and
 the workspace, and writing new files to the chat, needs none. Footage elsewhere on this computer
