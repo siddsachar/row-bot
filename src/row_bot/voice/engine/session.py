@@ -16,7 +16,7 @@ text-to-speech, admission) run off the event loop.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 import logging
 import re
@@ -45,7 +45,9 @@ from row_bot.voice.streaming_base import (
     SpeechAudio,
     SpeechToTextStream,
     StreamingSpeechToText,
+    TranscriptUpdate,
 )
+from row_bot.voice.provider_base import VoiceProviderError
 from row_bot.voice.speech_policy import ON_SCREEN_POINTER
 
 _LOG = logging.getLogger(__name__)
@@ -131,6 +133,8 @@ class EngineParts:
     tts: SentenceSpeech
     activity: VoiceActivity
     end_of_turn: EndOfTurn
+    # Chosen cloud parts running locally for now because their key is missing: {part, id, company}.
+    fallbacks: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -289,7 +293,8 @@ class DuplexSession:
                                     "output_sample_rate": self.out_sample_rate,
                                     "push_to_talk": self.settings.push_to_talk,
                                     "captions": self.settings.captions,
-                                    "sees_images": self.sees_images})
+                                    "sees_images": self.sees_images,
+                                    "fallbacks": list(self.parts.fallbacks)})
         await self._publish_state()
 
     async def close(self) -> None:
@@ -610,6 +615,9 @@ class DuplexSession:
         async def transcript() -> Any:
             try:
                 heard = await asyncio.to_thread(stream.finish)
+            except VoiceProviderError as exc:  # A cloud service that did not answer: the bar says so.
+                await self.link.send_event({"type": "error", "code": exc.code})
+                heard = TranscriptUpdate("", final=True)
             finally:
                 stream.close()
             marks.mark("transcript_final", self.clock())
@@ -836,17 +844,19 @@ class DuplexSession:
                 if epoch != self._speech_epoch or (kind == "progress" and self._burst is None):
                     continue
                 audio = self._fixed_audio.get(text) if kind in _FIXED_KINDS else None
+                stream = getattr(self.parts.tts, "stream", None)
+                if audio is None and stream is not None and kind not in _FIXED_KINDS:
+                    # A streaming voice: the sentence's first piece goes out while the rest is made.
+                    sent = await self._speak_streamed(epoch, segment, text, kind,
+                                                      stream(text, language=self._heard_language))
+                    continue
                 if audio is None:
                     audio = await asyncio.to_thread(self.parts.tts.synthesize, text,
                                                     language=self._heard_language)
                     if kind in _FIXED_KINDS and audio.pcm16 and len(self._fixed_audio) < 32:
                         self._fixed_audio[text] = audio
                 if audio.unspoken and epoch == self._speech_epoch and not self.closed:
-                    # A language the voice can't speak: the words stay on screen, and the bar says why.
-                    await self.link.send_event({"type": "caption", "role": "assistant", "text": text,
-                                                "segment": segment, "kind": kind, "final": True,
-                                                "spoken": False})
-                    await self.link.send_event({"type": "unspoken", "language": audio.unspoken})
+                    await self._unspoken(segment, text, kind, audio.unspoken)
                     continue
                 if (epoch != self._speech_epoch or self.closed or not audio.pcm16
                         or (kind == "progress" and self._burst is None)):
@@ -867,6 +877,8 @@ class DuplexSession:
                         break
                     await self.link.send_audio(segment, audio.pcm16[offset:offset + step])
                 await self._publish_state()
+            except VoiceProviderError as exc:  # A cloud voice that failed: on screen, and the bar says so.
+                await self.link.send_event({"type": "error", "code": exc.code})
             except Exception as exc:  # A sentence that cannot be spoken stays on screen.
                 _LOG.warning("Row-Bot Voice could not speak a sentence: %s", type(exc).__name__)
             finally:
@@ -876,6 +888,51 @@ class DuplexSession:
                     if not sent:
                         approval.armed_ms = self.tracker.now_ms  # Unspoken: nothing to wait for.
                 self._speech.task_done()
+
+    async def _unspoken(self, segment: int, text: str, kind: SpeechKind, language: str) -> None:
+        # A language the voice can't speak: the words stay on screen, and the bar says why.
+        await self.link.send_event({"type": "caption", "role": "assistant", "text": text, "segment": segment,
+                                    "kind": kind, "final": True, "spoken": False})
+        await self.link.send_event({"type": "unspoken", "language": language})
+
+    async def _speak_streamed(self, epoch: int, segment: int, text: str, kind: SpeechKind,
+                              pieces: Iterator[SpeechAudio]) -> bool:
+        """Speak *pieces* as they arrive; a barge-in (or the session's end) closes the request."""
+        def take() -> SpeechAudio | None:
+            return next(pieces, None)
+
+        sent = False
+        try:
+            while True:
+                piece = await asyncio.to_thread(take)
+                if piece is None or epoch != self._speech_epoch or self.closed or (
+                        kind == "progress" and self._burst is None):
+                    return sent
+                if piece.unspoken:
+                    await self._unspoken(segment, text, kind, piece.unspoken)
+                    return sent
+                if not piece.pcm16:
+                    continue
+                if not sent:
+                    self.out_sample_rate = piece.sample_rate
+                    self.host.spoke(text)
+                    self._audible = True
+                    self._thinking = False
+                    await self.link.send_event({"type": "caption", "role": "assistant", "text": text,
+                                                "segment": segment, "sample_rate": piece.sample_rate,
+                                                "kind": kind, "final": True})
+                    sent = True
+                    if self._marks is not None and segment == self._marks_segment:
+                        self._marks.mark("first_audio_sent", self.clock())
+                    await self._publish_state()
+                await self.link.send_audio(segment, piece.pcm16)
+        finally:
+            close = getattr(pieces, "close", None)
+            if close is not None:
+                try:
+                    await asyncio.to_thread(close)
+                except ValueError:
+                    pass  # Still reading in its thread (the session is closing): it ends with that read.
 
     def _record_marks(self) -> None:
         marks, self._marks = self._marks, None

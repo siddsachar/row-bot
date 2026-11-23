@@ -46,7 +46,7 @@ def _ready(model: speech_models.SpeechModel) -> None:
 
     from row_bot.voice.runtime import load_voice_runtime_settings, save_talk_model
 
-    if load_voice_runtime_settings().talk_provider == "local":
+    if load_voice_runtime_settings().talk_provider != "openai_realtime":
         save_talk_model(model.engine_id)
 
 

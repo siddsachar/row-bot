@@ -141,6 +141,8 @@ const INITIAL: VoiceSnapshot = {
   unspoken: null,
   share: null,
   canShare: 'no',
+  // Live voice speaks with its own voice: no cloud speech part stands in.
+  fallbacks: [],
 };
 
 export class LiveVoiceSession {

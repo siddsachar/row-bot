@@ -74,7 +74,12 @@ class SpeechAudio:
 
 
 class SentenceSpeech(Protocol):
-    """Text-to-speech, one sentence or clause at a time."""
+    """Text-to-speech, one sentence or clause at a time.
+
+    A voice that streams (a cloud voice) also has ``stream(text)``: an iterator of ``SpeechAudio``
+    pieces as they are made, whose ``close()`` cancels the rest. The engine then sends the first
+    piece before the sentence is finished, and closes the iterator at a barge-in.
+    """
 
     provider_id: str
 

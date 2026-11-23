@@ -503,7 +503,8 @@ export const settingsRows: SettingsRow[] = [
     leaf: 'voice',
     anchor: 'talk',
     label: 'Talk',
-    keywords: 'realtime microphone listen',
+    keywords:
+      'realtime microphone listen deepgram assemblyai cloud speech to text',
   },
   {
     leaf: 'voice',
@@ -522,7 +523,8 @@ export const settingsRows: SettingsRow[] = [
     leaf: 'voice',
     anchor: 'read-aloud',
     label: 'Read aloud',
-    keywords: 'text to speech tts kokoro voice',
+    keywords:
+      'text to speech tts kokoro voice elevenlabs cartesia gemini describe a voice',
   },
   {
     leaf: 'voice',

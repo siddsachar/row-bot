@@ -60,7 +60,7 @@ class VoiceEngineFactory(Protocol):
 
 
 class LocalVoiceEngine:
-    """The selected local speech engines, Silero VAD and Smart Turn."""
+    """The selected speech engines (local, or a cloud service the person chose), Silero VAD and Smart Turn."""
 
     def __init__(self, browser_service: Callable[[], Any]) -> None:
         self._browser = browser_service
@@ -87,11 +87,16 @@ class LocalVoiceEngine:
         from row_bot.voice.engine.pipecat_boundary import SileroActivity, SmartTurn
         from row_bot.voice.engine.session import EngineParts
         from row_bot.voice.engine.speech import ProviderSentenceSpeech, SegmentedSpeechToText
+        from row_bot.voice.cloud_speech import fallbacks
+        from row_bot.voice.runtime import load_voice_runtime_settings
 
         listen, speak = self._providers()
-        # A streaming model decodes as the person speaks; Whisper and SenseVoice are segmented.
+        # A streaming model (or a cloud service) hears the person as they speak; Whisper and SenseVoice
+        # are segmented. A cloud voice streams each sentence's speech as it is made.
         stt = listen.streaming() if hasattr(listen, "streaming") else SegmentedSpeechToText(listen)
-        return EngineParts(stt, ProviderSentenceSpeech(speak), SileroActivity(), SmartTurn())
+        tts = speak.sentence_speech() if hasattr(speak, "sentence_speech") else ProviderSentenceSpeech(speak)
+        return EngineParts(stt, tts, SileroActivity(), SmartTurn(),
+                           fallbacks=tuple(fallbacks(load_voice_runtime_settings())))
 
 
 class DuplexTalkTransport:

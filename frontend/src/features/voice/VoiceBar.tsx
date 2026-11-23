@@ -10,6 +10,7 @@ import {
   CaptionsOff,
   Gauge,
   ImageOff,
+  KeyRound,
   Keyboard,
   Languages,
   LocateFixed,
@@ -25,7 +26,12 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Button, IconButton, Menu } from '../../ui/primitives';
-import type { VoiceOrb, VoiceSession, VoiceSnapshot } from './voice-session';
+import type {
+  VoiceFallback,
+  VoiceOrb,
+  VoiceSession,
+  VoiceSnapshot,
+} from './voice-session';
 import { shareSupport, type ShareSource, type ShareState } from './share';
 
 export type VoiceBarSession = Pick<
@@ -300,6 +306,9 @@ export default function VoiceBar(props: {
             )}
           </div>
         )}
+        {state.fallbacks.length > 0 && (
+          <FallbackNotice fallbacks={state.fallbacks} />
+        )}
         {blindNotice && canShare === 'blind' && !share && (
           <BlindNotice onClose={() => setBlindNotice(false)} />
         )}
@@ -503,6 +512,26 @@ export default function VoiceBar(props: {
         </IconButton>
       </div>
     </section>
+  );
+}
+
+/** A chosen cloud service whose key is missing: what runs instead, and where to add the key. */
+export function FallbackNotice(props: {
+  fallbacks: VoiceFallback[];
+}): ReactNode {
+  const said = props.fallbacks.map((fallback) =>
+    fallback.part === 'listen'
+      ? `Listening with Row-Bot’s own speech model: your ${fallback.company} key is missing.`
+      : `Speaking with Kokoro: your ${fallback.company} key is missing.`,
+  );
+  return (
+    <p className="voice-bar-notice" role="status">
+      <KeyRound size={16} aria-hidden />
+      <span>
+        {said.join(' ')}{' '}
+        <Link to="/settings/voice">Add it in Settings › Voice</Link>.
+      </span>
+    </p>
   );
 }
 
