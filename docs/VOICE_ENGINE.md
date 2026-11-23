@@ -565,12 +565,38 @@ negative feature set are CC BY-NC-SA, and its package requires `tflite-runtime`
 on Linux, which has no wheel for Python 3.12 or 3.13.
 
 The model starts from LiveKit's pretrained encoders (Apache-2.0 per LiveKit's
-NOTICE) and was fine-tuned only on permissive or generated data: Kokoro v1.0
-voices (Apache-2.0) and blends of them, LibriSpeech dev and test sets
+NOTICE) and was fine-tuned only on permissive or generated data: synthetic
+speech from Kokoro v1.0 (Apache-2.0; 44 of its 54 voices and blends of them)
+and Piper's LibriTTS-R generator (MIT code, CC BY 4.0 voice; 800 of its 904
+speakers and blends), LibriSpeech's dev sets as background speech
 (CC BY 4.0), MS-SNSD's Freesound noise clips (CC0; its DEMAND recordings,
 CC BY-SA, are left out), and generated coloured noise and rooms. No Common
 Voice, MUSAN, ACAV100M, AudioSet, FMA, MIT room recordings or other
-non-commercial data. The model is Apache-2.0, credited in NOTICE.
+non-commercial data. The model (7.4 MB, SHA-256 `7f5a7079…a0296b`) is
+Apache-2.0, credited in NOTICE.
+
+### How well it hears (23 Nov 2026)
+
+Measured with `scripts/wake_word/evaluate.py` through Row-Bot's own runtime,
+on audio it never trained on: LibriSpeech test-clean and test-other (10.75 h of
+real read speech) and MS-SNSD's CC0 test noise; the phrase and near misses
+said by the held-out voices (10 Kokoro voices and Piper speakers 800-903, 1,200
+clips each), each after a second of real speech.
+
+| Threshold | False accepts per hour, speech | at 10 dB noise | Near misses woken | Recall, clean | at 10 dB noise |
+|---|---|---|---|---|---|
+| 0.3 | 0.09 | 1.30 | 27 / 1,200 | 99.3% | 98.2% |
+| **0.5 (shipped)** | **0.00** | **0.28** | **17 / 1,200** | **98.3%** | **95.8%** |
+| 0.7 | 0.00 | 0.00 | 9 / 1,200 | 95.3% | 87.2% |
+
+It wakes about when the phrase ends (median 40 ms before the measured end,
+90th percentile 90 ms after; one 80 ms step at most adds to that). Each step
+costs 0.7 ms on one CPU thread (under 1% of a core) and the model adds about
+40 MB to the host. Caveats: recall is on synthetic voices, so real voices,
+accents, far-field rooms, music and TV may do worse; there is no music in the
+training data; and FLEURS and Common Voice were not used, so non-native and
+non-English speech is less covered. Said on their own, only "hey rowboat"
+(3 of 40) and "hey, row it" (1 of 20) of the near misses woke it.
 
 "Row-Bot" and "robot" sound the same, so "hey robot" wakes it too; the near
 misses it is taught to reject include "robot" alone, "hey Rob", "row boat"
@@ -585,11 +611,15 @@ drive with room (about 5 GB of downloads).
    pinned inputs (sizes and hashes checked).
 2. `python scripts/wake_word/speech.py <src> <clips>` (Row-Bot's environment,
    CPU) makes the synthetic speech; a fifth of the Kokoro voices is held out.
-3. In a throwaway environment (`uv venv` plus `livekit-wakeword[train]==2.1.3`
-   and a CUDA torch): `LIVEKIT_WAKEWORD_ENCODERS=<src>/encoders HF_HUB_OFFLINE=1
-   python scripts/wake_word/train.py <src> <clips> <out>/hey_row_bot.onnx`.
-   LiveKit's training loop, with every data source replaced by the local ones;
-   it needs a GPU.
+3. In a throwaway environment (`uv venv` plus `livekit-wakeword[train]==2.1.3`,
+   `piper-sample-generator==3.2.0` with that repository's `piper_train` on the
+   path, and torch): `python scripts/wake_word/piper_voices.py <src> <clips>`
+   adds Piper's voices (CPU with `CUDA_VISIBLE_DEVICES=-1`), then
+   `LIVEKIT_WAKEWORD_ENCODERS=<src>/encoders HF_HUB_OFFLINE=1
+   python scripts/wake_word/train.py <src> <clips> <out>/hey_row_bot.onnx --threads 16`
+   runs LiveKit's training loop with every data source replaced by the local
+   ones. The shipped model took 6,000 steps in 85 minutes on 16 CPU threads
+   (no GPU); a GPU is faster.
 4. `python scripts/wake_word/evaluate.py <out>/hey_row_bot.onnx <src> <clips>`
    (Row-Bot's environment) reports false accepts per hour on held-out real
    speech (clean and noisy), recall on the held-out voices, detection latency,
