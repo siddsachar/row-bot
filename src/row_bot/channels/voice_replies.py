@@ -113,7 +113,11 @@ def make_voice_note(answer: str, *, max_bytes: int) -> VoiceNote | None:
         log.info("An answer is too long for one voice note; it goes as text")
         return None
     try:
-        note = ogg_opus(_speech_output().synthesize(words).audio)
+        speech = _speech_output().synthesize(words)
+        if speech.unspoken:
+            log.info("The voice can't speak this answer's language; the text goes alone")
+            return None
+        note = ogg_opus(speech.audio)
     except Exception:
         log.warning("A voice-note reply could not be made; the text goes alone", exc_info=True)
         return None

@@ -137,6 +137,8 @@ const INITIAL: VoiceSnapshot = {
   // Live voice answers approvals on their cards only.
   approval: null,
   error: '',
+  heard: null,
+  unspoken: null,
   share: null,
   canShare: 'no',
 };

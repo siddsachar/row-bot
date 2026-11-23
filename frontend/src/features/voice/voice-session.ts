@@ -39,6 +39,8 @@ export type VoiceCaption = {
   text: string;
   final: boolean;
   kind?: VoiceSpeechKind;
+  /** The language it is in (a code such as "fr"), when known. */
+  language?: string;
 };
 
 /** The run's waiting approval: its card's title, and `voice` when a spoken yes or no may answer it. */
@@ -74,6 +76,10 @@ export type VoiceSnapshot = {
   latency: VoiceLatency | null;
   approval: VoiceApproval | null;
   error: string;
+  /** The language the person was last heard speaking (a code), or null. */
+  heard: string | null;
+  /** A language Row-Bot's voice can't speak: its answers in it stay on screen. */
+  unspoken: string | null;
   /** The camera or screen being shared, or null. */
   share: ShareState | null;
   /**
@@ -136,6 +142,8 @@ const INITIAL: VoiceSnapshot = {
   latency: null,
   approval: null,
   error: '',
+  heard: null,
+  unspoken: null,
   share: null,
   canShare: 'no',
 };
@@ -264,14 +272,27 @@ export class VoiceSession {
         break;
       }
       case 'caption':
-        if (event.role === 'user')
+        if (event.role === 'user') {
+          const language =
+            typeof event.language === 'string' ? event.language : undefined;
           this.set({
             you: {
               text: String(event.text ?? ''),
               final: Boolean(event.final),
+              language,
+            },
+            ...(language ? { heard: language } : {}),
+          });
+        } else if (event.spoken === false) {
+          // A language the voice can't speak: nothing will play, so the words show now.
+          this.set({
+            rowBot: {
+              text: String(event.text ?? ''),
+              final: true,
+              kind: (event.kind as VoiceSpeechKind | undefined) ?? 'answer',
             },
           });
-        else if (typeof event.segment === 'number') {
+        } else if (typeof event.segment === 'number') {
           this.pendingCaptions.set(event.segment, {
             text: String(event.text ?? ''),
             final: true,
@@ -279,6 +300,9 @@ export class VoiceSession {
           });
           this.audio.setOutputRate(Number(event.sample_rate) || 24000);
         }
+        break;
+      case 'unspoken':
+        this.set({ unspoken: String(event.language ?? '') || null });
         break;
       case 'duck':
         this.audio.duck(Boolean(event.on));
@@ -333,7 +357,7 @@ export class VoiceSession {
     const caption = this.pendingCaptions.get(segment);
     if (caption !== undefined) {
       this.pendingCaptions.delete(segment);
-      this.set({ rowBot: caption });
+      this.set({ rowBot: caption, unspoken: null });
     }
     if (!this.reported.has(segment)) {
       this.reported.add(segment);

@@ -761,6 +761,7 @@
     "voice_event_consumed": 409,
     "voice_event_too_large": 413,
     "voice_exchange_consumed": 409,
+    "voice_language_unspoken": 422,
     "voice_operation_failed": 503,
     "voice_output_consumed": 409,
     "voice_output_too_large": 413,

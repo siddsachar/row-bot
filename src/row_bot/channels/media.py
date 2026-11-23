@@ -58,7 +58,7 @@ class SpeechModelMissing(RuntimeError):
 def transcribe_audio(data: bytes, file_ext: str = ".ogg") -> str:
     """Transcribe a voice note with the speech-to-text engine chosen for Dictate.
 
-    The language is detected (Whisper and SenseVoice both can). *file_ext* names the
+    In the language set in Settings › Voice (detected when it is automatic). *file_ext* names the
     container (OGG/Opus, MP3, M4A, WebM, WAV…); PyAV decodes it, so no ffmpeg is needed.
     Nothing downloads here: when the engine's model isn't installed this raises
     ``SpeechModelMissing``. Returns "" when the audio can't be read or transcribed.

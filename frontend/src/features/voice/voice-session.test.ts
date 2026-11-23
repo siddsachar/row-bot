@@ -236,3 +236,48 @@ it('words a card title exactly as the approval card does', () => {
     expect(cardTitle(card)).not.toContain('/');
   }
 });
+
+it('keeps the language heard, and shows an answer the voice can’t speak at once', async () => {
+  const { session, sockets, audio } = setup();
+  await session.start();
+  const socket = sockets[0];
+  socket.open();
+  socket.emit({
+    type: 'caption',
+    role: 'user',
+    text: 'Wie spät ist es?',
+    final: true,
+    language: 'de',
+  });
+  socket.emit({ type: 'caption', role: 'user', text: 'Und', final: false });
+  expect(session.getSnapshot().heard).toBe('de');
+  socket.emit({
+    type: 'caption',
+    role: 'assistant',
+    text: 'Es ist drei Uhr.',
+    segment: 1,
+    kind: 'answer',
+    final: true,
+    spoken: false,
+  });
+  socket.emit({ type: 'unspoken', language: 'de' });
+  expect(session.getSnapshot()).toMatchObject({
+    rowBot: { text: 'Es ist drei Uhr.', kind: 'answer' },
+    unspoken: 'de',
+  });
+  // The next answer it can speak clears the notice as it starts playing.
+  socket.emit({
+    type: 'caption',
+    role: 'assistant',
+    text: 'It is three.',
+    segment: 2,
+    sample_rate: 24000,
+    final: true,
+  });
+  socket.emit(audioFrame(2));
+  audio.playback?.started(2, 10);
+  expect(session.getSnapshot()).toMatchObject({
+    rowBot: { text: 'It is three.' },
+    unspoken: null,
+  });
+});

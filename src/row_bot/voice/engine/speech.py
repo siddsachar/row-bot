@@ -20,6 +20,7 @@ from row_bot.voice.provider_base import (
     SpeechOutputProvider,
     SpeechToTextProvider,
     VoiceProviderError,
+    transcribe_heard,
 )
 from row_bot.voice.streaming_base import (
     INPUT_SAMPLE_RATE,
@@ -36,8 +37,9 @@ _WARM_PCM = b"\0\0" * (INPUT_SAMPLE_RATE // 2)
 
 
 class _SegmentedStream:
-    def __init__(self, provider: SpeechToTextProvider) -> None:
+    def __init__(self, provider: SpeechToTextProvider, language: str | None) -> None:
         self._provider = provider
+        self._language = language
         self._audio = bytearray()
         self._lock = threading.Lock()
         self._partial_at = 0
@@ -60,14 +62,16 @@ class _SegmentedStream:
         if self._closed or len(audio) - self._partial_at < PARTIAL_STEP_BYTES:
             return None
         self._partial_at = len(audio)
-        return TranscriptUpdate(self._provider.transcribe_bytes(audio).strip(), final=False)
+        heard = transcribe_heard(self._provider, audio, language=self._language)
+        return TranscriptUpdate(heard.text.strip(), final=False, language=heard.language)
 
     def finish(self) -> TranscriptUpdate:
         audio = self._snapshot()
         self.close()
         if not audio:
-            return TranscriptUpdate("", final=True)
-        return TranscriptUpdate(self._provider.transcribe_bytes(audio).strip(), final=True)
+            return TranscriptUpdate("", final=True, language=self._language)
+        heard = transcribe_heard(self._provider, audio, language=self._language)
+        return TranscriptUpdate(heard.text.strip(), final=True, language=heard.language)
 
     def close(self) -> None:
         with self._lock:
@@ -90,7 +94,7 @@ class SegmentedSpeechToText:
         self._provider.transcribe_bytes(_WARM_PCM)
 
     def open(self, *, language: str | None = None) -> _SegmentedStream:
-        return _SegmentedStream(self._provider)
+        return _SegmentedStream(self._provider, language)
 
 
 def wav_to_pcm(data: bytes) -> SpeechAudio:
@@ -121,8 +125,11 @@ class ProviderSentenceSpeech:
             raise VoiceProviderError(status.unavailable_code)
         self._provider.synthesize("Hi.")
 
-    def synthesize(self, text: str) -> SpeechAudio:
+    def synthesize(self, text: str, *, language: str | None = None) -> SpeechAudio:
         clean = str(text or "").strip()
         if not clean:
             return SpeechAudio(b"", 24_000)
-        return wav_to_pcm(self._provider.synthesize(clean).audio)
+        speech = self._provider.synthesize(clean, language=language)
+        if speech.unspoken:
+            return SpeechAudio(b"", 24_000, unspoken=speech.unspoken)
+        return wav_to_pcm(speech.audio)

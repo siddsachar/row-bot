@@ -11,6 +11,7 @@ import {
   Gauge,
   ImageOff,
   Keyboard,
+  Languages,
   LocateFixed,
   Maximize2,
   Mic,
@@ -57,6 +58,25 @@ export type VoiceResult = { label: string; thumb?: ReactNode; open(): void };
 
 function seconds(ms: number) {
   return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** A language's name in English ("French"), from its code; the code itself when unknown. */
+export function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** "Replied in 0.8 s · usually 0.9 s · French": the timing, and the language last heard. */
+export function detailsLine(
+  latency: VoiceSnapshot['latency'],
+  heard: string | null,
+): string {
+  const timing = latency ? latencyLine(latency) : '';
+  const language = heard ? languageName(heard) : '';
+  return [timing, language].filter(Boolean).join(' · ');
 }
 
 /** "Replied in 0.8 s · usually 0.9 s", from the host's latency marks. */
@@ -288,7 +308,11 @@ export default function VoiceBar(props: {
             {state.you && (
               <p className="voice-caption" data-role="you">
                 <span className="voice-caption-who">You</span>
-                <span className="voice-caption-text">
+                <span
+                  className="voice-caption-text"
+                  dir="auto"
+                  lang={state.you.language}
+                >
                   {state.you.text || (state.you.final ? '' : '…')}
                 </span>
               </p>
@@ -300,7 +324,9 @@ export default function VoiceBar(props: {
                 data-kind={state.rowBot.kind}
               >
                 <span className="voice-caption-who">Row-Bot</span>
-                <span className="voice-caption-text">{state.rowBot.text}</span>
+                <span className="voice-caption-text" dir="auto">
+                  {state.rowBot.text}
+                </span>
               </p>
             )}
           </div>
@@ -353,8 +379,19 @@ export default function VoiceBar(props: {
             </span>
           </button>
         )}
-        {details && state.latency && (
-          <p className="voice-bar-details">{latencyLine(state.latency)}</p>
+        {state.unspoken && (
+          <p className="voice-bar-notice" role="status">
+            <Languages size={16} aria-hidden />
+            <span>
+              Row-Bot’s voice can’t speak {languageName(state.unspoken)}, so its
+              answers stay on screen.
+            </span>
+          </p>
+        )}
+        {details && (state.latency || state.heard) && (
+          <p className="voice-bar-details">
+            {detailsLine(state.latency, state.heard)}
+          </p>
         )}
         {Boolean(props.targets?.length) && (
           <p className="voice-bar-targets">
@@ -435,14 +472,14 @@ export default function VoiceBar(props: {
         <IconButton
           size="sm"
           label={
-            !state.latency
-              ? 'No timing yet'
+            !state.latency && !state.heard
+              ? 'No details yet'
               : details
-                ? 'Hide timing'
-                : 'Show timing'
+                ? 'Hide details'
+                : 'Show details'
           }
-          pressed={details && Boolean(state.latency)}
-          disabled={!state.latency}
+          pressed={details && Boolean(state.latency || state.heard)}
+          disabled={!state.latency && !state.heard}
           onClick={() => setDetails(!details)}
         >
           <Gauge size={16} aria-hidden />

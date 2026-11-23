@@ -151,6 +151,8 @@ class SessionSettings:
     captions: bool = True
     # How long a turn's end waits for a fresh still while the person shares (alongside speech-to-text).
     still_wait_seconds: float = 1.5
+    # What the person speaks (Settings › Voice › Language): a language code, or None to detect it.
+    language: str | None = None
 
 
 def words_of(text: str) -> list[str]:
@@ -222,6 +224,8 @@ class DuplexSession:
         self._utterance_at = 0.0
         self._utterance_over_voice = False
         self._turn_audio = bytearray()
+        # The language the person was last heard speaking: the hint for the voice that answers.
+        self._heard_language: str | None = self.settings.language
         # A streaming model's partial transcripts: live captions and words for barge-in.
         self._live_partials = bool(getattr(parts.stt, "live_partials", False))
         self._reading_partial = False
@@ -424,7 +428,7 @@ class DuplexSession:
         if self._utterance is not None:
             return
         self._record_marks()
-        self._utterance = self.parts.stt.open()
+        self._utterance = self.parts.stt.open(language=self.settings.language)
         self._utterance_id = str(uuid4())
         # When the voice began, in audio time, and whether Row-Bot was talking then.
         self._utterance_at = float(self.tracker.speech_started_ms)
@@ -623,7 +627,9 @@ class DuplexSession:
             await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": True})
             await self._publish_state()
             return
-        await self.link.send_event({"type": "caption", "role": "user", "text": text, "final": True})
+        self._heard_language = heard.language or self._heard_language
+        await self.link.send_event({"type": "caption", "role": "user", "text": text, "final": True,
+                                    "language": heard.language})
         if pending is not None and answer is not None:
             await self._answer_approval(pending, answer, heard_at, over_voice, utterance_id)
             return
@@ -831,9 +837,17 @@ class DuplexSession:
                     continue
                 audio = self._fixed_audio.get(text) if kind in _FIXED_KINDS else None
                 if audio is None:
-                    audio = await asyncio.to_thread(self.parts.tts.synthesize, text)
+                    audio = await asyncio.to_thread(self.parts.tts.synthesize, text,
+                                                    language=self._heard_language)
                     if kind in _FIXED_KINDS and audio.pcm16 and len(self._fixed_audio) < 32:
                         self._fixed_audio[text] = audio
+                if audio.unspoken and epoch == self._speech_epoch and not self.closed:
+                    # A language the voice can't speak: the words stay on screen, and the bar says why.
+                    await self.link.send_event({"type": "caption", "role": "assistant", "text": text,
+                                                "segment": segment, "kind": kind, "final": True,
+                                                "spoken": False})
+                    await self.link.send_event({"type": "unspoken", "language": audio.unspoken})
+                    continue
                 if (epoch != self._speech_epoch or self.closed or not audio.pcm16
                         or (kind == "progress" and self._burst is None)):
                     continue

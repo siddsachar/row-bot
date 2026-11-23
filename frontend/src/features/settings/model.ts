@@ -525,6 +525,12 @@ export const settingsRows: SettingsRow[] = [
     keywords: 'text to speech tts kokoro voice',
   },
   {
+    leaf: 'voice',
+    anchor: 'language',
+    label: 'Language',
+    keywords: 'language detect automatically voice notes',
+  },
+  {
     leaf: 'knowledge',
     anchor: 'memory-graph',
     label: 'Graph health',

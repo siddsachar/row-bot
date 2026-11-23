@@ -1083,6 +1083,7 @@ _STATUS.update(
         "voice_rate_limited": 429,
         "kokoro_model_missing": 409,
         "nothing_to_read": 422,
+        "voice_language_unspoken": 422,
     }
 )
 _STATUS.update(

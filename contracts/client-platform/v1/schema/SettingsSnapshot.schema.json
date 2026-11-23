@@ -750,6 +750,45 @@
       "title": "KnowledgeTypeCount",
       "type": "object"
     },
+    "KokoroLanguageVoices": {
+      "additionalProperties": false,
+      "properties": {
+        "es": {
+          "maxLength": 32,
+          "title": "Es",
+          "type": "string"
+        },
+        "fr": {
+          "maxLength": 32,
+          "title": "Fr",
+          "type": "string"
+        },
+        "hi": {
+          "maxLength": 32,
+          "title": "Hi",
+          "type": "string"
+        },
+        "it": {
+          "maxLength": 32,
+          "title": "It",
+          "type": "string"
+        },
+        "pt": {
+          "maxLength": 32,
+          "title": "Pt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "es",
+        "fr",
+        "hi",
+        "it",
+        "pt"
+      ],
+      "title": "KokoroLanguageVoices",
+      "type": "object"
+    },
     "LearningSettingsSnapshot": {
       "additionalProperties": false,
       "description": "Learning (preview): saved settings only; nothing acts on most of them yet.",
@@ -2165,6 +2204,158 @@
       "title": "UtilitySettingsSnapshot",
       "type": "object"
     },
+    "VoiceLanguageNotice": {
+      "additionalProperties": false,
+      "description": "An engine in use that can't understand the language chosen, or the one it keeps hearing.",
+      "properties": {
+        "alternatives": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "engine": {
+          "maxLength": 64,
+          "title": "Engine",
+          "type": "string"
+        },
+        "heard": {
+          "title": "Heard",
+          "type": "boolean"
+        },
+        "language": {
+          "maxLength": 8,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "language_label": {
+          "maxLength": 64,
+          "title": "Language Label",
+          "type": "string"
+        },
+        "switch_field": {
+          "enum": [
+            "runtime.talk_model",
+            "runtime.dictation_model"
+          ],
+          "title": "Switch Field",
+          "type": "string"
+        },
+        "switch_value": {
+          "maxLength": 128,
+          "title": "Switch Value",
+          "type": "string"
+        },
+        "understands": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Understands",
+          "type": "array"
+        },
+        "use": {
+          "enum": [
+            "talk",
+            "dictation"
+          ],
+          "title": "Use",
+          "type": "string"
+        }
+      },
+      "required": [
+        "use",
+        "engine",
+        "understands",
+        "language",
+        "language_label",
+        "heard",
+        "alternatives",
+        "switch_field",
+        "switch_value"
+      ],
+      "title": "VoiceLanguageNotice",
+      "type": "object"
+    },
+    "VoiceLanguageSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/VoiceLanguageNotice"
+          },
+          "maxItems": 4,
+          "title": "Notices",
+          "type": "array"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 64,
+          "title": "Options",
+          "type": "array"
+        },
+        "spoken": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Spoken",
+          "type": "array"
+        },
+        "voice_options": {
+          "items": {
+            "$ref": "#/$defs/VoiceLanguageVoiceOptions"
+          },
+          "maxItems": 16,
+          "title": "Voice Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "options",
+        "spoken",
+        "voice_options",
+        "notices"
+      ],
+      "title": "VoiceLanguageSnapshot",
+      "type": "object"
+    },
+    "VoiceLanguageVoiceOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "language": {
+          "maxLength": 8,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "language",
+        "label",
+        "options"
+      ],
+      "title": "VoiceLanguageVoiceOptions",
+      "type": "object"
+    },
     "VoiceLocalSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -2226,6 +2417,13 @@
         "realtime_voice": {
           "maxLength": 32,
           "title": "Realtime Voice",
+          "type": "string"
+        },
+        "speech_language": {
+          "default": "auto",
+          "maxLength": 8,
+          "minLength": 2,
+          "title": "Speech Language",
           "type": "string"
         },
         "speech_output_model": {
@@ -2290,6 +2488,9 @@
           "maxItems": 8,
           "title": "Dictation Providers",
           "type": "array"
+        },
+        "language": {
+          "$ref": "#/$defs/VoiceLanguageSnapshot"
         },
         "live_providers": {
           "items": {
@@ -2360,7 +2561,8 @@
         "speech_output_providers",
         "whisper_options",
         "realtime_voice_options",
-        "tts_voice_options"
+        "tts_voice_options",
+        "language"
       ],
       "title": "VoiceSettingsSnapshot",
       "type": "object"
@@ -2372,6 +2574,9 @@
         "installed": {
           "title": "Installed",
           "type": "boolean"
+        },
+        "language_voices": {
+          "$ref": "#/$defs/KokoroLanguageVoices"
         },
         "speed": {
           "maximum": 2.0,
@@ -2388,7 +2593,8 @@
       "required": [
         "installed",
         "voice",
-        "speed"
+        "speed",
+        "language_voices"
       ],
       "title": "VoiceTtsSettingsSnapshot",
       "type": "object"

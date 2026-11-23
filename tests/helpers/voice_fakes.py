@@ -113,7 +113,7 @@ class FakeSpeechStream:
         self.owner.clock.advance(self.owner.finish_ms)
         text = self.owner.finals.pop(0) if self.owner.finals else ""
         self.owner.finished.append((text, len(self.audio)))
-        return TranscriptUpdate(text, final=True)
+        return TranscriptUpdate(text, final=True, language=self.owner.heard_language)
 
     def close(self) -> None:
         self.closed = True
@@ -131,11 +131,15 @@ class FakeSpeechToText:
         self.partials = 0
         self.warmed = False
         self.streams: list[FakeSpeechStream] = []
+        # The language each utterance was opened in, and the one every final reports it heard.
+        self.opened: list[str | None] = []
+        self.heard_language: str | None = None
 
     def warm(self) -> None:
         self.warmed = True
 
     def open(self, *, language: str | None = None) -> FakeSpeechStream:
+        self.opened.append(language)
         stream = FakeSpeechStream(self)
         self.streams.append(stream)
         return stream
@@ -150,16 +154,23 @@ class FakeSentenceSpeech:
         self.clock = clock
         self.synth_ms = synth_ms
         self.spoken: list[str] = []
+        # The language hint each sentence was asked in.
+        self.languages: list[str | None] = []
+        # Set: the voice can't speak this language, so every sentence comes back unspoken.
+        self.unspoken: str | None = None
         self.warmed = False
         self.gate: threading.Event | None = None
 
     def warm(self) -> None:
         self.warmed = True
 
-    def synthesize(self, text: str) -> SpeechAudio:
+    def synthesize(self, text: str, *, language: str | None = None) -> SpeechAudio:
+        self.languages.append(language)
         if self.gate is not None:
             self.gate.wait(5)
         self.clock.advance(self.synth_ms)
+        if self.unspoken:
+            return SpeechAudio(b"", 24_000, unspoken=self.unspoken)
         self.spoken.append(text)
         return SpeechAudio(b"\x01\x00" * (240 * len(text)), 24_000)
 
