@@ -99,6 +99,12 @@ REFUSED = {
     "short hash": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(digest="ab" * 31)),
     "uppercase hash": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(digest="AB" * 32)),
     "unknown role": _with(Action.ROLE_CHANGED, lambda d: d["details"].update(role="owner")),
+    "an operator using a device": _with(Action.TOOL_CALLED, lambda d: d["actor"].update(kind="operator")),
+    "an operator signing in": _with(Action.SESSION_SIGNED_IN, lambda d: d["actor"].update(kind="operator")),
+    "a group with a space at its end": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(group="Sales ")),
+    "a group with a newline": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(group="Sa\nles")),
+    "a group too long": _with(Action.POLICY_CHANGED, lambda d: d["details"].update(group="g" * 257)),
+    "an unknown settings change": _with(Action.ORG_SETTINGS_CHANGED, lambda d: d["details"].update(change="moved")),
     "details not an object": _with(Action.MODEL_CALLED, lambda d: d.update(details=[])),
 }
 

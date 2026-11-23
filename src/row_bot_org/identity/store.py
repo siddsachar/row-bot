@@ -50,15 +50,14 @@ def take_sign_in(pool: ConnectionPool, state: bytes) -> SignInAttempt | None:
     return None if row is None else SignInAttempt(bytes(row[0]), bytes(row[1]), row[2])
 
 
-def sign_in(pool: ConnectionPool, identity: VerifiedIdentity, *, verifier: bytes, lifetime: int, idle: int,
+def sign_in(conn: psycopg.Connection, identity: VerifiedIdentity, *, verifier: bytes, lifetime: int, idle: int,
             user_agent: str, address: str, replaces: bytes | None) -> tuple[str, str]:
     """Make or update the principal and, when it is active, a session. Returns (principal id, status)."""
-    with pool.connection() as conn:
-        principal_id, status = conn.execute(
-            "SELECT principal_id, status FROM row_bot_org.sign_in(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (identity.issuer, identity.subject, identity.display_name, identity.email, list(identity.groups),
-             verifier, timedelta(seconds=lifetime), timedelta(seconds=idle), user_agent, address, replaces),
-        ).fetchone()
+    principal_id, status = conn.execute(
+        "SELECT principal_id, status FROM row_bot_org.sign_in(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (identity.issuer, identity.subject, identity.display_name, identity.email, list(identity.groups),
+         verifier, timedelta(seconds=lifetime), timedelta(seconds=idle), user_agent, address, replaces),
+    ).fetchone()
     return str(principal_id), status
 
 
@@ -150,7 +149,7 @@ def set_role(conn: psycopg.Connection, principal_id: str, role: str) -> str | No
 
 
 def set_status(conn: psycopg.Connection, principal_id: str, status: str) -> str | None:
-    """Make a principal active or suspended; suspending revokes its sessions (and sign-in refuses it).
+    """Make a principal active or suspended (sign-in refuses a suspended one; its caller revokes its sessions).
     Returns its previous status, None when there is none."""
     row = conn.execute("SELECT status FROM row_bot_org.principals WHERE id = %s FOR UPDATE",
                        (principal_id,)).fetchone()
@@ -158,8 +157,6 @@ def set_status(conn: psycopg.Connection, principal_id: str, status: str) -> str 
         return None
     if row[0] != status:
         conn.execute("UPDATE row_bot_org.principals SET status = %s WHERE id = %s", (status, principal_id))
-    if status == "suspended":
-        revoke_sessions(conn, principal_id)
     return row[0]
 
 

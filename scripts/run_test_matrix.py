@@ -474,8 +474,8 @@ def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list
     return selected
 
 
-# The Org server and the brain and policy it serves (F-4): a change to any of them also runs the org tier.
-ORG_SOURCES = ("src/row_bot_org/", "src/row_bot/brain/", "src/row_bot/policy/")
+# The Org server and the brain, policy and audit models it serves (F-4): a change to any runs the org tier.
+ORG_SOURCES = ("src/row_bot_org/", "src/row_bot/brain/", "src/row_bot/policy/", "src/row_bot/audit/")
 
 
 def changed_commands(changed_files: list[str]) -> list[CommandSpec]:

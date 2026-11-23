@@ -9,8 +9,8 @@ Security-sensitive: these run in the pull request lane's Org job.
 
 from __future__ import annotations
 
+import hashlib
 import json
-import logging
 import os
 import threading
 import time
@@ -37,6 +37,7 @@ from row_bot_org.db.rls import principal_transaction  # noqa: E402
 from row_bot_org.policy import store  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
 from tests.fixtures.oidc_idp import CLIENT_SECRET, PUBLIC_URL, FakeIdp, running_idp  # noqa: E402
+from tests.helpers.org_audit import stored_events, summary  # noqa: E402
 
 pytestmark = pytest.mark.postgres
 
@@ -356,19 +357,25 @@ def test_a_write_naming_an_old_version_is_refused_as_a_conflict(server, org_data
     assert len(_rows(org_database)) == 5
 
 
-def test_each_change_emits_policy_changed(server, caplog: pytest.LogCaptureFixture) -> None:
+def test_each_change_emits_policy_changed(server, org_database) -> None:
     _, admin = server
-    with caplog.at_level(logging.INFO, logger="row_bot_org.audit"):
-        refused = put(admin, {"data": {"share_to_company": False}}, "Contractors")
-        stored = put(admin, {"data": {"share_to_company": False}}).json()["policy"]
-        put(admin, {"bad": {}})
+    refused = put(admin, {"data": {"share_to_company": False}}, "Contractors")
+    assert put(admin, {"data": {"share_to_company": False}}).status_code == 200
+    assert put(admin, {"approvals": {"max_level": "full"}}, "Platform team").status_code == 200
+    put(admin, {"bad": {}})
 
     # A restriction belongs in the company policy: as a group override it is refused, and nothing changes.
     assert refused.status_code == 422 and refused.json()["detail"].endswith(ONLY_WIDEN)
-    events = [record for record in caplog.records if record.name == "row_bot_org.audit"]
-    assert [(record.getMessage(), record.fields) for record in events] == [
-        ("policy.changed", {"action": "policy.changed", "actor": principal_id(admin), "group": None,
-                            "version": stored["version"]})]
+
+    def digest(document: dict) -> str:
+        return hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    # Each event names the document it stored by its digest, and the group it overrides.
+    assert [summary(event) for event in stored_events(org_database.owner_url, "policy.changed")] == [
+        ("policy.changed", "admin", principal_id(admin), None, "succeeded",
+         {"digest": digest({"data": {"share_to_company": False}}), "schema_version": 1}),
+        ("policy.changed", "admin", principal_id(admin), None, "succeeded",
+         {"digest": digest({"approvals": {"max_level": "full"}}), "schema_version": 1, "group": "Platform team"})]
 
 
 # -- row-level security -------------------------------------------------------------------------------

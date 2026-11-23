@@ -191,3 +191,31 @@ in `ROW_BOT_ORG_IDP` from the provider's immutable group ids (Entra object ids) 
 names to the names the overrides use; never write an override for a display name people can create or rename
 themselves (self-service groups). `row-bot-org check-config` warns when overrides exist without a
 `group_map`.
+
+## Audit
+
+The server keeps one append-only audit log of what happened under company rules: sign-ins and sign-outs,
+revoked sessions, role changes, suspensions, policy changes, model catalog and budget changes, model calls
+(counts only: model, tokens, cost, duration and outcome, never a prompt or an answer), devices joining and
+being revoked, exports of the log, and what connected Row-Bots report (tool actions under company policy,
+their exports, an offline lockdown). The events follow `contracts/audit/v1/`; the operator's commands
+(`row-bot-org principals ...`) are recorded with the actor `operator` / `cli`.
+
+- Each event is stored in the same database transaction as the change it records, and linked into a hash
+  chain. Nobody can change or delete a stored event through the server or its database role; an owner who
+  switches row-level security off could, and `GET /api/admin/audit/verify` then reports the first broken link.
+  Cutting events off the end shows only against a head kept elsewhere: keep the verify report's `head` (or an
+  export) somewhere else from time to time.
+- Only admins read the log: `GET /api/admin/audit` (newest first; `action`, `actor`, `target`, `from`, `to`,
+  `before`, `limit`), `GET /api/admin/audit/verify` and `GET /api/admin/audit/export` (JSON Lines, 10,000
+  events a file, `after` for the next one; each export is itself recorded). People can't read it, not even
+  their own events.
+- **Retention:** every event is kept. There is no expiry in this version; size the database for it (each event is
+  a few hundred bytes).
+
+## Devices
+
+A connected Row-Bot registers itself (`POST /api/devices`) and reports in (`POST /api/devices/{id}/seen`).
+Admins list devices (`GET /api/admin/devices?person=&revoked=`) and revoke one
+(`POST /api/admin/devices/{id}/revoke`): a revoked device is refused from then on. To stop a person
+altogether, suspend them (People and admins).

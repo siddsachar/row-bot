@@ -17,6 +17,7 @@ PERSON = Actor(ActorKind.PERSON, "priya")
 OWNER = Actor(ActorKind.PERSON, "sam")
 ADMIN = Actor(ActorKind.ADMIN, "it-lee")
 SERVICE = Actor(ActorKind.SERVICE, "gateway")
+OPERATOR = Actor(ActorKind.OPERATOR, "cli")
 
 
 def event_id(number: int) -> str:
@@ -34,9 +35,12 @@ _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], di
     Action.DEVICE_JOINED: (PERSON, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", _ON_DEVICE,
                            {"platform": "windows", "app_version": "5.4.0"}),
     Action.DEVICE_REMOVED: (ADMIN, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", {}, {"reason": "revoked"}),
+    Action.DEVICE_LOCKED_DOWN: (PERSON, "org", Target(TargetKind.DEVICE, DEVICE), "succeeded", _ON_DEVICE,
+                                {"offline_days": 8}),
     Action.MODEL_CALLED: (PERSON, "org", None, "succeeded", {**_ON_DEVICE, "turn_id": "turn-41"},
                           {"provider": "azure_openai", "model": "deployments/gpt-5", "input_tokens": 1200,
-                           "output_tokens": 300, "cache_read_tokens": 800, "duration_ms": 2100}),
+                           "output_tokens": 300, "cache_read_tokens": 800, "duration_ms": 2100,
+                           "cost_micros": 4500}),
     Action.TOOL_CALLED: (PERSON, "org", Target(TargetKind.TOOL, "workspace_write_file"), "succeeded",
                          {"decided_by": "person", **_ON_DEVICE, "turn_id": "turn-41", "request_id": "req-9",
                           "redaction": "summaries"},
@@ -44,7 +48,7 @@ _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], di
                           "rule_id": "rule-3", "summary": "Wrote notes.md in the Q4 plan folder"}),
     Action.POLICY_CHANGED: (ADMIN, "org", None, "succeeded", {},
                             {"digest": DIGEST, "previous_digest": OTHER_DIGEST, "schema_version": 1,
-                             "group": "engineering"}),
+                             "group": "Engineering/Platform team"}),
     Action.APP_APPROVED: (ADMIN, "org", Target(TargetKind.INTEGRATION, "github"), "succeeded", {},
                           {"version": "2.1.0"}),
     Action.APP_PUSHED: (ADMIN, "org", Target(TargetKind.MCP_SERVER, "jira"), "succeeded", {}, {"version": "1.4.2"}),
@@ -62,10 +66,13 @@ _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], di
                                {"item_kind": "skill", "version": "3"}),
     Action.DATA_EXPORTED: (ADMIN, "org", Target(TargetKind.EXPORT, "exp-2"), "succeeded", {},
                            {"scope": "audit", "item_count": 5400, "byte_count": 73_000_000}),
+    Action.DATA_DELETED: (ADMIN, "org", Target(TargetKind.PERSON, "priya"), "succeeded", {}, {}),
     Action.ROLE_CHANGED: (ADMIN, "team", Target(TargetKind.PERSON, "sam"), "succeeded", {},
                           {"role": "space_owner", "change": "granted", "space_id": "team-payments"}),
+    Action.PERSON_SUSPENDED: (OPERATOR, "org", Target(TargetKind.PERSON, "priya"), "succeeded", {}, {}),
+    Action.PERSON_RESUMED: (ADMIN, "org", Target(TargetKind.PERSON, "priya"), "succeeded", {}, {}),
     Action.ORG_SETTINGS_CHANGED: (ADMIN, "org", Target(TargetKind.SETTING, "models.budget.monthly"), "succeeded", {},
-                                  {}),
+                                  {"change": "updated"}),
 }
 
 

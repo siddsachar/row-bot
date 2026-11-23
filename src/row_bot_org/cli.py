@@ -108,11 +108,16 @@ def _migrate(url: str) -> int:
 def _revoke_sessions(url: str, principal_id: str) -> int:
     import psycopg
 
+    from row_bot.audit import Action, Target, TargetKind
+    from row_bot_org import audit
     from row_bot_org.identity.store import revoke_sessions
 
     try:
-        with psycopg.connect(url, autocommit=True, connect_timeout=CONNECT_TIMEOUT) as conn:
+        with psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT) as conn:
             revoked = revoke_sessions(conn, principal_id)
+            if revoked:
+                audit.emit(conn, Action.SESSION_REVOKED, actor=audit.OPERATOR,
+                           target=Target(TargetKind.PERSON, principal_id))
     except psycopg.Error as error:
         return _database_unreachable(error)
     sys.stdout.write(f"Revoked {_plural(revoked, 'session')} of principal {principal_id}.\n")
@@ -122,6 +127,7 @@ def _revoke_sessions(url: str, principal_id: str) -> int:
 def _set_admin(url: str, settings: OrgSettings, person: str, grant: bool) -> int:
     import psycopg
 
+    from row_bot_org import audit
     from row_bot_org.identity import store
     from row_bot_org.identity.people import role_changed
     from row_bot_org.identity.roles import ADMIN, MEMBER, admin_groups
@@ -143,7 +149,7 @@ def _set_admin(url: str, settings: OrgSettings, person: str, grant: bool) -> int
             role = ADMIN if grant else MEMBER
             changed = store.set_role(conn, target.id, role) != role
             if changed:
-                role_changed(conn, actor="operator", target=target.id, granted=grant, via="cli")
+                role_changed(conn, actor=audit.OPERATOR, target=target.id, granted=grant)
     except psycopg.Error as error:
         return _database_unreachable(error)
     label = target.id + (f" ({target.email})" if target.email else "")

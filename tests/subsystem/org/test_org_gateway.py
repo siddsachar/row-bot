@@ -36,6 +36,7 @@ from row_bot_org.logging import configure_logging  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
 from tests.fixtures.model_endpoints import INPUT_TOKENS, KEY, OUTPUT_TOKENS, STREAM_WORDS, running_endpoint  # noqa: E402
 from tests.fixtures.oidc_idp import CLIENT_SECRET, PUBLIC_URL, FakeIdp, running_idp  # noqa: E402
+from tests.helpers.org_audit import stored_events, summary  # noqa: E402
 
 pytestmark = pytest.mark.postgres
 
@@ -183,6 +184,15 @@ def test_a_streamed_chat_passes_through_and_is_metered_from_its_last_chunk(org_d
         assert endpoint.last().body["stream_options"] == {"include_usage": True}
         assert usage(admin) == [{"model": "company-chat", "calls": 1, "input_tokens": INPUT_TOKENS,
                                  "output_tokens": OUTPUT_TOKENS, "cost": CALL_COST}]
+        ada_id = ada.get("/api/me").json()["id"]
+    # Audited when the stream ended, with the usage row: counts only, never the prompt or the answer.
+    (called,) = stored_events(org_database.owner_url, "model.called")
+    duration = called["details"].pop("duration_ms")
+    assert isinstance(duration, int) and duration >= 0
+    assert summary(called) == ("model.called", "person", ada_id, None, "succeeded", {
+        "provider": "openai", "model": "company-chat", "input_tokens": INPUT_TOKENS, "output_tokens": OUTPUT_TOKENS,
+        "cost_micros": round(CALL_COST * 1_000_000)})
+    assert "Hello" not in json.dumps(called) and STREAM_WORDS[0] not in json.dumps(called)
 
 
 @pytest.mark.parametrize("stream", [False, True], ids=["whole", "streamed"])
@@ -408,7 +418,7 @@ def test_the_company_default_moves_and_an_endpoint_with_models_stays(org_databas
         endpoint_id = add_endpoint(admin, endpoint.base_url)
         first = add_model(admin, endpoint_id, "first-chat", is_default=True)
         second = add_model(admin, endpoint_id, "second-chat", is_default=True)
-        add_model(admin, endpoint_id, "company-embed", kind="embeddings", is_default=True)
+        embed = add_model(admin, endpoint_id, "company-embed", kind="embeddings", is_default=True)
 
         defaults = {m["name"]: m["is_default"] for m in admin.get("/api/admin/models").json()["models"]}
         assert defaults == {"first-chat": False, "second-chat": True, "company-embed": True}
@@ -421,6 +431,19 @@ def test_the_company_default_moves_and_an_endpoint_with_models_stays(org_databas
             assert admin.delete(f"/api/admin/models/{model['id']}").status_code == 204
         assert admin.delete(f"/api/admin/endpoints/{endpoint_id}").status_code == 204
         assert second["endpoint_id"] == endpoint_id
+        budget = admin.put("/api/admin/budgets", json={"scope": "group", "subject": "Sales", "hard_limit": 5})
+        assert admin.delete(f"/api/admin/budgets/{budget.json()['id']}").status_code == 204
+        admin_id = admin.get("/api/me").json()["id"]
+
+    # Each catalog and budget change is an org settings change on what changed; a refusal records nothing.
+    events = stored_events(org_database.owner_url, "org_settings.changed")
+    assert {event["actor"]["id"] for event in events} == {admin_id}
+    endpoint, budget_ref = f"gateway.endpoint.{endpoint_id}", f"gateway.budget.{budget.json()['id']}"
+    one, two, three = (f"gateway.model.{model['id']}" for model in (first, second, embed))
+    assert [(event["target"]["ref"], event["details"].get("change")) for event in events] == [
+        (endpoint, "created"), (one, "created"), (two, "created"), (three, "created"), (one, "updated"),
+        (one, "deleted"), (two, "deleted"), (three, "deleted"), (endpoint, "deleted"), (budget_ref, None),
+        (budget_ref, "deleted")]
 
 
 # -- what the gateway forwards ----------------------------------------------------------------------

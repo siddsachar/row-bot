@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import os
 import secrets
 import uuid
@@ -30,6 +29,7 @@ from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
 from tests.fixtures.oidc_idp import CLIENT_SECRET, PUBLIC_URL, FakeIdp, running_idp  # noqa: E402
+from tests.helpers.org_audit import stored_events, summary  # noqa: E402
 
 pytestmark = pytest.mark.postgres
 
@@ -98,9 +98,8 @@ def grant_admin(database, monkeypatch: pytest.MonkeyPatch, who: str, *, action: 
     return cli.main(["principals", action, who])
 
 
-def audit_events(caplog: pytest.LogCaptureFixture) -> list[tuple[str, dict]]:
-    return [(record.getMessage(), {k: v for k, v in record.fields.items() if k != "action"})
-            for record in caplog.records if record.name == "row_bot_org.audit"]
+def audit_events(database, *actions: str) -> list[tuple]:
+    return [summary(event) for event in stored_events(database.owner_url, *actions)]
 
 
 # -- who is an admin ------------------------------------------------------------------------------
@@ -142,12 +141,12 @@ def test_a_non_admin_is_refused_on_every_admin_route(org_database, idp) -> None:
         target = me(person(server, idp, "ada"))
         routes = [(method.upper(), path) for path, operations in server.app.openapi()["paths"].items()
                   if path.startswith("/api/admin/") for method in operations]
-        # Policy, gateway and people: every admin route the server has.
+        # Policy, gateway, people, audit and devices: every admin route the server has.
         assert {path.split("/")[3] for _, path in routes} == {"policy", "endpoints", "models", "budgets", "usage",
-                                                             "people"}
+                                                             "people", "audit", "devices"}
         for method, path in routes:
             url = path.replace("{principal_id}", target).replace("{group}", "Sales")
-            for name in ("{endpoint_id}", "{model_id}", "{budget_id}"):
+            for name in ("{endpoint_id}", "{model_id}", "{budget_id}", "{device_id}"):
                 url = url.replace(name, str(uuid.uuid4()))
             refused = sam.request(method, url, json={"role": "admin", "version": 0})
             assert (refused.status_code, refused.json()) == (403, ADMIN_REQUIRED), (method, path)
@@ -158,20 +157,18 @@ def test_a_non_admin_is_refused_on_every_admin_route(org_database, idp) -> None:
 
 # -- the people API -------------------------------------------------------------------------------
 
-def test_an_admin_sets_and_clears_the_admin_role_and_each_change_is_audited(org_database, idp,
-                                                                            caplog: pytest.LogCaptureFixture) -> None:
+def test_an_admin_sets_and_clears_the_admin_role_and_each_change_is_audited(org_database, idp) -> None:
     with org_server(org_database, idp) as server:
         it = person(server, idp, "it", ["IT Admins"])
         ada = person(server, idp, "ada")
         ada_id = me(ada)
-        with caplog.at_level(logging.INFO, logger="row_bot_org.audit"):
-            granted = it.put(f"/api/admin/people/{ada_id}/role", json={"role": "admin"})
-            assert (granted.status_code, granted.json()["role"], granted.json()["admin"]) == (200, "admin", True)
-            assert ada.get("/api/admin/people").status_code == 200
-            assert it.put(f"/api/admin/people/{ada_id}/role", json={"role": "admin"}).status_code == 200  # no change
-            cleared = it.put(f"/api/admin/people/{ada_id}/role", json={"role": "member"})
-            assert (cleared.status_code, cleared.json()["role"]) == (200, "member")
-            assert ada.get("/api/admin/people").status_code == 403
+        granted = it.put(f"/api/admin/people/{ada_id}/role", json={"role": "admin"})
+        assert (granted.status_code, granted.json()["role"], granted.json()["admin"]) == (200, "admin", True)
+        assert ada.get("/api/admin/people").status_code == 200
+        assert it.put(f"/api/admin/people/{ada_id}/role", json={"role": "admin"}).status_code == 200  # no change
+        cleared = it.put(f"/api/admin/people/{ada_id}/role", json={"role": "member"})
+        assert (cleared.status_code, cleared.json()["role"]) == (200, "member")
+        assert ada.get("/api/admin/people").status_code == 403
 
         assert it.put(f"/api/admin/people/{uuid.uuid4()}/role", json={"role": "admin"}).json() == {
             "error": "person_not_found"}
@@ -179,9 +176,9 @@ def test_an_admin_sets_and_clears_the_admin_role_and_each_change_is_audited(org_
         assert it.put(f"/api/admin/people/{ada_id}/role", json={"role": "owner"}).status_code == 422
         it_id = me(it)
 
-    assert audit_events(caplog) == [
-        ("role.changed", {"actor": it_id, "target": ada_id, "role": "admin", "change": "granted", "via": "api"}),
-        ("role.changed", {"actor": it_id, "target": ada_id, "role": "admin", "change": "removed", "via": "api"}),
+    assert audit_events(org_database, "role.changed") == [
+        ("role.changed", "admin", it_id, ada_id, "succeeded", {"role": "admin", "change": "granted"}),
+        ("role.changed", "admin", it_id, ada_id, "succeeded", {"role": "admin", "change": "removed"}),
     ]
 
 
@@ -205,27 +202,30 @@ def test_an_admin_can_neither_suspend_themself_nor_change_their_own_role(org_dat
         assert (listed[me(it)]["role"], listed[me(it)]["admin"]) == ("member", True)
 
 
-def test_suspending_revokes_every_session_and_refuses_sign_in_until_resumed(org_database, idp,
-                                                                           caplog: pytest.LogCaptureFixture) -> None:
+def test_suspending_revokes_every_session_and_refuses_sign_in_until_resumed(org_database, idp) -> None:
     with org_server(org_database, idp) as server:
         it = person(server, idp, "it", ["IT Admins"])
         ada = person(server, idp, "ada", ["Sales"])
         laptop = person(server, idp, "ada", ["Sales"])
         ada_id = me(ada)
 
-        with caplog.at_level(logging.INFO, logger="row_bot_org.audit"):
-            suspended = it.post(f"/api/admin/people/{ada_id}/suspend")
-            assert (suspended.status_code, suspended.json()["suspended"]) == (200, True)
-            assert ada.get("/api/me").status_code == 401 and laptop.get("/api/me").status_code == 401
-            assert sign_in_again(ada, idp, "ada") == 403
-            resumed = it.post(f"/api/admin/people/{ada_id}/resume")
-            assert (resumed.status_code, resumed.json()["suspended"]) == (200, False)
+        suspended = it.post(f"/api/admin/people/{ada_id}/suspend")
+        assert (suspended.status_code, suspended.json()["suspended"]) == (200, True)
+        assert ada.get("/api/me").status_code == 401 and laptop.get("/api/me").status_code == 401
+        assert sign_in_again(ada, idp, "ada") == 403
+        resumed = it.post(f"/api/admin/people/{ada_id}/resume")
+        assert (resumed.status_code, resumed.json()["suspended"]) == (200, False)
         assert sign_in_again(ada, idp, "ada") == 303
         assert ada.get("/api/me").json()["id"] == ada_id
         it_id = me(it)
 
-    assert audit_events(caplog) == [("person.suspended", {"actor": it_id, "target": ada_id}),
-                                    ("person.resumed", {"actor": it_id, "target": ada_id})]
+    # Suspending signs both of Ada's browsers out; her sign-in while suspended is refused, then she's back.
+    assert audit_events(org_database, "person.suspended", "person.resumed", "session.revoked") == [
+        ("person.suspended", "admin", it_id, ada_id, "succeeded", {}),
+        ("session.revoked", "admin", it_id, ada_id, "succeeded", {}),
+        ("person.resumed", "admin", it_id, ada_id, "succeeded", {})]
+    assert [(event[2], event[4]) for event in audit_events(org_database, "session.signed_in")
+            if event[2] == ada_id] == [(ada_id, "succeeded")] * 2 + [(ada_id, "denied"), (ada_id, "succeeded")]
     with psycopg.connect(org_database.owner_url) as conn:
         assert conn.execute("SELECT count(*) FROM row_bot_org.server_sessions WHERE principal_id = %s"
                             " AND revoked_at IS NULL", (ada_id,)).fetchone() == (1,)  # the new one
@@ -233,31 +233,27 @@ def test_suspending_revokes_every_session_and_refuses_sign_in_until_resumed(org_
 
 # -- the first admin: the CLI ---------------------------------------------------------------------
 
-def test_the_operator_grants_and_revokes_admin_by_email_or_id(org_database, idp, monkeypatch, capsys,
-                                                              caplog: pytest.LogCaptureFixture) -> None:
+def test_the_operator_grants_and_revokes_admin_by_email_or_id(org_database, idp, monkeypatch, capsys) -> None:
     with org_server(org_database, idp) as server:
         owner, second = person(server, idp, "owner", email="Owner@Example.com"), person(server, idp, "second")
         owner_id, second_id = me(owner), me(second)
         assert owner.get("/api/admin/people").status_code == 403
 
-        with caplog.at_level(logging.INFO, logger="row_bot_org.audit"):
-            assert grant_admin(org_database, monkeypatch, "owner@example.com") == 0
-            assert f"Principal {owner_id} (Owner@Example.com) is now an admin." in capsys.readouterr().out
-            assert owner.get("/api/admin/people").status_code == 200
-            assert grant_admin(org_database, monkeypatch, owner_id) == 0
-            assert "is already an admin" in capsys.readouterr().out
-            assert grant_admin(org_database, monkeypatch, second_id) == 0
-            assert grant_admin(org_database, monkeypatch, "OWNER@example.com", action="revoke-admin") == 0
-            assert "is no longer an admin" in capsys.readouterr().out
+        assert grant_admin(org_database, monkeypatch, "owner@example.com") == 0
+        assert f"Principal {owner_id} (Owner@Example.com) is now an admin." in capsys.readouterr().out
+        assert owner.get("/api/admin/people").status_code == 200
+        assert grant_admin(org_database, monkeypatch, owner_id) == 0
+        assert "is already an admin" in capsys.readouterr().out
+        assert grant_admin(org_database, monkeypatch, second_id) == 0
+        assert grant_admin(org_database, monkeypatch, "OWNER@example.com", action="revoke-admin") == 0
+        assert "is no longer an admin" in capsys.readouterr().out
         assert owner.get("/api/admin/people").status_code == 403
 
-    assert audit_events(caplog) == [
-        ("role.changed", {"actor": "operator", "target": owner_id, "role": "admin", "change": "granted",
-                          "via": "cli"}),
-        ("role.changed", {"actor": "operator", "target": second_id, "role": "admin", "change": "granted",
-                          "via": "cli"}),
-        ("role.changed", {"actor": "operator", "target": owner_id, "role": "admin", "change": "removed",
-                          "via": "cli"}),
+    # The CLI has no principal: its events are the operator's.
+    assert audit_events(org_database, "role.changed") == [
+        ("role.changed", "operator", "cli", owner_id, "succeeded", {"role": "admin", "change": "granted"}),
+        ("role.changed", "operator", "cli", second_id, "succeeded", {"role": "admin", "change": "granted"}),
+        ("role.changed", "operator", "cli", owner_id, "succeeded", {"role": "admin", "change": "removed"}),
     ]
 
 
