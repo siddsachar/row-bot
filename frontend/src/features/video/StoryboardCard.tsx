@@ -9,7 +9,9 @@ import {
   ArrowDown,
   ArrowLeftRight,
   ArrowUp,
+  AudioLines,
   Check,
+  CloudRain,
   Film,
   Image as Picture,
   MessageSquare,
@@ -20,7 +22,9 @@ import {
   Sparkles,
   Trash2,
   Type,
+  UserRound,
   X,
+  Zap,
   ZoomIn,
 } from 'lucide-react';
 import type {
@@ -39,14 +43,121 @@ import {
 } from '../../ui/primitives';
 import { acquire, release } from './media-urls';
 import {
+  AMBIENCE,
+  EFFECTS,
   FOOTAGE,
+  MAX_EFFECTS,
   SPEEDS,
   type Footage,
+  effectWords,
   footageOf,
   isPlanned,
   lengthWords,
   sceneSeconds,
 } from './video-words';
+
+/** An ambience runs under the scene (a cloud); a one-shot plays as it starts (a spark). */
+function effectIcon(effect: string) {
+  return AMBIENCE.has(effect) ? (
+    <CloudRain size={12} aria-hidden />
+  ) : (
+    <Zap size={12} aria-hidden />
+  );
+}
+
+/**
+ * A scene's sound (C6): who says its line (a character, in its own voice; empty
+ * for the narrator) and its effects and ambience, each removed with its own
+ * button, added from one menu.
+ */
+function SceneSound({
+  scene,
+  number,
+  speakers,
+  editable,
+  onChange,
+}: {
+  scene: VideoSceneWrite;
+  number: number;
+  /** The datalist of the video's characters, for who says the line. */
+  speakers: string;
+  editable: boolean;
+  onChange: (patch: Partial<VideoSceneWrite>) => void;
+}) {
+  const effects = scene.effects ?? [];
+  const missing = (Object.keys(EFFECTS) as (keyof typeof EFFECTS)[]).filter(
+    (effect) => !effects.includes(effect),
+  );
+  return (
+    <div className="video-scene-sound">
+      <label className="video-scene-speaker">
+        <UserRound size={14} aria-hidden />
+        <input
+          className="input"
+          list={speakers}
+          aria-label={`Scene ${number}: who says its line`}
+          placeholder="Narrator"
+          maxLength={40}
+          value={scene.speaker ?? ''}
+          disabled={!editable}
+          onChange={(event) => onChange({ speaker: event.target.value })}
+        />
+      </label>
+      {effects.length > 0 && (
+        <ul
+          className="video-scene-effects"
+          aria-label={`Scene ${number} sound effects`}
+        >
+          {effects.map((effect) => (
+            <li
+              key={effect}
+              className="video-scene-effect"
+              data-ambience={AMBIENCE.has(effect) ? 'true' : undefined}
+            >
+              {effectIcon(effect)}
+              <span>{effectWords(effect)}</span>
+              {editable && (
+                <IconButton
+                  size="sm"
+                  label={`Remove ${effectWords(effect)} from scene ${number}`}
+                  onClick={() =>
+                    onChange({
+                      effects: effects.filter((item) => item !== effect),
+                    })
+                  }
+                >
+                  <X size={12} aria-hidden />
+                </IconButton>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {editable && effects.length < MAX_EFFECTS && (
+        <Menu
+          label={`Add a sound to scene ${number}`}
+          hint={`Add a sound to scene ${number}`}
+          iconOnly
+          variant="ghost"
+          className="icon-action icon-action-sm"
+          actions={missing.map((effect, index) => ({
+            label: EFFECTS[effect],
+            description: AMBIENCE.has(effect)
+              ? 'Under the whole scene'
+              : 'As the scene starts',
+            icon: effectIcon(effect),
+            separatorBefore:
+              index > 0 &&
+              AMBIENCE.has(effect) !== AMBIENCE.has(missing[index - 1]),
+            onSelect: () => onChange({ effects: [...effects, effect] }),
+          }))}
+        >
+          <AudioLines size={16} aria-hidden />
+        </Menu>
+      )}
+    </div>
+  );
+}
 
 const FOOTAGE_ICONS: Record<Footage, ReactNode> = {
   clip: <Film size={14} aria-hidden />,
@@ -178,7 +289,8 @@ function SceneFrame({
 
 /**
  * One scene of a video as a storyboard card (C1): its frame and footage type,
- * what it shows, its line, length and music cue. The person edits the line,
+ * what it shows, its line and who says it, its sound effects, length and music
+ * cue. The person edits the line,
  * card and timing here; approves the scene as it is; and asks Row-Bot, in the
  * chat, to change it ("make this one moodier"), swap its footage or make a new
  * take of it.
@@ -198,6 +310,7 @@ export function StoryboardCard({
   partial,
   playable,
   busy,
+  speakers,
   onChange,
   onMove,
   onRemove,
@@ -209,6 +322,8 @@ export function StoryboardCard({
   title: string;
   version: number;
   scene: VideoSceneWrite;
+  /** The id of the datalist naming the video's characters. */
+  speakers: string;
   shown: VideoScene | undefined;
   number: number;
   total: number;
@@ -333,6 +448,13 @@ export function StoryboardCard({
           value={scene.line ?? ''}
           disabled={!editable}
           onChange={(event) => onChange({ line: event.target.value })}
+        />
+        <SceneSound
+          scene={scene}
+          number={number}
+          speakers={speakers}
+          editable={editable}
+          onChange={onChange}
         />
         <div className="video-scene-controls">
           {cut ? (

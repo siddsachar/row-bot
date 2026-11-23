@@ -1166,6 +1166,12 @@ class _Refs:
         return self._files.get(name.casefold())
 
 
+def _kit_mood() -> str:
+    from row_bot import video_brand
+
+    return video_brand.load().music_mood
+
+
 def view(project: Project, number: int | None = None) -> dict[str, Any]:
     """The client's view of a project at one version (the latest by default)."""
     from row_bot import video_edits
@@ -1200,7 +1206,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "changed": changed_scenes(project, version),
         "music": version.music,
         "music_volume": version.music_volume,
-        "music_mood": version.music_mood,
+        "music_mood": version.music_mood or (_kit_mood() if version.music == FIT else ""),
         "on_beat": version.on_beat,
         "cast": [{"name": name, "voice": voice} for name, voice in version.cast.items()],
         "narration": version.narration,
@@ -1351,8 +1357,7 @@ def summary(project: Project, number: int | None = None) -> str:
         lines.append("Voices: " + ", ".join(f"{item['name']} {item['voice']}" for item in data["cast"])
                      + " (each character's lines in its own voice).")
     if data["music"] == FIT:
-        lines.append(f"Music: made to fit the cut, {data['music_mood'] or video_brand.load().music_mood}, its "
-                     "sections changing where the music cue does"
+        lines.append(f"Music: made to fit the cut, {data['music_mood']}, its sections changing where the music cue does"
                      + (", with the cuts on its beat." if data["on_beat"] else "."))
     elif data["music"] and data["on_beat"]:
         lines.append(f"Cuts on the beat of {data['music']}.")

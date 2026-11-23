@@ -331,6 +331,79 @@ button.video-scene-frame {
   align-items: center;
   gap: var(--space-2);
 }
+/* A scene's sound (C6): who says its line, then its effects as small removable chips and one add button. */
+.video-scene-sound {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.video-scene-speaker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
+.video-scene-speaker input {
+  width: 9.5rem;
+}
+.video-scene-effects {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-scene-effect {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: var(--space-1);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.video-scene-effect[data-ambience='true'] {
+  color: var(--status-info-text);
+  background: var(--status-info-background);
+}
+.video-scene-effect .icon-action {
+  min-width: 24px;
+  min-height: 24px;
+}
+/* Each character's voice, under the storyboard's controls. */
+.video-cast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-cast-name {
+  color: var(--text-muted);
+}
+.video-cast-member {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.video-cast-member span {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.video-cast-member .select {
+  width: auto;
+  max-width: 14rem;
+}
+.video-storyboard-music {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
 .video-scene-controls .select {
   width: auto;
 }
@@ -586,6 +659,7 @@ button.video-scene-frame {
 .video-block,
 .video-line-block,
 .video-card-block,
+.video-effect-block,
 .video-music-block {
   position: absolute;
   top: 0;
@@ -644,6 +718,14 @@ button.video-scene-frame {
 }
 .video-line-block {
   background: var(--status-info-background);
+}
+.video-line-block strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.video-effect-block[data-ambience='true'] {
+  opacity: 0.85;
+  border-style: dashed;
 }
 .video-timeline-playhead {
   position: absolute;

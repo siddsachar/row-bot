@@ -6584,8 +6584,8 @@ class VideoProjectView(WireModel):
     scenes: list[VideoScene] = Field(max_length=200)
     # The scenes this version added or changed against the one before it.
     changed: list[VideoSceneId] = Field(max_length=200)
-    # A music file, "fit" (music made to fit the cut, in ``music_mood`` or the brand kit's mood) or "" none; and the
-    # cuts on its beat.
+    # A music file, "fit" (music made to fit the cut, in ``music_mood``: the version's own, else the brand kit's) or
+    # "" none; and the cuts on its beat.
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
     music_mood: Literal["", "calm", "upbeat", "focused", "warm"] = ""

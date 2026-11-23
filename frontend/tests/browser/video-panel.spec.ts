@@ -72,6 +72,34 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await kit.getByRole('button', { name: 'Save brand kit' }).click();
   await expect(panel).toContainText('Brand kit saved');
 
+  // Its sound (C6): a line given to a character, who joins the voices, and an effect added to the scene.
+  await panel.getByLabel('Scene 2: who says its line').fill('Maya');
+  const cast = panel.getByRole('group', { name: 'Voices' });
+  await expect(cast.getByLabel("Maya's voice")).toHaveValue('');
+  await panel.getByRole('button', { name: 'Add a sound to scene 2' }).click();
+  await page.getByRole('menuitem', { name: /^Rain/ }).click();
+  await panel.getByRole('button', { name: 'Add a sound to scene 2' }).click();
+  await page.getByRole('menuitem', { name: /^Whoosh/ }).click();
+  const effects = panel.getByRole('list', { name: 'Scene 2 sound effects' });
+  await expect(effects.getByRole('listitem')).toHaveCount(2);
+  await views(page, info, 'video-panel-sound', effects);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'video-panel-sound-phone', effects);
+  await page.setViewportSize(DESKTOP);
+  await panel.getByRole('radio', { name: 'Timeline' }).click();
+  {
+    const timeline = panel.getByRole('application', { name: /^Timeline/ });
+    await expect(timeline.getByLabel('Voice')).toContainText('Maya:');
+    await expect(timeline.getByLabel('Effects')).toContainText('Rain');
+    await views(page, info, 'video-panel-sound-timeline', timeline);
+  }
+  await panel.getByRole('radio', { name: 'Storyboard' }).click();
+  await panel
+    .getByRole('group', { name: 'Unsaved changes' })
+    .getByRole('button', { name: 'Discard' })
+    .click();
+  await expect(cast).toHaveCount(0);
+
   // Edit by text: the line changes, a scene moves; nothing is saved until Save.
   const line = panel.getByLabel('Scene 2 line');
   await line.fill('Then pick the plan that fits your team.');
@@ -169,6 +197,10 @@ test('a new video is a storyboard first: cards to approve and comment on, made o
   const bar = panel.getByRole('region', { name: 'Storyboard' });
   await expect(bar).toContainText('4 scenes · about 0:13 · 0 of 4 approved');
   await expect(bar).toContainText('1 scene needs its footage');
+  // C6: music made to fit the cut, changing where the cue does.
+  await expect(bar).toContainText(
+    'Made to fit · calm · changes at scenes 2, 4',
+  );
   await expect(panel).toContainText('A fox, a harbour and a small town wake');
   const cards = panel
     .getByRole('list', { name: 'Storyboard' })
