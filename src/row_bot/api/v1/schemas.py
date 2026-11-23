@@ -6506,6 +6506,14 @@ VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
 VideoRecipe = Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"]
 VideoGrade = Literal["natural", "warm", "cinematic", "vivid", "bw"]
 VideoTransitions = Literal["cut", "crossfade"]
+# How captions look: in a box, clean (a soft shadow), bold, centred, or a short's big words, one lit as it's said.
+VideoCaptionStyle = Literal["box", "clean", "bold", "title", "word"]
+
+
+class VideoChapter(WireModel):
+    """Where a chapter of a made video starts, and its title (C7): for a YouTube description."""
+    at: float = Field(ge=0)
+    title: str = Field(max_length=120)
 
 
 class VideoScene(WireModel):
@@ -6590,7 +6598,7 @@ class VideoProjectExport(WireModel):
 class VideoBrand(WireModel):
     """The brand kit (5.3.1 B3): the look every video project uses unless a version turns it off."""
     colour: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
-    captions: Literal["box", "bold", "title"]
+    captions: VideoCaptionStyle
     # A picture from Library › Media, by its reference; "" for none.
     logo: str = Field(max_length=512)
     logo_corner: Literal["top-left", "top-right", "bottom-left", "bottom-right"]
@@ -6659,6 +6667,9 @@ class VideoProjectView(WireModel):
     grain: bool = False
     letterbox: bool = False
     transitions: VideoTransitions = "cut"
+    # How its captions look (its own, else its kind's, else the brand kit's), and a made video's chapters (C7).
+    caption_style: VideoCaptionStyle = "box"
+    chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
     # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
     review_sheet: str = Field(default="", max_length=200)
 
@@ -6679,6 +6690,7 @@ class VideoProjectChange(WireModel):
     grain: bool | None = None
     letterbox: bool | None = None
     transitions: VideoTransitions | None = None
+    caption_style: VideoCaptionStyle | None = None
     note: str = Field(default="", max_length=200)
 
 

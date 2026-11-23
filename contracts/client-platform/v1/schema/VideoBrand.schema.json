@@ -14,8 +14,10 @@
     "captions": {
       "enum": [
         "box",
+        "clean",
         "bold",
-        "title"
+        "title",
+        "word"
       ],
       "title": "Captions",
       "type": "string"

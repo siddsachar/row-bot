@@ -77,7 +77,8 @@ class _VideoInput(BaseModel):
     music_volume: float | None = Field(default=None, description="0-1, default 0.3 (it dips under the voice).")
     narration: str | None = Field(default=None, description="One voice file (speak a whole script) said over the "
                                                            "whole video instead of each scene's line; '' none.")
-    captions: bool | None = Field(default=None, description="Show each line as a caption under its scene.")
+    captions: bool | None = Field(default=None, description="Caption what's said, word by word (a short has them "
+                                                             "unless false).")
     voice_lines: bool | None = Field(default=None, description="Say the lines (default true).")
     aspect: Literal["", "16:9", "1:1", "9:16"] | None = Field(
         default=None, description="create, change: the video's shape ('' keeps its first video's).")
@@ -91,7 +92,8 @@ class _VideoInput(BaseModel):
                                                                   "keeps it in every video.")
     on_beat: bool | None = Field(default=None, description="create, change: cut scenes on the music's beat.")
     recipe: Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"] | None = Field(
-        default=None, description="create, change: the kind of video; it sets the look below (a short is 9:16).")
+        default=None, description="create, change: the kind of video; it sets the look below and the caption style "
+                                  "(a short is 9:16 with big word captions).")
     grade: Literal["", "natural", "warm", "cinematic", "vivid", "bw"] | None = Field(
         default=None, description="create, change: the colour grade ('' the recipe's). Clips and AI shots are "
                                   "matched to one look first.")
@@ -106,8 +108,9 @@ class _VideoInput(BaseModel):
     framing: Literal["full", "framed"] | None = Field(
         default=None, description="brand: footage filling the frame (full, default) or inset on the brand colour "
                                   "(framed, only when asked).")
-    caption_style: Literal["box", "bold", "title"] | None = Field(
-        default=None, description="brand: how captions look when a video has them.")
+    caption_style: Literal["", "box", "clean", "bold", "title", "word"] | None = Field(
+        default=None, description="How captions look (word: a short's big words, one lit as it's said). brand: "
+                                  "every video's; create, change: this video's ('' the recipe's or the kit's).")
     font: Literal["sans", "modern", "serif", "display"] | None = Field(
         default=None, description="brand: the typeface of every title and caption.")
     title_style: Literal["studio", "minimal", "bold"] | None = Field(
@@ -305,9 +308,10 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
     from row_bot.video_projects import ProjectError
 
     if action == "brand":
-        return _brand(framing=framing, captions=caption_style, music_mood=music_mood, voice=voice,
+        return _brand(framing=framing, captions=caption_style or None, music_mood=music_mood, voice=voice,
                       voice_speed=voice_speed, loudness=loudness, font=font, titles=title_style)
-    look = {"recipe": recipe, "grade": grade, "grain": grain, "letterbox": letterbox, "transitions": transitions}
+    look = {"recipe": recipe, "grade": grade, "grain": grain, "letterbox": letterbox, "transitions": transitions,
+            "caption_style": caption_style}
     conversation = _conversation()
     if not conversation:
         return "Video projects need a conversation."
@@ -321,7 +325,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
             found = video_projects.create(conversation, title, raw, music=music or "",
                                           music_volume=0.3 if music_volume is None else music_volume,
                                           narration=narration or "",
-                                          captions=bool(captions), voice_lines=voice_lines is not False,
+                                          captions=captions, voice_lines=voice_lines is not False,
                                           aspect=aspect or "", brand=brand is not False, by="row-bot",
                                           note=note, voice=voice or "", voice_speed=voice_speed,
                                           logline=logline or "", approvals=(approved := []), cast=cast,

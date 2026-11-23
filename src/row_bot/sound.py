@@ -167,21 +167,29 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
     return Speech(data, wav_seconds(data), chosen)
 
 
-def decoded_speech(path: Path) -> bytes:
-    """The first two hours of a file's sound as 16 kHz mono 16-bit PCM, read with PyAV (the decoder Whisper itself
-    uses), so transcribing needs no ffmpeg."""
+def decoded_speech(path: Path, start: float = 0.0, end: float | None = None) -> bytes:
+    """The first two hours of a file's sound (from *start* to *end* seconds when given) as 16 kHz mono 16-bit PCM,
+    read with PyAV (the decoder Whisper itself uses), so transcribing needs no ffmpeg."""
     import av
 
-    limit = 16000 * 2 * MAX_TRANSCRIBE_SECONDS
+    seconds = MAX_TRANSCRIBE_SECONDS if end is None else max(0.0, min(end - start, MAX_TRANSCRIBE_SECONDS))
+    limit = int(16000 * seconds) * 2
     decoded = bytearray()
     try:
         with av.open(str(path), metadata_errors="ignore") as container:
             if not container.streams.audio:
                 raise SoundError("That file has no sound Row-Bot can read.")
+            if start > 0:
+                container.seek(int(start * av.time_base), backward=True)
             resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
             for frame in container.decode(audio=0):
+                if frame.time is not None and frame.time + frame.samples / (frame.sample_rate or 1) <= start:
+                    continue  # Before the part asked for (a seek lands on the frame before it).
                 for piece in resampler.resample(frame):
-                    decoded += piece.to_ndarray().tobytes()
+                    samples = piece.to_ndarray().tobytes()
+                    if not decoded and frame.time is not None and frame.time < start:
+                        samples = samples[int(round(float(start - frame.time) * 16000)) * 2:]
+                    decoded += samples
                 if len(decoded) >= limit:
                     break
             else:
@@ -215,25 +223,41 @@ def has_sound(path: Path) -> bool | None:
     return False
 
 
-def transcribe(path: Path) -> tuple[list[Segment], str]:
-    """Each stretch of speech in an audio or video file, with each word's time, and the language heard."""
+def can_transcribe() -> bool:
+    """Whether the local Whisper speech model is here to transcribe with (nothing is downloaded to find out)."""
+    from row_bot.voice import get_voice_service
+
+    return get_voice_service().whisper_model_available()
+
+
+def transcribe(path: Path, start: float = 0.0, end: float | None = None) -> tuple[list[Segment], str]:
+    """Each stretch of speech in an audio or video file (from *start* to *end* seconds when given; its times are
+    still the file's), with each word's time, and the language heard."""
+    from dataclasses import replace
+
     from row_bot.voice import get_voice_service
 
     voice = get_voice_service()
     if not voice.whisper_model_available():
         raise SoundError("Transcribing needs the Whisper speech model. Install it in Settings › Voice, then try "
                          "again.")
-    decoded = decoded_speech(path)
+    decoded = decoded_speech(path, start, end)
     if len(decoded) < 3200:
         raise SoundError("That file has no sound Row-Bot can read.")
-    return voice.transcribe_words(decoded)
+    segments, language = voice.transcribe_words(decoded)
+    if start:
+        segments = [replace(segment, start=segment.start + start, end=segment.end + start,
+                            words=tuple((begin + start, until + start, word) for begin, until, word in segment.words))
+                    for segment in segments]
+    return segments, language
 
 
-def transcribe_bytes(data: bytes, suffix: str) -> tuple[list[Segment], str]:
+def transcribe_bytes(data: bytes, suffix: str, start: float = 0.0,
+                     end: float | None = None) -> tuple[list[Segment], str]:
     with tempfile.TemporaryDirectory(prefix="row-bot-transcribe-") as folder:
         path = Path(folder) / f"source{suffix or '.bin'}"
         path.write_bytes(data)
-        return transcribe(path)
+        return transcribe(path, start, end)
 
 
 def clock(seconds: float, *, millis: bool = False) -> str:

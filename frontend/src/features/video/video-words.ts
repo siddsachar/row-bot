@@ -124,13 +124,33 @@ export const GRADES = {
 } as const;
 export type Grade = keyof typeof GRADES;
 
-/** A video's look as it's made (C5): its grade, grain, letterbox and transitions. */
+/** How captions look (C7), as the panel and the brand kit name them. */
+export const CAPTION_STYLES = {
+  box: 'In a box',
+  clean: 'Clean',
+  bold: 'Bold, outlined',
+  title: 'Large, centred',
+  word: 'Big words (shorts)',
+} as const;
+export type CaptionStyle = keyof typeof CAPTION_STYLES;
+
+/** A video's look as it's made (C5): its grade, grain, letterbox and transitions, and its captions' style (C7). */
 export type VideoLook = {
   grade: Grade;
   grain: boolean;
   letterbox: boolean;
   transitions: 'cut' | 'crossfade';
+  caption_style: CaptionStyle;
 };
+
+/** "0:00 Intro\n1:05 Pricing": a made video's chapters, as a YouTube description lists them. */
+export function chapterLines(
+  chapters: { at: number; title: string }[],
+): string {
+  return chapters
+    .map((item) => `${clockWords(item.at)} ${item.title}`)
+    .join('\n');
+}
 
 export type VideoDraft = {
   scenes: VideoSceneWrite[];
@@ -149,6 +169,7 @@ export function lookOf(view: VideoProjectView): VideoLook {
     grain: view.grain ?? false,
     letterbox: view.letterbox ?? false,
     transitions: view.transitions ?? 'cut',
+    caption_style: view.caption_style ?? 'box',
   };
 }
 

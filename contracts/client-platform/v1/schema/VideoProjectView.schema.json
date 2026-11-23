@@ -23,6 +23,28 @@
       "title": "VideoCastMember",
       "type": "object"
     },
+    "VideoChapter": {
+      "additionalProperties": false,
+      "description": "Where a chapter of a made video starts, and its title (C7): for a YouTube description.",
+      "properties": {
+        "at": {
+          "minimum": 0,
+          "title": "At",
+          "type": "number"
+        },
+        "title": {
+          "maxLength": 120,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "title"
+      ],
+      "title": "VideoChapter",
+      "type": "object"
+    },
     "VideoEditView": {
       "additionalProperties": false,
       "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
@@ -525,6 +547,18 @@
       "title": "Brand",
       "type": "boolean"
     },
+    "caption_style": {
+      "default": "box",
+      "enum": [
+        "box",
+        "clean",
+        "bold",
+        "title",
+        "word"
+      ],
+      "title": "Caption Style",
+      "type": "string"
+    },
     "captions": {
       "title": "Captions",
       "type": "boolean"
@@ -544,6 +578,14 @@
       },
       "maxItems": 200,
       "title": "Changed",
+      "type": "array"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/VideoChapter"
+      },
+      "maxItems": 200,
+      "title": "Chapters",
       "type": "array"
     },
     "checks": {

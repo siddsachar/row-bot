@@ -77,16 +77,18 @@ FOOTAGE_WORDS = {"clip": "clip", "picture": "picture", "ai": "AI shot", "card": 
                  "screen": "screen recording"}
 SPEEDS = (0.25, 4.0)
 SHAPES = ("16:9", "1:1", "9:16")
-# The kinds of video (G1): each a few defaults for its look (C5), which a version's own choices override. A vertical
-# short is 9:16 unless the video says otherwise.
+# The kinds of video (G1): each a few defaults for its look (C5) and its words (C7), which a version's own choices
+# override. A vertical short is 9:16 with big word captions on unless the video says otherwise, and ends without the
+# brand kit's end card; a new film, YouTube video, vlog, explainer or demo opens with its title (its first scene's
+# card, there to change); a YouTube video or an explainer lists its chapters.
 RECIPES: dict[str, dict[str, Any]] = {
-    "film": {"grade": "cinematic", "grain": True, "letterbox": True},
-    "youtube": {},
-    "vlog": {},
+    "film": {"grade": "cinematic", "grain": True, "letterbox": True, "opening": True},
+    "youtube": {"opening": True, "chapters": True},
+    "vlog": {"opening": True, "caption_style": "clean"},
     "montage": {"grade": "vivid", "transitions": "crossfade"},
-    "explainer": {},
-    "demo": {},
-    "short": {"grade": "vivid", "aspect": "9:16"},
+    "explainer": {"opening": True, "chapters": True},
+    "demo": {"opening": True},
+    "short": {"grade": "vivid", "aspect": "9:16", "captions": True, "caption_style": "word", "end_card": False},
 }
 EXPORTS = SHAPES + ("gif",)
 _FOLDER = "video-projects"
@@ -174,6 +176,8 @@ class Version:
     grain: bool | None = None
     letterbox: bool | None = None
     transitions: str = ""
+    # How its captions look (C7, ``video_brand.CAPTION_STYLES``): "" the recipe's, else the brand kit's.
+    caption_style: str = ""
 
 
 @dataclass
@@ -531,15 +535,18 @@ def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str,
 
 def _finish_fields(data: dict[str, Any]) -> dict[str, Any]:
     """A saved version's look (C5), each choice it still knows (a project saved before C5 has none)."""
+    from row_bot.video_brand import CAPTION_STYLES
     from row_bot.video_editing import GRADES, TRANSITIONS
 
     def either(key: str) -> bool | None:
         return None if data.get(key) is None else bool(data[key])
 
-    return {"recipe": str(data.get("recipe") or "") if data.get("recipe") in RECIPES else "",
-            "grade": str(data.get("grade") or "") if data.get("grade") in GRADES else "",
-            "grain": either("grain"), "letterbox": either("letterbox"),
-            "transitions": str(data.get("transitions") or "") if data.get("transitions") in TRANSITIONS else ""}
+    def known(key: str, allowed: Any) -> str:
+        return str(data.get(key) or "") if data.get(key) in allowed else ""
+
+    return {"recipe": known("recipe", RECIPES), "grade": known("grade", GRADES), "grain": either("grain"),
+            "letterbox": either("letterbox"), "transitions": known("transitions", TRANSITIONS),
+            "caption_style": known("caption_style", CAPTION_STYLES)}
 
 
 def _choice(value: Any, allowed: tuple[str, ...] | dict[str, Any], name: str) -> str:
@@ -551,11 +558,13 @@ def _choice(value: Any, allowed: tuple[str, ...] | dict[str, Any], name: str) ->
 
 def _look(values: dict[str, Any]) -> dict[str, Any]:
     """A version's look as given (C5), checked; a choice left out (None) isn't among them."""
+    from row_bot.video_brand import CAPTION_STYLES
     from row_bot.video_editing import GRADES, TRANSITIONS
 
     checked: dict[str, Any] = {}
     for key, allowed, name in (("recipe", RECIPES, "The kind of video"), ("grade", GRADES, "The grade"),
-                               ("transitions", TRANSITIONS, "Transitions")):
+                               ("transitions", TRANSITIONS, "Transitions"),
+                               ("caption_style", CAPTION_STYLES, "The caption style")):
         if values.get(key) is not None:
             checked[key] = _choice(values[key], allowed, name)
     for key in ("grain", "letterbox"):
@@ -564,7 +573,38 @@ def _look(values: dict[str, Any]) -> dict[str, Any]:
     return checked
 
 
-LOOK = ("recipe", "grade", "grain", "letterbox", "transitions")
+LOOK = ("recipe", "grade", "grain", "letterbox", "transitions", "caption_style")
+
+
+def caption_style_of(version: Version) -> str:
+    """How a version's captions look (C7): its own style, else its recipe's, else the brand kit's (a dark box
+    without it)."""
+    from row_bot import video_brand
+
+    return (version.caption_style or RECIPES.get(version.recipe, {}).get("caption_style")
+            or (video_brand.load().captions if version.brand else "box"))
+
+
+# YouTube reads chapters from a description only when there are at least three, the first at 0:00, each at least
+# ten seconds long.
+CHAPTER_SECONDS, FEWEST_CHAPTERS = 10.0, 3
+
+
+def chapters(version: Version, title: str, marks: list[float], seconds: float) -> list[tuple[float, str]]:
+    """A made video's chapters (C7): where each scene with a card starts, by its card, the first at 0:00 (the
+    video's title when its first scene has no card); none that YouTube would refuse."""
+    found = [(marks[index], scene.card) for index, scene in enumerate(version.scenes)
+             if scene.card and index < len(marks)]
+    if not found or found[0][0] > 0.05 + (marks[0] if marks else 0.0):
+        found.insert(0, (0.0, title))
+    found[0] = (0.0, found[0][1])
+    kept: list[tuple[float, str]] = []
+    for at, name in found:
+        if not kept or at - kept[-1][0] >= CHAPTER_SECONDS:
+            kept.append((float(int(at)), name))
+    if kept and seconds - kept[-1][0] < CHAPTER_SECONDS:
+        kept.pop()
+    return kept if len(kept) >= FEWEST_CHAPTERS else []
 
 
 def finish_of(version: Version) -> Any:
@@ -657,21 +697,29 @@ def _speaking_voice(voice: str) -> str:
 
 
 def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = "", music_volume: float = 0.3,
-           narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
+           narration: str = "", captions: bool | None = False, voice_lines: bool = True, aspect: str = "",
+           brand: bool = True,
            by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None,
            logline: str = "", approvals: list[str] | None = None, cast: dict[str, Any] | None = None,
            music_mood: str = "", on_beat: bool = False, kept: list[str] | None = None,
            look: dict[str, Any] | None = None) -> Project:
     """A new project with its first version; the approval lines of reading files outside the workspace join
     *approvals*, and the characters whose voice was kept with them in Library › Media join *kept*. *look*: its
-    recipe, grade, grain, letterbox and transitions (C5), each left out for the recipe's."""
+    recipe, grade, grain, letterbox, transitions and caption style (C5, C7), each left out for the recipe's; its
+    captions, None for the recipe's."""
     conversation = str(conversation_id or "").strip()
     if not conversation:
         raise ProjectError("Video projects belong to a conversation.")
     with _LOCK:
         allowed: dict[str, str] = {}
         finish = _look(look or {})
-        aspect = aspect or RECIPES.get(finish.get("recipe", ""), {}).get("aspect", "")
+        kind = RECIPES.get(finish.get("recipe", ""), {})
+        aspect = aspect or kind.get("aspect", "")
+        captions = kind.get("captions", False) if captions is None else captions
+        if kind.get("opening") and scenes and _text(title, MAX_CARD):  # It opens with its title, there to change.
+            first = scenes[0] if isinstance(scenes[0], dict) else dict(scenes[0])
+            if not _text(first.get("card"), MAX_CARD):
+                scenes = [{**first, "card": _text(title, MAX_CARD)}, *scenes[1:]]
         cleaned = _clean_scenes(scenes, conversation, [], allowed, approvals)
         chosen = _voice(voice)
         project = Project(project_id=f"vid-{uuid.uuid4().hex[:8]}", conversation_id=conversation,
@@ -1103,7 +1151,9 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
     from row_bot.tools.sound_tool import _save as save_sound
     from row_bot.tools.sound_tool import _source as sound_source
     from row_bot.video_check import Footage
-    from row_bot.video_editing import SCORE, SceneCut, Step
+    from dataclasses import replace
+
+    from row_bot.video_editing import SCORE, Look, SceneCut, Step
     from row_bot.video_sound import EFFECTS
 
     project = get(project_id, conversation_id)
@@ -1146,9 +1196,6 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          effects=tuple(scene.effects), cue=scene.cue,
                          matched=footage_of(scene) in ("clip", "ai", "picture"))
                 for scene in version.scenes]
-        steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
-                      aspect=shape or version.aspect, look=_brand_look() if version.brand else None,
-                      finish=finish_of(version))]
         fitted = version.music == FIT
         extra = [name for name in (version.narration, "" if fitted else version.music) if name]
         files = [name for cut in cuts for name in cut.effects if name not in EFFECTS]
@@ -1156,6 +1203,17 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             if name not in sounds:
                 _label, path, data, suffix = sound_source(name, conversation_id)
                 sounds[name] = (path, data or b"", suffix)
+        look = _brand_look() if version.brand else None
+        narrated: tuple[Any, ...] = ()
+        if version.captions:  # Word by word, as they're said (C7), in the video's caption style.
+            heard, narrated = caption_words(project, version, sounds, lasts, found)
+            cuts = [replace(cut, words=heard.get(scene.scene_id, ())) for cut, scene in zip(cuts, version.scenes)]
+            if look is not None or caption_style_of(version) != "box":
+                look = replace(look or Look(), captions=caption_style_of(version))
+        if look is not None and not RECIPES.get(version.recipe, {}).get("end_card", True):
+            look = replace(look, outro="")
+        steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
+                      aspect=shape or version.aspect, look=look, finish=finish_of(version), words=narrated)]
         if version.narration:
             steps.append(Step(op="sound", source=version.narration, role="voice", start=0.0))
         if version.music:  # A music file, or music made to fit the cut (``SCORE``, made with the video).
@@ -1184,6 +1242,67 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
     except Exception:
         logger.warning("A video project's video couldn't be made", exc_info=True)
         _record_failure(project_id, conversation_id, number, shape, "Something went wrong while making the video.")
+
+
+def caption_words(project: Project, version: Version, sounds: dict[str, tuple[Any, bytes, str]],
+                  lasts: dict[str, float], found: dict[str, Any]) -> tuple[dict[str, tuple[Any, ...]], tuple[Any, ...]]:
+    """Each captioned scene's words in time (C7; seconds from its start on the video), and one narration's over the
+    whole video: a line at the times its voice says it, heard by the local speech model when it's installed, else
+    spread over the voice by its letters; a scene with no line, its own clip's speech, heard only by the speech
+    model. What was heard is kept with the project, so a make again hears nothing again."""
+    from row_bot import sound
+    from row_bot.video_editing import aligned_words, estimated_words
+
+    hearing = sound.can_transcribe()
+    shelf = scene_cache(project).with_name(f"{project.project_id}-words")
+    words: dict[str, tuple[Any, ...]] = {}
+    for scene in version.scenes:
+        if scene.line and scene.voice and _says_lines(version) and scene.voice in sounds:
+            heard = _heard(shelf, f"voice|{scene.voice}|{scene.voiced}|{scene.voiced_as}", sounds[scene.voice]) \
+                if hearing else None
+            words[scene.scene_id] = (aligned_words(scene.line, heard) if heard
+                                     else estimated_words(scene.line, lasts.get(scene.voice, 0.0)))
+        elif not scene.line and hearing and footage_of(scene) in ("clip", "ai") and scene.source in found:
+            media = found[scene.source]
+            identity = media.ref or f"{media.path}:{media.path.stat().st_size}:{media.path.stat().st_mtime_ns}"
+            source = (media.path, b"", media.path.suffix) if media.path else (
+                None, media.read_bytes(1 << 31), Path(media.label).suffix or ".mp4")
+            heard = _heard(shelf, f"clip|{identity}|{scene.start}|{scene.end}", source, scene.start, scene.end)
+            words[scene.scene_id] = tuple(
+                (round((start - scene.start) / scene.speed, 3), round((end - scene.start) / scene.speed, 3), word)
+                for start, end, word in heard or [] if start >= scene.start - 0.05)
+    narrated: tuple[Any, ...] = ()
+    if version.narration and hearing and version.narration in sounds:
+        narrated = tuple(_heard(shelf, f"narration|{version.narration}", sounds[version.narration]) or ())
+    return words, narrated
+
+
+def _heard(shelf: Path, key: str, source: tuple[Any, bytes, str], start: float = 0.0,
+           end: float | None = None) -> list[tuple[float, float, str]] | None:
+    """The words the local speech model hears in a sound (a voice file, a clip's part, a narration), each with its
+    time in the file; kept by *key*. None when nothing could be heard."""
+    import hashlib
+
+    from row_bot import sound
+
+    kept = shelf / f"{hashlib.sha256(key.encode()).hexdigest()[:32]}.json"
+    try:
+        return [(float(start), float(end), str(word)) for start, end, word in json.loads(kept.read_text("utf-8"))]
+    except (OSError, ValueError, TypeError):
+        pass
+    path, data, suffix = source
+    try:
+        segments, _language = (sound.transcribe(path, start, end) if path is not None
+                               else sound.transcribe_bytes(data, suffix, start, end))
+    except (sound.SoundError, OSError, ValueError):
+        logger.info("No words were heard for a caption")
+        return None
+    heard = [word for segment in segments for word in segment.words]
+    shelf.mkdir(parents=True, exist_ok=True)
+    partial = kept.with_name(f"{kept.name}.{uuid.uuid4().hex[:6]}.part")
+    partial.write_text(json.dumps(heard), encoding="utf-8", newline="\n")
+    os.replace(partial, kept)
+    return heard
 
 
 def scene_cache(project: Project) -> Path:
@@ -1306,6 +1425,11 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "grain": finish.grain,
         "letterbox": finish.letterbox,
         "transitions": finish.transition,
+        # How its captions look, and a made video's chapters (C7).
+        "caption_style": caption_style_of(version),
+        "chapters": [{"at": at, "title": name} for at, name in
+                     (chapters(version, project.title, marks, edit.expected_seconds or marks[-1])
+                      if marks and edit is not None and edit.status == "saved" else [])],
         "review_sheet": edit.sheet if edit is not None and _status(version, edit) == "made" else "",
         "exports": [{"shape": shape, "edit": video_edits.view(found)} for shape in EXPORTS
                     if (found := video_edits.get(version.exports.get(shape, ""))) is not None],
@@ -1454,6 +1578,18 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["recipe"] or any(looks):
         lines.append(f"Look: {data['recipe'] + ', ' if data['recipe'] else ''}"
                      f"{', '.join(item for item in looks if item) or 'natural, cuts'}.")
+    if data["captions"] and shown is not None:
+        from row_bot import sound
+
+        lines.append(f"Captions: {data['caption_style']}.")
+        if any(not scene.line and footage_of(scene) in ("clip", "ai") for scene in shown.scenes) \
+                and not sound.can_transcribe():
+            lines.append("A clip's own speech is captioned only with the Whisper speech model: the person installs "
+                         "it in Settings › Voice.")
+    if data["chapters"] and RECIPES.get(data["recipe"], {}).get("chapters"):
+        from row_bot.video_editing import clock
+
+        lines.append("Chapters: " + ", ".join(f"{clock(item['at'])} {item['title']}" for item in data["chapters"]))
 
     if shown is not None and shown.brand and video_brand.load().framing == "framed":
         lines.append("Framed: the brand kit sets 16:9 footage inset on its colour. To fill the frame, video action "

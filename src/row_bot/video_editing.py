@@ -174,6 +174,9 @@ class Step:
     plain: bool = False
     # scenes: the video's own finish (its grade, grain, letterbox and transitions), with or without the brand kit.
     finish: "Finish | None" = None
+    # scenes: one narration said over the whole video, its words in time on the video (C7), captioned instead of
+    # each scene's line.
+    words: tuple[tuple[float, float, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -209,6 +212,9 @@ class SceneCut:
     # screen recording (``matched``); ``tone`` is the match the studio pass found, each channel's gain then offset.
     matched: bool = False
     tone: tuple[float, ...] = ()
+    # Its caption's words in time (C7): (from, until, word), seconds from the scene's start on the video, as its voice
+    # says its line, or as its own footage's speech says them; () shows its line by the share of its letters.
+    words: tuple[tuple[float, float, str], ...] = ()
 
 
 CARD_SECONDS = 3.0
@@ -305,7 +311,8 @@ class Look:
     """The brand kit as the renderer uses it (5.3.1 B3)."""
 
     colour: tuple[int, int, int] = (31, 41, 55)
-    # How lines show under their scenes: "box" (a dark box), "bold" (large, outlined) or "title" (centred).
+    # How lines show under their scenes: "box" (a dark box), "clean" (a soft shadow), "bold" (large, outlined),
+    # "title" (centred) or "word" (a short's few big words, the one being said lit, C7).
     captions: str = "box"
     logo: bytes | None = None
     logo_corner: str = "top-left"
@@ -649,7 +656,10 @@ def _wrap(draw: Any, text: str, typeface: Any, max_width: int, max_lines: int) -
         lines.append(current)
     if len(lines) > max_lines:
         lines = lines[:max_lines]
-        lines[-1] = lines[-1].rstrip(" .,;:") + "…"
+        last = lines[-1].rstrip(" .,;:")
+        while " " in last and draw.textlength(last + "…", font=typeface) > max_width:
+            last = last.rsplit(" ", 1)[0].rstrip(" .,;:")  # Its "…" fits on the line too.
+        lines[-1] = last + "…"
     return [line for line in lines if line]
 
 
@@ -668,15 +678,26 @@ class Overlay:
     inset: int = 0
 
 
-# A caption's phrase (PHRASE_CHARACTERS) fits on one line; bold captions (no box) are larger.
-_STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.045}
-BOLD_CAPTION = 1.3
+_STYLE_SIZES = {"badge": 0.05, "title": 0.08}
+# A caption's letters (C7), by its style: a share of the frame's height, as subtitles are sized (49 px at 1080p,
+# 86 px on a phone's 1920), and never wider than a share of its width, so a phrase still fits across a tall frame.
+CAPTION_SIZES = {"box": (0.045, 0.075), "clean": (0.045, 0.075), "bold": (0.05, 0.083), "title": (0.07, 0.1)}
+# A caption wraps onto at most this many lines.
+CAPTION_LINES = 2
+
+
+def caption_size(style: str, frame_width: int, frame_height: int) -> int:
+    """How tall a caption's letters are in this caption style (``CAPTION_SIZES``), in pixels."""
+    height, width = CAPTION_SIZES.get(style, CAPTION_SIZES["box"])
+    return max(12, round(min(frame_height * height, frame_width * width)))
 
 
 def _letter_size(style: str, plain: bool, frame_width: int, frame_height: int) -> int:
+    if style == "caption":
+        return caption_size("bold" if plain else "box", frame_width, frame_height)
     # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
     reference = min(frame_height, frame_width * 9 / 16)
-    return max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
+    return max(12, round(reference * _STYLE_SIZES[style]))
 
 
 def phrase_limit(captions: str, frame_width: int, frame_height: int, family: str = "sans") -> int:
@@ -684,29 +705,33 @@ def phrase_limit(captions: str, frame_width: int, frame_height: int, family: str
     draws with (they differ in width): fewer, the larger its letters."""
     from PIL import Image, ImageDraw
 
-    style = "title" if captions == "title" else "caption"
-    size = _letter_size(style, captions in {"bold", "title"}, frame_width, frame_height)
+    size = caption_size(captions, frame_width, frame_height)
     sample = "Row-Bot opens the shop's orders and drafts a note to each customer."
     each = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textlength(sample, font=font(size, family)) / len(sample)
-    # A tenth to spare: a phrase of wide letters still fits.
-    return max(16, min(PHRASE_CHARACTERS, int(frame_width * 0.86 * 0.9 / each)))
+    # Within its box's room (``render_text``), a tenth to spare: a phrase of wide letters still fits.
+    return max(16, min(PHRASE_CHARACTERS, int((frame_width * 0.86 - 1.4 * size) * 0.9 / each)))
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
                 fill: tuple[int, int, int, int] | None = None, plain: bool = False,
-                shadow: bool = False, family: str = "sans", scale: float = 1.0) -> tuple[bytes, int, int]:
+                shadow: bool = False, family: str = "sans", scale: float = 1.0,
+                size: int | None = None) -> tuple[bytes, int, int]:
     """Draw text as a picture: a rounded dark badge, a large title, or a caption box; in a brand's colour
     (``fill``), or ``plain``: no box, the letters outlined so they read on any picture, or with a soft
-    ``shadow`` instead (a title card's own backdrop); in a typeface of ``FONTS``, *scale* times its style's size."""
+    ``shadow`` instead (a title card's own backdrop); in a typeface of ``FONTS``, *scale* times its style's size
+    (or *size* pixels). A caption wraps onto at most ``CAPTION_LINES``."""
     from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
-    size = max(12, round(_letter_size(style, plain, frame_width, frame_height) * scale))
+    size = size or max(12, round(_letter_size(style, plain, frame_width, frame_height) * scale))
     typeface = font(size, family)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
-    lines = _wrap(probe, text, typeface, max_width, 3 if style != "badge" else 2) or [" "]
     pad_x, pad_y = round(size * 0.7), round(size * 0.42)
+    max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
+    if style == "caption":  # The whole box within 86% of the width: inside a tall frame's safe area.
+        max_width -= 2 * pad_x
+    most = {"badge": 2, "caption": CAPTION_LINES}.get(style, 3)
+    lines = _wrap(probe, text, typeface, max_width, most) or [" "]
     line_height = round(size * 1.22)
     text_width = max(math.ceil(probe.textlength(line, font=typeface)) for line in lines)
     width = min(frame_width, text_width + 2 * pad_x)
@@ -833,6 +858,131 @@ def phrases(line: str, limit: int = PHRASE_CHARACTERS) -> list[str]:
                 shown.append(current)
     # A caption ends at a pause, not on its comma or semicolon ("Search for your mountain;", U27).
     return [phrase.rstrip(",;:") or phrase for phrase in shown]
+
+
+# ── Words in time (C7) ──────────────────────────────────────────────────────
+
+Word = tuple[float, float, str]
+# A short's big captions: at most this many words on screen at once, and this many letters.
+WORDS_AT_ONCE, WORD_PAGE_CHARACTERS = 3, 18
+# A caption stays this long after its last word is said, unless the next one starts first.
+CAPTION_HOLD = 0.4
+# The word being said, in a short's big captions.
+ACTIVE_WORD = (255, 214, 10)
+
+
+def _token(word: str) -> str:
+    return "".join(character for character in word.casefold() if character.isalnum())
+
+
+def estimated_words(line: str, seconds: float) -> tuple[Word, ...]:
+    """A line's words spread over the seconds it's said in, each by its letters: when no speech model is here to
+    hear them."""
+    words = str(line or "").split()
+    if not words or seconds <= 0:
+        return ()
+    weights = [len(word) + 1 for word in words]
+    at, timed = 0.0, []
+    for word, weight in zip(words, weights):
+        length = seconds * weight / sum(weights)
+        timed.append((round(at, 3), round(at + length, 3), word))
+        at += length
+    return tuple(timed)
+
+
+def aligned_words(line: str, heard: list[Word]) -> tuple[Word, ...]:
+    """A written line's words at the times speech-to-text heard them said: each written word that matches a heard
+    one takes its time, and the rest share the time between their neighbours (the voice said "Kwen" for "Qwen", or
+    "eight thousand" for "8,000"). The caption keeps the written words."""
+    from difflib import SequenceMatcher
+
+    written = str(line or "").split()
+    if not written or not heard:
+        return ()
+    times: list[tuple[float, float] | None] = [None] * len(written)
+    matcher = SequenceMatcher(a=[_token(word) for word in written], b=[_token(word) for _from, _until, word in heard],
+                              autojunk=False)
+    for block in matcher.get_matching_blocks():
+        for offset in range(block.size):
+            times[block.a + offset] = heard[block.b + offset][:2]
+    index = 0
+    while index < len(written):
+        if times[index] is not None:
+            index += 1
+            continue
+        stop = index
+        while stop < len(written) and times[stop] is None:
+            stop += 1
+        begin = times[index - 1][1] if index else heard[0][0]  # type: ignore[index]
+        until = max(begin, times[stop][0] if stop < len(written) else heard[-1][1])  # type: ignore[index]
+        weights = [len(word) + 1 for word in written[index:stop]]
+        at = begin
+        for number, weight in zip(range(index, stop), weights):
+            times[number] = (at, at + (until - begin) * weight / sum(weights))
+            at = times[number][1]  # type: ignore[index]
+        index = stop
+    return tuple((round(start, 3), round(end, 3), word)
+                 for (start, end), word in zip(times, written))  # type: ignore[misc]
+
+
+def caption_pages(words: tuple[Word, ...] | list[Word], limit: int, *, big: bool = False
+                  ) -> list[tuple[float, float, list[str], int | None]]:
+    """What a caption shows when, from its words in time: (from, until, its words, the one being said). A phrase of
+    at most *limit* letters, ending at a pause, from its first word until a moment after its last (or the next
+    phrase); ``big`` (a short's active-word captions): a few words at a time, one entry per word as it's said."""
+    most = WORD_PAGE_CHARACTERS if big else limit
+    pages: list[list[Word]] = []
+    for word in words:
+        page = pages[-1] if pages else None
+        longer = " ".join(item[2] for item in page or []) + " " + word[2]
+        if page is None or len(longer.strip()) > most or (big and len(page) >= WORDS_AT_ONCE) or (
+                page[-1][2].endswith((".", "!", "?", ";", ":", ",")) and (big or len(page) >= 3)):
+            pages.append([word])
+        else:
+            page.append(word)
+    shown: list[tuple[float, float, list[str], int | None]] = []
+    for index, page in enumerate(pages):
+        until = page[-1][1] + CAPTION_HOLD
+        if index + 1 < len(pages):
+            until = max(page[-1][1], min(until, pages[index + 1][0][0]))
+        texts = [item[2] for item in page]
+        if not big:
+            shown.append((page[0][0], until, texts, None))
+            continue
+        for number, word in enumerate(page):
+            ends = page[number + 1][0] if number + 1 < len(page) else until
+            shown.append((word[0], max(ends, word[0] + 0.05), texts, number))
+    return shown
+
+
+def render_words(words: list[str], active: int | None, frame_width: int, frame_height: int, *,
+                 family: str = "sans") -> tuple[bytes, int, int]:
+    """A short's big caption (C7): a few words, large and outlined, the one being said in yellow."""
+    from PIL import Image, ImageDraw
+
+    # Big as a short's are: a tenth of a phone's width, never past a tenth of the height of a wide video.
+    size = max(14, round(min(frame_width * 0.11, frame_height * 0.09)))
+    typeface = font(size, family)
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    while size > 14 and probe.textlength(" ".join(words), font=typeface) > frame_width * 0.86:
+        size = round(size * 0.9)
+        typeface = font(size, family)
+    gap = probe.textlength(" ", font=typeface)
+    widths = [probe.textlength(word, font=typeface) for word in words]
+    outline = max(3, round(size * 0.1))
+    pad = outline * 2
+    width = min(frame_width, math.ceil(sum(widths) + gap * (len(words) - 1)) + 2 * pad)
+    height = round(size * 1.3) + 2 * pad
+    picture = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(picture)
+    x = float(pad)
+    for index, (word, measured) in enumerate(zip(words, widths)):
+        draw.text((x, pad + size * 0.05), word, font=typeface, stroke_width=outline, stroke_fill=(0, 0, 0, 235),
+                  fill=(*ACTIVE_WORD, 255) if index == active else (255, 255, 255, 255))
+        x += measured + gap
+    output = io.BytesIO()
+    picture.save(output, format="PNG", optimize=True)
+    return output.getvalue(), width, height
 
 
 def shape_of(width: int, height: int) -> str:
@@ -1408,20 +1558,20 @@ class _Builder:
                 self.video = self.lay(self.video, lower_third(scene.card, look.colour, self.width, self.height,
                                                               style=look.titles, family=look.font),
                                       start=shown[0], end=shown[1], slide=True, kind="title")
-            if scene.line and step.style == "caption":
+            said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
+            timed = scene.words or (estimated_words(scene.line, said - begin) if look.captions == "word" else ())
+            if step.style == "caption" and not step.words and timed:
+                # Word by word as its voice says them, or as its own footage's speech does (C7).
+                self._word_captions([(begin + start, min(end, begin + until), word) for start, until, word in timed
+                                     if begin + start < end], look, end)
+            elif scene.line and step.style == "caption" and not step.words:
                 # One phrase at a time, each for its share of the line's time: never a paragraph.
-                said = min(end, begin + scene.voice_seconds) if scene.voice_seconds else end
                 parts = phrases(scene.line, phrase_limit(look.captions, self.width, self.height, look.font))
                 at = begin
                 for part in parts:
                     until = at + (said - begin) * len(part) / max(1, sum(len(each) for each in parts))
-                    caption = (Step(op="text", text=part, style="title", position="center", plain=True)
-                               if look.captions == "title" else
-                               Step(op="text", text=part, style="caption", position="bottom",
-                                    plain=look.captions == "bold"))
-                    self.video = self.lay(self.video, text_overlay(caption, self.width, self.height, look.font),
-                                          start=at, end=until if part != parts[-1] else max(until, said),
-                                          kind="caption")
+                    self.video = self.lay(self.video, self._caption([part], None, look), start=at,
+                                          end=until if part != parts[-1] else max(until, said), kind="caption")
                     at = until
             if scene.voice:
                 self.voice_cues.append((begin, scene.voice))
@@ -1429,6 +1579,8 @@ class _Builder:
             cue = scene.cue.strip().casefold()
             if index and cue and cue != step.scenes[index - 1].cue.strip().casefold():
                 self.sections.append(begin)
+        if step.style == "caption" and step.words:  # One narration over the whole video: its words as it says them.
+            self._word_captions([word for word in step.words if word[0] < self.duration], look, self.duration)
         self.review += _slide_show(step.scenes, self.marks) + _waiting(step.scenes, self.marks)
         ending = self.duration - BOOKEND_SECONDS
         for text, start, last in ((look.intro, 0.0, False), (look.outro, ending, True)):
@@ -1441,6 +1593,30 @@ class _Builder:
         if look.logo:  # In its corner, but not over the end card, which shows it already.
             self.video = self.lay(self.video, logo_overlay(look.logo, look.logo_corner, self.width, self.height),
                                   end=ending if look.outro else None, kind="logo")
+
+    def _caption(self, words: list[str], active: int | None, look: Look) -> Overlay:
+        """A caption in the brand kit's style (``CAPTION_STYLES``): white words in a dark box (box), white with a soft
+        shadow (clean), larger and outlined (bold), centred and large (title), or a short's few big words, the one
+        being said in yellow (word), in the lower third of the picture."""
+        text = " ".join(words)
+        if look.captions == "word":
+            png, width, height = render_words(words, active, self.width, self.height, family=look.font)
+            position = "bottom" if self.width > self.height * 1.2 else "lower"
+        else:  # Sized by the frame's height (``caption_size``), on at most two lines.
+            png, width, height = render_text(text, "caption", self.width, self.height, family=look.font,
+                                             plain=look.captions in ("bold", "clean", "title"),
+                                             shadow=look.captions == "clean",
+                                             size=caption_size(look.captions, self.width, self.height))
+            position = "center" if look.captions == "title" else "bottom"
+        x, y = place(position, width, height, self.width, self.height)
+        return Overlay(png, width, height, x, y)
+
+    def _word_captions(self, words: list[Word], look: Look, end: float) -> None:
+        """Captions from words in time on the video (C7): a phrase at a time, or a short's big words one by one."""
+        limit = phrase_limit(look.captions, self.width, self.height, look.font)
+        for start, until, shown, active in caption_pages(words, limit, big=look.captions == "word"):
+            self.video = self.lay(self.video, self._caption(shown, active, look), start=start,
+                                  end=min(until, end), kind="caption")
 
     def _card_words(self, text: str, look: Look) -> Overlay:
         """A title card's words, centred, as the title style has them (``TITLE_STYLES``): with a soft shadow on the

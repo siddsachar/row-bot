@@ -226,6 +226,35 @@ def test_the_panel_sets_a_videos_look_and_the_brand_kit_its_type_and_titles(serv
         assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "font": "comic"}).status_code == 422
 
 
+def test_the_panel_picks_a_videos_caption_style_and_reads_its_chapters(service, studio):  # noqa: F811
+    """C7: a captioned video's style (its own, else its kind's, else the kit's) is read and changed by the panel,
+    and the kit offers the new styles; a made video's chapters come with it."""
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Tips", seed_default_skills=False)
+    register_attachment(chat, "tips.mp4", _MP4)
+    project = video_projects.create(chat, "Ten tips", [
+        {"source": "tips.mp4", "end": 3, "line": "Start here."}, {"source": "tips.mp4", "card": "Pricing"},
+        {"source": "tips.mp4", "card": "Wrap up"}], captions=True, look={"recipe": "youtube"})
+    video_projects.make(project, 1)
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        view = _made(client, headers, project.project_id)
+        assert view["caption_style"] == "box"
+        assert view["chapters"] == [], "scenes of 3 s: no chapters YouTube would take"
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in view["scenes"]]
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes, "caption_style": "clean"})
+        assert changed.status_code == 200, changed.text
+        assert _made(client, headers, project.project_id)["caption_style"] == "clean"
+        kit = client.get("/api/v1/video-brand", headers=headers).json()
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "captions": "word"}).json()[
+            "captions"] == "word"
+
+
 def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_nothing(service, studio):  # noqa: F811
     """C1: the panel's cards. Approving marks scenes on their version; each card's frame is its own route; a change
     to a storyboard stays a storyboard (making it is the person's call), and footage still to make can't be made."""

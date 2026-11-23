@@ -3,6 +3,7 @@ import {
   Blend,
   Clapperboard,
   CircleAlert,
+  Copy,
   Film,
   Music,
   RectangleHorizontal,
@@ -24,6 +25,7 @@ import {
   type SavedFile,
   unavailable,
 } from '../../platform/types';
+import { writeClipboardText } from '../../platform/clipboard';
 import { useClientSelector, useRuntime } from '../../runtime';
 import {
   Button,
@@ -46,6 +48,9 @@ import { StoryboardCard } from './StoryboardCard';
 import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
 import {
+  CAPTION_STYLES,
+  type CaptionStyle,
+  chapterLines,
   GRADES,
   type Grade,
   SHAPES,
@@ -615,6 +620,23 @@ export default function VideoPanel({
           />
           <span aria-hidden>Captions</span>
         </label>
+        {edited.captions && (
+          <Select
+            aria-label="Caption style"
+            className="video-caption-style"
+            value={edited.look.caption_style}
+            disabled={!latest}
+            onChange={(event) =>
+              setLook({ caption_style: event.target.value as CaptionStyle })
+            }
+          >
+            {Object.entries(CAPTION_STYLES).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        )}
         <label className="video-captions">
           <Toggle
             label="Brand kit"
@@ -850,6 +872,36 @@ export default function VideoPanel({
               Post to X
             </Button>
           </div>
+          {view.chapters && view.chapters.length > 0 && (
+            <>
+              <div className="video-chapters-head">
+                <h3>Chapters</h3>
+                <IconButton
+                  size="sm"
+                  label="Copy the chapters"
+                  onClick={() =>
+                    void writeClipboardText(
+                      chapterLines(view.chapters ?? []),
+                      platform.writeClipboard,
+                    ).then((done) =>
+                      done
+                        ? setNotice('Chapters copied, for the description.')
+                        : setError("Couldn't copy the chapters."),
+                    )
+                  }
+                >
+                  <Copy size={16} aria-hidden />
+                </IconButton>
+              </div>
+              <ol className="video-chapters" aria-label="Chapters">
+                {view.chapters.map((item) => (
+                  <li key={item.at}>
+                    <span>{clockWords(item.at)}</span> {item.title}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
           <h3>Other shapes</h3>
           <ul className="video-exports" aria-label="Other shapes">
             {SHAPES.filter((item) => item.shape !== view.aspect).map((item) => {
