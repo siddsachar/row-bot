@@ -1,15 +1,125 @@
 # Row-Bot Org server (pre-release)
 
-**Pre-release.** Row-Bot Org will hold a team's and a company's shared brain. This version starts,
-checks its database, answers health checks and signs people in with the company's identity provider
-(below); it stores nothing else yet. Don't run it for real data.
+**Pre-release.** Row-Bot Org is the Company Server: it signs people in with the company's identity
+provider and holds the company's policy, model gateway, audit log, devices and admin console (below).
+Don't run it for real data yet.
 
 It is a separate deployment from the Row-Bot app. The desktop app never loads it, and desktop
 installers and updates don't include it.
 
-## Run it
+## Run it: the first run with Docker Compose
 
-It needs PostgreSQL 17 (16 at least) with the pgvector extension, and two roles (below).
+`compose.yaml` runs three services on one machine:
+
+- `postgres`: PostgreSQL 17 with pgvector, its data in the `row-bot-org-db` volume, its port never
+  published. The first time the volume is empty, `initdb/` makes the database, the two roles and the
+  runtime group (The database and its two roles, below).
+- `migrate`: brings the database up to date as the owner role, then exits. It runs at every `up`.
+- `row-bot-org`: the server, with the admin console, as the app role. It starts only after `migrate`
+  succeeded, and listens on `127.0.0.1:8100` on the host (uid 10001, read-only root, every capability
+  dropped).
+
+You need Docker with Compose v2, Python 3 (for step 1), this repository checked out (no image is
+published yet: Compose builds it), and an application registered with your identity provider. Run every
+command from `deploy/org`.
+
+1. **Make the secrets.** `python make_secrets.py` (on Windows `py make_secrets.py`) writes
+   `secrets/`: the three database passwords, the two database addresses built from them, the session
+   pepper, the gateway key and an empty file for the provider's client secret. It never writes over a file
+   that is there: those are the passwords the database was made with. The folder is yours alone; Compose
+   gives each container only the files it needs, as `/run/secrets/<name>`.
+2. **Fill in the settings.** Copy `org.env.example` to `org.env` and set:
+   - `ROW_BOT_ORG_PUBLIC_URL`, the https address people will use (TLS goes in front in step 7; to try the
+     server on this machine first, `http://localhost:8100`);
+   - `ROW_BOT_ORG_IDP`, your provider (Sign-in, below).
+
+   Register `<ROW_BOT_ORG_PUBLIC_URL>/auth/callback` with the provider as the redirect URI (a web
+   application with a client secret), and paste its client secret into
+   `secrets/ROW_BOT_ORG_IDP_CLIENT_SECRET`. `org.env` holds only the server's own settings. Compose's own
+   variables (`ROW_BOT_ORG_IMAGE`, `ROW_BOT_ORG_BIND_ADDRESS`, `ROW_BOT_ORG_HOST_PORT`, listed at the top of
+   `compose.yaml`) go in a `.env` file beside it or in the shell: the server refuses any `ROW_BOT_ORG_*`
+   variable it doesn't know.
+3. **Start it.** `docker compose up -d --build`. `docker compose ps -a` then shows `migrate` exited (0) and
+   the other two healthy, and `http://127.0.0.1:8100/readyz` says `ready`. If the server stopped,
+   `docker compose logs row-bot-org` says which setting is wrong.
+4. **Sign in once** at `<ROW_BOT_ORG_PUBLIC_URL>/console/`. You aren't an admin yet, so it says you need to
+   be one; the server now knows you. `<ROW_BOT_ORG_PUBLIC_URL>/api/me` shows your `id`.
+5. **Make yourself the first admin**, as the owner role, through the `migrate` service:
+
+   ```sh
+   docker compose run --rm migrate principals grant-admin you@example.com
+   ```
+
+   Use your `id` instead of the email when the provider sends no verified email (Entra doesn't).
+6. **Open the console** at `<ROW_BOT_ORG_PUBLIC_URL>/console/` again: People, Devices, Models, Policy and
+   Audit (Admin console, below). More admins: make them there, or with `admin_groups` (People and admins).
+7. **Put TLS in front**, on a reverse proxy that forwards to `127.0.0.1:8100`. With
+   [Caddy](https://caddyserver.com/) on the same machine, this is the whole Caddyfile (it gets the
+   certificate itself):
+
+   ```
+   rowbot.example.com {
+       reverse_proxy 127.0.0.1:8100
+   }
+   ```
+
+   Then set `ROW_BOT_ORG_TRUSTED_PROXIES` in `org.env` to the address the proxy reaches the server from (a
+   proxy on the host comes through the Compose network's gateway: `docker network inspect org_default`
+   shows it), so the sign-in limit counts each person, not the proxy, and run `docker compose up -d`.
+
+`docker compose down` stops everything and keeps the database; `docker compose down -v` **deletes** it.
+
+## Back up and restore
+
+Back up as the `postgres` superuser, through the `postgres` service (the owner can't: row-level security
+holds it back too):
+
+```sh
+docker compose exec postgres pg_dump --username postgres --format custom --file /tmp/row-bot-org.dump row_bot_org
+docker compose cp postgres:/tmp/row-bot-org.dump ./row-bot-org.dump
+docker compose exec postgres rm /tmp/row-bot-org.dump
+```
+
+**Back up `secrets/` and `org.env` too**, kept apart from the dumps and encrypted. Without them:
+
+- `ROW_BOT_ORG_GATEWAY_KEY`: every model endpoint's stored API key can't be opened. Enter each key again in
+  the console.
+- `ROW_BOT_ORG_HMAC_PEPPER`: every session ends; everyone signs in again.
+- `ROW_BOT_ORG_IDP_CLIENT_SECRET`: make a new one with your provider.
+- The passwords and addresses matter least: a restore makes the roles again, with whatever passwords
+  `secrets/` holds then (a new set from `make_secrets.py` works).
+
+Restore into an empty volume (on a new machine, or after removing the old volume: `docker volume ls` shows
+it, `org_row-bot-org-db` by default, and removing it deletes that database):
+
+```sh
+docker compose up -d postgres    # the empty volume gets the roles and an empty database
+docker compose cp ./row-bot-org.dump postgres:/tmp/row-bot-org.dump
+docker compose exec postgres pg_restore --username postgres --dbname row_bot_org --exit-on-error --single-transaction /tmp/row-bot-org.dump
+docker compose exec postgres rm /tmp/row-bot-org.dump
+docker compose up -d             # migrate applies anything newer, then the server starts
+```
+
+## Upgrades
+
+No image is published yet, so you build it from this repository, under a tag of your own. (Publishing
+images is a later decision.)
+
+1. Pin the image: `ROW_BOT_ORG_IMAGE=row-bot-org:<version>` in `deploy/org/.env` (Compose's file, not
+   `org.env`). Without it every build replaces `row-bot-org:dev`.
+2. Back up (above). Migrations only go forward: the old image refuses a database a newer one migrated, so
+   going back means restoring the backup into an empty volume.
+3. Check out the new version (`git fetch --tags`, `git checkout <tag>`), set its tag in `.env`, then
+   `docker compose build` and `docker compose up -d`. `migrate` runs first and the server is replaced once
+   it has succeeded (it isn't ready for the moment between).
+
+When images are published, `docker compose pull` takes the place of `build`. PostgreSQL stays on 17 in
+`compose.yaml`; moving to another major version is a dump and a restore into a new volume.
+
+## Run it without Compose
+
+With your own PostgreSQL 17 (16 at least) with the pgvector extension, make the two roles as an
+administrator (next section), then:
 
 ```sh
 uv sync --group org
@@ -18,9 +128,8 @@ ROW_BOT_ORG_DATABASE_URL=<app role's address> uv run row-bot-org check-config  #
 ROW_BOT_ORG_DATABASE_URL=<app role's address> uv run row-bot-org serve  # http://127.0.0.1:8100/readyz
 ```
 
-In a container (uid 10001, read-only root, all capabilities dropped), from the repository root: put the
-app role's address in `deploy/org/secrets/ROW_BOT_ORG_DATABASE_URL` (ignored by git, readable by
-uid 10001), then `docker compose -f deploy/org/compose.yaml up --build`.
+The image runs the same commands (`docker build -f deploy/org/Dockerfile -t row-bot-org:dev .` from the
+repository root; the settings below as variables, or as files in `/run/secrets`).
 
 ## The database and its two roles
 
@@ -49,6 +158,8 @@ SELECT format('GRANT %I TO row_bot_org_app', row_bot_org.runtime_role()) \gexec
 
 Without `CREATEROLE` for the owner, an administrator creates the group (`CREATE ROLE
 row_bot_org_runtime_row_bot_org NOLOGIN`) before the first `migrate`, and grants the membership.
+Compose does it that way (`initdb/10-row-bot-org.sql`): the owner has no `CREATEROLE`, and the group, the
+membership, pgvector and the database's `CONNECT` rights are made by the superuser before `migrate` runs.
 
 The two roles are required. `serve` and `check-config` refuse a role that is a superuser, has
 `BYPASSRLS`, can `SET ROLE` to one that is, or owns (or is a member of the owner of) the schema or its
@@ -136,11 +247,14 @@ one of `admin_groups`. (A **space owner** manages one company space; spaces come
 
 1. sign in once at `<public URL>/auth/login`, then
 2. with the owner's address (`ROW_BOT_ORG_MIGRATION_DATABASE_URL`), run
-   `row-bot-org principals grant-admin <your email or principal id>`.
+   `row-bot-org principals grant-admin <your email or principal id>` (with Compose:
+   `docker compose run --rm migrate principals grant-admin ...`).
 
 `row-bot-org principals revoke-admin <email or id>` takes the stored role away; it refuses to remove the last
 stored admin while `admin_groups` is unset, so the server always keeps one. An email two people share is
-refused: name one by its id (`/api/me` shows yours). Suspended admins don't count as the one kept.
+refused: name one by its id (`/api/me` shows yours). Suspended admins don't count as the one kept. Compose's
+`migrate` service has the owner's address and none of `org.env`, so there it always keeps the last stored
+admin, `admin_groups` or not.
 
 **Admins from your provider:** set `admin_groups` in `ROW_BOT_ORG_IDP` to Row-Bot groups that `group_map`
 maps your provider's admin group to, for example `"group_map": {"<IT admins' object id>": "it-admins"},
@@ -203,7 +317,9 @@ plain words, group overrides and history) and the audit log (search, integrity c
 uses the admin API above and nothing else.
 
 - `ROW_BOT_ORG_CONSOLE_DIR`: the folder of the built console, `frontend/dist-console` after
-  `npm --prefix frontend run console:build` (the server image will carry it). Unset, there is no console and
+  `npm --prefix frontend run console:build`. The image carries the console and sets it
+  (`/opt/row-bot-org/console`). The console needs sign-in too: without `ROW_BOT_ORG_IDP` the server starts
+  and answers health checks, and nothing else. Unset, there is no console and
   `/console/` is an unknown path.
 - Someone not signed in is sent to sign in and back; a signed-in member who isn't an admin gets a page saying
   they need to be one. The console's pages have their own Content-Security-Policy: only the console's own

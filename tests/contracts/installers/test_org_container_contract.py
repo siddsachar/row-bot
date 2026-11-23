@@ -50,6 +50,7 @@ def test_the_image_runs_as_10001_and_checks_healthz() -> None:
     assert command[:2] == ["env", "-i"] and "http://127.0.0.1:8100/healthz" in command[-1]
     entrypoint = next(value for name, value in instructions if name == "ENTRYPOINT")
     assert json.loads(entrypoint) == ["python", "-m", "row_bot_org.cli"]
-    # Only the Org server's package is copied in, never the desktop app's.
+    # Only the Org server's package and the built admin console are copied in, never the desktop app's.
     copied = [shlex.split(value) for name, value in instructions if name == "COPY"]
-    assert copied == [["--from=builder", "/opt/row-bot-org", "/opt/row-bot-org"]]
+    assert copied == [["--from=builder", "/opt/row-bot-org", "/opt/row-bot-org"],
+                      ["--from=console-build", "/build/frontend/dist-console", "/opt/row-bot-org/console"]]

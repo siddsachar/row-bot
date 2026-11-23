@@ -1,0 +1,67 @@
+name: Org container
+
+# The Company Server's image (deploy/org/Dockerfile, with the admin console) built and run the way the
+# first-run guide runs it: docker compose with Postgres, migrate and the server (scripts/smoke_org_compose.py).
+# Not part of `CI / ci-ok`; it builds on amd64 only and publishes nothing.
+
+on:
+  pull_request:
+    branches: [main, feat/org]
+    paths:
+      - ".github/workflows/org-container.yml"
+      - ".dockerignore"
+      - "deploy/org/**"
+      - "scripts/smoke_org_compose.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "src/row_bot_org/**"
+      - "src/row_bot/__init__.py"
+      - "src/row_bot/policy/**"
+      - "src/row_bot/audit/**"
+      - "contracts/policy/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/.npmrc"
+      - "frontend/tsconfig.json"
+      - "frontend/console.html"
+      - "frontend/console-not-admin.html"
+      - "frontend/vite.console.config.ts"
+      - "frontend/src/console/**"
+      - "frontend/src/ui/**"
+      - "frontend/src/assets/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: org-container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-smoke:
+    name: Org compose smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the Org server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/org/Dockerfile
+          platforms: linux/amd64
+          tags: row-bot-org:ci
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          # No layer cache export, as in container.yml.
+          build-args: |
+            ROW_BOT_SOURCE_REVISION=${{ github.sha }}
+
+      - name: Smoke the Compose deployment
+        run: python scripts/smoke_org_compose.py --image row-bot-org:ci

@@ -1,5 +1,7 @@
 *.sh text eol=lf
 installer/linux/* text eol=lf
+deploy/org/initdb/** text eol=lf
+deploy/org/org.env.example text eol=lf
 frontend/** text=auto eol=lf
 .github/workflows/docs.yml text eol=lf
 docs-content/**/*.md text eol=lf
