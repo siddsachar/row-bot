@@ -11,8 +11,9 @@ montage's cuts can land on its beat. A scene's line may be a character's (``spea
 voice (``Version.cast``, kept with the character in Library › Media), and a scene may carry effects and ambience
 (``video_sound``) (C6).
 
-A version is made in one shape (16:9, 1:1 or 9:16; by default its first video's), and the same
-version can be exported in the other shapes, each scene reframed on its zoom, or as a GIF. Every
+A version is made in one shape (16:9, 1:1, 9:16 or 4:5; by default its first video's), and the same
+version can be exported in the other shapes, each scene reframed on its zoom, or as a GIF. A made version's
+publish kit (C10, ``video_publish``) is made for the platforms the person names. Every
 scene fills the frame: a video of another shape is cropped around where the action is, never shown
 with bars. A scene's ``fit`` (or the brand kit's framed look) sets its picture inset instead.
 
@@ -78,7 +79,7 @@ FOOTAGE = ("clip", "picture", "ai", "card", "screen")
 FOOTAGE_WORDS = {"clip": "clip", "picture": "picture", "ai": "AI shot", "card": "title card",
                  "screen": "screen recording"}
 SPEEDS = (0.25, 4.0)
-SHAPES = ("16:9", "1:1", "9:16")
+SHAPES = ("16:9", "1:1", "9:16", "4:5")
 # The kinds of video (G1): each a few defaults for its look (C5) and its words (C7), which a version's own choices
 # override. A vertical short is 9:16 with big word captions on unless the video says otherwise, and ends without the
 # brand kit's end card; a new film, YouTube video, vlog, explainer or demo opens with its title (its first scene's
@@ -187,6 +188,8 @@ class Version:
     # Its clips' own speech (C4): pauses and fillers cut, and the voice cleaned (None: the recipe's).
     tidy: bool | None = None
     clean_voice: bool | None = None
+    # Its publish kit (C10, ``video_publish.make``): made when the person names a platform; {} none.
+    publish: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -247,6 +250,8 @@ def _scene_from(data: dict[str, Any]) -> Scene:
 
 
 def _load(path: Path) -> Project | None:
+    from row_bot import video_publish
+
     try:
         # Read under the lock saves take: on Windows a file open for reading refuses the save's replace.
         with _LOCK:
@@ -272,7 +277,7 @@ def _load(path: Path) -> Project | None:
                 logline=str(item.get("logline") or ""),
                 cast={str(key): str(value) for key, value in (item.get("cast") or {}).items()},
                 music_mood=str(item.get("music_mood") or ""), on_beat=bool(item.get("on_beat")),
-                **_finish_fields(item),
+                publish=video_publish.kit_from(item.get("publish")), **_finish_fields(item),
             ))
         if not versions:
             return None
@@ -1530,6 +1535,8 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "review_sheet": edit.sheet if edit is not None and _status(version, edit) == "made" else "",
         "exports": [{"shape": shape, "edit": video_edits.view(found)} for shape in EXPORTS
                     if (found := video_edits.get(version.exports.get(shape, ""))) is not None],
+        # Its publish kit, when the person named a platform (C10); None none.
+        "publish": {key: value for key, value in version.publish.items() if key != "thumbnail_from"} or None,
     }
 
 
@@ -1718,4 +1725,8 @@ def summary(project: Project, number: int | None = None) -> str:
         lines.append(f"Export {item['shape']}: {state}.")
     for shape, words in (shown.export_problems if shown is not None else {}).items():
         lines.append(f"Export {shape}: not made: {words}")
+    if shown is not None and shown.publish:
+        from row_bot.video_publish import summary_lines
+
+        lines += summary_lines(shown.publish, shown)
     return "\n".join(lines)

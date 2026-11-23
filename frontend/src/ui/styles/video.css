@@ -594,6 +594,124 @@ button.video-scene-frame {
 .video-export-name small {
   color: var(--text-muted);
 }
+/* The publish kit (C10): where it's going, its thumbnails, the post's words and the subtitles. */
+.video-publish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-hairline);
+}
+.video-publish-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.video-publish-ask {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.video-publish-ask .select {
+  width: auto;
+  min-width: 10rem;
+}
+.video-publish-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-publish-thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 9rem;
+}
+.video-publish-thumbnail[data-shape='9:16'] {
+  width: 4.5rem;
+}
+.video-publish-thumbnail[data-shape='1:1'],
+.video-publish-thumbnail[data-shape='4:5'] {
+  width: 6rem;
+}
+.video-publish-thumbnail img,
+.video-publish-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+.video-publish-thumbnail[data-shape='9:16']
+  :is(img, .video-publish-placeholder) {
+  aspect-ratio: 9 / 16;
+}
+.video-publish-thumbnail[data-shape='1:1']
+  :is(img, .video-publish-placeholder) {
+  aspect-ratio: 1;
+}
+.video-publish-thumbnail[data-shape='4:5']
+  :is(img, .video-publish-placeholder) {
+  aspect-ratio: 4 / 5;
+}
+.video-publish-thumbnail-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  font-variant-numeric: tabular-nums;
+}
+.video-publish-words {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+.video-publish-words > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--space-2);
+}
+.video-publish-words dt {
+  grid-column: 1;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.video-publish-words dd {
+  grid-column: 1;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  overflow-wrap: anywhere;
+}
+.video-publish-words :is(.icon-action, .video-publish-files) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+.video-publish-files {
+  display: flex;
+  gap: var(--space-1);
+}
+.video-publish-description {
+  display: -webkit-box;
+  max-height: 9em;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
 .video-scenes-head .video-captions + .video-captions {
   margin-left: var(--space-3);
 }

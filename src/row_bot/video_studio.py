@@ -677,7 +677,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     from row_bot.video_editing import CARD_SIZES, EditError, InputVideo, Look, VideoInfo, fit_to_lines
 
     if step.aspect and step.aspect not in CARD_SIZES:
-        raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {step.aspect}.")
+        raise EditError(f"A video's shape is 16:9, 1:1, 9:16 or 4:5, not {step.aspect}.")
     look = step.look or Look()
     given = [scene for scene in step.scenes if scene.input is not None]
     if not given or any(not 0 <= scene.input < len(inputs) for scene in given):
