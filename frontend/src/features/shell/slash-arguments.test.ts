@@ -4,6 +4,7 @@ import {
   goalRequest,
   profileChoice,
   reasoningChoice,
+  reasoningStatus,
   slashArgument,
   watchRequest,
 } from './slash-arguments';
@@ -38,6 +39,11 @@ it('recognises a palette command that carries an argument', () => {
     { command: { id: 'agent' }, argument: 'dig into tides' },
   );
   expect(slashArgument('/goal', commands)).toBeNull();
+  // A bare /reasoning shows the level and its choices (docs: Reasoning Controls).
+  expect(slashArgument(' /reasoning ', commands)).toMatchObject({
+    command: { id: 'reasoning' },
+    argument: '',
+  });
   expect(slashArgument('/status now', commands)).toBeNull();
   expect(slashArgument('/unknown thing', commands)).toBeNull();
   expect(slashArgument('Tell me about /goal', commands)).toBeNull();
@@ -67,6 +73,17 @@ it('reads thinking levels by label, effort and default', () => {
     kind: 'provider_default',
   });
   expect(reasoningChoice('turbo', reasoning)).toBeNull();
+  expect(reasoningStatus(reasoning)).toBe(
+    'Thinking: Provider default. Choices: Extra high, Off.',
+  );
+  expect(
+    reasoningStatus({
+      ...reasoning,
+      selection: { kind: 'budget', budget: 4096 },
+      supports_budget: true,
+    }),
+  ).toBe('Thinking: 4096 tokens. Choices: Extra high, Off, budget <tokens>.');
+  expect(reasoningStatus({ ...reasoning, available: false })).toBeNull();
   expect(
     reasoningChoice('high', { ...reasoning, available: false }),
   ).toBeNull();

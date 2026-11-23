@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "OutputVersionView": {
+      "additionalProperties": false,
+      "description": "One version of an output: a file in its chat.",
+      "properties": {
+        "created_at": {
+          "maxLength": 40,
+          "title": "Created At",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "mime_type": {
+          "maxLength": 64,
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 300,
+          "minLength": 3,
+          "title": "Ref",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "final",
+            "draft",
+            "working",
+            "upload"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 1,
+          "title": "Size",
+          "type": "integer"
+        },
+        "version": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ref",
+        "version",
+        "role",
+        "file_name",
+        "mime_type",
+        "size",
+        "created_at"
+      ],
+      "title": "OutputVersionView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One thing in a chat's outputs (W3): the version shown (its final, else its latest draft), its versions\nnewest first, and how many working files were made for it on the way.",
+  "properties": {
+    "conversation_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "conversation_title": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Conversation Title",
+      "type": "string"
+    },
+    "created_at": {
+      "maxLength": 40,
+      "title": "Created At",
+      "type": "string"
+    },
+    "file_name": {
+      "maxLength": 240,
+      "minLength": 1,
+      "title": "File Name",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-9a-f]{24}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "video",
+        "image",
+        "audio",
+        "document",
+        "file"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "mime_type": {
+      "maxLength": 64,
+      "title": "Mime Type",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 240,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "ref": {
+      "maxLength": 300,
+      "minLength": 3,
+      "title": "Ref",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "final",
+        "draft",
+        "working",
+        "upload"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "size": {
+      "minimum": 1,
+      "title": "Size",
+      "type": "integer"
+    },
+    "tags": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    },
+    "updated_at": {
+      "maxLength": 40,
+      "title": "Updated At",
+      "type": "string"
+    },
+    "version": {
+      "maximum": 100000,
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "version_count": {
+      "minimum": 1,
+      "title": "Version Count",
+      "type": "integer"
+    },
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/OutputVersionView"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Versions",
+      "type": "array"
+    },
+    "working_count": {
+      "minimum": 0,
+      "title": "Working Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ref",
+    "version",
+    "role",
+    "file_name",
+    "mime_type",
+    "size",
+    "created_at",
+    "id",
+    "conversation_id",
+    "name",
+    "kind",
+    "versions",
+    "version_count",
+    "working_count",
+    "updated_at"
+  ],
+  "title": "OutputView",
+  "type": "object"
+}

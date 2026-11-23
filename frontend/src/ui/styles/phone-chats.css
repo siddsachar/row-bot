@@ -37,6 +37,10 @@
   display: grid;
   gap: 12px;
 }
+.button.library-files-more {
+  justify-self: center;
+  min-height: 44px;
+}
 .phone-chats .library-search > .input {
   min-height: 44px;
   border-radius: 12px;
@@ -103,6 +107,35 @@
   background: var(--surface-raised);
   list-style: none;
   overflow: hidden;
+}
+/* Loading: the rows' card, below where the first group's heading goes. */
+.phone-chats .skeleton-list:has(.skeleton-row) {
+  gap: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+.phone-chats .library-list-loading {
+  margin-top: calc(10px + var(--leading-13));
+  padding-top: 0;
+}
+.phone-chats .skeleton-row {
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 14px 8px 10px;
+}
+/* A file's row has a second line: what it is, and its chat. */
+.library-files .skeleton-row {
+  min-height: calc(18px + var(--leading-15) + var(--leading-13));
+}
+.phone-chats .skeleton-row + .skeleton-row {
+  border-top: 1px solid var(--border-hairline);
+}
+.phone-chats .skeleton-row .skeleton-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
 }
 .phone-row {
   position: relative;

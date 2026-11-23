@@ -221,6 +221,7 @@ async function startSocket() {
       let mediaType = "";
       let mediaData = "";
       let filename = "file";
+      let isVoiceNote = false; // recorded in the app (ptt), not an audio file
 
       if (messageContent.conversation) {
         body = messageContent.conversation;
@@ -241,6 +242,7 @@ async function startSocket() {
         const audioMsg = messageContent.pttMessage || messageContent.audioMessage;
         mediaType = audioMsg?.mimetype || "audio/ogg";
         filename = "audio" + mimeToExtension(mediaType);
+        isVoiceNote = Boolean(messageContent.pttMessage || audioMsg?.ptt);
       } else if (messageContent.documentMessage) {
         body = messageContent.documentMessage.caption || "";
         hasMedia = true;
@@ -281,6 +283,7 @@ async function startSocket() {
         mediaType,
         mediaData,
         filename,
+        isVoiceNote,
         timestamp: msg.messageTimestamp,
         isGroupMsg: isGroup,
         msgKey: msg.key,

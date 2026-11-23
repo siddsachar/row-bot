@@ -48,5 +48,6 @@ export function createFakePlatform(
     openTerminal: () => result('openTerminal', unavailable()),
     openExternalTerminal: () => result('openExternalTerminal', unavailable()),
     save: () => result('save', unavailable()),
+    voiceHotkey: () => result('voiceHotkey', unavailable()),
   };
 }

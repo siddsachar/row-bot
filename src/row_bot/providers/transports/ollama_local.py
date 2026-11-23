@@ -74,7 +74,7 @@ from pydantic import Field, model_validator
 
 from row_bot.providers.transports import local_silence
 from row_bot.cancellation import CancellationScope, current_cancellation_scope
-from row_bot.providers import deferred_tools
+from row_bot.providers import deferred_tools, sampling_presets
 
 logger = logging.getLogger(__name__)
 
@@ -411,6 +411,7 @@ class _Asking:
 
 class RowBotChatOllama(ChatOllama):
     """``ChatOllama`` that sends its ``num_ctx`` and ``keep_alive`` on every request,
+    with its model family's sampling values (``sampling_presets``) where the caller set none,
     passes text tool arguments through as text, asks the model once more when
     Ollama can't hand back its tool call, and can be stopped mid-request."""
 
@@ -462,6 +463,12 @@ class RowBotChatOllama(ChatOllama):
             limit = local_reply_limit("ollama", self.model)
             params["options"] = {**options, "num_predict": min(limit, options["num_ctx"]) if limit
                                  else options["num_ctx"]}
+        options = params.get("options")
+        if options is None or isinstance(options, dict):
+            filled = dict(options or {})
+            sampling_presets.apply_to_ollama(filled, str(params.get("model") or ""), params.get("think"))
+            if filled:
+                params["options"] = filled
         return params
 
     def _create_chat_stream(

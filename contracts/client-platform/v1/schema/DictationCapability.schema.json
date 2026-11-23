@@ -1,15 +1,95 @@
 {
+  "$defs": {
+    "LiveVoiceProvider": {
+      "additionalProperties": false,
+      "description": "A Live voice option: who hears the audio, its approximate price, and whether its key is saved.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "company": {
+          "maxLength": 64,
+          "title": "Company",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "openai",
+            "gemini",
+            "grok"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "price": {
+          "maxLength": 64,
+          "title": "Price",
+          "type": "string"
+        },
+        "price_checked": {
+          "maxLength": 32,
+          "title": "Price Checked",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "available",
+            "realtime_key_missing",
+            "host_unavailable"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "shares": {
+          "default": false,
+          "title": "Shares",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "company",
+        "price",
+        "price_checked",
+        "available",
+        "reason"
+      ],
+      "title": "LiveVoiceProvider",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "browser_dictation_available": {
       "title": "Browser Dictation Available",
       "type": "boolean"
     },
+    "live_providers": {
+      "items": {
+        "$ref": "#/$defs/LiveVoiceProvider"
+      },
+      "maxItems": 8,
+      "title": "Live Providers",
+      "type": "array"
+    },
     "native_capture_available": {
       "const": false,
       "default": false,
       "title": "Native Capture Available",
       "type": "boolean"
+    },
+    "read_aloud_reason": {
+      "default": "host_unavailable",
+      "maxLength": 128,
+      "title": "Read Aloud Reason",
+      "type": "string"
     },
     "realtime_available": {
       "default": false,
@@ -45,6 +125,12 @@
       "default": "host_unavailable",
       "maxLength": 128,
       "title": "Talk Reason",
+      "type": "string"
+    },
+    "wake_reason": {
+      "default": "host_unavailable",
+      "maxLength": 128,
+      "title": "Wake Reason",
       "type": "string"
     }
   },

@@ -2022,6 +2022,7 @@ def complete_parent_pass(
             text=text,
             message_key=message_id,
         )
+        _tell_voice(final_row, text)
     if waiting and _parent_wake_ready(orchestration_id):
         request_parent_wake(orchestration_id)
     if not waiting:
@@ -3708,6 +3709,19 @@ def _run_synthesis(orchestration_id: str) -> None:
     finally:
         with _SERVICE_LOCK:
             _SYNTHESIS_THREADS.pop(orchestration_id, None)
+
+
+def _tell_voice(orchestration: Mapping[str, Any], text: str) -> None:
+    """A background pass's answer, for a Row-Bot Voice session open in its chat: said at the next pause (V3)."""
+    import sys
+
+    platform = sys.modules.get("row_bot.application.client_platform")
+    if platform is None:
+        return  # No client is served by this process, so no voice session is open.
+    try:
+        platform.client_platform_service.voice_later_answer(str(orchestration.get("parent_thread_id") or ""), text)
+    except Exception:
+        logger.debug("Voice did not hear a later answer", exc_info=True)
 
 
 def _notify_surface_completion(orchestration: Mapping[str, Any], text: str) -> None:

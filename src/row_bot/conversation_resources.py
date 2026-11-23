@@ -126,6 +126,20 @@ def list_bindings(conversation_id: str) -> ResourceSnapshot:
         return _read(connection, conversation_id)
 
 
+def list_bindings_many(conversation_ids: list[str]) -> dict[str, ResourceSnapshot]:
+    """``list_bindings`` for a page of conversations over one connection; one gone since is left out."""
+    found: dict[str, ResourceSnapshot] = {}
+    with _connect() as connection:
+        for conversation_id in conversation_ids:
+            _identifier(conversation_id)
+            try:
+                found[conversation_id] = _read(connection, conversation_id)
+            except ResourceError as error:
+                if error.code != "not_found":
+                    raise
+    return found
+
+
 def describe(binding: ResourceBinding) -> ResourceDescriptor:
     """Read a safe descriptor without loading a renderer or normalizing assets."""
     _identifier(binding.resource_id)

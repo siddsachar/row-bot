@@ -1401,6 +1401,23 @@ def store_managed_endpoint_models(endpoint_id: str, models: list[tuple[str, str,
     _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(endpoint, payload))
 
 
+def declare_endpoint_model(endpoint_id: str, model_id: str) -> None:
+    """A model its owner states can chat and call tools, kept with no probe (``row-bot run``: the endpoint and
+    the model are named on its command line). The first call shows whether it can; streamed tool calls are not
+    assumed, so tool requests take the non-streamed path."""
+
+    endpoint = get_custom_endpoint(endpoint_id)
+    if endpoint is None:
+        raise ValueError("not_found")
+    _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(
+        endpoint, {"data": [{"id": model_id}]}))
+    declared = {"model_id": model_id, "chat_ok": True, "streaming_ok": True, "tool_calling": True,
+                "tool_round_trip": True, "streaming_tool_calling": False, "declared": True,
+                "profile": endpoint.get("profile"), "transport": endpoint.get("transport"), "errors": []}
+    _classify_probe_result(declared)
+    _store_custom_endpoint_probe(endpoint_id, declared)
+
+
 def remove_managed_endpoint(endpoint_id: str) -> bool:
     """Remove a managed endpoint its owner no longer runs (its models were removed). True when it was saved."""
 

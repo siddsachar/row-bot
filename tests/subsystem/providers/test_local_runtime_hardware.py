@@ -172,11 +172,34 @@ _MIB = 1024**2
 _FILE = {"qwen3.8-27b-q4": 16_564_259_744, "qwen3.8-27b-q3": 13_146_393_504, "qwen3.8-27b-q2": 9_948_666_784,
          "qwen3.5-9b": 5_680_522_464, "qwen3.5-4b": 2_740_937_888}
 _KV = {model_id: (16 if model_id.startswith("qwen3.8") else 8) * 2 * 4 * 256 * 34 // 32 for model_id in _FILE}
+# The working memory fitted to llama.cpp b12359's buffer lines and the measured memory (RTX 5090, 22 Nov 2026;
+# M4 Mac mini 16 GB, 21 Nov): 6,144 bytes a token of compute buffers, and a fixed part of 256 MiB (768 MiB for
+# Qwen3.5 4B, whose output layer is its embedding table, on the card and in host memory both).
+_COMPUTE = 6_144
+_FIXED = {model_id: (768 if model_id == "qwen3.5-4b" else 256) * _MIB for model_id in _FILE}
 
 
 def _need(model_id: str, window: int) -> int:
-    """The file, the window's cache and 700 MiB of working memory."""
-    return _FILE[model_id] + _KV[model_id] * window + 700 * _MIB
+    """The file, the window's cache and compute buffers, and the fixed part."""
+    return _FILE[model_id] + (_KV[model_id] + _COMPUTE) * window + _FIXED[model_id]
+
+
+# What each model used once loaded and through prompts up to 110K (MiB): the RTX 5090's card memory over its
+# baseline, and on the Mac the larger of its resident size after load and its wired memory's growth (the prompt
+# cache, at most 2 GiB of ordinary host memory, is left out).
+_MEASURED = [
+    ("qwen3.8-27b-q4", 131_072, 20_533), ("qwen3.8-27b-q4", 65_536, 18_050), ("qwen3.8-27b-q4", 32_768, 16_802),
+    ("qwen3.5-9b", 131_072, 8_320), ("qwen3.5-9b", 65_536, 6_912), ("qwen3.5-9b", 32_768, 6_208),
+    ("qwen3.5-4b", 65_536, 4_650), ("qwen3.5-4b", 32_768, 3_944),
+    ("qwen3.5-9b", 131_072, 8_100), ("qwen3.5-9b", 65_536, 6_726), ("qwen3.5-9b", 32_768, 6_222),
+    ("qwen3.5-4b", 65_536, 4_209), ("qwen3.5-4b", 32_768, 3_635),
+]
+
+
+@pytest.mark.parametrize(("model_id", "window", "used_mib"), _MEASURED)
+def test_the_memory_a_model_is_counted_at_covers_what_it_used_on_a_real_card_and_mac(model_id, window, used_mib):
+    assert models.get(model_id).need_bytes(window) >= used_mib * _MIB
+    assert models.get(model_id).need_bytes(window) == _need(model_id, window)
 
 
 def _room(gb: int) -> int:
@@ -188,7 +211,7 @@ def _room(gb: int) -> int:
 @pytest.mark.parametrize(("gb", "pick", "window"), [
     (24, "qwen3.8-27b-q4", 131_072), (20, "qwen3.8-27b-q4", 65_536), (16, "qwen3.8-27b-q3", 32_768),
     (12, "qwen3.8-27b-q2", 32_768), (10, "qwen3.5-9b", 131_072), (8, "qwen3.5-9b", 32_768),
-    (6, "qwen3.5-4b", 65_536)])
+    (6, "qwen3.5-4b", 32_768)])
 def test_the_recommended_model_is_served_at_the_largest_window_that_keeps_it_on_the_card(gb, pick, window):
     """The model is picked at 32K as before; then it gets 128K, 64K or 32K, the largest that still fits on the
     card with llama.cpp's margin free, so a window never costs a quality level."""
@@ -210,8 +233,8 @@ def test_a_24_gb_card_gets_the_27b_4_bit_at_128k_and_a_16_gb_card_keeps_the_3_bi
 
     assert _need("qwen3.8-27b-q4", 131_072) <= _room(24)
     assert models.context_for(models.get("qwen3.8-27b-q4"), large) == 131_072
-    # The 2-bit build would read 128K on the 16 GB card, but the pick stays the 3-bit at the window it fits.
-    assert _need("qwen3.8-27b-q2", 131_072) <= _room(16) and _need("qwen3.8-27b-q3", 65_536) > _room(16)
+    # The 2-bit build would read 64K on the 16 GB card, but the pick stays the 3-bit at the window it fits.
+    assert _need("qwen3.8-27b-q2", 65_536) <= _room(16) and _need("qwen3.8-27b-q3", 65_536) > _room(16)
     assert _pick(medium) == "qwen3.8-27b-q3"
     assert models.context_for(models.get("qwen3.8-27b-q3"), medium) == 32_768
 

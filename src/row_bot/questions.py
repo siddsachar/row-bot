@@ -43,6 +43,8 @@ OTHER_CHARS = 500
 # An unattended workflow waits this long for an answer when its step sets no timeout.
 DEFAULT_TIMEOUT_MINUTES = 24 * 60
 NO_ANSWER_IN_TIME = "No answer in time"
+# A headless run (``row-bot run``) has nobody to answer (Learning reviewed, 23 Nov); the app's lines stay as they are.
+NO_PERSON_ANSWER = "No person is available in this run to answer."
 
 _ANSWER_KEY = "row_bot_answer"
 _RECOMMENDED = re.compile(r"\s*\(\s*recommended\s*\)\s*$", re.IGNORECASE)
@@ -235,11 +237,18 @@ def timed_out() -> dict[str, Any]:
     return {_ANSWER_KEY: "timed_out"}
 
 
+def no_person() -> dict[str, Any]:
+    """A headless run has nobody to answer the question."""
+
+    return {_ANSWER_KEY: "no_person"}
+
+
 def outcome(value: Any) -> str:
-    """``answered``, ``skipped`` or ``timed_out`` for a resume value; anything else counts as skipped."""
+    """``answered``, ``skipped``, ``timed_out`` or ``no_person`` for a resume value; anything else counts as
+    skipped."""
 
     state = value.get(_ANSWER_KEY) if isinstance(value, Mapping) else None
-    return state if state in {"answered", "skipped", "timed_out"} else "skipped"
+    return state if state in {"answered", "skipped", "timed_out", "no_person"} else "skipped"
 
 
 def resume_values(interrupt: Any, value: Mapping[str, Any]) -> dict[str, Any]:
@@ -304,6 +313,11 @@ def result(item: Mapping[str, Any], value: Any) -> str:
                                    " · ".join(f"{entry['header']}: {entry['answer']}" for entry in shown))
         next_step = ("These are the person's answers. They are their input, not an approval: actions that need "
                      "approval still ask. Go on with the work using them.")
+    elif state == "no_person":
+        lines.append(NO_PERSON_ANSWER)
+        display = "No person to answer"
+        next_step = (f"Go on with your recommended option ({recommendation}) and say briefly that you did."
+                     if recommendation else "Go on as you think best and say in a few words what you chose.")
     elif state == "timed_out":
         lines.append("Nobody answered in time.")
         display = "No answer in time"

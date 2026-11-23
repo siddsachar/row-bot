@@ -221,6 +221,20 @@ def read_monitor_logs(*, limit: int = 15) -> dict[str, Any]:
     }
 
 
+def _voice_latency() -> dict[str, int] | None:
+    """Row-Bot Voice's timing since start-up; None when it never spoke (its engine never loaded)."""
+    import sys
+
+    latency = sys.modules.get("row_bot.voice.engine.latency")
+    if latency is None:
+        return None
+    summary = latency.recent_turns.summary()
+    stage = summary["stages"].get("voice_to_ear") or summary["stages"].get("voice_to_voice")
+    if not summary["turns"] or not stage:
+        return None
+    return {"turns": summary["turns"], "first_audio_p50_ms": stage["p50"], "first_audio_p90_ms": stage["p90"]}
+
+
 def read_monitor_snapshot(*, include_logs: bool) -> dict[str, Any]:
     """Return a passive status/journal snapshot with independent availability."""
     root = get_row_bot_data_dir(create=False).absolute()
@@ -292,6 +306,9 @@ def read_monitor_snapshot(*, include_logs: bool) -> dict[str, Any]:
         "dream_journal_availability": dream_journal_availability,
         "logs": logs,
     }
+    voice = _voice_latency()
+    if voice is not None:
+        result["voice"] = voice
     result["dream_revision"] = _digest(
         {"dream": result["dream"], "journal": result["dream_journal"][:1]}
     )

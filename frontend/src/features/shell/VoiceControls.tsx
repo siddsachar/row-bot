@@ -8,6 +8,7 @@ import { clientError } from '../../api/errors';
 import { Button } from '../../ui/primitives';
 import { Mic, RefreshCw, Square, X } from 'lucide-react';
 import { takeVoiceOnOpen } from './new-chat';
+import { deviceChoice } from '../voice/devices';
 
 export type DictationScope = Readonly<{
   conversationId: string;
@@ -280,7 +281,11 @@ export default function VoiceControls(props: VoiceControlsProps) {
         () => fail(attempt, 'The dictation session expired. Try again.'),
         snapshot.expires_in_ms,
       );
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // The microphone chosen in this browser, or the default when it isn't connected.
+      const chosen = deviceChoice().input;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: chosen ? { deviceId: { ideal: chosen } } : true,
+      });
       if (current.current !== attempt || attempt.cancelled) {
         stream.getTracks().forEach((track) => track.stop());
         return;

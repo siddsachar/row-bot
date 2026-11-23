@@ -8,12 +8,14 @@ import {
 import type { DeliveryView } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, Skeleton, StatusDot } from '../../ui/primitives';
-import { fileKind, formatBytes } from './MediaPreview';
+import { MediaPreview, fileKind, formatBytes } from './MediaPreview';
 import { saveProblem, useSaveFile } from './save-file';
 import {
   DeliveryIoContext,
+  daysLeft,
   deliveryAdvice,
   deliveryExpired,
+  deliveryInChat,
   deliveryPlace,
   deliveryStatus,
   deliveryTitle,
@@ -22,9 +24,12 @@ import {
 
 /**
  * Files a step sent (F7), in the conversation. Sent to the person's devices:
- * each file with Download, on every device they're signed in on, until the
- * week runs out. Sent to a chat app: where it went. One that didn't go says
- * why in plain words, with one way out: send it to your devices instead.
+ * each file is the chat's own and plays here (a picture, a video, a sound),
+ * on every device they're signed in on, for as long as the chat keeps it;
+ * only a file too large for a chat is a download that ends after a week
+ * (beside files that play, its own row says how long it has left).
+ * Sent to a chat app: where it went. One that didn't go says why in plain
+ * words, with one way out: send it to your devices instead.
  */
 export function DeliveryCard({
   deliveryId,
@@ -130,6 +135,7 @@ export function DeliveryCard({
   const place = deliveryPlace(view, now);
   const advice = deliveryAdvice(view, now);
   const expired = deliveryExpired(view, now);
+  const inChat = deliveryInChat(view);
   const anySent = view.files.some((file) => file.sent);
   const Icon = view.target === 'devices' ? MonitorSmartphone : Send;
   const state = expired
@@ -159,38 +165,55 @@ export function DeliveryCard({
         className="delivery-files"
         aria-label={view.files.length === 1 ? 'File' : 'Files'}
       >
-        {view.files.map((file) => (
-          <li
-            key={file.index}
-            className="delivery-file"
-            data-sent={file.sent || undefined}
-          >
-            <span className="media-file-icon" aria-hidden>
-              <FileIcon />
-            </span>
-            <span className="media-file-text">
-              <strong title={file.name}>{file.name}</strong>
-              <small>
-                {formatBytes(file.size_bytes)} ·{' '}
-                {fileKind(file.mime_type, file.name)}
-                {!file.sent && anySent ? ' · Not sent' : ''}
-              </small>
-            </span>
-            {file.downloadable && !expired && (
-              <Button
-                className="small delivery-download"
-                aria-label={`Download ${file.name}`}
-                disabled={busy !== null}
-                onClick={() => void download(file.index)}
-              >
-                <Download size={14} aria-hidden />
-                <span className="delivery-download-text">
-                  {busy === file.index ? 'Downloading…' : 'Download'}
-                </span>
-              </Button>
-            )}
-          </li>
-        ))}
+        {view.files.map((file) =>
+          file.media_ref ? (
+            <li key={file.index} className="delivery-file-preview">
+              <MediaPreview
+                reference={file.media_ref}
+                mime={file.mime_type}
+                label={file.name}
+                downloadName={file.name}
+                size={file.size_bytes}
+              />
+            </li>
+          ) : (
+            <li
+              key={file.index}
+              className="delivery-file"
+              data-sent={file.sent || undefined}
+            >
+              <span className="media-file-icon" aria-hidden>
+                <FileIcon />
+              </span>
+              <span className="media-file-text">
+                <strong title={file.name}>{file.name}</strong>
+                <small>
+                  {formatBytes(file.size_bytes)} ·{' '}
+                  {fileKind(file.mime_type, file.name)}
+                  {!file.sent && anySent ? ' · Not sent' : ''}
+                  {file.sent && inChat
+                    ? file.downloadable
+                      ? ` · ${daysLeft(view, now)}`
+                      : ' · Download ended'
+                    : ''}
+                </small>
+              </span>
+              {file.downloadable && !expired && (
+                <Button
+                  className="small delivery-download"
+                  aria-label={`Download ${file.name}`}
+                  disabled={busy !== null}
+                  onClick={() => void download(file.index)}
+                >
+                  <Download size={14} aria-hidden />
+                  <span className="delivery-download-text">
+                    {busy === file.index ? 'Downloading…' : 'Download'}
+                  </span>
+                </Button>
+              )}
+            </li>
+          ),
+        )}
       </ul>
       {view.can_send_to_devices && !view.sent_instead && (
         <div className="transcript-card-actions delivery-actions">

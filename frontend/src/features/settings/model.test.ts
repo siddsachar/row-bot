@@ -183,6 +183,26 @@ describe('settings navigation metadata', () => {
       expect(searchSettings(query)).not.toEqual([]);
   });
 
+  it('finds the voice controls by name and by the words people use', () => {
+    const href = (query: string) =>
+      searchSettingsRows(query).map(settingsRowHref);
+    expect(href('when you pause')).toEqual([
+      '/settings/voice#runtime.turn_eagerness',
+    ]);
+    expect(href('push to talk')).toEqual([
+      '/settings/voice#runtime.push_to_talk',
+    ]);
+    expect(href('hotkey')).toEqual(['/settings/voice#runtime.push_to_talk']);
+    expect(href('headset')).toEqual(['/settings/voice#devices']);
+    expect(href('speak with')).toEqual([
+      '/settings/voice#runtime.speech_output_provider',
+    ]);
+    expect(href('live voice')).toContain('/settings/voice#live-voice');
+    expect(href('gemini live')).toEqual(['/settings/voice#live-voice']);
+    expect(href('openai realtime')).toEqual(['/settings/voice#live-voice']);
+    expect(href('language')).toContain('/settings/voice#language');
+  });
+
   it('names rows as their pages do and keeps the old names findable', () => {
     for (const [old, label] of [
       ['accent', 'Colour theme'],

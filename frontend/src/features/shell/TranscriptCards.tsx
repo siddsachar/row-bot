@@ -1,6 +1,7 @@
-import { createContext, useContext, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   FolderCode,
+  Layers,
   Link2,
   MessageCircleQuestion,
   Palette,
@@ -31,6 +32,8 @@ import ChatConnect from '../apps/ChatConnect';
 import AppViewFrame from '../apps/AppViewFrame';
 import { ProcessCard } from './BackgroundProcess';
 import { RecordingCard } from './RecordingCard';
+import { RecordingIoContext, recordingLive, useRecordings } from './recordings';
+import { VideoEditIoContext, editLive, useVideoEdits } from './video-edits';
 import { VideoEditCard } from './VideoEditCard';
 import { DeliveryCard } from './DeliveryCard';
 import { SandboxJobCard } from './SandboxJobCard';
@@ -38,6 +41,8 @@ import { SandboxPrepareOffer } from './SandboxPrepare';
 import { PageCard } from '../pages/PageCard';
 import { VideoProjectCard } from '../video/VideoProjectCard';
 import { LinkedConversationCard } from './LinkedConversationCard';
+import { MediaPreview } from './MediaPreview';
+import type { GeneratedMedia } from './TranscriptMessage';
 
 /**
  * Cards the assistant leaves in a turn (decision 12): a design or code folder
@@ -655,42 +660,140 @@ function AnsweredCard({
 
 export function TranscriptCards({
   cards,
-  earlier = [],
   live = false,
   conversation,
 }: {
   cards: TranscriptCard[];
-  /** Earlier versions of this reply's newest video, folded under it. */
-  earlier?: TranscriptCard[];
   live?: boolean;
   /** The chat a view belongs to; views show only where it is known. */
   conversation?: string | null;
 }) {
-  if (!cards.length && !earlier.length) return null;
+  if (!cards.length) return null;
+  return (
+    <div className="transcript-cards">
+      {cards.map((card) => (
+        <CardView
+          key={cardKey(card)}
+          card={card}
+          live={live}
+          conversation={conversation}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The working-file rows a person opened, by chat and first file. A finished
+ * turn's saved reply takes over from the live one, so the row is drawn again:
+ * it stays open.
+ */
+const openWorking = new Set<string>();
+
+function workingKey(
+  working: { media: GeneratedMedia[]; cards: TranscriptCard[] },
+  conversation?: string | null,
+) {
+  const first =
+    working.media[0]?.reference ??
+    (working.cards[0] ? cardKey(working.cards[0]) : '');
+  return first ? `${conversation ?? ''}|${first}` : '';
+}
+
+/**
+ * What a reply made on the way (finals first): recordings, edits, frames,
+ * contact sheets and screenshots, as one quiet row under its steps,
+ * "12 working files". They load only when it is opened. A recording or an
+ * edit still running shows above it, with Stop, until it ends.
+ */
+export function WorkingFilesRow({
+  working,
+  conversation,
+}: {
+  working: { media: GeneratedMedia[]; cards: TranscriptCard[] };
+  conversation?: string | null;
+}) {
+  const key = workingKey(working, conversation);
+  const [open, setOpen] = useState(() => openWorking.has(key));
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    if (!key) return;
+    if (next) openWorking.add(key);
+    else openWorking.delete(key);
+  };
+  const chat = conversation ?? undefined;
+  const recordings = useRecordings(useContext(RecordingIoContext), chat);
+  const edits = useVideoEdits(useContext(VideoEditIoContext), chat);
+  const { want: wantRecording } = recordings;
+  const { want: wantEdit } = edits;
+  const wanted = working.cards.map(cardKey).join();
+  useEffect(() => {
+    for (const key of wanted ? wanted.split(',') : []) {
+      const [kind, id] = key.split(':');
+      if (kind === 'recording') wantRecording(id);
+      else if (kind === 'video_edit') wantEdit(id);
+    }
+  }, [wantRecording, wantEdit, wanted]);
+  const running = new Set([
+    ...recordings.items
+      .filter(recordingLive)
+      .map((view) => `recording:${view.recording_id}`),
+    ...edits.items.filter(editLive).map((view) => `video_edit:${view.edit_id}`),
+  ]);
+  const live = working.cards.filter((card) => running.has(cardKey(card)));
+  const cards = working.cards.filter((card) => !running.has(cardKey(card)));
+  const count = working.media.length + cards.length;
   const show = (card: TranscriptCard) => (
     <CardView
       key={cardKey(card)}
       card={card}
-      live={live}
+      live={false}
       conversation={conversation}
     />
   );
   return (
-    <div className="transcript-cards">
-      {cards.map(show)}
-      {earlier.length > 0 && (
+    <>
+      {live.length > 0 && (
+        <div className="transcript-cards">{live.map(show)}</div>
+      )}
+      {count > 0 && (
         <Disclosure
-          className="transcript-earlier-videos"
+          className="transcript-working-files"
+          open={open}
+          onOpenChange={toggle}
           summary={
-            earlier.length === 1
-              ? '1 earlier version'
-              : `${earlier.length} earlier versions`
+            <span className="transcript-working-summary">
+              <Layers size={14} aria-hidden />
+              {count === 1 ? '1 working file' : `${count} working files`}
+            </span>
           }
         >
-          <div className="transcript-cards">{earlier.map(show)}</div>
+          {open && (
+            <>
+              {cards.length > 0 && (
+                <div className="transcript-cards">{cards.map(show)}</div>
+              )}
+              {working.media.length > 0 && (
+                <div
+                  className="message-media-grid working-media-grid"
+                  data-count={working.media.length}
+                >
+                  {working.media.map((item) => (
+                    <MediaPreview
+                      key={item.reference}
+                      reference={item.reference}
+                      mime={item.mime}
+                      caption={item.caption}
+                      label={item.label}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </Disclosure>
       )}
-    </div>
+    </>
   );
 }
 

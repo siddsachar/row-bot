@@ -79,6 +79,16 @@
       "title": "Conversation Revision",
       "type": "string"
     },
+    "live_provider": {
+      "default": "openai",
+      "enum": [
+        "openai",
+        "gemini",
+        "grok"
+      ],
+      "title": "Live Provider",
+      "type": "string"
+    },
     "model_selection": {
       "$ref": "#/$defs/ModelSelection"
     },

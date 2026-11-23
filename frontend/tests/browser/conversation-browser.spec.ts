@@ -173,7 +173,7 @@ test('a page at phone size, as a screenshot in the chat', async ({
   );
 });
 
-test('a recording shows live with Stop, then as a video in the chat', async ({
+test('a recording shows live with Stop, then as a working file in the chat', async ({
   page,
 }, info) => {
   await page.setViewportSize(DESKTOP);
@@ -197,6 +197,10 @@ test('a recording shows live with Stop, then as a video in the chat', async ({
   );
 
   await live.getByRole('button', { name: 'Stop', exact: true }).click();
+  // Once it ends it is a working file (finals first): folded, opened on demand.
+  const fold = transcript.getByText('1 working file', { exact: true });
+  await expect(fold).toBeVisible();
+  await fold.click();
   const saved = transcript.getByRole('group', {
     name: /^Browser recording: 0:\d\d · \d+ KB$/,
   });

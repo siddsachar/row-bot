@@ -446,21 +446,19 @@ def _make_pdf_aware_read_tool(root_dir: str):
         if not resolved.exists():
             return f"Error: file not found: {file_path}"
 
-        # ── Image files — display inline instead of reading as text ────
+        # ── Image files — what they are, never their bytes as text ────
         from row_bot.file_context import IMAGE_EXTENSIONS
         if resolved.suffix.lower() in IMAGE_EXTENSIONS:
             try:
-                data = resolved.read_bytes()
-                size_kb = len(data) / 1024
+                size_kb = resolved.stat().st_size / 1024
                 if size_kb >= 1024:
                     size_str = f"{size_kb / 1024:.1f} MB"
                 else:
                     size_str = f"{size_kb:.0f} KB"
                 return (
-                    f"Displayed image: {file_path} ({size_str}). "
-                    f"The image is now shown inline in the chat. "
-                    f"To analyze its contents, use analyze_image with "
-                    f"source='file' and file_path='{file_path}'."
+                    f"Image: {file_path} ({size_str}). "
+                    f"To look at it, use analyze_image with source='file' and file_path='{file_path}'; "
+                    f"to show it to the person, use present."
                 )
             except Exception as exc:
                 return f"Error reading image '{file_path}': {exc}"
@@ -495,7 +493,7 @@ def _make_pdf_aware_read_tool(root_dir: str):
         func=read_file,
         name="workspace_read_file",
         description=(
-            "Read a file in pages of lines: text, PDF, CSV, Excel, JSON or an image (shown inline). A long "
+            "Read a file in pages of lines: text, PDF, CSV, Excel or JSON (an image gives its size only). A long "
             "file ends with the offset to read on from."
         ),
         args_schema=_ReadFileInput,

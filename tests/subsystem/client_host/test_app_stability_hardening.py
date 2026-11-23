@@ -54,6 +54,37 @@ def test_stability_suppresses_benign_windows_proactor_reset():
     )
 
 
+def test_chats_started_at_once_on_a_new_database_all_set_it_up(data_dir, monkeypatch, reload_for_data_dir):
+    """Two connections setting up a new threads.db at once each found the columns missing, and the
+    second ALTER failed ("duplicate column name"), so that chat could not start."""
+    import sqlite3
+    import threading
+    from contextlib import closing
+
+    (threads,) = reload_for_data_dir(data_dir, "row_bot.threads")
+    monkeypatch.setattr(threads, "DB_PATH", str(data_dir / "fresh-threads.db"))
+    with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")  # as the checkpointer leaves it, before any chat starts
+    starting = threading.Barrier(6)
+    failures: list[BaseException] = []
+
+    def start(index: int) -> None:
+        starting.wait()
+        try:
+            threads.create_thread(f"Chat {index}", thread_id=f"chat-{index}", seed_default_skills=False)
+        except BaseException as exc:
+            failures.append(exc)
+
+    workers = [threading.Thread(target=start, args=(index,)) for index in range(6)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=60)
+
+    assert failures == []
+    assert {row[0] for row in threads._list_threads()} == {f"chat-{index}" for index in range(6)}
+
+
 def test_checkpoint_cleanup_keeps_latest_and_prunes_old(data_dir, monkeypatch, reload_for_data_dir):
     import sqlite3
 

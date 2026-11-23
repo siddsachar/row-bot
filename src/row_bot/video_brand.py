@@ -5,7 +5,8 @@ their scenes, its logo (a picture from Library › Media) sits in a corner of th
 intro and outro are title cards on its colour before the first scene and after the last. Its framing
 sets footage on its backdrop or edge to edge, its camera follows what was done or stays still, and
 its voice and speed say every video's lines (a video may choose its own). Its music mood is what
-Row-Bot picks when it makes music for a video. It is kept in one small file in the data folder.
+Row-Bot picks when it makes music for a video, and its loudness what every video's mix is brought to (-14 LUFS,
+as social video plays). It is kept in one small file in the data folder.
 """
 
 from __future__ import annotations
@@ -29,9 +30,14 @@ FRAMINGS: tuple[str, ...] = ("framed", "full")
 CAMERAS: tuple[str, ...] = ("follow", "still")
 # A narration's speed: a little slower or faster than normal, never harsh.
 VOICE_SPEEDS = (0.9, 1.25)
+# A mix's loudness (LUFS): -14 for social video and YouTube, -16 for podcasts, down to -24 for broadcast.
+LOUDNESS = (-24.0, -10.0)
 MAX_CARD = 120
 _COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
 _FILE = "video-brand.json"
+# Saved with every kit since footage fills the frame by default (M8, 22 Nov). A kit saved before then wrote "framed"
+# as the old default, not as a choice, so it loads edge to edge; one saved since keeps its own framing.
+_KIT = 2
 
 
 class BrandError(ValueError):
@@ -48,12 +54,14 @@ class Brand:
     intro: str = ""
     outro: str = ""
     music_mood: str = "calm"
-    # Edge to edge by default (R3, 12 Nov): footage small on a plain backdrop read as unfinished.
+    # Edge to edge by default (R3, 12 Nov; M8, 22 Nov): footage small on a plain backdrop read as unfinished.
+    # "framed" sets it inset on the colour, only when the person chooses it.
     framing: str = "full"
     camera: str = "follow"
     # The voice that says the lines ("" the one chosen in Settings) and its speed.
     voice: str = ""
     voice_speed: float = 1.0
+    loudness: float = -14.0
 
 
 def _path() -> Path:
@@ -68,6 +76,8 @@ def load() -> Brand:
         data = json.loads(_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return Brand()
+    if isinstance(data, dict) and data.get("kit") != _KIT:
+        data = {**data, "framing": "full"}
     try:
         return _clean(data, check_logo=False)
     except BrandError:
@@ -97,13 +107,19 @@ def _clean(data: dict[str, Any], *, check_logo: bool) -> Brand:
         raise BrandError(f"The camera is {', '.join(CAMERAS)}.")
     voice = narration_voice(data.get("voice"))
     speed = narration_speed(data.get("voice_speed"))
+    try:
+        loudness = round(float(data.get("loudness", -14.0)), 1)
+    except (TypeError, ValueError):
+        raise BrandError("The loudness is a number of LUFS, -14 for social video.") from None
+    if not LOUDNESS[0] <= loudness <= LOUDNESS[1]:
+        raise BrandError(f"The loudness is {LOUDNESS[0]:g} to {LOUDNESS[1]:g} LUFS (-14 for social video).")
     logo = str(data.get("logo") or "").strip()
     if logo and check_logo:
         _check_logo(logo)
     return Brand(colour=colour.lower(), captions=captions, logo=logo, logo_corner=corner,
                  intro=re.sub(r"\s+", " ", str(data.get("intro") or "")).strip()[:MAX_CARD],
                  outro=re.sub(r"\s+", " ", str(data.get("outro") or "")).strip()[:MAX_CARD], music_mood=mood,
-                 framing=framing, camera=camera, voice=voice, voice_speed=speed)
+                 framing=framing, camera=camera, voice=voice, voice_speed=speed, loudness=loudness)
 
 
 def narration_voice(value: Any) -> str:
@@ -145,7 +161,7 @@ def save(data: dict[str, Any]) -> Brand:
     path = _path()
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.part")
-    partial.write_text(json.dumps(asdict(brand)), encoding="utf-8", newline="\n")
+    partial.write_text(json.dumps({**asdict(brand), "kit": _KIT}), encoding="utf-8", newline="\n")
     os.replace(partial, path)
     return brand
 

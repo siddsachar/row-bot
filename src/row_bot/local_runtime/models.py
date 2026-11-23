@@ -29,10 +29,15 @@ CHOICES = (CONTEXT, 65_536, 131_072, 262_144)
 # leave less (``--fit-target``, default 1024 MiB: b12359 ``common/common.h:502``). A larger window is served
 # only with this much to spare, so it never moves part of the model off the card.
 FIT_MARGIN_BYTES = 1024 * MIB
-# Working memory a loaded model needs besides its file and its context cache (compute buffers). Fixed for now,
-# though the buffers grow with the window (measured on Metal for Qwen3.5 9B: 305, 497 and 881 MiB at 32K, 64K
-# and 128K); it gets modelled once the 27B is measured too.
-OVERHEAD_BYTES = 700 * MIB
+# Working memory besides the file and the context cache, fitted to llama.cpp b12359's own buffer lines and the
+# memory measured after load and after prompts up to 110K (RTX 5090, 22 Nov 2026; M4 Mac mini 16 GB Metal,
+# 21 Nov), so every measured case is predicted at or above what it used (by 170 MiB or more):
+# - the compute buffers grow by 6,144 bytes a token: 5,120 on the card and 1,024 in host memory on both
+#   (counted whole, since a Mac's memory is one; 9B on Metal: 305, 497 and 881 MiB at 32K, 64K and 128K);
+# - a fixed part per model (``Model.fixed_bytes``): the runtime itself and the recurrent state, less the
+#   embedding table llama.cpp keeps in host memory (the 27B's 682 MiB, so its file overstates the card).
+COMPUTE_BYTES_PER_TOKEN = 6_144
+FIXED_BYTES = 256 * MIB
 # On the processor, a model may take this share of the computer's memory.
 CPU_SHARE = 0.6
 # Without a card that fits a model, one is recommended only with this much memory, and only a small
@@ -82,9 +87,11 @@ class Model:
     older: bool = False
     licence_id: str = "apache-2.0"
     native_context: int = NATIVE_CONTEXT
-    # Whether it thinks unless the chat says otherwise (D3); every request says so explicitly. Every model
-    # thinks for now, as its template does by default. D3 turns the 9B and 4B off (small models with thinking
-    # on scored poorly in a 32K window, Learning's L2v) once lane E's local measurement confirms it.
+    # The fixed part of its working memory (see :data:`COMPUTE_BYTES_PER_TOKEN`).
+    fixed_bytes: int = FIXED_BYTES
+    # Whether it thinks unless the chat says otherwise (D3); every request says so explicitly. The 27B thinks;
+    # the 9B and 4B don't (lane E's local tau2 run, 23 Nov: the 9B with thinking off passed 8 points more
+    # often and was 27% faster).
     thinks: bool = True
 
     @property
@@ -96,9 +103,10 @@ class Model:
         return f"https://huggingface.co/{self.repo}"
 
     def need_bytes(self, context: int = CONTEXT) -> int:
-        """Memory it takes loaded at ``context``: its file, its context's cache and working memory."""
+        """Memory it takes loaded at ``context``: its file, its context's cache, compute buffers that grow with
+        the window and a fixed part."""
 
-        return self.size + self.kv_bytes_per_token * int(context) + OVERHEAD_BYTES
+        return self.size + (self.kv_bytes_per_token + COMPUTE_BYTES_PER_TOKEN) * int(context) + self.fixed_bytes
 
     @property
     def everyday(self) -> bool:
@@ -128,11 +136,13 @@ CATALOG: tuple[Model, ...] = (
     Model("qwen3.5-9b", "Qwen3.5 9B", "unsloth/Qwen3.5-9B-GGUF", "3885219b6810b007914f3a7950a8d1b469d598a5",
           "Qwen3.5-9B-Q4_K_M.gguf", 5_680_522_464,
           "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8", 9.0, _KV_SMALL,
-          quantization="4-bit", older=True),
+          quantization="4-bit", older=True, thinks=False),
     Model("qwen3.5-4b", "Qwen3.5 4B", "unsloth/Qwen3.5-4B-GGUF", "e87f176479d0855a907a41277aca2f8ee7a09523",
           "Qwen3.5-4B-Q4_K_M.gguf", 2_740_937_888,
           "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4", 4.0, _KV_SMALL,
-          quantization="4-bit", older=True),
+          # Its weights on the card and in host memory come to 487 MiB more than its file (llama.cpp's buffer
+          # lines: 2,603.5 + 497.3 MiB): its output layer is its embedding table, held in both places.
+          quantization="4-bit", older=True, fixed_bytes=768 * MIB, thinks=False),
 )
 _BY_ID = {model.id: model for model in CATALOG}
 

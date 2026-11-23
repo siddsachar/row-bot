@@ -1,6 +1,7 @@
 import * as wire from '../../../contracts/client-platform/v1/typescript/client';
 import type {
   ClientTransport,
+  OutputFilter,
   RowBotSandboxCreate,
   VideoBrand,
   VideoProjectChange,
@@ -49,11 +50,16 @@ export class HttpTransport implements ClientTransport {
     };
     return view;
   }
-  listConversations(cursor?: string, signal?: AbortSignal, group = 'all') {
+  listConversations(
+    cursor?: string,
+    signal?: AbortSignal,
+    group = 'all',
+    limit = 50,
+  ) {
     return wire.listConversations(
       this.base,
       this.session(),
-      50,
+      limit,
       cursor,
       signal,
       group,
@@ -555,6 +561,9 @@ export class HttpTransport implements ClientTransport {
   setMediaTags(ref: string, tags: string[]) {
     return wire.setMediaTags(this.base, this.session(), { ref, tags });
   }
+  outputs(filter: OutputFilter, signal?: AbortSignal) {
+    return wire.getOutputs(this.base, this.session(), filter, signal);
+  }
   videoProject(projectId: string, version?: number, signal?: AbortSignal) {
     return wire.getVideoProject(
       this.base,
@@ -579,6 +588,29 @@ export class HttpTransport implements ClientTransport {
   }
   makeVideoProject(projectId: string) {
     return wire.makeVideoProject(this.base, this.session(), projectId);
+  }
+  approveVideoScenes(projectId: string, approval: wire.VideoSceneApproval) {
+    return wire.approveVideoScenes(
+      this.base,
+      this.session(),
+      projectId,
+      approval,
+    );
+  }
+  videoSceneFrame(
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ) {
+    return wire.readVideoSceneFrame(
+      this.base,
+      this.session(),
+      projectId,
+      sceneId,
+      version,
+      signal,
+    );
   }
   waits(signal?: AbortSignal) {
     return wire.getWaits(this.base, this.session(), signal);
@@ -903,6 +935,21 @@ export class HttpTransport implements ClientTransport {
   }
   repairLocalModelRuntime(signal?: AbortSignal) {
     return wire.repairLocalModelRuntime(this.base, this.session(), signal);
+  }
+  speechModels(signal?: AbortSignal) {
+    return wire.getSpeechModels(this.base, this.session(), signal);
+  }
+  installSpeechModel(
+    body: wire.SpeechModelInstallRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.installSpeechModel(this.base, this.session(), body, signal);
+  }
+  stopSpeechModelDownload(signal?: AbortSignal) {
+    return wire.stopSpeechModelDownload(this.base, this.session(), signal);
+  }
+  removeSpeechModel(body: wire.SpeechModelRemoveRequest, signal?: AbortSignal) {
+    return wire.removeSpeechModel(this.base, this.session(), body, signal);
   }
   testChosenModel(signal?: AbortSignal) {
     return wire.testChosenModel(this.base, this.session(), signal);
@@ -1998,60 +2045,63 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  voiceControl<M extends 'talk' | 'realtime'>(
-    mode: M,
-    handle: wire.DictationHandle,
-    action: 'stop' | 'heartbeat',
-    signal?: AbortSignal,
-  ) {
-    return wire.voiceControl(
+  stopTalk(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.stopTalk(this.base, this.session(), handle, signal);
+  }
+  talkTicket(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.talkTicket(this.base, this.session(), handle, signal);
+  }
+  wakeTicket(signal?: AbortSignal) {
+    return wire.wakeTicket(this.base, this.session(), signal);
+  }
+  openVoiceSocket() {
+    // Same origin as every other request; the session cookie authenticates it.
+    const url = new URL(
+      `${this.base}/api/v1/voice/stream`,
+      window.location.href,
+    );
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    return socket;
+  }
+  stopRealtime(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.stopRealtime(this.base, this.session(), handle, signal);
+  }
+  realtimeTicket(handle: wire.DictationHandle, signal?: AbortSignal) {
+    return wire.talkTicket(
       this.base,
       this.session(),
-      mode,
       handle,
-      action,
       signal,
+      'realtime',
     );
   }
-  transcribeTalk(
-    handle: wire.DictationHandle,
-    utterance: string,
-    audio: Blob,
-    signal?: AbortSignal,
-  ) {
-    return wire.transcribeTalk(
-      this.base,
-      this.session(),
-      handle,
-      utterance,
-      audio,
-      signal,
-    );
-  }
-  talkOutput(
-    handle: wire.DictationHandle,
-    run: string,
-    output: string,
-    signal?: AbortSignal,
-  ) {
-    return wire.talkOutput(
-      this.base,
-      this.session(),
-      handle,
-      run,
-      output,
-      signal,
-    );
+  openLiveSocket() {
+    // Same origin as every other request; the session cookie authenticates it.
+    const url = new URL(`${this.base}/api/v1/voice/live`, window.location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    return socket;
   }
   speechTest(signal?: AbortSignal) {
     return wire.speechTest(this.base, this.session(), signal);
   }
-  realtimeEvent(
-    handle: wire.DictationHandle,
-    event: wire.RealtimeEvent,
+  readAloud(
+    conversationId: string,
+    messageId: string,
+    part: number,
     signal?: AbortSignal,
   ) {
-    return wire.realtimeEvent(this.base, this.session(), handle, event, signal);
+    return wire.readAloud(
+      this.base,
+      this.session(),
+      conversationId,
+      messageId,
+      part,
+      signal,
+    );
   }
   realtimeExchange(
     handle: wire.DictationHandle,
@@ -2065,13 +2115,6 @@ export class HttpTransport implements ClientTransport {
       sdp,
       signal,
     );
-  }
-  voiceRun(
-    mode: 'talk' | 'realtime',
-    handle: wire.DictationHandle,
-    signal?: AbortSignal,
-  ) {
-    return wire.voiceRun(this.base, this.session(), mode, handle, signal);
   }
   startDictation(
     conversation: string,

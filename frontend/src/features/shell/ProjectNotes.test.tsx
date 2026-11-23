@@ -21,6 +21,7 @@ const runtime = vi.hoisted(() => ({
   })),
   reviewGoal: vi.fn(),
   executeGoal: vi.fn(),
+  outputs: vi.fn(async () => ({ items: [] })),
 }));
 vi.mock('../../shell-settled', () => ({ useShellSettled: () => true }));
 vi.mock('../../runtime', () => ({

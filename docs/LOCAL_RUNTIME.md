@@ -105,11 +105,24 @@ to Hugging Face's storage, `*.hf.co`). Qwen3.8 27B has the same architecture as 
 **Which model.** The best that fits the graphics card's memory (the card less 512 MiB the system keeps;
 Apple silicon: about 70 % of the computer's memory, which the card shares), in this order: Qwen3.8 27B
 4-bit, 3-bit, 2-bit, then Qwen3.5 9B, 4B, picked at a 32K window. A model needs its file, its context
-cache and about 0.7 GB of working memory. The cache is 8-bit (`q8_0`, 34 bytes per 32 values) for every
-model: per token, the full-attention layers (16 for the 27B, 8 for Qwen3.5 9B and 4B) x 2 x 4 key-value
-heads x head size 256, so 34,816 bytes for the 27B and 17,408 for the small ones (1.1 GB and 0.57 GB at
-32K). So a 20 GB or larger card gets the 4-bit build (about 18.4 GB loaded at 32K), 16 GB the 3-bit
-(15.0 GB), 12 GB the 2-bit (11.8 GB), 8 GB Qwen3.5 9B and 6 GB Qwen3.5 4B. A Mac shares that memory with macOS and its apps, so a 27B build
+cache and working memory (`Model.need_bytes`):
+
+- **The context cache** is 8-bit (`q8_0`, 34 bytes per 32 values) for every model: per token, the
+  full-attention layers (16 for the 27B, 8 for Qwen3.5 9B and 4B) x 2 x 4 key-value heads x head size
+  256, so 34,816 bytes for the 27B and 17,408 for the small ones. llama.cpp's own KV buffer lines match
+  it exactly (4,352 MiB for the 27B at 128K).
+- **Compute buffers** grow by 6,144 bytes a token: 5,120 on the card and 1,024 in host memory, both
+  counted, since a Mac's memory is one (Qwen3.5 9B on Metal: 305, 497 and 881 MiB at 32K, 64K and 128K).
+- **A fixed part**, 256 MiB per model and 768 MiB for Qwen3.5 4B. It covers the runtime itself and the
+  recurrent state, less the embedding table llama.cpp keeps in host memory (682 MiB for the 27B, so
+  its file overstates the card). Qwen3.5 4B's output layer is its embedding table, held in both places,
+  so its weights come to 487 MiB more than its file.
+
+These are fitted to llama.cpp b12359's buffer lines and the memory measured on an RTX 5090 and a 16 GB
+M4 Mac mini (below). Every measured case is predicted at or above what it used, by 170 MiB or more.
+
+So a 20 GB or larger card gets the 4-bit build (about 18.2 GB loaded at 32K), 16 GB the 3-bit
+(14.8 GB), 12 GB the 2-bit (11.6 GB), 8 GB Qwen3.5 9B and 6 GB Qwen3.5 4B. A Mac shares that memory with macOS and its apps, so a 27B build
 is recommended only on a Mac with room to spare: 24 GB gets the 2-bit, 32 GB the 3-bit, 48 GB or more the
 4-bit, and a 16 GB Mac Qwen3.5 9B (a 27B build that fits can still be chosen). Without a card that fits one, a computer with 32 GB of memory is offered Qwen3.5 9B on the
 processor and one with 16 GB Qwen3.5 4B; with less, none is recommended, but every model that fits
@@ -124,13 +137,13 @@ the published sizes:
 
 | Card | Model | Window | Loaded |
 |---|---|---|---|
-| 24 GB or more | Qwen3.8 27B 4-bit | 128K | 20.4 GiB |
+| 24 GB or more | Qwen3.8 27B 4-bit | 128K | 20.7 GiB |
 | 20 GB | Qwen3.8 27B 4-bit | 64K | 18.2 GiB |
-| 16 GB | Qwen3.8 27B 3-bit | 32K | 14.0 GiB (64K would need 15.1 GiB plus the margin) |
-| 12 GB | Qwen3.8 27B 2-bit | 32K | 11.0 GiB |
-| 10 GB | Qwen3.5 9B | 128K | 8.1 GiB |
-| 8 GB | Qwen3.5 9B | 32K | 6.5 GiB |
-| 6 GB | Qwen3.5 4B | 64K | 4.3 GiB |
+| 16 GB | Qwen3.8 27B 3-bit | 32K | 13.7 GiB (64K would need 15.0 GiB plus the margin) |
+| 12 GB | Qwen3.8 27B 2-bit | 32K | 10.8 GiB |
+| 10 GB | Qwen3.5 9B | 128K | 8.4 GiB |
+| 8 GB | Qwen3.5 9B | 32K | 6.3 GiB |
+| 6 GB | Qwen3.5 4B | 32K | 4.0 GiB (64K would need 4.7 GiB plus the margin) |
 | none | Qwen3.5 9B or 4B on the processor | 32K | |
 | Mac, any memory | the model picked for it | 32K | |
 
@@ -148,8 +161,15 @@ A follow-up turn's first word took about 0.5 s from the prompt cache. Pro and Ma
 a larger window is automatic on a Mac; a person may choose one in the model's settings, which say
 "slow first reply on long chats" above 32K there (U1).
 
-The 0.7 GB working memory is fixed for now, though the compute buffers grow with the window (Qwen3.5 9B on
-Metal: 305, 497 and 881 MiB at 32K, 64K and 128K); it gets modelled once the 27B is measured too.
+**On an RTX 5090** (32 GB, b12359 CUDA 13) every case loaded all its layers on the card, and the larger
+windows are quick. A cold 110K prompt's first word took 49 s on the 27B 4-bit and 17 s on Qwen3.5 9B; the
+next turn's took 0.15 to 0.27 s from the prompt cache. Memory measured vs predicted, in GiB:
+
+| Model | 128K | 64K | 32K |
+|---|---|---|---|
+| Qwen3.8 27B 4-bit | 20.05 vs 20.68 | 17.63 vs 18.18 | 16.41 vs 16.93 |
+| Qwen3.5 9B | 8.13 vs 8.42 | 6.75 vs 6.98 | 6.06 vs 6.26 |
+| Qwen3.5 4B | | 4.54 vs 4.74 | 3.85 vs 4.02 |
 
 Each model on the endpoint has its own window: on a 16 GB card a downloaded
 Qwen3.5 4B reads 128K beside the 3-bit's 32K. Setup and Settings › Models › Local say it ("reads 64K").

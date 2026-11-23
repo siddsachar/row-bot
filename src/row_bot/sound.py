@@ -4,8 +4,11 @@ Whisper transcribes a recording or a clip with each word's time. Nothing leaves 
 from __future__ import annotations
 
 import io
+import json
+import os
 import re
 import tempfile
+import uuid
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,9 +53,14 @@ def wav_seconds(data: bytes) -> float:
 
 
 # Said the way people say them (R10): the voice read "Row-Bot" as "robot" and "5.3.3" as "five point three
-# three". A pronunciation the caller gives goes first.
+# three". The app's own name is the only name here: every other one is the person's (``pronunciations``).
 _SAID = ((re.compile(r"\bRow-Bot\b", re.IGNORECASE), "Row Bot"),
          (re.compile(r"\bv?(\d+)\.(\d+)\.(\d+)\b"), lambda found: " point ".join(found.groups())))
+# The person's own pronunciations, taught once and used for every voice file after (M9). Read only here, when a
+# voice file is made: never shown to the model.
+PRONUNCIATIONS_FILE = "pronunciations.json"
+MAX_PRONUNCIATIONS = 500
+MAX_WORD_CHARS = 80
 
 
 def spoken(text: str) -> str:
@@ -60,6 +68,76 @@ def spoken(text: str) -> str:
     for pattern, said in _SAID:
         text = pattern.sub(said, text)
     return text
+
+
+def _pronunciations_path() -> Path:
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    return get_row_bot_data_dir() / PRONUNCIATIONS_FILE
+
+
+def _clean_pronunciations(given: dict[str, str] | None) -> dict[str, str]:
+    """Written word -> how to say it, trimmed; an empty way to say it means "forget the word"."""
+    found: dict[str, str] = {}
+    for word, said in (given or {}).items():
+        word, said = " ".join(str(word).split())[:MAX_WORD_CHARS], " ".join(str(said or "").split())[:MAX_WORD_CHARS]
+        if word:
+            found[word] = said
+    return found
+
+
+def saved_pronunciations() -> dict[str, str]:
+    """The person's saved pronunciations ({} when there are none, or the file can't be read)."""
+    try:
+        data = json.loads(_pronunciations_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {word: said for word, said in _clean_pronunciations(data if isinstance(data, dict) else {}).items()
+            if said}
+
+
+def remember_pronunciations(given: dict[str, str]) -> list[str]:
+    """Keep these for every later voice file (an empty way to say a word forgets it): the words changed."""
+    changes = _clean_pronunciations(given)
+    kept = {word: said for word, said in saved_pronunciations().items()
+            if word.casefold() not in {key.casefold() for key in changes}}
+    kept.update({word: said for word, said in changes.items() if said})
+    if len(kept) > MAX_PRONUNCIATIONS:
+        raise SoundError(f"At most {MAX_PRONUNCIATIONS} pronunciations are kept: forget some first.")
+    path = _pronunciations_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.part")
+    partial.write_text(json.dumps(kept, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    os.replace(partial, path)
+    return list(changes)
+
+
+def respelled(text: str, pronunciations: dict[str, str] | None = None) -> str:
+    """*text* as the voice should say it: the given pronunciations, then the saved ones, then Row-Bot's name and
+    version numbers. Only the voice hears it; captions and subtitles keep the written words."""
+    chosen = {word.casefold(): said for word, said in saved_pronunciations().items()}
+    chosen.update({word.casefold(): said for word, said in _clean_pronunciations(pronunciations).items() if said})
+    if chosen:
+        # One pass, longest first, so a word said one way is never said again another way.
+        words = sorted(chosen, key=len, reverse=True)
+        pattern = re.compile("(?<!\\w)(?:" + "|".join(map(re.escape, words)) + ")(?!\\w)", re.IGNORECASE)
+        text = pattern.sub(lambda found: chosen[found.group(0).casefold()], text)
+    return spoken(text)
+
+
+def written(segments: list[Segment]) -> list[Segment]:
+    """A transcript with the saved pronunciations back as the words they spell: a voice file said "Kwen" for
+    Qwen, and its transcript and subtitles say Qwen."""
+    from dataclasses import replace
+
+    back = {said.casefold(): word for word, said in saved_pronunciations().items()
+            if said.casefold() != word.casefold()}
+    if not back:
+        return segments
+    pattern = re.compile("(?<!\\w)(?:" + "|".join(map(re.escape, sorted(back, key=len, reverse=True)))
+                         + ")(?!\\w)", re.IGNORECASE)
+    return [replace(segment, text=pattern.sub(lambda found: back[found.group(0).casefold()], segment.text))
+            for segment in segments]
 
 
 def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dict[str, str] | None = None) -> Speech:
@@ -81,12 +159,9 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
     if not tts.is_installed():
         raise SoundError("Speaking needs Row-Bot's voice (Kokoro). Install it in Settings › Voice, then try again.")
     tts.reload_settings()
-    for word, said in (pronunciations or {}).items():
-        if str(word).strip() and str(said).strip():
-            text = re.sub(rf"\b{re.escape(str(word).strip())}\b", str(said).strip(), text, flags=re.IGNORECASE)
-    text = spoken(text)
+    text = respelled(text, pronunciations)
     chosen = voice or tts.voice
-    data = tts.synthesize_wav_bytes(text, voice=chosen, speed=speed or None, truncate=False)
+    data = tts.synthesize_wav_bytes(text, voice=chosen, speed=speed or None)
     if not data:
         raise SoundError("There was nothing to say once code and formatting were left out.")
     return Speech(data, wav_seconds(data), chosen)

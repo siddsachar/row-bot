@@ -350,6 +350,8 @@ def test_media_specialization_keeps_references_without_marker_or_inline_data():
             "media_ref": "conversation:attachment:synthetic",
             "mime_type": "image/png",
             "prompt": "",
+            "role": "",
+            "name": "",
         }
     ]
     assert private_image not in repr(specialized)

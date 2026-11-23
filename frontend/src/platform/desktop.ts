@@ -351,6 +351,8 @@ export function createDesktopPlatform(
     moveWindow: (x, y) => native?.moveWindow(x, y) ?? false,
     openTerminal: (conversationId) =>
       run((platform) => platform.openTerminal(conversationId)),
+    voiceHotkey: (key) =>
+      run((platform) => platform.voiceHotkey(key), 'background'),
     openExternalTerminal: (conversationId) =>
       run((platform) => platform.openExternalTerminal(conversationId)),
     save: async (reference, name, signal) => {
