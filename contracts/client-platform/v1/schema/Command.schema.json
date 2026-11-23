@@ -1790,6 +1790,9 @@
         "value": {
           "anyOf": [
             {
+              "type": "boolean"
+            },
+            {
               "type": "string"
             },
             {

@@ -26,15 +26,17 @@ LOCAL_PROVIDER = "local"
 REALTIME_TALK_PROVIDER = "openai_realtime"
 SENSEVOICE_MODEL = "local-funasr-sensevoice"
 
-SpeechMode = Literal["dictate", "talk"]
+# "voice_note": a voice note sent on a chat app. It uses Dictate's engine and detects the language.
+SpeechMode = Literal["dictate", "talk", "voice_note"]
 
 
 class LocalWhisperProvider:
     provider_id = "local_whisper"
     display_name = "Local Whisper"
 
-    def __init__(self, voice_service: VoiceService) -> None:
+    def __init__(self, voice_service: VoiceService, *, language: str | None = "en") -> None:
         self._voice = voice_service
+        self._language = language
 
     def status(self) -> VoiceProviderStatus:
         ready = self._voice.whisper_model_available()
@@ -48,7 +50,7 @@ class LocalWhisperProvider:
         )
 
     def transcribe_bytes(self, audio_bytes: bytes) -> str:
-        return self._voice.transcribe_pcm16(audio_bytes, allow_download=False)
+        return self._voice.transcribe_pcm16(audio_bytes, allow_download=False, language=self._language)
 
 
 class LocalKokoroOutput:
@@ -83,9 +85,9 @@ def speech_to_text_provider(
     voice_service: VoiceService,
     settings: VoiceRuntimeSettings | None = None,
 ) -> SpeechToTextProvider:
-    """The speech-to-text provider selected for Dictate or Talk."""
+    """The speech-to-text provider selected for Dictate or Talk, or for chat-app voice notes."""
     settings = settings or load_voice_runtime_settings()
-    if mode == "dictate":
+    if mode in ("dictate", "voice_note"):
         provider_id, model = settings.dictation_provider, settings.dictation_model
     else:
         provider_id, model = settings.talk_provider, settings.talk_model
@@ -97,8 +99,8 @@ def speech_to_text_provider(
         raise VoiceProviderError("voice_provider_unavailable")
     voice_service.sync_saved_models()
     if model == SENSEVOICE_MODEL:
-        return voice_service.sensevoice_provider()
-    return LocalWhisperProvider(voice_service)
+        return voice_service.sensevoice_provider()  # SenseVoice always detects the language
+    return LocalWhisperProvider(voice_service, language=None if mode == "voice_note" else "en")
 
 
 def speech_output_provider(

@@ -3,7 +3,7 @@ Row-Bot – Shared Media Pipeline
 ================================
 Common helpers for processing inbound media from any channel:
 
-* **Voice notes** → transcribe via faster-whisper
+* **Voice notes** → transcribe with the speech model chosen for Dictate
 * **Photos / images** → analyse via Vision service
 * **Documents / files** → save to inbox directory
 
@@ -45,47 +45,52 @@ def _safe_filename(filename: str) -> str:
 
 # ── Voice → Text ─────────────────────────────────────────────────────
 
+# What the person is told when a voice note arrives and no speech model is installed.
+VOICE_NOTES_NEED_A_MODEL = (
+    "Voice notes need a speech model. Install one in Row-Bot's Settings › Voice; typed messages work as usual."
+)
+
+
+class SpeechModelMissing(RuntimeError):
+    """The speech model chosen for Dictate isn't installed, so a voice note can't be transcribed."""
+
+
 def transcribe_audio(data: bytes, file_ext: str = ".ogg") -> str:
-    """Transcribe audio bytes to text via faster-whisper.
+    """Transcribe a voice note with the speech-to-text engine chosen for Dictate.
 
-    Parameters
-    ----------
-    data : bytes
-        Raw audio file contents (OGG/Opus, WebM, MP3, WAV, …).
-    file_ext : str
-        File extension hint so faster-whisper picks the right decoder.
-
-    Returns
-    -------
-    str
-        Transcribed text (empty string on failure).
+    The language is detected (Whisper and SenseVoice both can). *file_ext* names the
+    container (OGG/Opus, MP3, M4A, WebM, WAV…); PyAV decodes it, so no ffmpeg is needed.
+    Nothing downloads here: when the engine's model isn't installed this raises
+    ``SpeechModelMissing``. Returns "" when the audio can't be read or transcribed.
     """
+    from row_bot import sound
     from row_bot.voice import get_voice_service
-
-    svc = get_voice_service()
-    svc._ensure_whisper()
-
-    # Write to temp file — faster-whisper.transcribe() accepts paths
-    # and internally uses ffmpeg to decode any format.
-    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp:
-        tmp.write(data)
-        tmp_path = tmp.name
+    from row_bot.voice.provider_base import VoiceProviderError
+    from row_bot.voice.providers import speech_to_text_provider
 
     try:
-        segs, _ = svc._whisper_model.transcribe(
-            tmp_path, beam_size=5, language="en", vad_filter=True,
-        )
-        text = " ".join(s.text.strip() for s in segs).strip()
-        log.info("Transcribed audio (%d bytes) → %d chars", len(data), len(text))
-        return text
-    except Exception as exc:
-        log.error("Audio transcription failed: %s", exc)
-        return ""
-    finally:
+        provider = speech_to_text_provider("voice_note", voice_service=get_voice_service())
+        ready = provider.status().ready
+    except VoiceProviderError:
+        ready = False
+    if not ready:
+        raise SpeechModelMissing("no speech model is installed")
+    suffix = file_ext if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", str(file_ext or "")) else ".ogg"
+    with tempfile.TemporaryDirectory(prefix="row-bot-voice-note-") as folder:
+        path = pathlib.Path(folder) / f"note{suffix}"
+        path.write_bytes(data)
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            pcm = sound.decoded_speech(path)
+        except sound.SoundError:
+            log.warning("A voice note (%d bytes) could not be decoded", len(data))
+            return ""
+    try:
+        text = str(provider.transcribe_bytes(pcm) or "").strip()
+    except Exception:
+        log.warning("A voice note could not be transcribed", exc_info=True)
+        return ""
+    log.info("Transcribed a voice note (%d bytes) with %s: %d chars", len(data), provider.provider_id, len(text))
+    return text
 
 
 # ── Photo → Analysis ─────────────────────────────────────────────────
@@ -341,6 +346,8 @@ class InboundAttachment:
     filename: str
     data: bytes
     content_type: str = ""
+    voice_note: bool = False
+    """Recorded as a voice note in the chat app (not an audio file sent as one)."""
 
 
 @dataclass
@@ -351,6 +358,10 @@ class AttachmentTurn:
     transcripts: list[str] = field(default_factory=list)
     usable: bool = False
     """False when nothing could be read and the person wrote nothing either."""
+    voice_note: bool = False
+    """A voice note was among them and was transcribed: the reply may be a voice note too."""
+    notice: str = ""
+    """What to tell the person when the turn isn't usable for a known reason (no speech model)."""
 
 
 def attachment_kind(attachment: InboundAttachment) -> str:
@@ -420,6 +431,8 @@ def build_attachment_turn(
     blocks: list[str] = []
     transcripts: list[str] = []
     usable = bool(caption)
+    voice_note = False
+    notice = ""
     seen_names: dict[str, int] = {}
     for original in attachments:
         # Albums often name every item alike ("image.jpg"); each keeps its own name.
@@ -437,10 +450,18 @@ def build_attachment_turn(
                 usable = usable or read
             elif kind == "audio":
                 suffix = pathlib.Path(str(attachment.filename or "")).suffix.lower() or ".ogg"
-                transcript = transcribe_audio(attachment.data, suffix)
+                try:
+                    transcript = transcribe_audio(attachment.data, suffix)
+                except SpeechModelMissing:
+                    notice = VOICE_NOTES_NEED_A_MODEL
+                    name = _safe_filename(attachment.filename or "audio")
+                    blocks.append(f"[Attached audio: {name} - not transcribed: no speech model is installed; "
+                                  "the person installs one in Settings › Voice]")
+                    continue
                 if transcript:
                     transcripts.append(transcript)
                     usable = True
+                    voice_note = voice_note or attachment.voice_note
                 else:
                     name = _safe_filename(attachment.filename or "audio")
                     blocks.append(f"[Attached audio: {name} - could not be transcribed]")
@@ -463,7 +484,8 @@ def build_attachment_turn(
     context = wrap_attachment_context("\n\n".join(blocks))
     if context:
         parts.append(context)
-    return AttachmentTurn(text="\n\n".join(parts), transcripts=transcripts, usable=usable)
+    return AttachmentTurn(text="\n\n".join(parts), transcripts=transcripts, usable=usable,
+                          voice_note=voice_note, notice=notice)
 
 
 T = TypeVar("T")

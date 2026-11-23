@@ -375,3 +375,72 @@ it('lists unloaded core channels collapsed and passive, with no password field',
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
 });
+
+function telegramWithSwitch(on: boolean, help: string): ChannelPage {
+  const [slack] = page.items;
+  return {
+    ...page,
+    items: [
+      {
+        ...slack,
+        channel_id: 'telegram',
+        display_name: 'Telegram',
+        paired_identities: [],
+        capabilities: ['voice_in'],
+        fields: [
+          {
+            key: 'voice_replies',
+            label: 'Reply to voice notes with a voice note',
+            field_type: 'toggle',
+            storage: 'config',
+            help_text: help,
+            configured: !on,
+            source: on ? '' : 'channel config',
+            fingerprint: '',
+            externally_managed: false,
+            writable: true,
+            value: on,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+it('shows the voice-note reply switch with the channel and saves it on a tap', async () => {
+  const props = options();
+  const missing =
+    "Needs Row-Bot's voice (Kokoro), which isn't installed: answers stay text until you install it in Settings › Voice.";
+  props.load.mockResolvedValue(telegramWithSwitch(true, missing));
+  render(<ChannelSettings {...props} />);
+  fireEvent.click((await screen.findByText('Telegram')).closest('summary')!);
+
+  const toggle = screen.getByRole('switch', {
+    name: 'Reply to voice notes with a voice note',
+  });
+  expect(toggle).toBeChecked();
+  expect(toggle).toBeVisible(); // with the channel, not under More settings
+  expect(screen.getByText(missing)).toBeVisible();
+  expect(screen.queryByText('More settings')).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText(/New Reply to voice notes/),
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(toggle);
+  await screen.findByText('Channel action completed.');
+  expect(props.review).toHaveBeenCalledWith(
+    expect.objectContaining({
+      channel_id: 'telegram',
+      operation: 'configure',
+      field_key: 'voice_replies',
+      value: false,
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(props.execute).toHaveBeenCalledWith(
+    expect.objectContaining({
+      payload: expect.objectContaining({ value: false }),
+    }),
+    expect.anything(),
+  );
+});
