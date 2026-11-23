@@ -124,6 +124,30 @@ public URL's origin.
 The server asks only for `openid email profile` and keeps no provider token. `row-bot-org principals
 revoke-sessions <principal id>`, with the owner's address, signs a person out everywhere.
 
+## Models
+
+With sign-in and `ROW_BOT_ORG_GATEWAY_KEY` set, the server holds the company's model endpoints and
+connected Row-Bots call models through it, so the endpoints' keys never reach a laptop.
+
+- `ROW_BOT_ORG_GATEWAY_KEY`: 32 random bytes, base64
+  (`python -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"`).
+  A secret: it seals every endpoint key in the database, and keys sealed with another one can't be used.
+- `ROW_BOT_ORG_GATEWAY_BUDGETED_CALLS`: the calls a person under a hard budget may have running at once,
+  per server process, 4 by default (budgets count a call's spend after it ends).
+- Until roles arrive, admins are the members of the group `row-bot-org-admins`, and only through an explicit
+  `group_map` entry (`{"<your admin group>": "row-bot-org-admins", ...}`): a provider group that merely has
+  that name never makes an admin, and without such an entry there are none. They manage, under `/api/admin/`: `endpoints` (`api` `openai` for any
+  OpenAI-compatible server, with the SDK's base URL such as `http://gpu-box:8000/v1`, or `anthropic` with
+  `https://api.anthropic.com`; `api_key`, `timeout_seconds`, `enabled`; a new host, scheme or port in
+  `base_url` drops the stored key unless `api_key` comes with it), `models` (the `name` people call,
+  the endpoint's `upstream_model`, `kind` `chat` or `embeddings`, prices per million tokens,
+  `allowed_groups`, empty for everyone, and `is_default`), `budgets` (monthly, per person or group, `soft_limit`
+  adds a warning header, `hard_limit` refuses) and `usage?by=person|group|model&start=&end=`.
+- People list their models at `/api/models` and call them at `/api/gateway/openai/v1/chat/completions`,
+  `/api/gateway/openai/v1/embeddings` and `/api/gateway/anthropic/v1/messages`. The gateway picks the model:
+  requests naming others (`models`, `route`, `fallbacks`, `context_window_fallbacks`, `provider`), Anthropic
+  server tools, `mcp_servers` and beta flags other than Row-Bot's own are refused.
+
 ## Policy
 
 Admins keep one company policy and optional overrides per group (`/api/admin/policy`); each signed-in

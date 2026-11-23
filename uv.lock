@@ -4063,6 +4063,7 @@ lint = [
     { name = "ruff" },
 ]
 org = [
+    { name = "cryptography" },
     { name = "joserfc" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
@@ -4218,6 +4219,7 @@ dev = [
 ]
 lint = [{ name = "ruff", specifier = ">=0.12,<1.0" }]
 org = [
+    { name = "cryptography", specifier = ">=44.0" },
     { name = "joserfc", specifier = ">=1.0,<2.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4.0" },
     { name = "psycopg-pool", specifier = ">=3.2,<4.0" },

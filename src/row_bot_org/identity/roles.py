@@ -4,7 +4,7 @@
 answer 403 on a real server until S2 replaces it with the roles it stores.
 
 ``enter_admin`` is what an admin route calls first. When the caller is an admin it also marks the
-transaction as an admin's (``row_bot.admin``), which ``row_bot_org.row_bot_is_admin()`` (migration 0004)
+transaction as an admin's (``row_bot.admin``), which ``row_bot_org.row_bot_is_admin()`` (migration 0003)
 reads for the tables' admin policies, so a route that forgets the check can't read or write as one.
 """
 

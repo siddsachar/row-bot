@@ -5,10 +5,10 @@ and Kubernetes secrets), by the rules the app uses for its server secrets: a reg
 link, at most 64 KiB of UTF-8, with one trailing newline dropped. A variable wins over a file.
 
 Errors name the setting and what is wrong with it, never its value: some settings are secrets.
-``ROW_BOT_ORG_DATABASE_URL``, ``ROW_BOT_ORG_MIGRATION_DATABASE_URL``, ``ROW_BOT_ORG_HMAC_PEPPER`` and
-``ROW_BOT_ORG_IDP_CLIENT_SECRET`` are: ``remove_secret_variables`` takes them out of the process
-environment once read, so no program the server starts inherits them, and they never appear in the
-settings' ``repr``.
+``ROW_BOT_ORG_DATABASE_URL``, ``ROW_BOT_ORG_MIGRATION_DATABASE_URL``, ``ROW_BOT_ORG_HMAC_PEPPER``,
+``ROW_BOT_ORG_IDP_CLIENT_SECRET`` and ``ROW_BOT_ORG_GATEWAY_KEY`` are: ``remove_secret_variables`` takes them
+out of the process environment once read, so no program the server starts inherits them, and they never
+appear in the settings' ``repr``.
 
 Sign-in (``row_bot_org.identity``) needs ``ROW_BOT_ORG_IDP`` (``identity/config.py`` describes it),
 its client secret, ``ROW_BOT_ORG_PUBLIC_URL`` (the address browsers use, for the redirect URI and the
@@ -29,6 +29,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from row_bot_org.gateway.settings import (
+    BUDGETED_CALLS_SUFFIX,
+    DEFAULT_BUDGETED_CALLS,
+    GATEWAY_KEY_SUFFIX,
+    parse_budgeted_calls,
+    parse_gateway_key,
+)
 from row_bot_org.identity.config import IdpConfig, IdpConfigError, is_loopback_host, parse_idp
 
 ENV_PREFIX = "ROW_BOT_ORG_"
@@ -41,8 +48,10 @@ HMAC_PEPPER_ENV = ENV_PREFIX + "HMAC_PEPPER"
 IDP_ENV = ENV_PREFIX + "IDP"
 IDP_CLIENT_SECRET_ENV = ENV_PREFIX + "IDP_CLIENT_SECRET"
 PUBLIC_URL_ENV = ENV_PREFIX + "PUBLIC_URL"
+GATEWAY_KEY_ENV = ENV_PREFIX + GATEWAY_KEY_SUFFIX
 # Taken out of the environment as soon as they are read (remove_secret_variables).
-SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV, HMAC_PEPPER_ENV, IDP_CLIENT_SECRET_ENV)
+SECRET_VARIABLES = (DATABASE_URL_ENV, MIGRATION_DATABASE_URL_ENV, HMAC_PEPPER_ENV, IDP_CLIENT_SECRET_ENV,
+                    GATEWAY_KEY_ENV)
 MIN_PEPPER_LENGTH = 32
 _PR_SET_DUMPABLE = 4
 
@@ -84,6 +93,10 @@ class OrgSettings:
     sign_in_rate_limit: int = 60
     # Reverse proxies (addresses or networks) whose X-Forwarded-For and X-Forwarded-Proto are believed.
     trusted_proxies: tuple[str, ...] = ()
+    # The model gateway's server key (row_bot_org.gateway.settings). A secret.
+    gateway_key: bytes | None = dataclass_field(default=None, repr=False)
+    # Gateway calls at once for a person under a hard budget, per process.
+    gateway_budgeted_calls: int = DEFAULT_BUDGETED_CALLS
 
 
 class _Invalid(Exception):
@@ -175,6 +188,17 @@ def _json_text(raw: str) -> str:
     return raw.strip()
 
 
+def _gateway(parse: Callable[[str], Any]) -> Callable[[str], Any]:
+    """A gateway setting's parser (row_bot_org.gateway.settings), its ValueError worded as a setting's problem."""
+    def parsed(raw: str) -> Any:
+        try:
+            return parse(raw)
+        except ValueError as problem:
+            raise _Invalid(str(problem)) from None
+
+    return parsed
+
+
 def _client_secret(raw: str) -> str:
     if any(ord(c) < 32 or ord(c) == 127 for c in raw):
         raise _Invalid("must not contain control characters")
@@ -211,6 +235,8 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "HMAC_PEPPER": ("hmac_pepper", _pepper),
     "SESSION_LIFETIME": ("session_lifetime", _session_seconds),
     "SESSION_IDLE_TIMEOUT": ("session_idle_timeout", _session_seconds),
+    GATEWAY_KEY_SUFFIX: ("gateway_key", _gateway(parse_gateway_key)),
+    BUDGETED_CALLS_SUFFIX: ("gateway_budgeted_calls", _gateway(parse_budgeted_calls)),
     "SIGN_IN_RATE_LIMIT": ("sign_in_rate_limit", _rate_limit),
     "TRUSTED_PROXIES": ("trusted_proxies", _trusted_proxies),
     # Combined after the loop: the provider needs its client secret.
@@ -326,7 +352,7 @@ def keep_environment_private() -> None:
 
 
 __all__ = [
-    "DATABASE_URL_ENV", "ENV_PREFIX", "HMAC_PEPPER_ENV", "IDP_CLIENT_SECRET_ENV", "IDP_ENV",
+    "DATABASE_URL_ENV", "ENV_PREFIX", "GATEWAY_KEY_ENV", "HMAC_PEPPER_ENV", "IDP_CLIENT_SECRET_ENV", "IDP_ENV",
     "MIGRATION_DATABASE_URL_ENV", "PUBLIC_URL_ENV", "SECRETS_DIR_ENV", "SECRET_VARIABLES", "OrgSettings",
     "SettingsError", "keep_environment_private", "load_settings", "remove_secret_variables",
 ]

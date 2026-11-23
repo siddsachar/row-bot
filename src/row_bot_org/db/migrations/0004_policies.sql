@@ -5,18 +5,11 @@
 -- Row-level security:
 -- * A signed-in principal reads the company policy and the overrides of its own groups (its effective
 --   policy), and nothing else.
--- * An admin reads every row and adds rows as itself. row_bot_is_admin() reads row_bot.admin, which the
+-- * An admin reads every row and adds rows as itself. row_bot_is_admin() (migration 0003) reads row_bot.admin, which the
 --   server sets in a transaction only after its admin check (row_bot_org.identity.roles.enter_admin), so a
 --   route that forgets the check reads and writes as a member. S2 may replace its body with a lookup of the
 --   roles it stores.
 -- * No role may UPDATE or DELETE a row: there is no policy for it, and the runtime group has no privilege.
-
-CREATE FUNCTION row_bot_org.row_bot_is_admin() RETURNS boolean
-    LANGUAGE sql STABLE PARALLEL SAFE
-    AS $$
-        SELECT row_bot_org.row_bot_principal() IS NOT NULL
-           AND COALESCE(pg_catalog.current_setting('row_bot.admin', true) OPERATOR(pg_catalog.=) 'on', false)
-    $$;
 
 CREATE TABLE row_bot_org.policies (
     version bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -58,12 +51,11 @@ CREATE FUNCTION row_bot_org.has_group_overrides() RETURNS boolean
             WHERE newest.document OPERATOR(pg_catalog.<>) '{}'::pg_catalog.jsonb);
     $$;
 
-REVOKE ALL ON FUNCTION row_bot_org.row_bot_is_admin() FROM PUBLIC;
 REVOKE ALL ON FUNCTION row_bot_org.has_group_overrides() FROM PUBLIC;
 DO $$
 BEGIN
     EXECUTE pg_catalog.format('REVOKE UPDATE, DELETE ON row_bot_org.policies FROM %I', row_bot_org.runtime_role());
-    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION row_bot_org.row_bot_is_admin(), '
-                              'row_bot_org.has_group_overrides() TO %I', row_bot_org.runtime_role());
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION row_bot_org.has_group_overrides() TO %I',
+                              row_bot_org.runtime_role());
 END
 $$;
