@@ -172,6 +172,37 @@ def test_making_a_video_again_draws_only_the_scenes_whose_inputs_changed(clip, t
     assert len(list(kept.iterdir())) == 3, "the clips no make used went"
 
 
+def test_a_tidied_scene_is_drawn_from_only_the_parts_it_keeps_with_their_sound(clip, tmp_path):
+    """C4: a clip scene whose pauses are cut keeps only its parts, one after another, its sound with them; the parts
+    are part of what it's drawn from, so the same cut is reused and another is drawn again."""
+    from dataclasses import replace
+
+    from row_bot.video_editing import InputVideo, SceneCut, Step, VideoInfo
+
+    talk = video(tmp_path / "talk.mp4", sound=True)
+    source = InputVideo(path=str(talk), info=VideoInfo(3.0, 320, 180, 10.0, True), identity="talk.mp4:1")
+    scene = SceneCut(input=0, start=0.0, end=3.0, keeps=((0.0, 0.5), (1.5, 2.5)))
+
+    def draw(cut, name):
+        (tmp_path / name).mkdir()
+        return video_studio.prepare([source], Step(op="scenes", aspect="16:9", scenes=[cut]), tmp_path / name,
+                                    cache=tmp_path / "kept")
+
+    inputs, drawn, made = draw(scene, "first")
+
+    assert made == ["new"] and inputs[0].info.duration == pytest.approx(1.5)
+    assert (drawn.scenes[0].start, drawn.scenes[0].end) == (0.0, 1.5), "half a second, then a second, at 24 fps"
+    with _scenes(tmp_path / "first") as reader:
+        frames = [frame.to_image() for frame in reader.decode(video=0)]
+    with _scenes(tmp_path / "first") as reader:
+        sound = _left(reader)
+    assert len(frames) == 36 and abs(sound.size / 48000 - 1.5) < 0.05, "its sound as long as its pictures"
+    assert frames[6].getpixel((1500, 540))[1] > 200 and frames[20].getpixel((1500, 540))[1] < 80, \
+        "the grey start, then straight to the red second half: the second between them is cut"
+    assert draw(scene, "again")[2] == ["reused"]
+    assert draw(replace(scene, keeps=((0.0, 2.0),)), "other")[2] == ["new"]
+
+
 def _left(reader):
     """A drawn clip's sound, its left channel, from -1 to 1 (plain 16-bit samples, side by side)."""
     import numpy

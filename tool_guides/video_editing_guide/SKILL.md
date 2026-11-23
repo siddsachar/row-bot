@@ -87,6 +87,15 @@ tags: []
   label is false), add a badge with {op: text}, zoom in on a detail with
   {op: zoom, region: [x, y, width, height], start, end}, and caption with
   {op: captions, text: <SRT>}. Regions are fractions of the picture.
+- Real footage (a vlog, an interview, phone clips): edit_video action
+  moments lists a clip's shots and what's said in each, with a frame of
+  each. Find "the funny bits" by their words and "where she opens the box"
+  by the frames, then cut to them by their times.
+- Edit speech by its words: {op: cut, text} or {op: trim, text: "first
+  words … last words"}; {op: tidy} cuts pauses and fillers in one step;
+  {op: sound, role: original, clean: true} cleans the voice; {op: cover,
+  source, text} lays b-roll over those words. In a video, a scene's cover
+  does the same, and a vlog tidies and cleans clips without a line.
 - Never slow a voice to fill time (it sounds harsh): write more words, or cut
   the video shorter to fit what's said.
 - Write each line as its caption should read: numbers as digits ("8,848.86 m",

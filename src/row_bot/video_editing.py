@@ -25,8 +25,10 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
-Op = Literal["trim", "speed", "text", "zoom", "crop", "captions", "sound"]
-OPS: tuple[str, ...] = ("trim", "speed", "text", "zoom", "crop", "captions", "sound")
+Op = Literal["trim", "cut", "tidy", "speed", "text", "zoom", "crop", "captions", "sound", "cover"]
+OPS: tuple[str, ...] = ("trim", "cut", "tidy", "speed", "text", "zoom", "crop", "captions", "sound", "cover")
+# Steps that change when things happen: what's said (C4) and the words laid moved with them.
+RETIMING = frozenset({"trim", "cut", "speed"})
 # sound: a voice line or music laid on the finished video, or the video's own sound turned up or down.
 ROLES = ("voice", "music", "original")
 MAX_SOUNDS = 40
@@ -137,6 +139,23 @@ def sound_input_arguments(path: Path | str) -> list[str]:
     return ["-protocol_whitelist", "file", "-format_whitelist", SOUND_FORMATS, "-i", file_argument(path)]
 
 
+def cover_input_arguments(item: "InputVideo", seconds: float, fps: float) -> list[str]:
+    """Open one b-roll shot (C4), only as long as it shows: a clip from its start, or a picture (made upright as a
+    PNG beforehand) repeated at the video's frame rate."""
+    if item.info.still:
+        return ["-f", "image2", "-loop", "1", "-framerate", _seconds_text(fps), "-t", _seconds_text(seconds),
+                "-protocol_whitelist", "file", "-i", file_argument(item.path)]
+    return input_arguments(item.path, (0.0, seconds))
+
+
+# A clip's own speech cleaned (C4), with ffmpeg's own filters: rumble and hiss off, its steady noise taken down 12 dB,
+# the room's tail between words lowered gently (a soft gate below -32 dBFS, never a cut), and its level evened out;
+# the mix then brings it to the video's loudness. On a tone in steady noise it lifts the gap from 17 dB to about 27.
+VOICE_CLEANUP = ("highpass=f=80,lowpass=f=12000,afftdn=nr=12:nf=-40,"
+                 "agate=threshold=0.025:ratio=2:range=0.3:attack=5:release=200,"
+                 "acompressor=threshold=0.1:ratio=3:attack=10:release=250:makeup=2")
+
+
 def probe_command(path: Path | str) -> list[str]:
     return ["-hide_banner", "-nostdin", *input_arguments(path)]
 
@@ -177,6 +196,10 @@ class Step:
     # scenes: one narration said over the whole video, its words in time on the video (C7), captioned instead of
     # each scene's line.
     words: tuple[tuple[float, float, str], ...] = ()
+    # cut (C4): the parts taken out, seconds on the video as it is then (its start and end when the agent gave
+    # them; the pauses and fillers a tidy found). sound with role original: the footage's speech cleaned.
+    ranges: tuple[tuple[float, float], ...] = ()
+    clean: bool = False
 
 
 @dataclass(frozen=True)
@@ -215,6 +238,11 @@ class SceneCut:
     # Its caption's words in time (C7): (from, until, word), seconds from the scene's start on the video, as its voice
     # says its line, or as its own footage's speech says them; () shows its line by the share of its letters.
     words: tuple[tuple[float, float, str], ...] = ()
+    # The parts of its footage it keeps, in order (C4: its pauses and fillers cut), seconds on its input; () all of
+    # start to end. And its b-roll (C4): (a clip or picture by name, from, until), seconds from the scene's start on
+    # the video, shown over its picture while its own sound goes on.
+    keeps: tuple[tuple[float, float], ...] = ()
+    covers: tuple[tuple[str, float, float], ...] = ()
 
 
 CARD_SECONDS = 3.0
@@ -481,8 +509,18 @@ def parse_steps(raw: Iterable[Any] | None) -> list[Step]:
                                 "from 0 to 1.")
             if op == "crop" and (start is not None or end is not None):
                 raise EditError(f"Step {index}: crop applies to the whole video; use zoom for part of it.")
+        if op == "cut" and not text and (start is None or end is None):
+            raise EditError(f"Step {index}: cut needs the part to take out: its start and end, or its words (text).")
         label = item.get("label")
         sound: dict[str, Any] = {}
+        if op == "cover":
+            source = _clean_text(item.get("source"), 300)
+            if not source:
+                raise EditError(f"Step {index}: cover needs its source: a clip or picture by name.")
+            if not text and (start is None or end is None):
+                raise EditError(f"Step {index}: cover needs when: its start and end, or the words it shows over "
+                                "(text).")
+            sound = {"source": source}
         if op == "sound":
             role = str(item.get("role") or "voice").strip().casefold()
             if role not in ROLES:
@@ -494,12 +532,17 @@ def parse_steps(raw: Iterable[Any] | None) -> list[Step]:
             if volume is not None and not 0 <= volume <= MAX_VOLUME:
                 raise EditError(f"Step {index}: volume is from 0 (silent) to {MAX_VOLUME:g} (1 keeps it as it is).")
             duck = item.get("duck")
+            clean = bool(item.get("clean"))
+            if clean and role != "original":
+                raise EditError(f"Step {index}: clean is for the video's own sound (role original).")
             sound = {"source": source if role != "original" else "", "role": role, "volume": volume,
-                     "duck": True if duck is None else bool(duck)}
+                     "duck": True if duck is None else bool(duck), "clean": clean}
         steps.append(Step(op=op, start=start, end=end, factor=factor, label=True if label is None else bool(label),
                           text=text, position=position, style=style, **region, **sound))
     if len([step for step in steps if step.op != "sound"]) > MAX_STEPS:
         raise EditError(f"At most {MAX_STEPS} steps fit in one edit.")
+    if len([step for step in steps if step.op == "cover"]) > MAX_COVERS:
+        raise EditError(f"At most {MAX_COVERS} b-roll shots fit in one edit.")
     if len([step for step in steps if step.op == "sound"]) > MAX_SOUNDS:
         raise EditError(f"At most {MAX_SOUNDS} sounds fit in one edit: join voice lines into fewer files.")
     return steps
@@ -530,6 +573,9 @@ def describe(steps: list[Step], inputs: int = 1) -> str:
     for step in steps:
         word = {
             "trim": "trimmed",
+            "cut": "cut a part out",
+            "tidy": "cut the pauses and fillers",
+            "cover": "added b-roll",
             "speed": f"sped up {speed_words(step.factor or 1)}" if (step.factor or 1) > 1
             else f"slowed to {speed_words(step.factor or 1)}",
             "text": "added a badge" if (step.style or "badge") == "badge" else "added a title"
@@ -537,7 +583,8 @@ def describe(steps: list[Step], inputs: int = 1) -> str:
             "zoom": "zoomed in",
             "crop": "cropped",
             "captions": "captioned",
-            "sound": {"voice": "added a voice", "music": "added music"}.get(step.role, "set the sound level"),
+            "sound": {"voice": "added a voice", "music": "added music"}.get(
+                step.role, "cleaned the voice" if step.clean else "set the sound level"),
             "scenes": f"cut {len(step.scenes)} scene{'s' if len(step.scenes) != 1 else ''}",
         }[step.op]
         if word not in words:
@@ -985,6 +1032,253 @@ def render_words(words: list[str], active: int | None, frame_width: int, frame_h
     return output.getvalue(), width, height
 
 
+# ── What's said, and the best moments (C4) ──────────────────────────────────
+
+# The sounds people make between words, cut with the pauses (``pauses_and_fillers``).
+FILLERS = frozenset({"um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "mm", "mhm"})
+# A stretch between words longer than this is a pause; this much of it is kept after the word before and before the
+# next, so a cut never clips a word and speech keeps its breath. Anything shorter than a cut's least isn't cut.
+PAUSE, AFTER_WORD, BEFORE_WORD = 0.6, 0.15, 0.1
+SHORTEST_CUT = 0.05
+# A b-roll shot shows at least this long, and an edit lays at most this many.
+SHORTEST_COVER, MAX_COVERS = 1.5, 12
+# "from these words … to these": one stretch of what's said.
+_THROUGH = re.compile(r"\s*(?:…|\.\.\.)\s*")
+
+
+def _tokens(text: str) -> list[str]:
+    return [token for token in (_token(word) for word in str(text or "").split()) if token]
+
+
+def _found(heard: list[str], wanted: list[str]) -> list[tuple[int, int]]:
+    """Where *wanted* is said among the *heard* words, as (first word, last word): exactly, else the stretches of
+    about as many words whose letters are closest to it, when most of them match (speech-to-text writes "it's" as
+    "it is", "gonna" for "going to")."""
+    size = len(wanted)
+    exact = [(index, index + size - 1) for index in range(len(heard) - size + 1) if heard[index:index + size] == wanted]
+    if exact or not heard:
+        return exact
+    from difflib import SequenceMatcher
+
+    letters = " ".join(wanted)
+    best: dict[int, tuple[float, int]] = {}
+    for index in range(len(heard)):
+        for count in range(max(1, size - 1), size + 2):
+            if index + count <= len(heard):
+                score = SequenceMatcher(a=letters, b=" ".join(heard[index:index + count]), autojunk=False).ratio()
+                best[index] = max(best.get(index, (0.0, 0)), (score, index + count - 1))
+    top = max(score for score, _last in best.values())
+    if top < 0.8:
+        return []
+    return [(index, last) for index, (score, last) in best.items() if score == top]
+
+
+def said(words: list[Word] | tuple[Word, ...], text: str, start: float | None = None,
+         end: float | None = None) -> tuple[float, float]:
+    """Where *text* is said in these words: from its first word's start to its last word's end. "a … b" is from
+    where a is said to where b is said after it. Looked for between *start* and *end* when given; refused when it
+    isn't heard there, or is said more than once."""
+    pool = [word for word in words if (start is None or word[0] >= start - 0.05)
+            and (end is None or word[1] <= end + 0.05)]
+    kept = [(word, token) for word in pool if (token := _token(word[2]))]
+    heard = [token for _word, token in kept]
+    parts = [_tokens(part) for part in _THROUGH.split(str(text or ""))]
+    parts = [part for part in parts if part]
+    if not parts:
+        raise EditError("Give the words as they're said.")
+    shown = f"“{' '.join(str(text).split())[:80]}”"
+    first = _found(heard, parts[0])
+    if not first:
+        raise EditError(f"{shown} isn't heard there. Quote the words as they're said (edit_video action moments "
+                        "lists them).")
+    if len(first) > 1:
+        times = ", ".join(clock(kept[index][0][0]) for index, _last in first[:4])
+        raise EditError(f"{shown} is said {len(first)} times ({times}): give more of its words, or a start and end "
+                        "to look between.")
+    begin, until = first[0]
+    if len(parts) > 1:
+        after = _found(heard[until + 1:], parts[-1])
+        if not after:
+            raise EditError(f"{shown}: its last words aren't heard after its first.")
+        until += 1 + after[0][1]
+    return kept[begin][0][0], max(kept[begin][0][0] + 0.05, kept[until][0][1])
+
+
+def merged(ranges: Iterable[tuple[float, float]], length: float = float("inf")) -> list[tuple[float, float]]:
+    """Stretches of time in order, overlapping ones joined, within 0 to *length*; none shorter than a cut's least."""
+    joined: list[tuple[float, float]] = []
+    for start, end in sorted((max(0.0, start), min(length, end)) for start, end in ranges):
+        if joined and start <= joined[-1][1] + 1e-6:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], end))
+        else:
+            joined.append((start, end))
+    return [(round(start, 3), round(end, 3)) for start, end in joined if end - start >= SHORTEST_CUT]
+
+
+def pauses_and_fillers(words: list[Word] | tuple[Word, ...], length: float | None) -> list[tuple[float, float]]:
+    """What a tidy cuts from speech (Descript-style), seconds on its video (``length`` long; None: as long as it
+    goes on): each filler ("um", "uh") said, and each pause between words longer than ``PAUSE`` down to a breath,
+    before the first word and after the last too."""
+    limit = float("inf") if length is None else length
+    spoken = [word for word in words if _token(word[2]) and _token(word[2]) not in FILLERS]
+    cuts = [(word[0], word[1]) for word in words if _token(word[2]) in FILLERS]
+    if spoken:
+        if spoken[0][0] > PAUSE:
+            cuts.append((0.0, spoken[0][0] - BEFORE_WORD))
+        cuts += [(before[1] + AFTER_WORD, after[0] - BEFORE_WORD) for before, after in zip(spoken, spoken[1:])
+                 if after[0] - before[1] > PAUSE]
+        if limit - spoken[-1][1] > PAUSE:
+            cuts.append((spoken[-1][1] + AFTER_WORD, limit))
+    return merged(cuts, limit)
+
+
+def kept_parts(cuts: list[tuple[float, float]], start: float, end: float) -> list[tuple[float, float]]:
+    """What's left of start to end once these stretches are cut out."""
+    parts, at = [], start
+    for begin, until in merged(cuts, end):
+        if begin > at:
+            parts.append((at, begin))
+        at = max(at, until)
+    if end > at:
+        parts.append((at, end))
+    return [(round(begin, 3), round(until, 3)) for begin, until in parts if until - begin >= SHORTEST_CUT]
+
+
+def on_kept(moment: float, parts: tuple[tuple[float, float], ...] | list[tuple[float, float]]) -> float | None:
+    """Where a moment of footage shows once only these parts of it are kept, seconds from the first part's start;
+    None when it was cut."""
+    at = 0.0
+    for begin, until in parts:
+        if begin - 1e-6 <= moment <= until + 1e-6:
+            return round(at + max(0.0, moment - begin), 3)
+        at += until - begin
+    return None
+
+
+def _retimed(words: list[Word], step: Step, length: float) -> tuple[list[Word], float]:
+    """The words as a trim, cut or speed step moves them, and the video's new length: a word that was cut goes."""
+    if step.op == "trim":
+        start = min(max(0.0, step.start or 0.0), length)
+        end = length if step.end is None else min(step.end, length)
+        parts = [(start, end)]
+    elif step.op == "cut":
+        parts = kept_parts(list(step.ranges or ((step.start or 0.0, step.end or 0.0),)), 0.0, length)
+    else:
+        start = min(max(0.0, step.start or 0.0), length)
+        end = length if step.end is None else min(step.end, length)
+        factor = float(step.factor or 1)
+
+        def faster(moment: float) -> float:
+            return moment if moment <= start else (start + (min(moment, end) - start) / factor
+                                                   + max(0.0, moment - end))
+
+        return ([(round(faster(begin), 3), round(faster(until), 3), word) for begin, until, word in words],
+                faster(length))
+    return kept_words(words, parts), sum(until - begin for begin, until in parts)
+
+
+def kept_words(words: list[Word] | tuple[Word, ...], parts: tuple[tuple[float, float], ...] | list[tuple[float, float]]
+               ) -> list[Word]:
+    """Words where they're said once only these parts are kept (``on_kept``); a word that was cut goes."""
+    moved = []
+    for begin, until, word in words:
+        middle = on_kept((begin + until) / 2, parts)
+        if middle is not None:
+            half = (until - begin) / 2
+            moved.append((round(max(0.0, middle - half), 3), round(middle + half, 3), word))
+    return moved
+
+
+def needs_words(steps: list[Step]) -> bool:
+    """Whether an edit's steps name what's said (a tidy, or a trim, cut or cover by its words): it's heard first."""
+    return any(step.op == "tidy" or (step.op in ("trim", "cut", "cover") and step.text) for step in steps)
+
+
+def heard_steps(steps: list[Step], words: list[Word], length: float) -> list[Step]:
+    """The steps that name what's said at the times it's said on the video as it is by then (C4): a trim or cut by
+    its words at theirs, a cover over them (at least ``SHORTEST_COVER``), a tidy as the cut of its pauses and fillers
+    (none when it has nothing to cut); the rest as they are. *words* are the inputs' speech joined, *length* their
+    length."""
+    timed: list[Step] = []
+    for number, step in enumerate(steps, start=1):
+        try:
+            if step.op == "tidy":
+                if not words:
+                    raise EditError("no speech was heard in it, so there are no pauses to cut.")
+                ranges = tuple(pauses_and_fillers(words, length))
+                if not ranges:
+                    continue
+                step = replace(step, op="cut", ranges=ranges)
+            elif step.op in ("trim", "cut", "cover") and step.text:
+                if not words:
+                    raise EditError("no speech was heard in it.")
+                start, end = said(words, step.text, step.start, step.end)
+                step = replace(step, text="", start=start, end=max(end, start + SHORTEST_COVER)
+                               if step.op == "cover" else end, ranges=((start, end),) if step.op == "cut" else ())
+        except EditError as error:
+            raise EditError(f"Step {number} ({step.op}): {error}") from None
+        timed.append(step)
+        if step.op in RETIMING:
+            words, length = _retimed(words, step, length)
+    return timed
+
+
+# Best moments: a picture this different from the one before is a new shot (ffmpeg's scene score, 0 to 1).
+SHOT_CHANGE = 0.3
+CUTS = "cuts.txt"
+# A moment lasts at least this long (a shot at least a second), at most this long; a clip has at most MAX_FRAMES.
+MOMENT_SECONDS = (2.0, 30.0)
+MOMENT_WORDS = 160
+# A gap this long between words, or a sentence's end, is where a moment of speech may end.
+MOMENT_GAP = 0.7
+
+
+def shots_arguments(source: str) -> list[str]:
+    """One ffmpeg run that reads a video once, small, and writes where each new shot starts (``CUTS``)."""
+    return ["-hide_banner", "-nostdin", "-y", *input_arguments(source), "-map", "0:v:0", "-an", "-vf",
+            f"scale=192:-2,select='gt(scene,{SHOT_CHANGE})',metadata=mode=print:file={CUTS}",
+            "-progress", "pipe:1", "-nostats", "-f", "null", "-"]
+
+
+def read_shots(text: str) -> list[float]:
+    """Where each new shot starts, from what ``shots_arguments`` wrote."""
+    return sorted({round(float(found), 3) for found in re.findall(r"pts_time:(-?\d+(?:\.\d+)?)", text or "")})
+
+
+def moments(shots: list[float], words: list[Word] | tuple[Word, ...], length: float) -> list[tuple[float, float, str]]:
+    """A clip's moments (C4's best moments): its shots, and within a shot its stretches of speech, ending where a
+    sentence ends or the speaker pauses, each from ``MOMENT_SECONDS`` long, at most ``MAX_FRAMES`` (the shortest
+    neighbours joined); each with the words said in it. The agent finds "the funny bits" by their words and "where
+    she opens the box" by their frames."""
+    shortest, longest = MOMENT_SECONDS
+    cuts = {at for at in shots if 1.0 <= at <= length - 1.0}
+    breaks = {round((before[1] + after[0]) / 2, 3) for before, after in zip(words, words[1:])
+              if after[0] - before[1] >= MOMENT_GAP or before[2].endswith((".", "!", "?"))}
+    edges = [0.0]
+    for at in sorted(cuts | breaks):
+        if length - at < 1.0:
+            continue
+        if at - edges[-1] >= (1.0 if at in cuts else shortest):
+            edges.append(at)
+        elif at in cuts and len(edges) > 1 and edges[-1] not in cuts:
+            edges[-1] = at  # A new shot just after a pause is where that moment ends.
+    edges.append(length)
+    spans: list[list[float]] = []
+    for begin, until in zip(edges, edges[1:]):  # A long stretch with nowhere to end is split evenly.
+        pieces = max(1, math.ceil((until - begin) / longest))
+        spans += [[begin + (until - begin) * index / pieces, begin + (until - begin) * (index + 1) / pieces]
+                  for index in range(pieces)]
+    while len(spans) > MAX_FRAMES:
+        index = min(range(len(spans) - 1), key=lambda each: spans[each + 1][1] - spans[each][0])
+        spans[index:index + 2] = [[spans[index][0], spans[index + 1][1]]]
+    found = []
+    for begin, until in spans:
+        text = " ".join(word for start, end, word in words if begin <= (start + end) / 2 < until)
+        found.append((round(begin, 2), round(until, 2),
+                      text if len(text) <= MOMENT_WORDS else text[:MOMENT_WORDS].rsplit(" ", 1)[0] + "…"))
+    return found
+
+
 def shape_of(width: int, height: int) -> str:
     """The shape a picture of this size is ("16:9", "1:1" or "9:16"), or "" when it's none of them."""
     ratio = width / max(1, height)
@@ -1206,7 +1500,13 @@ def _atempo(factor: float) -> str:
 
 
 class _Builder:
-    def __init__(self, inputs: list[InputVideo], size: tuple[int, int] = CARD_SIZES["16:9"]) -> None:
+    def __init__(self, inputs: list[InputVideo], size: tuple[int, int] = CARD_SIZES["16:9"],
+                 covers: dict[str, InputVideo] | None = None) -> None:
+        # B-roll by name (C4), and each shot of it laid: (its clip or picture, how long), read as ffmpeg's inputs
+        # after the videos edited.
+        self.covers = covers or {}
+        self.cover_shots: list[tuple[InputVideo, float]] = []
+        self.first_cover = len(inputs)
         self.lines: list[str] = []
         self.count = 0
         # Each picture laid, and the stream it's cut into from the sheet of them all.
@@ -1352,6 +1652,62 @@ class _Builder:
         videos, sounds = self._pieces([(start, end)], audio=True)
         self._join(videos, sounds)
         self.duration = end - start
+
+    def cut(self, step: Step) -> None:
+        """Take parts out (C4): its start to end, or every pause and filler a tidy found. The rest is picked in one
+        pass, however many parts (never split into a piece each, which holds every frame until its piece is
+        joined): the pictures keep their times less what was cut before them, the sound runs on unbroken."""
+        ranges = step.ranges or ((step.start or 0.0, step.end if step.end is not None else self.duration),)
+        parts = kept_parts(list(ranges), 0.0, self.duration)
+        if sum(until - begin for begin, until in parts) < 0.1:
+            raise EditError("Cut: nothing would be left of the video.")
+        if parts == [(0.0, round(self.duration, 3))]:
+            return
+        # From each part's start up to (not at) its end: a frame on the line between two parts shows once.
+        chosen = "+".join(f"gte(t,{_seconds_text(begin)})*lt(t,{_seconds_text(until)})" for begin, until in parts)
+        shift = _seconds_text(parts[0][0]) + "".join(
+            f"+gte(T,{_seconds_text(begin)})*{_seconds_text(begin - before)}"
+            for (_start, before), (begin, _until) in zip(parts, parts[1:]))
+        video = self.label("v")
+        self.add(f"{self.video}select='{chosen}',setpts='PTS-({shift})/TB'{video}")
+        self.video = video
+        if self.audio:  # In small blocks, so each cut lands within 5 ms.
+            audio = self.label("a")
+            self.add(f"{self.audio}asetnsamples=n=240,aselect='{chosen}',asetpts=N/SR/TB{audio}")
+            self.audio = audio
+        self.duration = sum(until - begin for begin, until in parts)
+
+    def tidy(self, step: Step) -> None:
+        raise EditError("Tidy needs what's said heard first (``heard_steps``).")
+
+    def cover(self, step: Step) -> None:
+        start, end = self._window(step)
+        self._cover(step.source, start, end)
+
+    def _cover(self, name: str, start: float, end: float, grade: str = "") -> None:
+        """B-roll (C4): a clip from its start, or a picture, filling the frame over start to end, while the video's
+        own sound goes on; a clip shorter than that shows the video again after it."""
+        item = self.covers.get(name)
+        if item is None:
+            raise EditError(f"{name} isn't a clip or picture Row-Bot found for b-roll.")
+        seconds = min(end, self.duration) - start
+        if seconds < 0.1:
+            return
+        index = self.first_cover + len(self.cover_shots)
+        self.cover_shots.append((item, seconds))
+        larger = max(self.width / max(1, item.info.width), self.height / max(1, item.info.height))
+        if larger > 1.01:
+            self.enlarged.append((start, start + seconds, larger))
+        w, h = self.width, self.height
+        graded = look_filters(grade)
+        shot = self.label("v")
+        self.add(f"[{index}:v]setpts=PTS-STARTPTS+{_seconds_text(start)}/TB,"
+                 f"scale={w}:{h}:force_original_aspect_ratio=increase:{TO_HD_COLOUR},crop={w}:{h},setsar=1,"
+                 f"format=yuv420p{',' + graded if graded else ''}{shot}")
+        out = self.label("v")
+        self.add(f"{self.video}{shot}overlay=x=0:y=0:eof_action=pass:"
+                 f"enable='between(t,{_seconds_text(start)},{_seconds_text(start + seconds)})'{out}")
+        self.video = out
 
     def overlay_input(self, picture: Overlay) -> str:
         label = self.label("v")
@@ -1539,6 +1895,10 @@ class _Builder:
                                width=width, height=height))
         if look.intro or look.outro:
             self._bookends(look)
+        for index, scene in enumerate(step.scenes):  # Its b-roll over its picture, graded as the footage is (C4).
+            for name, begin, until in scene.covers:
+                self._cover(name, self.marks[index] + begin, min(self.marks[index + 1], self.marks[index] + until),
+                            finish.grade)
         finishing = ",".join(part for part in (GRAIN if finish.grain else "",
                                                letterbox_filters(self.width, self.height) if finish.letterbox
                                                else "") if part)
@@ -1742,10 +2102,11 @@ def build_plan(
     encoder: str = "libx264",
     sounds: dict[str, str] | None = None,
     loudness: float | None = None,
+    covers: dict[str, InputVideo] | None = None,
 ) -> Plan:
     """One ffmpeg run that makes the whole edit's picture: arguments, filter graph and overlay pictures; and, for a
     video given sound, its mix (``Plan.mix``, at *loudness* LUFS, -14 by default), the run then writing
-    ``PICTURE``.
+    ``PICTURE``. *covers*: the b-roll its steps and scenes name (C4), by name.
 
     The overlay sheet, the graph file and the output are relative to the working folder ffmpeg runs in.
     """
@@ -1771,13 +2132,17 @@ def build_plan(
             inputs = [replace(inputs[0], info=replace(info, duration=end - start), seek=(start, end - start))]
             steps = steps[1:]
     size = CARD_SIZES.get(steps[0].aspect, CARD_SIZES["16:9"]) if cards_only else CARD_SIZES["16:9"]
-    builder = _Builder(inputs, size=size)
+    builder = _Builder(inputs, size=size, covers=covers)
     builder.start(inputs)
     for index, step in enumerate(steps):
-        if index and step.op in {"trim", "speed", "zoom", "crop"}:
+        if index and step.op in RETIMING | {"zoom", "crop"}:
             # Words and enlargements noted so far have moved: the finished check reads the ones laid after.
             builder.texts, builder.enlarged = [], []
         getattr(builder, step.op)(step)
+    if builder.audio and any(step.op == "sound" and step.clean for step in steps):
+        audio = builder.label("a")  # The footage's own speech cleaned (C4), then brought to one loudness in the mix.
+        builder.add(f"{builder.audio}{VOICE_CLEANUP}{audio}")
+        builder.audio = audio
     builder.mix(steps, sounds, LOUDNESS if loudness is None else loudness)
     mixed = builder.mixed
     if mixed is not None:
@@ -1789,10 +2154,12 @@ def build_plan(
     args = ["-hide_banner", "-nostdin", "-y"]
     for item in inputs:
         args += concat_input_arguments(item.path) if item.concat else input_arguments(item.path, item.seek)
+    for item, seconds in builder.cover_shots:
+        args += cover_input_arguments(item, seconds, builder.fps)
     sheet = b""
     if builder.overlays:
         sheet, boxes = overlay_sheet([png for png, _label in builder.overlays])
-        index = len(inputs)
+        index = len(inputs) + len(builder.cover_shots)
         pieces = [builder.label("v") for _box in boxes]
         builder.lines[:0] = [f"[{index}:v]format=rgba,split={len(pieces)}{''.join(pieces)}"] + [
             f"{piece}crop={width}:{height}:{x}:{y}{label}"

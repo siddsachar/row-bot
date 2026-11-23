@@ -85,6 +85,8 @@ class VideoEdit:
     # How each of a video project's scenes was made: "new" (drawn now), "reused" (unchanged, drawn before) or ""
     # (a title card).
     scene_makes: list[str] = field(default_factory=list)
+    # A clip's moments (C4): [from, until, the words said], one frame of each saved as its stills.
+    moments: list[list[Any]] = field(default_factory=list)
     done: threading.Event = field(default_factory=threading.Event)
     stop_event: threading.Event = field(default_factory=threading.Event)
 
@@ -130,6 +132,10 @@ class Request:
     score: str = ""
     on_beat: bool = False
     loudness: float | None = None
+    # B-roll the steps and scenes lay (C4), by name: each a clip or a picture (``media_sources.Media``).
+    covers: dict[str, Any] = field(default_factory=dict)
+    # A frames edit that finds the clip's moments first (C4): its shots and stretches of speech, a frame of each.
+    moments: bool = False
 
 
 def _lineage(edit: "VideoEdit", request: Request, role: str = "") -> dict[str, Any]:
@@ -171,7 +177,7 @@ def _iso(value: float | None) -> str | None:
 _SAVED_FIELDS = ("edit_id", "conversation_id", "kind", "summary", "output_name", "started_at", "status",
                  "expected_seconds", "process_id", "ended_at", "stopped_by", "problem", "detail", "media_ref",
                  "mime_type", "size_bytes", "frame_refs", "frame_times", "frame_names", "ffmpeg", "checks", "checks_passed", "marks",
-                 "sheet", "silent", "scene_makes")
+                 "sheet", "silent", "scene_makes", "moments")
 
 
 def _save(edit: VideoEdit) -> None:
@@ -213,6 +219,8 @@ def _load(path: Path) -> VideoEdit | None:
         edit.silent = bool(data.get("silent"))
         edit.scene_makes = [str(item) if item in ("new", "reused") else ""
                             for item in data.get("scene_makes") or []][:MAX_SCENES]
+        edit.moments = [[float(item[0]), float(item[1]), str(item[2])[:400]] for item in data.get("moments") or []
+                        if isinstance(item, list) and len(item) == 3][:64]
         return edit
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -308,6 +316,8 @@ def start(request: Request) -> VideoEdit:
 def _summary(request: Request) -> str:
     if request.gif:
         return f"A GIF of {request.sources[0].label}"
+    if request.moments:
+        return f"Moments in {request.sources[0].label}"
     if request.kind == "frames":
         count = len(request.times) if request.times else max(1, request.count)
         return f"{count} still{'s' if count != 1 else ''} from {request.sources[0].label}"
@@ -391,6 +401,81 @@ def _inputs(edit: VideoEdit, request: Request, ffmpeg: Any, folder: Path) -> lis
         info = still_info(folder / path) if source.kind == "image" else probe_video(ffmpeg, path, folder)
         inputs.append(InputVideo(path=path, info=info, label=source.label, identity=identity))
     return inputs
+
+
+def _covers(edit: VideoEdit, request: Request, ffmpeg: Any, folder: Path) -> dict[str, Any]:
+    """The b-roll as the edit reads it (C4), by name: a clip read where it is (a chat file copied in, as the inputs
+    are), and a picture made upright, once, as a PNG at most the video's size."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    from row_bot.video_editing import EditError, InputVideo, VideoInfo
+
+    found: dict[str, Any] = {}
+    for index, (name, source) in enumerate(request.covers.items(), start=1):
+        _check(edit)
+        if source.kind == "image":
+            target = folder / f"cover-{index}.png"
+            try:
+                with Image.open(source.path if source.path and not source.ref else
+                                io.BytesIO(source.read_bytes())) as opened:
+                    picture = ImageOps.exif_transpose(opened).convert("RGB")
+                    picture.thumbnail((3840, 3840))
+                    picture.save(target, format="PNG")
+            except (OSError, ValueError, Image.DecompressionBombError):
+                raise EditError(f"{source.label} can't be read as a picture.") from None
+            info = VideoInfo(duration=1.0, width=picture.width, height=picture.height, fps=30.0, has_audio=False,
+                             still=True)
+            found[name] = InputVideo(path=target.name, info=info, label=source.label)
+            continue
+        if source.ref:
+            path = f"cover-{index}.mp4"
+            (folder / path).write_bytes(source.read_bytes())
+        else:
+            path = str(source.path)
+        found[name] = InputVideo(path=path, info=probe_video(ffmpeg, path, folder), label=source.label)
+    return found
+
+
+def _speech(edit: VideoEdit, inputs: list[Any], folder: Path) -> list[tuple[float, float, str]]:
+    """What the inputs say, joined as the edit joins them (C4): each heard once by the local speech model and kept
+    with the conversation, so a later edit of the same clip hears nothing again."""
+    from row_bot import sound
+
+    _set(edit, detail="Hearing what's said")
+    shelf = _conversation_folder(edit.conversation_id) / "heard"
+    words: list[tuple[float, float, str]] = []
+    at = 0.0
+    for item in inputs:
+        _check(edit)
+        if item.info.has_audio:
+            path = Path(item.path) if Path(item.path).is_absolute() else folder / item.path
+            heard = sound.heard(shelf, f"clip|{item.identity}", (path, b"", path.suffix)) or []
+            words += [(round(start + at, 3), round(end + at, 3), word) for start, end, word in heard
+                      if start < item.info.duration]
+        at += item.info.duration
+    _set(edit, detail="")
+    return words
+
+
+def _moments(edit: VideoEdit, request: Request, ffmpeg: Any, folder: Path, item: Any) -> None:
+    """A clip's moments (C4): its shots found in one small read, what's said heard once, then a frame from the
+    middle of each moment, saved as the edit's stills and contact sheet."""
+    from row_bot.video_editing import CUTS, moments, read_shots, shots_arguments, stills_arguments
+
+    _set(edit, expected_seconds=round(item.info.duration, 2), detail="Finding the shots")
+    _run_process(edit, ffmpeg, shots_arguments(item.path), folder, "Video shots")
+    cuts = folder / CUTS
+    shots = read_shots(cuts.read_text(encoding="utf-8", errors="replace")) if cuts.is_file() else []
+    _check(edit)
+    found = moments(shots, _speech(edit, [item], folder), item.info.duration)
+    times = [round((start + end) / 2, 3) for start, end, _text in found]
+    names = [f"frame-{index:02d}.jpg" for index in range(1, len(times) + 1)]
+    _set(edit, expected_seconds=0.0, detail="", moments=[list(moment) for moment in found])
+    _run_process(edit, ffmpeg, stills_arguments(item.path, times, "frame-%02d.jpg"), folder, "Video frames")
+    _save_frames(edit, folder, names, times, _lineage(edit, request, "working"),
+                 labels=[f"{index} · {clock(start)}" for index, (start, _end, _text) in enumerate(found, start=1)])
 
 
 def _command_words(ffmpeg: Any, args: list[str]) -> str:
@@ -498,7 +583,7 @@ def _save_video(edit: VideoEdit, output: Path, lineage: dict[str, Any]) -> None:
 
 
 def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[float],
-                 lineage: dict[str, Any]) -> None:
+                 lineage: dict[str, Any], labels: list[str] | None = None) -> None:
     from row_bot.application.attachments import AttachmentError, register_attachment
     from row_bot.contact_sheet import SheetError, make_sheet
     from row_bot.video_editing import EditError
@@ -519,7 +604,7 @@ def _save_frames(edit: VideoEdit, folder: Path, names: list[str], times: list[fl
             raise EditError("The frames couldn't be saved to this chat.") from None
         refs.append(str(saved["attachment_ref"]))
         saved_names.append(str(saved["name"]))
-        pictures.append((data, clock(moment)))
+        pictures.append((data, labels[index - 1] if labels else clock(moment)))
     if not refs:
         raise EditError("ffmpeg made no frames (the times may be past the end of the video).")
     try:
@@ -809,6 +894,11 @@ def _run(edit: VideoEdit, request: Request) -> None:
             if request.score:
                 sounds[SCORE] = SCORE
             steps = list(request.steps)
+            from row_bot.video_editing import heard_steps, needs_words
+
+            if needs_words(steps):  # Cut, kept or covered by what's said (C4): those steps at its times.
+                steps = heard_steps(steps, _speech(edit, inputs, folder), sum(item.info.duration for item in inputs))
+            covers = _covers(edit, request, ffmpeg, folder)
             # The check reads a project's scenes as they were asked for, before the studio pass draws them.
             originals = (list(inputs), steps[0] if steps else None)
             if steps and steps[0].op == "scenes":  # A video project: each recorded scene's camera and look.
@@ -826,7 +916,7 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 _set(edit, detail="", scene_makes=made)
             plan = build_plan(inputs, steps, "output.mp4", sounds=sounds,
                               graph_option=graph_option_for(ffmpeg.version),
-                              encoder=ffmpeg_runtime.h264_encoder(ffmpeg), loudness=request.loudness)
+                              encoder=ffmpeg_runtime.h264_encoder(ffmpeg), loudness=request.loudness, covers=covers)
             (folder / "graph.txt").write_text(plan.graph, encoding="utf-8", newline="\n")
             if plan.overlay_sheet:
                 (folder / OVERLAYS).write_bytes(plan.overlay_sheet)
@@ -846,6 +936,8 @@ def _run(edit: VideoEdit, request: Request) -> None:
             if request.check or plan.narrated:  # A video given a voice is checked for gaps in it.
                 _check_video(edit, ffmpeg, folder, plan, request, originals)
             _save_video(edit, folder / "output.mp4", _lineage(edit, request))
+        elif request.moments:
+            _moments(edit, request, ffmpeg, folder, inputs[0])
         else:
             info = inputs[0].info
             times = frame_times(info.duration, request.count, request.times)
@@ -972,7 +1064,7 @@ def progress(edit: VideoEdit) -> tuple[float | None, int, int]:
         total = int(state["total"] or 0)
         received = int(state["received"] or 0)
         return (min(1.0, received / total) if total else None), received, total
-    if edit.status == "editing" and edit.kind == "video" and edit.process_id and edit.expected_seconds > 0:
+    if edit.status == "editing" and edit.process_id and edit.expected_seconds > 0:
         from row_bot import background_processes
         from row_bot.video_editing import progress_seconds
 
@@ -1034,6 +1126,15 @@ def summary(edit: VideoEdit) -> str:
     """The tool result's first line: ``Video edit edit-…: …`` (the chat's card follows it by that id), and a saved
     video's output (``media_sources.identity``)."""
     head = f"Video edit {edit.edit_id}: "
+    if edit.status == "saved" and edit.moments:
+        lines = [f"{index}. {clock(start)}–{clock(end)}" + (f" “{text}”" if text else "")
+                 for index, (start, end, text) in enumerate(edit.moments, start=1)]
+        said = any(text for _start, _end, text in edit.moments)
+        return (head + f"found {len(edit.moments)} moments in {edit.summary.removeprefix('Moments in ')}, each a shot "
+                "or a stretch of what's said" + ("" if said else " (no speech was heard)") + ":\n" + "\n".join(lines)
+                + f"\nA frame of each is in this chat's files (working files): look at them with analyze_image, "
+                f"files=['{edit.edit_id}'], to find what's shown. Cut to a moment by its times: a video scene's start "
+                "and end, or edit_video trim.")
     if edit.status == "saved" and edit.kind == "frames":
         moments = ", ".join(clock(moment) for moment in edit.frame_times[:12])
         stem = Path(edit.output_name).stem or "frame"

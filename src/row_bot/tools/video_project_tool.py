@@ -10,7 +10,8 @@ voices the lines in the person's chosen voice, renders it with the music ducked 
 and saves it to the chat's files. The call waits for it (``MAKE_SECONDS``); a video that takes
 longer carries on, and a wait wakes the chat when it's made.
 
-Approvals: downloading ffmpeg the first time, as in edit_video. Reading the chat's files and
+Approvals: downloading ffmpeg the first time, as in edit_video, and the local speech model the
+first time a video cuts its clips' pauses or lays b-roll at their words (C4). Reading the chat's files and
 the workspace, and writing new files to the chat, needs none. Footage elsewhere on this computer
 is asked about by the approval level when it joins a video; that project then reads that exact
 file in place, and any other file elsewhere asks again.
@@ -28,6 +29,13 @@ from pydantic import BaseModel, Field
 # (background_processes.INLINE_SECONDS): most short videos are made by then. A longer one carries on, and a wait
 # starts a turn here once it's made, so nothing polls.
 MAKE_SECONDS = 120.0
+
+
+class _Cover(BaseModel):
+    source: str = Field(description="A clip or picture.")
+    start: float | None = None
+    end: float | None = None
+    words: str = Field(default="", description="Or: while these words of it are said.")
 
 
 class _Scene(BaseModel):
@@ -61,6 +69,8 @@ class _Scene(BaseModel):
                                                           "empty: the narrator.")
     effects: list[str] | None = Field(default=None, description="whoosh, hit, click (as it starts); rain, wind, "
                                                                 "crowd, waves, footsteps (under it); or a sound file.")
+    cover: list[_Cover] | None = Field(default=None, description="B-roll over it (its sound goes on), start-end "
+                                                                "seconds from its start or at words.")
 
 
 class _VideoInput(BaseModel):
@@ -93,12 +103,16 @@ class _VideoInput(BaseModel):
     on_beat: bool | None = Field(default=None, description="create, change: cut scenes on the music's beat.")
     recipe: Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"] | None = Field(
         default=None, description="create, change: the kind of video; it sets the look below and the caption style "
-                                  "(a short is 9:16 with big word captions).")
+                                  "(a short is 9:16 with big word captions; a vlog tidies and cleans its clips' "
+                                  "speech).")
     grade: Literal["", "natural", "warm", "cinematic", "vivid", "bw"] | None = Field(
         default=None, description="create, change: the colour grade ('' the recipe's). Clips and AI shots are "
                                   "matched to one look first.")
     grain: bool | None = Field(default=None, description="create, change: film grain.")
     letterbox: bool | None = Field(default=None, description="create, change: 2.39 letterbox bars (16:9).")
+    tidy: bool | None = Field(default=None, description="create, change: cut pauses and fillers from clips "
+                                                        "without a line.")
+    clean_voice: bool | None = Field(default=None, description="create, change: clean those clips' voices.")
     transitions: Literal["", "cut", "crossfade"] | None = Field(
         default=None, description="create, change: between scenes ('' the recipe's: crossfades for a montage, "
                                   "else cuts).")
@@ -242,6 +256,13 @@ def _make(project, number: int | None, approved: list[str] | None = None) -> str
     target = project.version(number) if number else project.latest
     if target is not None and video_projects.planned(target):  # Its footage first: nothing to download yet.
         return video_projects.planned_words(video_projects.planned(target))
+    heard = ""
+    if target is not None and video_projects.hears(target):  # Its clips' speech is heard on this computer (C4).
+        from row_bot.tools.sound_tool import speech_model_consent
+
+        refusal, heard = speech_model_consent("video")
+        if refusal:
+            return refusal
     narrated = target is not None and video_projects.needs_voice(target)
     both = _both_downloads_consent() if narrated else None
     if both is not None:
@@ -266,7 +287,7 @@ def _make(project, number: int | None, approved: list[str] | None = None) -> str
     text = video_projects.summary(fresh, version.number)
     if not made:
         text += "\n" + _check_back(fresh, version.number)
-    line = "\n".join(part for part in (*(approved or []), line) if part)
+    line = "\n".join(part for part in (*(approved or []), heard, line) if part)
     return with_approval(line, text) if line else text
 
 
@@ -303,7 +324,8 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            music_mood: str | None = None, logline: str | None = None, cast: dict | None = None,
            on_beat: bool | None = None, loudness: float | None = None, recipe: str | None = None,
            grade: str | None = None, grain: bool | None = None, letterbox: bool | None = None,
-           transitions: str | None = None, font: str | None = None, title_style: str | None = None) -> str:
+           transitions: str | None = None, font: str | None = None, title_style: str | None = None,
+           tidy: bool | None = None, clean_voice: bool | None = None) -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
@@ -311,7 +333,7 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
         return _brand(framing=framing, captions=caption_style or None, music_mood=music_mood, voice=voice,
                       voice_speed=voice_speed, loudness=loudness, font=font, titles=title_style)
     look = {"recipe": recipe, "grade": grade, "grain": grain, "letterbox": letterbox, "transitions": transitions,
-            "caption_style": caption_style}
+            "caption_style": caption_style, "tidy": tidy, "clean_voice": clean_voice}
     conversation = _conversation()
     if not conversation:
         return "Video projects need a conversation."

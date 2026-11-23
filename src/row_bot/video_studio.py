@@ -613,13 +613,23 @@ def frame_rate(scenes: list[Any], inputs: list[Any]) -> float:
 
 
 def scene_key(item: Any, start: float, end: float, keys: tuple[Key, ...], frame: Frame, fps: float,
-              sound: bool) -> str:
+              sound: bool, parts: tuple[tuple[float, float], ...] = ()) -> str:
     """What a scene's clip is drawn from, as a hash: its footage (``InputVideo.identity``: which file, as it is
-    now), the part of it, its camera and look, the frame rate and whether the video has sound. Its speed, card, line
-    and voice are the edit's, not the drawing's: changing them draws nothing again."""
+    now), the part of it (and the parts it keeps once its pauses are cut, C4), its camera and look, the frame rate and
+    whether the video has sound. Its speed, card, line and voice are the edit's, not the drawing's: changing them
+    draws nothing again."""
     what = [DRAWING, item.identity or item.path, item.info.still, round(start, 3), round(end, 3), keys,
             [*frame.size, frame.framing, *frame.colour, frame.captions], fps, sound]
+    if parts:
+        what.append([list(part) for part in parts])
     return hashlib.sha256(json.dumps(what).encode()).hexdigest()[:32]
+
+
+def scene_parts(scene: Any, start: float, end: float) -> tuple[tuple[float, float], ...]:
+    """The parts of start to end a scene keeps (``SceneCut.keeps``, C4), within them; () all of it."""
+    parts = tuple((round(max(begin, start), 3), round(min(until, end), 3)) for begin, until in scene.keeps
+                  if min(until, end) - max(begin, start) >= 0.05)
+    return () if parts == ((round(start, 3), round(end, 3)),) else parts
 
 
 def _concat(clips: list[tuple[Path, float]], output: Path) -> None:
@@ -707,9 +717,11 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     clips: list[tuple[Path, float]] = []
     made: list[str] = []
     plans = []  # Each footage scene: (scene, its footage, its part, camera, look, its clip, kept from before).
+    pieces: list[tuple[tuple[float, float], ...]] = []  # The parts of it each scene keeps (C4), in the same order.
     for scene in fitted:
         if scene.input is None:
             plans.append((scene, None, (0.0, 0.0), (), fill, None, False))
+            pieces.append(())
             continue
         item = inputs[scene.input]
         keys, frame = keys_of(scene), frame_of(scene)
@@ -718,8 +730,10 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
         else:
             start = min(max(0.0, scene.start), item.info.duration)
             end = item.info.duration if scene.end is None else min(scene.end, item.info.duration)
-        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound)}.mkv"
+        parts = () if item.info.still else scene_parts(scene, start, end)
+        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound, parts)}.mkv"
         plans.append((scene, item, (start, end), keys, frame, clip, cache is not None and _keep(clip)))
+        pieces.append(parts or ((start, end),))
     drawing = sum(1 for *_rest, clip, kept in plans if clip is not None and not kept)
 
     def matched(scene: Any, item: Any, frame: Frame) -> str:
@@ -732,13 +746,13 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     tones: dict[str, list[float]] = {}
     scenes = []
     written = 0
-    for scene, item, (start, end), keys, frame, clip, kept in plans:
+    for (scene, item, (start, end), keys, frame, clip, kept), parts in zip(plans, pieces, strict=True):
         if clip is None:
             scenes.append(scene)
             made.append("")
             continue
         source = Path(item.path) if Path(item.path).is_absolute() else folder / item.path
-        count = max(1, round((end - start) * fps))
+        count = sum(max(1, round((until - begin) * fps)) for begin, until in parts)
         if kept:
             made.append("reused")
         else:
@@ -748,8 +762,9 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
             try:
                 if item.info.still:
                     studio.still(source, end, keys, frame)
-                else:
-                    studio.add(source, start, end, keys, frame, stopped=stopped)
+                else:  # Each part it keeps one after another: its pauses and fillers cut (C4).
+                    for begin, until in parts:
+                        studio.add(source, begin, until, keys, frame, stopped=stopped)
             finally:
                 studio.close()
             os.replace(part, clip)
