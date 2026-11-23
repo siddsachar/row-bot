@@ -1069,6 +1069,7 @@ _STATUS.update(
         "voice_session_expired": 410,
         "whisper_model_missing": 409,
         "sensevoice_unavailable": 409,
+        "speech_model_missing": 409,
         "voice_provider_unavailable": 409,
         "ffmpeg_unavailable": 503,
         "unsupported_audio_type": 415,
@@ -7145,6 +7146,38 @@ def create_router(
         from row_bot.application.client_local_runtime import repair
 
         return await local_model_runtime(request, await call(repair))
+
+    # Row-Bot Voice's streaming speech models (VD3): picked for this computer, downloaded only on Download.
+    @router.get("/voice/speech-models")
+    async def speech_models_view(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_speech_models import snapshot
+
+        return await respond(request, dto.SpeechModelsView, await call(snapshot))
+
+    @router.post("/voice/speech-models/install")
+    async def speech_models_install(request: Request) -> JSONResponse:
+        # The person pressed Download (the button named the size).
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SpeechModelInstallRequest, 1024)
+        from row_bot.application.client_speech_models import install
+
+        return await respond(request, dto.SpeechModelsView, await call(install, body.model_id, body.download_bytes))
+
+    @router.post("/voice/speech-models/stop")
+    async def speech_models_stop(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_speech_models import stop
+
+        return await respond(request, dto.SpeechModelsView, await call(stop))
+
+    @router.post("/voice/speech-models/remove")
+    async def speech_models_remove(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SpeechModelRemoveRequest, 1024)
+        from row_bot.application.client_speech_models import remove
+
+        return await respond(request, dto.SpeechModelsView, await call(remove, body.model_id))
 
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:

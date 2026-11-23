@@ -144,6 +144,9 @@ class TTSService:
                 return None
 
             try:
+                from row_bot import onnxruntime_telemetry
+
+                onnxruntime_telemetry.switch_off()  # before Kokoro opens its ONNX Runtime session
                 from kokoro_onnx import Kokoro
                 logger.info("Loading Kokoro TTS model from %s", _MODEL_PATH)
                 _SHARED_KOKORO.append(_SerialKokoro(Kokoro(str(_MODEL_PATH), str(_VOICES_PATH))))

@@ -965,7 +965,9 @@ def _install_voice_engine_fixture() -> None:
             _voice_fixture["bytes"] += len(pcm16)
 
         def partial(self):
-            return TranscriptUpdate("", final=False)
+            # A streaming model's words so far: a word for every 200 ms of audio.
+            words = VOICE_FIXTURE_REQUEST.rstrip("?").split()
+            return TranscriptUpdate(" ".join(words[: self.size // 6400]), final=False)
 
         def finish(self):
             _voice_fixture["transcriptions"] += 1
@@ -976,6 +978,7 @@ def _install_voice_engine_fixture() -> None:
 
     class Listen:
         provider_id = "fixture_listen"
+        live_partials = True
 
         def warm(self) -> None:
             pass
@@ -5522,6 +5525,85 @@ def e1_local_runtime(state: str, done: float = 0.0, failure: str = "", found: st
     return _e1_view()
 
 
+# ── V1b: Row-Bot Voice's streaming speech models in Settings › Voice ─────────
+# The real catalog and pick with a fixed computer; Download, Stop and Remove change only this state.
+_v1b_state: dict = {"state": "not_installed", "done": 0, "installed": [], "failure": None}
+
+
+def _v1b_view(freed: int | None = None) -> dict:
+    from row_bot.voice import speech_models
+    from row_bot.voice.runtime import load_voice_runtime_settings
+
+    rows = []
+    for model in speech_models.CATALOG:
+        installed = model.id in _v1b_state["installed"]
+        rows.append({"id": model.id, "name": model.name, "engine_id": model.engine_id,
+                     "size_bytes": model.archive_size, "installed_bytes": model.installed_bytes,
+                     "download_bytes": 0 if installed else model.archive_size, "installed": installed,
+                     "language": model.language, "licence": model.licence, "source": model.source,
+                     "runs_best_on": model.runs_best_on})
+    downloading = _v1b_state["state"] == "downloading"
+    pick = speech_models.MOONSHINE_BASE_EN
+    view = {
+        "schema_version": 1, "state": _v1b_state["state"], "computer": "NVIDIA GeForce RTX 4070 (12 GB)",
+        "recommended": pick.id, "reason": "no_gpu_runtime", "models": rows,
+        "download": {"model_id": pick.id, "total_bytes": pick.archive_size, "done_bytes": _v1b_state["done"],
+                     "phase": "downloading"} if downloading else None,
+        "failure": _v1b_state["failure"], "talk_engine": load_voice_runtime_settings().talk_model,
+        "disk_bytes": sum(row["installed_bytes"] for row in rows if row["installed"]),
+    }
+    if freed is not None:
+        view["freed_bytes"] = freed
+    return view
+
+
+def _v1b_install_fakes() -> None:
+    from row_bot.application import client_speech_models as speech
+
+    def install(model_id: str, download_bytes: int) -> dict:
+        _v1b_state.update(state="downloading", done=int(download_bytes * 0.425), failure=None)
+        return _v1b_view()
+
+    def stop() -> dict:
+        _v1b_state.update(state="installed" if _v1b_state["installed"] else "not_installed")
+        return _v1b_view()
+
+    def remove(model_id: str) -> dict:
+        from row_bot.voice import speech_models
+        from row_bot.voice.runtime import load_voice_runtime_settings, save_talk_model
+
+        model = speech_models.get(model_id)
+        _v1b_state["installed"] = [item for item in _v1b_state["installed"] if item != model_id]
+        _v1b_state["state"] = "installed" if _v1b_state["installed"] else "not_installed"
+        if model is not None and load_voice_runtime_settings().talk_model == model.engine_id:
+            save_talk_model("local-whisper")
+        return _v1b_view(freed=model.installed_bytes if model else 0)
+
+    speech.snapshot = _v1b_view
+    speech.install = install
+    speech.stop = stop
+    speech.remove = remove
+
+
+@app.post("/__v1b_fixture/speech-models/{state}")
+def v1b_speech_models(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """fresh: nothing downloaded; downloading: Moonshine Base 42% in; installed: Moonshine Base in use."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.voice.runtime import save_talk_model
+
+    if state == "fresh":
+        _v1b_state.update(state="not_installed", done=0, installed=[], failure=None)
+        save_talk_model("local-whisper")
+    elif state == "downloading":
+        _v1b_state.update(state="downloading", done=int(111_266_225 * 0.425), installed=[], failure=None)
+    elif state == "installed":
+        _v1b_state.update(state="installed", done=0, installed=["moonshine-base-en"], failure=None)
+        save_talk_model("local-moonshine-base-en")
+    else:
+        raise HTTPException(status_code=422, detail="Unknown speech-models state")
+    return _v1b_view()
+
+
 # ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
 # A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
 # buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's
@@ -6231,6 +6313,7 @@ def main() -> None:
     client_platform_service.readiness_factory = lambda _: True
     _p10_install_fakes()
     _e1_install_fakes()
+    _v1b_install_fakes()
     _p17_install_connection_check_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = _n11_resume

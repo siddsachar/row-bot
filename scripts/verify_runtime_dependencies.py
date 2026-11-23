@@ -80,6 +80,7 @@ GROUPS = {
         "kokoro_onnx",
         "pipecat.audio.vad.silero",
         "pipecat.audio.turn.smart_turn.local_smart_turn_v3",
+        "sherpa_onnx",
         *FUNASR_VOICE_MODULES,
     ),
     "designer": (

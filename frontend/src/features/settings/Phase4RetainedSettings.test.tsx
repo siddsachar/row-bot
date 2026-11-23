@@ -2512,7 +2512,7 @@ it.each<SettingsLeafId>([
   },
 );
 
-it('offers a speech engine choice in Voice › Advanced only once there is one', () => {
+it('offers a speech model choice for Talk and Dictation only once there is one', () => {
   mutation.page = 'voice';
   const voice = (sensevoice: boolean) => (
     <MemoryRouter>

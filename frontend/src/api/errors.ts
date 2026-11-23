@@ -3307,6 +3307,12 @@ const CATALOG: Record<string, Entry> = {
     'review',
     PROVIDERS,
   ],
+  speech_model_missing: [
+    (place) =>
+      `The speech model Talk listens with isn't downloaded ${place.on}. Download it in Voice settings, or choose Whisper.`,
+    'review',
+    VOICE,
+  ],
   sensevoice_unavailable: [
     (place) =>
       `SenseVoice isn't ready ${place.on}. Install it in Voice settings, or choose Whisper.`,
