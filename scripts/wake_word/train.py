@@ -46,7 +46,7 @@ def _noise(sources: Path, seconds: float = 600.0) -> np.ndarray:
 
     rng = np.random.default_rng(1)
     parts = []
-    for path in sorted((sources / "ms-snsd").rglob("*.wav")):
+    for path in sorted((sources / "ms-snsd" / "noise_train").glob("*.wav")):  # noise_test is held out
         x, rate = sf.read(path, dtype="float32", always_2d=True)
         x = x.mean(1)
         if rate != SR:
@@ -106,13 +106,24 @@ class _LocalSpeech:
         pass
 
 
+def load_clips(folder: Path, split: str, category: str) -> dict[str, np.ndarray]:
+    """Kokoro's clips of one split and category, with Piper's when ``piper_voices.py`` made them."""
+    parts = [np.load(path) for path in (folder / f"{split}_{category}.npz", folder / f"piper_{split}_{category}.npz")
+             if path.exists()]
+    lengths = np.concatenate([p["lengths"] for p in parts])
+    return {"audio": np.concatenate([p["audio"] for p in parts]),
+            "offsets": np.concatenate([[0], np.cumsum(lengths)[:-1]]), "lengths": lengths,
+            "starts": np.concatenate([p["starts"] for p in parts]), "ends": np.concatenate([p["ends"] for p in parts])}
+
+
 def _clips(folder: Path):
     from livekit.wakeword_train.data import ClipSet
 
     sets = {}
     for category in ("positive", "adversarial", "speech"):
-        data = np.load(folder / f"train_{category}.npz")
+        data = load_clips(folder, "train", category)
         sets[category] = ClipSet(data["audio"], *(data[k] for k in ("offsets", "lengths", "starts", "ends")))
+        print(f"{category}: {len(data['lengths'])} clips")
     return sets
 
 
@@ -123,6 +134,8 @@ def main() -> int:
     parser.add_argument("out", type=Path)
     parser.add_argument("--steps", type=int, default=6000)
     parser.add_argument("--target-fpph", type=float, default=0.5)
+    parser.add_argument("--calibration-minutes", type=float, default=120.0,
+                        help="held-out speech scored to set the threshold (and a third as much noise)")
     args = parser.parse_args()
 
     from dataclasses import replace
@@ -154,6 +167,10 @@ def main() -> int:
     D.noise_pool = lambda: noise
     D.rir_pool = lambda max_len=SR: rooms
     L.calibration_speech_files = lambda: [("local", "calibration")]
+    # In-process loading (spawned workers would not see the local data): no prefetching then.
+    from torch.utils.data import DataLoader
+
+    L.DataLoader = lambda *a, **k: DataLoader(*a, **{**k, "prefetch_factor": None})
 
     device = L.default_device()
     print(f"training on {device}")
@@ -161,7 +178,8 @@ def main() -> int:
     aug = L.default_aug(start)
     config = L.TrainConfig(steps=args.steps, aug=replace(aug, p_party=STANDARD_P_PARTY), workers=0)
     detector = L.train(start, "local", config, device=device)
-    logit = L.calibration_logit(detector, target_fpph=args.target_fpph, device=device, aug=aug)
+    logit = L.calibration_logit(detector, target_fpph=args.target_fpph, device=device, aug=aug,
+                                minutes=args.calibration_minutes, noise_minutes=args.calibration_minutes / 3)
     print(f"calibration: score 0.5 = {args.target_fpph} false alarms an hour (logit {logit:.2f})")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     meta = {"wake_word": "Hey Row-Bot", "language": "en", "threshold": "0.5",

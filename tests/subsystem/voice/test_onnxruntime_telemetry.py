@@ -101,6 +101,23 @@ def test_silero_and_smart_turn_switch_telemetry_off_before_their_sessions(ort, m
     assert ort == ["telemetry off", "session", "session"]
 
 
+def test_the_wake_word_switches_telemetry_off_before_its_session(ort, monkeypatch, tmp_path):
+    from row_bot.voice.wake import WakeModel
+
+    class SessionOptions:
+        def add_session_config_entry(self, key: str, value: str) -> None:
+            pass
+
+    def get_inputs(self):
+        return []  # not a streaming model: refused after the session opened
+
+    sys.modules["onnxruntime"].SessionOptions = SessionOptions
+    sys.modules["onnxruntime"].InferenceSession.get_inputs = get_inputs
+    with pytest.raises(ValueError, match="wake_model_invalid"):
+        WakeModel.load(tmp_path / "hey_row_bot.onnx")
+    assert ort == ["telemetry off", "session"]
+
+
 def test_without_onnxruntime_nothing_breaks(monkeypatch):
     monkeypatch.setitem(sys.modules, "onnxruntime", None)  # import fails
     monkeypatch.setattr(onnxruntime_telemetry, "_switched_off", False)

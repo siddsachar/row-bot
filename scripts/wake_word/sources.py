@@ -32,8 +32,10 @@ _LIBRISPEECH = "https://www.openslr.org/resources/12"
 _SNSD = "https://raw.githubusercontent.com/microsoft/MS-SNSD/master"
 
 SOURCES = (
-    Source("kokoro-v1.0.fp16.onnx", f"{_KOKORO}/kokoro-v1.0.fp16.onnx", 177_464_787, "Apache-2.0"),
-    Source("voices-v1.0.bin", f"{_KOKORO}/voices-v1.0.bin", 28_214_398, "Apache-2.0"),
+    Source("kokoro-v1.0.fp16.onnx", f"{_KOKORO}/kokoro-v1.0.fp16.onnx", 177_464_787, "Apache-2.0",
+           "c1610a859f3bdea01107e73e50100685af38fff88f5cd8e5c56df109ec880204"),
+    Source("voices-v1.0.bin", f"{_KOKORO}/voices-v1.0.bin", 28_214_398, "Apache-2.0",
+           "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"),
     Source("encoders.tar.gz",
            "https://github.com/livekit/livekit-wakeword/releases/download/v2.0.0/encoders.tar.gz",
            37_490_513, "Apache-2.0",
@@ -42,11 +44,16 @@ SOURCES = (
     # trained on LibriTTS-R, CC BY 4.0): 904 speakers.
     Source("en_US-libritts_r-medium.pt",
            "https://github.com/rhasspy/piper-sample-generator/releases/download/v2.0.0/en_US-libritts_r-medium.pt",
-           204_089_915, "CC BY 4.0 (LibriTTS-R)"),
-    Source("dev-clean.tar.gz", f"{_LIBRISPEECH}/dev-clean.tar.gz", 337_926_286, "CC BY 4.0"),
-    Source("dev-other.tar.gz", f"{_LIBRISPEECH}/dev-other.tar.gz", 314_305_928, "CC BY 4.0"),
-    Source("test-clean.tar.gz", f"{_LIBRISPEECH}/test-clean.tar.gz", 346_663_984, "CC BY 4.0"),
-    Source("test-other.tar.gz", f"{_LIBRISPEECH}/test-other.tar.gz", 328_757_843, "CC BY 4.0"),
+           204_089_915, "CC BY 4.0 (LibriTTS-R)",
+           "e95ee53770bf598c354a6e6dbfc95ccb259aeeb501d35a86be8a767429ab0ff6"),
+    Source("dev-clean.tar.gz", f"{_LIBRISPEECH}/dev-clean.tar.gz", 337_926_286, "CC BY 4.0",
+           "76f87d090650617fca0cac8f88b9416e0ebf80350acb97b343a85fa903728ab3"),
+    Source("dev-other.tar.gz", f"{_LIBRISPEECH}/dev-other.tar.gz", 314_305_928, "CC BY 4.0",
+           "12661c48e8c3fe1de2c1caa4c3e135193bfb1811584f11f569dd12645aa84365"),
+    Source("test-clean.tar.gz", f"{_LIBRISPEECH}/test-clean.tar.gz", 346_663_984, "CC BY 4.0",
+           "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23"),
+    Source("test-other.tar.gz", f"{_LIBRISPEECH}/test-other.tar.gz", 328_757_843, "CC BY 4.0",
+           "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"),
 )
 
 # MS-SNSD's noise clips from Freesound (CC0). Its one-file environments (Bus, Cafe, Kitchen,

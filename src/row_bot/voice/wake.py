@@ -65,6 +65,9 @@ class WakeModel:
 
     @classmethod
     def load(cls, path: Path = MODEL_PATH) -> "WakeModel":
+        from row_bot import onnxruntime_telemetry
+
+        onnxruntime_telemetry.switch_off()
         from onnxruntime import InferenceSession, SessionOptions
 
         options = SessionOptions()

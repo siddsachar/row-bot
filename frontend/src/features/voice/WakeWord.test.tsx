@@ -15,7 +15,8 @@ import { announceWakeWord, setWakeTarget } from './wake-word';
 
 // No audio device in tests: the microphone opens as a stream with one track.
 const microphones: Array<{ stopped: boolean }> = [];
-vi.mock('./voice-audio', () => ({
+vi.mock('./devices', () => ({
+  deviceChoice: () => ({ input: '', output: '' }),
   openMicrophone: vi.fn(async () => {
     const record = { stopped: false };
     microphones.push(record);
@@ -25,9 +26,13 @@ vi.mock('./voice-audio', () => ({
         getAudioTracks: () => [track],
         getTracks: () => [{ stop: () => (record.stopped = true) }],
       },
-      context: { close: async () => undefined },
+      fellBack: false,
     };
   }),
+}));
+vi.mock('./voice-audio', () => ({
+  CAPTURE_CONSTRAINTS: {},
+  captureFrames: vi.fn(async () => ({ close: async () => undefined })),
 }));
 
 async function settle() {

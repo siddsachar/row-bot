@@ -63,10 +63,15 @@ def _pcm(x: np.ndarray) -> bytes:
     return (np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes()
 
 
-def _clips(path: Path) -> list[tuple[np.ndarray, int]]:
-    data = np.load(path)
-    return [(data["audio"][o : o + n].astype(np.float32) / 32767, int(e))
-            for o, n, e in zip(data["offsets"], data["lengths"], data["ends"])]
+def _clips(folder: Path, category: str) -> list[tuple[np.ndarray, int]]:
+    """The held-out voices' clips (Kokoro's, and Piper's when made)."""
+    out = []
+    for path in (folder / f"eval_{category}.npz", folder / f"piper_eval_{category}.npz"):
+        if path.exists():
+            data = np.load(path)
+            out += [(data["audio"][o : o + n].astype(np.float32) / 32767, int(e))
+                    for o, n, e in zip(data["offsets"], data["lengths"], data["ends"])]
+    return out
 
 
 def main() -> int:
@@ -91,8 +96,8 @@ def main() -> int:
     loaded = _rss_mb()
     rng = np.random.default_rng(7)
     speech, noise = _speech(args.sources), _noise(args.sources)
-    positives = _clips(args.clips / "eval_positive.npz")
-    near = _clips(args.clips / "eval_adversarial.npz")
+    positives = _clips(args.clips, "positive")
+    near = _clips(args.clips, "adversarial")
     report: dict = {"model": str(args.model), "memory_mb": {"before": round(before), "loaded": round(loaded)}}
 
     # CPU: one step at a time, as the host runs it.
