@@ -6501,6 +6501,9 @@ class VideoEditPage(WireModel):
 VideoProjectId = Annotated[str, StringConstraints(pattern=r"^vid-[0-9a-f]{8}$")]
 VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
 VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
+VideoRecipe = Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"]
+VideoGrade = Literal["natural", "warm", "cinematic", "vivid", "bw"]
+VideoTransitions = Literal["cut", "crossfade"]
 
 
 class VideoScene(WireModel):
@@ -6600,6 +6603,9 @@ class VideoBrand(WireModel):
     voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
     # Every video's mix is brought to this loudness (LUFS): -14 for social video.
     loudness: float = Field(default=-14.0, ge=-24, le=-10)
+    # Every word's typeface, and how titles, lower thirds and the end card look (C5).
+    font: Literal["sans", "modern", "serif", "display"] = "sans"
+    titles: Literal["studio", "minimal", "bold"] = "studio"
 
 
 class VideoProjectView(WireModel):
@@ -6644,6 +6650,13 @@ class VideoProjectView(WireModel):
     # Its own voice and speed for its lines ("" and 0: the brand kit's).
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # Its look as it's made (C5): its kind ("" none), and its grade, grain, letterbox and transitions (its own, else
+    # its kind's); its footage's colour is matched to one look first.
+    recipe: VideoRecipe = ""
+    grade: VideoGrade = "natural"
+    grain: bool = False
+    letterbox: bool = False
+    transitions: VideoTransitions = "cut"
     # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
     review_sheet: str = Field(default="", max_length=200)
 
@@ -6659,6 +6672,11 @@ class VideoProjectChange(WireModel):
     voice: str | None = Field(default=None, max_length=64)
     # A voice for a character who speaks (kept with a saved character in Library › Media).
     cast: list[VideoCastMember] | None = Field(default=None, max_length=200)
+    # Its look (C5): left out, the version's own (else its kind's).
+    grade: VideoGrade | None = None
+    grain: bool | None = None
+    letterbox: bool | None = None
+    transitions: VideoTransitions | None = None
     note: str = Field(default="", max_length=200)
 
 

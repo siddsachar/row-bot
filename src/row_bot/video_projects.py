@@ -77,6 +77,17 @@ FOOTAGE_WORDS = {"clip": "clip", "picture": "picture", "ai": "AI shot", "card": 
                  "screen": "screen recording"}
 SPEEDS = (0.25, 4.0)
 SHAPES = ("16:9", "1:1", "9:16")
+# The kinds of video (G1): each a few defaults for its look (C5), which a version's own choices override. A vertical
+# short is 9:16 unless the video says otherwise.
+RECIPES: dict[str, dict[str, Any]] = {
+    "film": {"grade": "cinematic", "grain": True, "letterbox": True},
+    "youtube": {},
+    "vlog": {},
+    "montage": {"grade": "vivid", "transitions": "crossfade"},
+    "explainer": {},
+    "demo": {},
+    "short": {"grade": "vivid", "aspect": "9:16"},
+}
 EXPORTS = SHAPES + ("gif",)
 _FOLDER = "video-projects"
 _LOCK = threading.RLock()
@@ -156,6 +167,13 @@ class Version:
     cast: dict[str, str] = field(default_factory=dict)
     music_mood: str = ""
     on_beat: bool = False
+    # Its look (C5): its kind (``RECIPES``, "" none), then its own grade, grain, letterbox and transitions ("" and
+    # None: the recipe's, else natural, none, none and cuts).
+    recipe: str = ""
+    grade: str = ""
+    grain: bool | None = None
+    letterbox: bool | None = None
+    transitions: str = ""
 
 
 @dataclass
@@ -240,6 +258,7 @@ def _load(path: Path) -> Project | None:
                 logline=str(item.get("logline") or ""),
                 cast={str(key): str(value) for key, value in (item.get("cast") or {}).items()},
                 music_mood=str(item.get("music_mood") or ""), on_beat=bool(item.get("on_beat")),
+                **_finish_fields(item),
             ))
         if not versions:
             return None
@@ -510,6 +529,55 @@ def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str,
     return scenes
 
 
+def _finish_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """A saved version's look (C5), each choice it still knows (a project saved before C5 has none)."""
+    from row_bot.video_editing import GRADES, TRANSITIONS
+
+    def either(key: str) -> bool | None:
+        return None if data.get(key) is None else bool(data[key])
+
+    return {"recipe": str(data.get("recipe") or "") if data.get("recipe") in RECIPES else "",
+            "grade": str(data.get("grade") or "") if data.get("grade") in GRADES else "",
+            "grain": either("grain"), "letterbox": either("letterbox"),
+            "transitions": str(data.get("transitions") or "") if data.get("transitions") in TRANSITIONS else ""}
+
+
+def _choice(value: Any, allowed: tuple[str, ...] | dict[str, Any], name: str) -> str:
+    text = str(value or "").strip().casefold()
+    if text and text not in allowed:
+        raise ProjectError(f"{name} is {', '.join(allowed)}, or empty.")
+    return text
+
+
+def _look(values: dict[str, Any]) -> dict[str, Any]:
+    """A version's look as given (C5), checked; a choice left out (None) isn't among them."""
+    from row_bot.video_editing import GRADES, TRANSITIONS
+
+    checked: dict[str, Any] = {}
+    for key, allowed, name in (("recipe", RECIPES, "The kind of video"), ("grade", GRADES, "The grade"),
+                               ("transitions", TRANSITIONS, "Transitions")):
+        if values.get(key) is not None:
+            checked[key] = _choice(values[key], allowed, name)
+    for key in ("grain", "letterbox"):
+        if values.get(key) is not None:
+            checked[key] = bool(values[key])
+    return checked
+
+
+LOOK = ("recipe", "grade", "grain", "letterbox", "transitions")
+
+
+def finish_of(version: Version) -> Any:
+    """How a version's video is finished (``video_editing.Finish``): its own choices, else its recipe's."""
+    from row_bot.video_editing import Finish
+
+    kind = RECIPES.get(version.recipe, {})
+    return Finish(grade=version.grade or kind.get("grade", "natural"),
+                  grain=kind.get("grain", False) if version.grain is None else version.grain,
+                  letterbox=kind.get("letterbox", False) if version.letterbox is None else version.letterbox,
+                  transition=version.transitions or kind.get("transitions", "cut"))
+
+
 def _add_version(project: Project, version: Version) -> Version:
     project.versions.append(version)
     del project.versions[:-MAX_VERSIONS]
@@ -592,14 +660,18 @@ def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = 
            narration: str = "", captions: bool = False, voice_lines: bool = True, aspect: str = "", brand: bool = True,
            by: By = "row-bot", note: str = "", voice: str = "", voice_speed: float | None = None,
            logline: str = "", approvals: list[str] | None = None, cast: dict[str, Any] | None = None,
-           music_mood: str = "", on_beat: bool = False, kept: list[str] | None = None) -> Project:
+           music_mood: str = "", on_beat: bool = False, kept: list[str] | None = None,
+           look: dict[str, Any] | None = None) -> Project:
     """A new project with its first version; the approval lines of reading files outside the workspace join
-    *approvals*, and the characters whose voice was kept with them in Library › Media join *kept*."""
+    *approvals*, and the characters whose voice was kept with them in Library › Media join *kept*. *look*: its
+    recipe, grade, grain, letterbox and transitions (C5), each left out for the recipe's."""
     conversation = str(conversation_id or "").strip()
     if not conversation:
         raise ProjectError("Video projects belong to a conversation.")
     with _LOCK:
         allowed: dict[str, str] = {}
+        finish = _look(look or {})
+        aspect = aspect or RECIPES.get(finish.get("recipe", ""), {}).get("aspect", "")
         cleaned = _clean_scenes(scenes, conversation, [], allowed, approvals)
         chosen = _voice(voice)
         project = Project(project_id=f"vid-{uuid.uuid4().hex[:8]}", conversation_id=conversation,
@@ -610,7 +682,7 @@ def create(conversation_id: str, title: str, scenes: list[Any], *, music: str = 
                           voice_lines=bool(voice_lines), aspect=_aspect(aspect), brand=bool(brand),
                           voice=chosen, voice_speed=_voice_speed(voice_speed),
                           logline=_text(logline, MAX_LOGLINE), music_mood=_mood(music_mood), on_beat=bool(on_beat),
-                          cast=_cast(cleaned, cast, {}, chosen, kept))
+                          cast=_cast(cleaned, cast, {}, chosen, kept), **finish)
         _add_version(project, version)
     logger.info("Video project created (%d scenes)", len(version.scenes))
     return project
@@ -649,10 +721,12 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
            narration: str | None = None, captions: bool | None = None, voice_lines: bool | None = None, aspect: str | None = None,
            brand: bool | None = None, voice: str | None = None, voice_speed: float | None = None,
            logline: str | None = None, approvals: list[str] | None = None, cast: dict[str, Any] | None = None,
-           music_mood: str | None = None, on_beat: bool | None = None, kept: list[str] | None = None) -> Version:
+           music_mood: str | None = None, on_beat: bool | None = None, kept: list[str] | None = None,
+           look: dict[str, Any] | None = None) -> Version:
     """A new version with these changes; ``base`` is the version they were made on (refused when it isn't the
     latest, so two editors never overwrite each other). Approval lines and kept voices join *approvals* and *kept*,
-    as in ``create``."""
+    as in ``create``; *look* changes the choices it names (C5)."""
+    finish = _look(look or {})
     with _LOCK:
         fresh = get(project.project_id, project.conversation_id)
         if fresh is None:
@@ -681,6 +755,7 @@ def change(project: Project, *, by: By, note: str = "", base: int | None = None,
             logline=latest.logline if logline is None else _text(logline, MAX_LOGLINE),
             music_mood=latest.music_mood if music_mood is None else _mood(music_mood),
             on_beat=latest.on_beat if on_beat is None else bool(on_beat),
+            **{**{key: getattr(latest, key) for key in LOOK}, **finish},
         )
         version.cast = _cast(version.scenes, cast, latest.cast, version.voice, kept)
         fresh.outside = _grants(allowed)
@@ -703,7 +778,8 @@ def restore(project: Project, number: int, *, by: By) -> Version:
                           aspect=old.aspect, exports=dict(old.exports), brand=old.brand, voice=old.voice,
                           voice_speed=old.voice_speed, logline=old.logline, cast=dict(old.cast),
                           music_mood=old.music_mood, on_beat=old.on_beat,
-                          status="rendering" if old.edit_id else "", edit_id=old.edit_id)
+                          status="rendering" if old.edit_id else "", edit_id=old.edit_id,
+                          **{key: getattr(old, key) for key in LOOK})
         _add_version(fresh, version)
         project.versions = fresh.versions
     return version
@@ -894,7 +970,7 @@ def _file_name(title: str, suffix: str, tail: str = "") -> str:
     return output_name(f"{title.strip()[:60]} {tail}".strip(), default="video", suffix=suffix)
 
 
-def _look() -> Any:
+def _brand_look() -> Any:
     """The brand kit as the renderer draws it."""
     from row_bot import video_brand
     from row_bot.video_editing import Look
@@ -902,7 +978,7 @@ def _look() -> Any:
     kit = video_brand.load()
     return Look(colour=video_brand.rgb(kit.colour), captions=kit.captions, logo=video_brand.logo_png(kit),
                 logo_corner=kit.logo_corner, intro=kit.intro, outro=kit.outro, framing=kit.framing,
-                camera=kit.camera)
+                camera=kit.camera, font=kit.font, titles=kit.titles)
 
 
 def pointer_focus(source: str, start: float, end: float | None) -> tuple[float, float] | None:
@@ -1067,10 +1143,12 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          camera=scene_camera(scene.source, scene.start, scene.end, scene.speed)
                          if scene.source and not scene.zoom else (),
                          waits=scene_waits(scene.source, scene.start, scene.end) if scene.source else (),
-                         effects=tuple(scene.effects), cue=scene.cue)
+                         effects=tuple(scene.effects), cue=scene.cue,
+                         matched=footage_of(scene) in ("clip", "ai", "picture"))
                 for scene in version.scenes]
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
-                      aspect=shape or version.aspect, look=_look() if version.brand else None)]
+                      aspect=shape or version.aspect, look=_brand_look() if version.brand else None,
+                      finish=finish_of(version))]
         fitted = version.music == FIT
         extra = [name for name in (version.narration, "" if fitted else version.music) if name]
         files = [name for cut in cuts for name in cut.effects if name not in EFFECTS]
@@ -1181,6 +1259,7 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
     marks = list(edit.marks) if edit is not None and len(edit.marks) == len(version.scenes) + 1 else []
     makes = list(edit.scene_makes) if edit is not None and len(edit.scene_makes) == len(version.scenes) else []
     refs = _Refs(project.conversation_id)
+    finish = finish_of(version)
     return {
         "project_id": project.project_id,
         "conversation_id": project.conversation_id,
@@ -1221,6 +1300,12 @@ def view(project: Project, number: int | None = None) -> dict[str, Any]:
         "brand": version.brand,
         "voice": version.voice,
         "voice_speed": version.voice_speed,
+        # Its look as it's made (C5): its own choices, else its recipe's.
+        "recipe": version.recipe,
+        "grade": finish.grade,
+        "grain": finish.grain,
+        "letterbox": finish.letterbox,
+        "transitions": finish.transition,
         "review_sheet": edit.sheet if edit is not None and _status(version, edit) == "made" else "",
         "exports": [{"shape": shape, "edit": video_edits.view(found)} for shape in EXPORTS
                     if (found := video_edits.get(version.exports.get(shape, ""))) is not None],
@@ -1363,6 +1448,12 @@ def summary(project: Project, number: int | None = None) -> str:
         lines.append(f"Cuts on the beat of {data['music']}.")
     elif data["on_beat"]:
         lines.append("No music, so the cuts aren't on a beat.")
+    looks = [f"{data['grade']} grade" if data["grade"] != "natural" else "", "film grain" if data["grain"] else "",
+             "2.39 letterbox" if data["letterbox"] else "",
+             "crossfades" if data["transitions"] == "crossfade" else ""]
+    if data["recipe"] or any(looks):
+        lines.append(f"Look: {data['recipe'] + ', ' if data['recipe'] else ''}"
+                     f"{', '.join(item for item in looks if item) or 'natural, cuts'}.")
 
     if shown is not None and shown.brand and video_brand.load().framing == "framed":
         lines.append("Framed: the brand kit sets 16:9 footage inset on its colour. To fill the frame, video action "

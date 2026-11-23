@@ -223,3 +223,46 @@ def test_a_real_project_is_its_picture_then_its_mix_and_a_sound_only_remake_reus
     assert remake[remake.index("-c:v") + 1] == "copy"
     assert picture_read(remake).resolve() == kept[0].resolve(), "the kept picture, not a new one"
     assert again.scene_makes == ["reused", ""], "and draws no scene again"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_project_matched_graded_letterboxed_and_crossfaded(studio, tmp_path):
+    """C5 for real: a warm clip and a cool one matched to one look, graded cinematic with grain, a 2.39 letterbox,
+    and a crossfade between them, in ffmpeg's one run."""
+    import av
+
+    from row_bot import ffmpeg_runtime
+    from row_bot.application.attachments import read_attachment
+    from row_bot.media_sources import resolve
+    from row_bot.video_editing import CROSSFADE, Finish, SceneCut, Step
+
+    real = ffmpeg_runtime.find()
+    edits = studio["edits"]
+    for name, colour in (("warm.mp4", "0xc89a6e"), ("cool.mp4", "0x6e96d2")):
+        clip = tmp_path / name
+        subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        f"color=c={colour}:size=640x360:rate=30:duration=3", "-f", "lavfi", "-i",
+                        "sine=frequency=300:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                        "-shortest", str(clip)], check=True)
+        studio["register"](studio["chat"], name, clip.read_bytes())
+    sources = resolve("warm.mp4", studio["chat"]) + resolve("cool.mp4", studio["chat"])
+    scenes = Step(op="scenes", aspect="16:9", finish=Finish(grade="cinematic", grain=True, letterbox=True,
+                                                            transition="crossfade"),
+                  scenes=[SceneCut(input=0, end=2.0, matched=True), SceneCut(input=1, end=2.0, matched=True)])
+    edit = edits.start(edits.Request(conversation_id=studio["chat"], kind="video", sources=sources, steps=[scenes],
+                                     output_name="Look.mp4", role="draft", scene_cache=tmp_path / "scenes"))
+    assert edits.wait(edit, 300) and edit.status == "saved", edit.detail
+    assert edit.marks == pytest.approx([0.0, 2.0 - CROSSFADE, 4.0 - CROSSFADE], abs=0.05)
+    output = tmp_path / "look.mp4"
+    output.write_bytes(read_attachment(edit.media_ref)[1])
+    with av.open(str(output)) as reader:
+        frames = {round(frame.time, 1): frame.to_image() for frame in reader.decode(video=0)}
+    from PIL import ImageStat
+
+    first, last = frames[0.5], frames[3.0]
+    assert first.size == (1920, 1080) and max(first.getpixel((960, 20))) < 24, "black bars above the picture"
+    middle = (860, 480, 1060, 600)  # Averaged, so the grain doesn't count.
+    distance = sum(abs(a - b) for a, b in zip(ImageStat.Stat(first.crop(middle)).mean,
+                                              ImageStat.Stat(last.crop(middle)).mean))
+    assert distance < 0.6 * sum(abs(a - b) for a, b in zip((0xc8, 0x9a, 0x6e), (0x6e, 0x96, 0xd2))), \
+        "the two clips' colours meet"

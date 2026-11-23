@@ -373,6 +373,21 @@ button.video-scene-frame {
   min-height: 24px;
 }
 /* Each character's voice, under the storyboard's controls. */
+.video-look {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-look .video-cast-name {
+  margin-right: var(--space-2);
+}
+.video-look .video-grade {
+  width: auto;
+  margin-right: var(--space-1);
+}
 .video-cast {
   display: flex;
   flex-wrap: wrap;

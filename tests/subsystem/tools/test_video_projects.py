@@ -1238,3 +1238,50 @@ def test_cuts_on_the_beat_without_music_say_there_is_no_beat_and_make_as_they_ar
     scored = video_projects.create("conversation-a", "Montage", [dict(SCENES[0])], on_beat=True, music="fit")
     assert "No music" not in video_projects.summary(scored)
 
+
+def test_a_recipe_sets_a_videos_look_its_own_choices_win_and_the_make_gets_both(studio, monkeypatch):
+    """C5: a film is graded cinematic with grain and a letterbox, a montage crossfades, a short is tall; a video's
+    own choice wins over its recipe's, stays through changes and going back, and reaches the render with which
+    scenes take part in colour matching (never a screen recording)."""
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import video_project_tool
+
+    register_attachment("conversation-a", "rec-shot.mp4", MP4)
+    film = video_projects.create("conversation-a", "Night", [dict(SCENES[0]), dict(SCENES[1])],
+                                 look={"recipe": "film"})
+    view = video_projects.view(film)
+    assert (view["recipe"], view["grade"], view["grain"], view["letterbox"], view["transitions"]) == (
+        "film", "cinematic", True, True, "cut")
+    warmer = video_projects.change(film, by="you", look={"grade": "warm", "transitions": "crossfade"})
+    assert (video_projects.finish_of(warmer).grade, video_projects.finish_of(warmer).grain,
+            video_projects.finish_of(warmer).transition) == ("warm", True, "crossfade"), "its own choices win"
+    kept = video_projects.change(film, by="row-bot", note="Shorter title", title="Night two")
+    assert video_projects.finish_of(kept) == video_projects.finish_of(warmer), "a change keeps the look"
+    back = video_projects.restore(film, 1, by="you")
+    assert video_projects.finish_of(back).grade == "cinematic", "going back goes back to its look"
+
+    reel = video_projects.create("conversation-a", "Reel", [dict(SCENES[0])], look={"recipe": "short"})
+    assert video_projects.view(reel)["aspect"] == "9:16", "a short is tall"
+    montage = video_projects.create("conversation-a", "Summer", [dict(SCENES[0])], look={"recipe": "montage"})
+    assert video_projects.finish_of(montage.latest).transition == "crossfade"
+    with pytest.raises(video_projects.ProjectError, match="The grade is"):
+        video_projects.create("conversation-a", "Bad", [dict(SCENES[0])], look={"grade": "sepia"})
+
+    mixed = video_projects.create("conversation-a", "Mixed", [dict(SCENES[0]), {"source": "rec-shot.mp4",
+                                                                                 "footage": "screen", "end": 2}],
+                                  look={"recipe": "film", "letterbox": False})
+    video_projects.make(mixed, 1)
+    _wait(mixed.project_id, 1)
+    step = studio["started"][-1].steps[0]
+    assert step.finish == video_projects.finish_of(mixed.latest) and not step.finish.letterbox
+    assert [scene.matched for scene in step.scenes] == [True, False], "a clip is matched; a screen recording isn't"
+    assert "Look: film, cinematic grade, film grain." in video_projects.summary(mixed)
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    said = video_project_tool._video(action="create", title="Trip", scenes=SCENES, recipe="vlog", grade="bw")
+    made = video_projects.list_projects("conversation-a")[0]
+    assert (made.latest.recipe, made.latest.grade) == ("vlog", "bw") and "Look: vlog, bw grade." in said
+    assert "font display" in video_project_tool._brand(font="display", titles="minimal")
+

@@ -236,6 +236,49 @@
       "default": null,
       "title": "Cast"
     },
+    "grade": {
+      "anyOf": [
+        {
+          "enum": [
+            "natural",
+            "warm",
+            "cinematic",
+            "vivid",
+            "bw"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Grade"
+    },
+    "grain": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Grain"
+    },
+    "letterbox": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Letterbox"
+    },
     "music_volume": {
       "anyOf": [
         {
@@ -270,6 +313,22 @@
       "maxLength": 80,
       "title": "Title",
       "type": "string"
+    },
+    "transitions": {
+      "anyOf": [
+        {
+          "enum": [
+            "cut",
+            "crossfade"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transitions"
     },
     "voice": {
       "anyOf": [

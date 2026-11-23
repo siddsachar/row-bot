@@ -345,7 +345,7 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert plan.voices == [(2.0, "sound-1.wav")], "its line starts with the scene, after the intro"
     pictures = [_picture(png) for png in plan.overlays]
     backdrops = [picture for picture in pictures if picture.size == (640, 360)]
-    card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
+    card, caption, intro, outro, end_logo, mark = (picture for picture in pictures if picture.size != (640, 360))
     assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
     lit, right = card.getpixel((card.width // 3, card.height // 2)), card.getpixel((card.width - 12, card.height // 2))
     assert all(abs(a - b) < 12 for a, b in zip(right[:3], (17, 34, 51))) and sum(lit[:3]) > sum(right[:3]), \
@@ -354,7 +354,10 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
-    assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
+    assert "overlay=x=552:y=308:eof_action=repeat:enable='between(t,0,5)'" in plan.graph, \
+        "in the bottom-right corner, 16 px in, until the end card"
+    assert end_logo.height > 1.5 * mark.height and \
+        f"overlay=x={(640 - end_logo.width) // 2}:" in plan.graph, "C5: the end card has the logo, larger, centred"
     # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
     # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named), and slides in and out.
     [(x, y, begin, end)] = re.findall(r"overlay=x='(\d+)-[^']*':y=(\d+):eof_action=repeat:enable='between\(t,([\d.]+),"

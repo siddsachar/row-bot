@@ -589,10 +589,32 @@
       "title": "Exports",
       "type": "array"
     },
+    "grade": {
+      "default": "natural",
+      "enum": [
+        "natural",
+        "warm",
+        "cinematic",
+        "vivid",
+        "bw"
+      ],
+      "title": "Grade",
+      "type": "string"
+    },
+    "grain": {
+      "default": false,
+      "title": "Grain",
+      "type": "boolean"
+    },
     "latest": {
       "minimum": 1,
       "title": "Latest",
       "type": "integer"
+    },
+    "letterbox": {
+      "default": false,
+      "title": "Letterbox",
+      "type": "boolean"
     },
     "logline": {
       "default": "",
@@ -649,6 +671,21 @@
       "title": "Project Id",
       "type": "string"
     },
+    "recipe": {
+      "default": "",
+      "enum": [
+        "",
+        "film",
+        "youtube",
+        "vlog",
+        "montage",
+        "explainer",
+        "demo",
+        "short"
+      ],
+      "title": "Recipe",
+      "type": "string"
+    },
     "review_sheet": {
       "default": "",
       "maxLength": 200,
@@ -679,6 +716,15 @@
       "maxLength": 80,
       "minLength": 1,
       "title": "Title",
+      "type": "string"
+    },
+    "transitions": {
+      "default": "cut",
+      "enum": [
+        "cut",
+        "crossfade"
+      ],
+      "title": "Transitions",
       "type": "string"
     },
     "versions": {
