@@ -119,6 +119,16 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
+# The protocol's WebSockets: path and what it carries. OpenAPI has no WebSocket
+# operation, so they are listed under its ``x-websockets`` extension; the contract
+# tests check this table against the router's WebSocket routes as OPERATIONS is
+# checked against its HTTP routes. Each one is authenticated and origin-checked by
+# the access middleware and bound by a ticket from an authenticated POST.
+WEBSOCKETS = (
+    ("/voice/stream", "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down."),
+    ("/voice/live", "Live voice: the ticket first, then the session's events both ways and a relayed front's audio."),
+)
+
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
 # drives OpenAPI and is checked against the actual router in the contract tests.
 OPERATIONS = (
@@ -2358,7 +2368,8 @@ def outputs() -> dict[Path, str]:
             operation["description"] = "One admitted utterance per lease; receive deadline at most30 seconds and remaining lease lifetime. No audio is persisted. Stop retains admission until actual worker quiescence."
         paths.setdefault("/api/v1" + suffix, {})[method] = operation
     openapi = {"openapi": "3.1.0", "info": {"title": "Row-Bot client protocol", "version": "1.0"},
-               "paths": paths}
+               "paths": paths,
+               "x-websockets": [{"path": "/api/v1" + path, "summary": summary} for path, summary in WEBSOCKETS]}
     result[destination / "schema/openapi.json"] = json.dumps(openapi, indent=2, sort_keys=True) + "\n"
     from row_bot.api.v1.routes import public_problem_codes
 
