@@ -241,6 +241,18 @@ def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecke
         return unchecked
 
 
+def followup_after(conversation_id: str, reply: str, model_ref: str) -> Followup | None:
+    """The one follow-up the app would start after a completed turn that ended with *reply*, decided now (the
+    stop check included), or None. For a caller that runs its own turns (``row-bot run``); never after a
+    follow-up, as in the app."""
+    _carry_on(conversation_id, status="completed", assistant_text=reply, followup_kind="")
+    followup = take(conversation_id)
+    if followup is None or (followup.check_reply and not _still_working(
+            conversation_id, followup.check_reply, model_ref, unchecked=followup.unchecked)):
+        return None
+    return followup
+
+
 _PENDING: dict[str, Followup] = {}
 
 
