@@ -10,7 +10,11 @@ import {
   StepForward,
 } from 'lucide-react';
 import { clientError } from '../../api/errors';
-import type { VideoProjectView, VideoSceneWrite } from '../../api/types';
+import type {
+  VideoPanelRequest,
+  VideoProjectView,
+  VideoSceneWrite,
+} from '../../api/types';
 import {
   type CapabilityResult,
   type SavedFile,
@@ -269,8 +273,14 @@ export default function VideoPanel({
   const restore = (number: number) =>
     act(() => controller.restoreVideoProject(projectId, number));
 
-  /** The person's request, sent to Row-Bot as their message in this chat. */
-  async function ask(text: string): Promise<boolean> {
+  /**
+   * The person's request, sent to Row-Bot as their message in this chat; a
+   * storyboard's request says which of the panel's buttons sent it.
+   */
+  async function ask(
+    text: string,
+    action?: VideoPanelRequest['action'],
+  ): Promise<boolean> {
     setBusy(true);
     setError('');
     setNotice('');
@@ -288,6 +298,7 @@ export default function VideoPanel({
           text,
           attachment_refs: [],
           model_selection: selection,
+          ...(action ? { video_panel: { action } } : {}),
         },
         snapshot.conversation?.id === conversationId
           ? snapshot.conversation.revision
@@ -381,6 +392,7 @@ export default function VideoPanel({
     planned
       ? void ask(
           `Make the video "${view.title}" (${view.project_id}) from its storyboard, version ${view.number}.`,
+          'make',
         )
       : void act(() => controller.makeVideoProject?.(projectId));
   const versionLabel = (number: number) => {

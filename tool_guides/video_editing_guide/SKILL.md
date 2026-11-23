@@ -22,9 +22,8 @@ tags: []
   footage, change those scenes with their sources, then video action make.
   A comment on a card comes to you as their message: change that scene.
   Quick edits and a video of one scene are made at once.
-- A card shows a frame of its footage. For footage not made yet, give it a
-  frame from generate_image only when that tool is on; otherwise its words
-  are enough.
+- For footage not made yet its words are enough; make a frame with
+  generate_image only when the person asked for pictures in the storyboard.
 - Render the final through the video tool whenever it can do the job. Only
   when a look needs more than it offers, a script of your own (ffmpeg,
   Pillow) is the fallback: check still frames of each scene first, render

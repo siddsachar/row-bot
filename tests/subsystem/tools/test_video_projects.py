@@ -507,7 +507,7 @@ def test_scenes_that_cannot_be_used_are_refused_plainly(studio):
                           ([{"source": "signup.mp4", "start": 5, "end": 4}], "ends before it starts"),
                           ([{"line": "Hello."}], "give it a card to make it a title card"),
                           ([{"footage": "ai"}], "say what it shows, so its AI shot can be made"),
-                          ([{"footage": "film"}], "its footage is clip, picture, ai, card, screen")):
+                          ([{"footage": "film"}], "its footage is one of clip, picture, ai, card or screen")):
         with pytest.raises(video_projects.ProjectError, match=words):
             video_projects.create("conversation-a", "Demo", scenes)
 
@@ -963,7 +963,9 @@ def test_a_storyboard_plans_every_kind_of_footage_and_makes_nothing_until_its_fo
     assert ('AI shot to make, 4 s, shows "a fox crossing deep snow at dawn", music "strings swell" — '
             '"The fox knew first."') in lines[3]
     assert 'signup.mp4 0–2 s, shows "the town waking up"' in lines[4]
-    assert lines[5].startswith("Storyboard, nothing made yet: show it to the person")
+    assert lines[5] == ("Storyboard, nothing made yet: show it to the person (the Video panel shows each scene as "
+                        "a card to approve, change or comment on). Make it with action make once they approve. Make "
+                        "it at once only when they said to skip the storyboard.")
     assert lines[6].startswith('No footage yet: scene 2 (AI shot: a fox crossing deep snow at dawn).')
     assert studio["started"] == [] and studio["said"] == [], "nothing is voiced or made"
     [project] = video_projects.list_projects("conversation-a")

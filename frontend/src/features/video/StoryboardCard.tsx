@@ -23,7 +23,11 @@ import {
   X,
   ZoomIn,
 } from 'lucide-react';
-import type { VideoScene, VideoSceneWrite } from '../../api/types';
+import type {
+  VideoPanelRequest,
+  VideoScene,
+  VideoSceneWrite,
+} from '../../api/types';
 import { useRuntime } from '../../runtime';
 import {
   Disclosure,
@@ -222,7 +226,10 @@ export function StoryboardCard({
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
   onApprove: (approved: boolean) => void;
-  onAsk: (text: string) => Promise<boolean>;
+  onAsk: (
+    text: string,
+    action: VideoPanelRequest['action'],
+  ) => Promise<boolean>;
   onSeek: (at: number) => void;
 }) {
   const kept = `${projectId}:${scene.scene_id}`;
@@ -245,18 +252,19 @@ export function StoryboardCard({
   const saved = Boolean(shown && scene.scene_id);
   // A piece of a video: its speed and trim. A picture or a card is held for its seconds.
   const cut = Boolean(scene.source) && footage !== 'picture';
-  const ask = (words: string) =>
+  const ask = (words: string, action: VideoPanelRequest['action']) =>
     onAsk(
       sceneRequest(
         { number, sceneId: scene.scene_id ?? '' },
         { title, projectId },
         words,
       ),
+      action,
     );
   async function send() {
     const words = comment.trim();
     if (!words) return;
-    if (await ask(words)) {
+    if (await ask(words, 'comment')) {
       setText('');
       setCommenting(false);
     }
@@ -474,6 +482,7 @@ export function StoryboardCard({
                 onSelect: () =>
                   void ask(
                     `swap its footage for ${kind === 'ai' ? 'an AI shot' : `a ${FOOTAGE[kind].toLowerCase()}`}.`,
+                    'swap',
                   ),
               }))}
           >
@@ -489,6 +498,7 @@ export function StoryboardCard({
                   footage === 'ai'
                     ? 'make a new take of its AI shot.'
                     : 'make a new picture for it.',
+                  'new_take',
                 )
               }
             >

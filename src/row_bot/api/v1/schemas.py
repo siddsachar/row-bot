@@ -155,6 +155,12 @@ class TappedChoice(WireModel):
     label: str | None = Field(default=None, min_length=1, max_length=40)
 
 
+class VideoPanelRequest(WireModel):
+    """The Video panel's request sent as the person's message (C1): a comment on a storyboard card, a swap of its
+    footage, a new take, or making a storyboard whose footage Row-Bot makes first."""
+    action: Literal["comment", "swap", "new_take", "make"]
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -167,6 +173,8 @@ class SubmitPayload(WireModel):
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
     # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
     tapped_choice: TappedChoice | None = None
+    # The Video panel's request (C1): which of its buttons sent the person's words.
+    video_panel: VideoPanelRequest | None = None
     # The sending device's IANA zone ("Europe/London"): "local time" in this turn means it (M10).
     time_zone: str | None = Field(default=None, max_length=64)
 

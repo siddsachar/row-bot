@@ -565,6 +565,7 @@ it('a storyboard shows its logline and cards, and Make asks Row-Bot when footage
   expect(body.text).toBe(
     'Make the video "First snow" (vid-1a2b3c4d) from its storyboard, version 1.',
   );
+  expect(body.video_panel).toEqual({ action: 'make' });
 });
 
 it('a storyboard with all its footage is made from the panel, and its scenes are approved one by one', async () => {

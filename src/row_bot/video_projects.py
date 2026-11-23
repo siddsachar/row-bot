@@ -363,7 +363,7 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
         shows, cue, frame = kept("shows", MAX_SHOWS), kept("cue", MAX_CUE), kept("frame", 512)
         given = kept("footage", 16)
         if given and given not in FOOTAGE:
-            raise ProjectError(f"Scene {number}: its footage is {', '.join(FOOTAGE)}.")
+            raise ProjectError(f"Scene {number}: its footage is one of clip, picture, ai, card or screen.")
         if frame and kinds.get(frame, "image") != "image":
             raise ProjectError(f"Scene {number}: its frame is a picture, not {frame}.")
         picture = kinds.get(source) == "image"
@@ -1184,8 +1184,8 @@ def summary(project: Project, number: int | None = None) -> str:
         lines.append(f"{index}. [{scene['scene_id']}] {what} {span}{', ' + extra if extra else ''}{line}")
     if data["status"] == "draft" and shown is not None:
         lines.append("Storyboard, nothing made yet: show it to the person (the Video panel shows each scene as a "
-                     "card to approve, change or comment on). Make it with action make once they approve, or now if "
-                     "they asked for the video without a look first.")
+                     "card to approve, change or comment on). Make it with action make once they approve. Make it at "
+                     "once only when they said to skip the storyboard.")
         if planned(shown):
             lines.append(planned_words(planned(shown)))
     makes = [scene["made"] for scene in data["scenes"]]

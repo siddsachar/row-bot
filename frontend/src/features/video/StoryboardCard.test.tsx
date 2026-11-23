@@ -154,6 +154,7 @@ it('a comment reaches Row-Bot as the person’s words about this scene, and the 
   await userEvent.type(box, 'make this one moodier{Enter}');
   expect(onAsk).toHaveBeenCalledWith(
     'Scene 2 [s0f0f0f] of the video "First snow" (vid-1a2b3c4d): make this one moodier',
+    'comment',
   );
   await waitFor(() =>
     expect(
@@ -176,12 +177,14 @@ it('approves the scene, swaps its footage and asks for a new take, each in one t
   );
   expect(onAsk).toHaveBeenLastCalledWith(
     expect.stringMatching(/: swap its footage for a screen recording\.$/),
+    'swap',
   );
   await userEvent.click(
     screen.getByRole('button', { name: 'New take of scene 2' }),
   );
   expect(onAsk).toHaveBeenLastCalledWith(
     expect.stringMatching(/: make a new take of its AI shot\.$/),
+    'new_take',
   );
 });
 
