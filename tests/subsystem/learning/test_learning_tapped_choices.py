@@ -69,6 +69,29 @@ def test_a_tapped_answer_is_never_a_correction_but_the_same_words_typed_are(writ
         == {replies["typed"]}
 
 
+STORYBOARD = "Storyboard, nothing made yet: 4 scenes. Approve it, change it or comment on a card."
+COMMENT = 'Scene 2 [s2] of the video "Launch" (vid-1): that is wrong, use the blue logo'
+
+
+def test_a_comment_the_video_panel_sends_on_a_storyboard_is_never_a_correction(writer, chats, learning_on, clock):
+    """C1: a storyboard asks for comments; the Video panel sends one as the person's message, marked
+    ``video_panel``. The same words typed are still judged by the rule."""
+
+    assert corrections.judge(COMMENT) == "correction"  # the words alone read as one
+    replies = {}
+    for thread_id, panel in (("panel", {"video_panel": {"action": "comment"}}), ("typed", {})):
+        replies[thread_id], kept = _turn(writer, chats, clock, thread_id, _typed(thread_id, ASK, 0), STORYBOARD)
+        message = HumanMessage(content=COMMENT, id=f"h-{thread_id}-1", additional_kwargs=panel)
+        _turn(writer, chats, clock, thread_id, message, "Changed scene 2: the blue logo.", history=kept)
+    store = LearningStore(learning_on, clock=clock)
+    clock.advance(HOUR)
+
+    report = corrections.confirm(store)
+
+    assert report.confirmed == (replies["typed"],)
+    assert report.by_verdict.get("tapped") == 1
+
+
 def test_a_redo_the_person_answered_with_a_tap_is_accepted(writer, chats, learning_on, clock):
     first, kept = _turn(writer, chats, clock, "chat-1", _typed("chat-1", ASK, 0), "I moved every invoice.")
     redo, kept = _turn(writer, chats, clock, "chat-1",
