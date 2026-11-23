@@ -70,7 +70,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0
+          # ffmpeg: the slow video tests make real videos (encode, mix, loudness) only where it is installed.
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 ffmpeg
 
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
