@@ -1,11 +1,27 @@
 # syntax=docker/dockerfile:1.7
-# Row-Bot Org server (pre-release). Build from the repository root:
+# Row-Bot Org server (pre-release), with its admin console. Build from the repository root:
 #   docker build -f deploy/org/Dockerfile -t row-bot-org:dev .
+# (deploy/org/compose.yaml builds it too.)
 
 ARG PYTHON_IMAGE=python:3.13.5-slim-bookworm
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.7.22
+ARG CONSOLE_NODE_IMAGE=node:24.15.0-bookworm-slim
 
 FROM ${UV_IMAGE} AS uv
+
+# The admin console (frontend/src/console, vite.console.config.ts). Only its built files leave this stage;
+# the app's own client is never built or copied.
+FROM ${CONSOLE_NODE_IMAGE} AS console-build
+
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts --no-audit --no-fund
+
+COPY frontend ./
+# The console reads the policy's settings and defaults from the published schema.
+COPY contracts/policy/v1/CompanyPolicy.schema.json /build/contracts/policy/v1/CompanyPolicy.schema.json
+RUN npm run console:build
 
 FROM ${PYTHON_IMAGE} AS builder
 
@@ -48,9 +64,12 @@ ENV PATH=/opt/row-bot-org/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     ROW_BOT_ORG_HOST=0.0.0.0 \
     ROW_BOT_ORG_PORT=8100 \
+    ROW_BOT_ORG_CONSOLE_DIR=/opt/row-bot-org/console \
     ROW_BOT_SECRETS_DIR=/run/secrets
 
 COPY --from=builder /opt/row-bot-org /opt/row-bot-org
+# The built admin console only (ROW_BOT_ORG_CONSOLE_DIR).
+COPY --from=console-build /build/frontend/dist-console /opt/row-bot-org/console
 
 RUN groupadd --gid "${ROW_BOT_ORG_GID}" rowbot \
     && useradd --uid "${ROW_BOT_ORG_UID}" --gid "${ROW_BOT_ORG_GID}" \

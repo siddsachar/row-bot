@@ -1,2 +1,5 @@
-# The compose example's secret files: never committed.
+# The Compose deployment's secret files, its settings and backups: never committed.
 secrets/
+org.env
+.env
+*.dump

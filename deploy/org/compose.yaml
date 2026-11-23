@@ -1,38 +1,107 @@
-# Row-Bot Org server (pre-release): an example. From the repository root:
-#   docker compose -f deploy/org/compose.yaml up --build
+# Row-Bot Org: the Company Server (pre-release). deploy/org/README.md is the first-run guide. From this folder:
+#   python make_secrets.py && cp org.env.example org.env   # then fill in org.env and the IdP client secret
+#   docker compose up -d --build
+#
+# Compose reads these from the shell or from a .env file in this folder (never org.env: the server refuses any
+# ROW_BOT_ORG_* variable it doesn't know):
+#   ROW_BOT_ORG_IMAGE         the server image and tag, row-bot-org:dev by default (pin a tag of your own)
+#   ROW_BOT_ORG_BIND_ADDRESS  the host address the server's port is published on, 127.0.0.1 by default
+#   ROW_BOT_ORG_HOST_PORT     the host port, 8100 by default
+#   ROW_BOT_ORG_SECRETS_DIR   the folder make_secrets.py wrote, ./secrets by default
+#   ROW_BOT_ORG_ENV_FILE      the server's settings, ./org.env by default
+
+x-server-image: &server-image
+  image: ${ROW_BOT_ORG_IMAGE:-row-bot-org:dev}
+  build:
+    context: ../..
+    dockerfile: deploy/org/Dockerfile
+
+x-hardening: &hardening
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
 services:
-  row-bot-org:
-    image: ${ROW_BOT_ORG_IMAGE:-row-bot-org:dev}
-    build:
-      context: ../..
-      dockerfile: deploy/org/Dockerfile
-    init: true
+  # Postgres 17 with pgvector. Its port is never published: only the two services below reach it, on the
+  # project's own network. initdb/ makes the database and roles the first time the volume is empty.
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
     restart: unless-stopped
-    user: "10001:10001"
     environment:
-      ROW_BOT_ORG_HOST: 0.0.0.0
-      ROW_BOT_ORG_PORT: "8100"
-      ROW_BOT_ORG_LOG_LEVEL: INFO
-    # The runtime role's database address as a file in /run/secrets (ROW_BOT_SECRETS_DIR), never a
-    # variable: see README.md for the roles and `row-bot-org migrate`. The file must be readable by 10001.
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
-      - ROW_BOT_ORG_DATABASE_URL
-    # Loopback on the host unless you choose otherwise; put a TLS reverse proxy in front.
-    ports:
-      - "${ROW_BOT_ORG_BIND_ADDRESS:-127.0.0.1}:${ROW_BOT_ORG_HOST_PORT:-8100}:8100"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m
-    cap_drop:
-      - ALL
+      - postgres_password
+      - owner_password
+      - app_password
+    volumes:
+      - row-bot-org-db:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 30s
+    stop_grace_period: 60s
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "5"
+    # Over TCP, so it passes only once the first-run setup (which listens on a socket alone) is done.
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--port", "5432", "--dbname", "row_bot_org",
+             "--username", "row_bot_org_owner"]
+      interval: 5s
+      timeout: 3s
+      start_period: 60s
+      retries: 10
+
+  # Brings the database up to date as the owner, then exits. The server starts only after it succeeded. The
+  # operator's commands run here too: docker compose run --rm migrate principals grant-admin <email>.
+  migrate:
+    <<: [*server-image, *hardening]
+    command: ["migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    secrets:
+      - ROW_BOT_ORG_MIGRATION_DATABASE_URL
+    healthcheck:
+      disable: true
+
+  row-bot-org:
+    <<: [*server-image, *hardening]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      ROW_BOT_ORG_HOST: 0.0.0.0
+      ROW_BOT_ORG_PORT: "8100"
+    # Sign-in and the rest of the server's settings (org.env.example). Secrets are files, below.
+    env_file:
+      - ${ROW_BOT_ORG_ENV_FILE:-./org.env}
+    # As the app role, never the owner: the server refuses to start as a role that owns its tables.
+    secrets:
+      - ROW_BOT_ORG_DATABASE_URL
+      - ROW_BOT_ORG_HMAC_PEPPER
+      - ROW_BOT_ORG_IDP_CLIENT_SECRET
+      - ROW_BOT_ORG_GATEWAY_KEY
+    # Loopback on the host unless you choose otherwise; put a TLS reverse proxy in front.
+    ports:
+      - "${ROW_BOT_ORG_BIND_ADDRESS:-127.0.0.1}:${ROW_BOT_ORG_HOST_PORT:-8100}:8100"
+    stop_grace_period: 30s
     healthcheck:
       test:
         - CMD
@@ -49,6 +118,24 @@ services:
       start_period: 10s
       retries: 5
 
+volumes:
+  row-bot-org-db:
+
+# Files make_secrets.py wrote (README.md, Back up and restore). Compose mounts each at /run/secrets/<name>.
 secrets:
+  postgres_password:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/postgres_password
+  owner_password:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/owner_password
+  app_password:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/app_password
+  ROW_BOT_ORG_MIGRATION_DATABASE_URL:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/ROW_BOT_ORG_MIGRATION_DATABASE_URL
   ROW_BOT_ORG_DATABASE_URL:
-    file: ./secrets/ROW_BOT_ORG_DATABASE_URL
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/ROW_BOT_ORG_DATABASE_URL
+  ROW_BOT_ORG_HMAC_PEPPER:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/ROW_BOT_ORG_HMAC_PEPPER
+  ROW_BOT_ORG_IDP_CLIENT_SECRET:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/ROW_BOT_ORG_IDP_CLIENT_SECRET
+  ROW_BOT_ORG_GATEWAY_KEY:
+    file: ${ROW_BOT_ORG_SECRETS_DIR:-./secrets}/ROW_BOT_ORG_GATEWAY_KEY

@@ -14,6 +14,7 @@ build
 dist
 frontend/node_modules
 frontend/dist
+frontend/dist-console
 frontend/.vite
 frontend/test-results
 frontend/playwright-report
@@ -37,3 +38,7 @@ docs-content
 *.pfx
 **/.row-bot
 **/row-bot-data
+deploy/org/secrets
+deploy/org/org.env
+deploy/org/.env
+deploy/org/*.dump
