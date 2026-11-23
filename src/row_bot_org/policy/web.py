@@ -9,9 +9,10 @@
   policy or of one group's override, checked strictly (422 with the setting at fault). The body's
   ``version`` is required (428 without one) and must be the newest one of that scope (409 otherwise). An
   override must widen the current company policy in everything it sets (422 naming what adds nothing). An
-  empty override (``{}``) takes the group's override away. The answer is ``{"policy": ...}``; a company
-  write adds ``still_granted_by``, the overrides that still grant what it took away, for the console to
-  warn about. Each write emits ``policy.changed``.
+  empty override (``{}``) takes the group's override away. The answer is ``{"policy": ...,
+  "unknown_models": [...]}``, the ``models.allowed`` names no catalog model has (a warning, not a refusal: a
+  model may be added to the catalog later); a company write adds ``still_granted_by``, the overrides that
+  still grant what it took away, for the console to warn about. Each write emits ``policy.changed``.
 - ``GET /api/admin/policy/history``: every version, newest first (``limit``, ``before``).
 
 The admin routes need an admin (``identity.roles.admin_connection``; 403 otherwise, before the body is read).
@@ -27,7 +28,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from row_bot.policy import (
-    MAX_DOCUMENT_BYTES, ONLY_WIDEN, PolicyError, canonical_json, document_to_dict, loads, parse_override, parse_policy,
+    ALL_MODELS, MAX_DOCUMENT_BYTES, ONLY_WIDEN, PolicyError, canonical_json, document_to_dict, loads, parse_override, parse_policy,
     policy_to_dict,
 )
 from row_bot.audit import Action
@@ -121,7 +122,11 @@ def policy_router() -> APIRouter:
         audit.emit(conn, Action.POLICY_CHANGED, actor=audit.admin(principal.principal_id), details={
             "digest": hashlib.sha256(canonical_json(stored)).hexdigest(), "schema_version": POLICY_SCHEMA_VERSION,
             **({} if group is None else {"group": group})})
-        answer: dict[str, Any] = {"policy": document_to_dict(revision.document)}
+        named = revision.document.settings.get("models", {}).get("allowed", frozenset()) - {ALL_MODELS}
+        known = {name for (name,) in conn.execute("SELECT name FROM row_bot_org.catalog_models"
+                                                  " WHERE name = ANY(%s)", (sorted(named),))}
+        answer: dict[str, Any] = {"policy": document_to_dict(revision.document),
+                                  "unknown_models": sorted(named - known)}
         if group is None:
             answer["still_granted_by"] = written.still_granted_by
         return JSONResponse(answer)

@@ -9,6 +9,7 @@ src/*.egg-info/
 # Node.js (WhatsApp bridge)
 frontend/node_modules/
 frontend/dist/
+frontend/dist-console/
 frontend/playwright-report/
 frontend/test-results/
 src/row_bot/static/client-v2/
