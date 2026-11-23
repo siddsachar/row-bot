@@ -5,6 +5,8 @@ import type {
 } from '../../../../src/row_bot/voice/realtime_runtime.js';
 import type { VoiceSocket } from '../../api/types';
 import { LiveVoiceSession, projectEvent } from './live-voice-session';
+import { buddyListening, buddyVoiceLevel } from '../buddy/living/voice';
+import { chooseDevice } from './devices';
 import { FakeAudio, FakeSocket, audioFrame } from './voice-test-fakes';
 
 const TICKET = 'ticket-xxxxxxxxxxxxxxxxxxxxxxxxxxxx';
@@ -165,4 +167,72 @@ it('projects only whitelisted fields and refuses malformed ones', () => {
   expect(() =>
     projectEvent({ type: 'transcript_final', text: 'x'.repeat(4001) }),
   ).toThrow();
+});
+
+it('Buddy listens and lip-syncs during a relayed Live voice session, and stops when it ends', async () => {
+  const { live, sockets, audio } = session('gemini_live');
+  const started = live.start();
+  await Promise.resolve();
+  sockets[0].open();
+  sockets[0].emit({ type: 'ready', output_sample_rate: 24000 });
+  await started;
+  expect(buddyListening()).toBe(true);
+  sockets[0].emit({ type: 'state', state: 'thinking', muted: false });
+  expect(buddyListening()).toBe(false);
+  // The front's speech plays through the same playback, whose loudness Buddy follows.
+  audio.playback!.level(0.8);
+  expect(buddyVoiceLevel()).toBeCloseTo(0.8);
+  await live.end();
+  expect(buddyVoiceLevel()).toBe(0);
+  expect(buddyListening()).toBe(false);
+});
+
+/** OpenAI's call, with an audio context to read its speech's loudness. */
+function speechLevel(value: number) {
+  const closed = vi.fn(async () => undefined);
+  vi.stubGlobal(
+    'AudioContext',
+    class {
+      createAnalyser = () => ({
+        fftSize: 4,
+        getFloatTimeDomainData: (samples: Float32Array) => samples.fill(value),
+      });
+      createMediaStreamSource = () => ({ connect: () => undefined });
+      close = closed;
+    },
+  );
+  vi.stubGlobal('MediaStream', class {});
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) =>
+    frames.push(run),
+  );
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  return { closed, frame: () => frames.shift()?.(0) };
+}
+
+it('OpenAI: Buddy lip-syncs to the call’s own speech, and the call uses the chosen microphone', async () => {
+  const level = speechLevel(0.1);
+  chooseDevice({ input: 'headset' });
+  const { live, sockets, runtime } = session('openai_realtime');
+  const started = live.start();
+  sockets[0].open();
+  sockets[0].emit({ type: 'ready', output_sample_rate: 24000 });
+  await started;
+  const options = runtime.options();
+  expect(options.microphone).toMatchObject({
+    echoCancellation: true,
+    deviceId: { ideal: 'headset' },
+  });
+  runtime.runtime.session = {
+    pc: {} as RTCPeerConnection,
+    audio: { srcObject: new MediaStream() } as HTMLAudioElement,
+  } as never;
+  options.emit({ type: 'remote_audio_track', streams: 1 });
+  level.frame();
+  expect(buddyVoiceLevel()).toBeCloseTo(0.5);
+  await live.end();
+  expect(buddyVoiceLevel()).toBe(0);
+  expect(level.closed).toHaveBeenCalled();
+  chooseDevice({ input: '' });
+  vi.unstubAllGlobals();
 });

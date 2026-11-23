@@ -8,12 +8,27 @@
  * output. WebKit (Safari, the macOS app's WKWebView, iPhone) is given the
  * known in-page fix: playback goes through a local loopback peer connection
  * pair (no ICE servers, no network), so its echo canceller hears it.
+ *
+ * The microphone and speaker are the ones chosen in this browser
+ * (`devices.ts`). A chosen microphone that goes away (unplugged, a headset
+ * switched off) gives way to the default at once, and comes back when it is
+ * connected again; `device` tells the bar either way.
  */
 import captureWorkletUrl from './capture.worklet.ts?worker&url';
+import {
+  canChooseOutput,
+  connected,
+  deviceChoice,
+  onDeviceChoice,
+  openMicrophone,
+  type DeviceNotice,
+} from './devices';
 
 export type CaptureCallbacks = {
   frame(pcm: ArrayBuffer): void;
   level(level: number): void;
+  /** The chosen microphone or speaker isn't the one in use (null: it is again). */
+  device?(notice: DeviceNotice | null): void;
 };
 
 export type PlaybackCallbacks = {
@@ -109,6 +124,36 @@ async function loopbackOutput(context: AudioContext): Promise<Loopback> {
   }
 }
 
+/**
+ * Read a stream's loudness each frame (for Buddy's lip sync) without playing
+ * it again; returns a stop. Live voice's OpenAI call plays its own speech.
+ */
+export function followStreamLevel(
+  stream: MediaStream,
+  level: (value: number) => void,
+): () => void {
+  if (typeof AudioContext === 'undefined') return () => undefined;
+  const context = new AudioContext();
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 512;
+  context.createMediaStreamSource(stream).connect(analyser);
+  const samples = new Float32Array(analyser.fftSize);
+  let frame = 0;
+  const measure = () => {
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const sample of samples) sum += sample * sample;
+    level(Math.min(1, Math.sqrt(sum / samples.length) * 5));
+    frame = requestAnimationFrame(measure);
+  };
+  frame = requestAnimationFrame(measure);
+  return () => {
+    cancelAnimationFrame(frame);
+    level(0);
+    void context.close().catch(() => undefined);
+  };
+}
+
 export class BrowserVoiceAudio implements VoiceAudio {
   private stream: MediaStream | null = null;
   private captureContext: AudioContext | null = null;
@@ -124,17 +169,37 @@ export class BrowserVoiceAudio implements VoiceAudio {
   private started = new Set<number>();
   private meter = 0;
   private closed = false;
+  private micEnabled = true;
+  // The microphone it was opened for, and whether the default stands in.
+  private micChosen = '';
+  private fellBack = { input: false, output: false };
+  private noInput = false;
+  private notice: DeviceNotice | null = null;
+  private unfollow: (() => void) | null = null;
 
   async startCapture(callbacks: CaptureCallbacks) {
     this.capture = callbacks;
     await this.openMic();
     await this.openPlayback();
+    const media = navigator.mediaDevices;
+    const unchoose = onDeviceChoice(() => void this.chosen());
+    media.addEventListener?.('devicechange', this.devicesChanged);
+    this.unfollow = () => {
+      unchoose();
+      media.removeEventListener?.('devicechange', this.devicesChanged);
+    };
   }
 
   private async openMic() {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: CAPTURE_CONSTRAINTS,
-    });
+    const chosen = deviceChoice().input;
+    const { stream, fellBack } = await openMicrophone(
+      CAPTURE_CONSTRAINTS,
+      chosen,
+    );
+    if (this.closed) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     let context: AudioContext;
     try {
       context = new AudioContext({
@@ -166,6 +231,87 @@ export class BrowserVoiceAudio implements VoiceAudio {
     }
     this.stream = stream;
     this.captureContext = context;
+    this.micChosen = chosen;
+    this.fellBack.input = fellBack;
+    this.noInput = false;
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = this.micEnabled;
+      // The browser ends the track when the device goes away.
+      track.addEventListener('ended', this.micLost);
+    });
+    this.tell();
+  }
+
+  private micLost = () => {
+    if (!this.closed && this.stream) void this.reopenMic();
+  };
+
+  private async reopenMic() {
+    this.closeMic();
+    try {
+      await this.openMic();
+    } catch {
+      // No microphone left: listening waits for one to be connected.
+      this.noInput = true;
+      this.tell();
+    }
+  }
+
+  private devicesChanged = () => void this.recheck();
+
+  /** A device came or went: go back to the chosen ones when they're here again. */
+  private async recheck() {
+    if (this.closed) return;
+    const chosen = deviceChoice();
+    if (
+      this.noInput ||
+      (this.stream &&
+        this.fellBack.input &&
+        (await connected('inputs', chosen.input)))
+    )
+      await this.reopenMic();
+    if (!this.playback || !chosen.output || !canChooseOutput()) return;
+    const present = await connected('outputs', chosen.output);
+    if (present === this.fellBack.output)
+      await this.useSpeaker(present ? chosen.output : '');
+  }
+
+  /** The person chose another microphone or speaker. */
+  private async chosen() {
+    if (this.closed) return;
+    const chosen = deviceChoice();
+    if (this.stream && chosen.input !== this.micChosen) await this.reopenMic();
+    if (this.playback && canChooseOutput())
+      await this.useSpeaker(chosen.output);
+  }
+
+  private async useSpeaker(id: string) {
+    const context = this.playback as
+      (AudioContext & { setSinkId?(id: string): Promise<void> }) | null;
+    if (!context?.setSinkId) return;
+    const wanted = deviceChoice().output;
+    try {
+      await context.setSinkId(id);
+      this.fellBack.output = Boolean(wanted) && id !== wanted;
+    } catch {
+      // That speaker can't be used (it just went away): the default plays.
+      await context.setSinkId('').catch(() => undefined);
+      this.fellBack.output = Boolean(wanted);
+    }
+    this.tell();
+  }
+
+  private tell() {
+    const notice: DeviceNotice | null = this.noInput
+      ? 'no-input'
+      : this.fellBack.input
+        ? 'input'
+        : this.fellBack.output
+          ? 'output'
+          : null;
+    if (notice === this.notice) return;
+    this.notice = notice;
+    this.capture?.device?.(notice);
   }
 
   private async openPlayback() {
@@ -195,6 +341,8 @@ export class BrowserVoiceAudio implements VoiceAudio {
     this.output = output;
     this.analyser = analyser;
     if (context.state === 'suspended') void context.resume();
+    const speaker = deviceChoice().output;
+    if (speaker && canChooseOutput()) await this.useSpeaker(speaker);
     this.measure();
   }
 
@@ -210,11 +358,18 @@ export class BrowserVoiceAudio implements VoiceAudio {
     requestAnimationFrame(this.measure);
   };
 
-  pauseCapture() {
-    this.stream?.getTracks().forEach((track) => track.stop());
+  private closeMic() {
+    this.stream?.getTracks().forEach((track) => {
+      track.removeEventListener('ended', this.micLost);
+      track.stop();
+    });
     this.stream = null;
     void this.captureContext?.close().catch(() => undefined);
     this.captureContext = null;
+  }
+
+  pauseCapture() {
+    this.closeMic();
   }
 
   async resumeCapture() {
@@ -222,6 +377,7 @@ export class BrowserVoiceAudio implements VoiceAudio {
   }
 
   setMicEnabled(enabled: boolean) {
+    this.micEnabled = enabled;
     this.stream?.getAudioTracks().forEach((track) => (track.enabled = enabled));
   }
 
@@ -292,6 +448,8 @@ export class BrowserVoiceAudio implements VoiceAudio {
 
   close() {
     this.closed = true;
+    this.unfollow?.();
+    this.unfollow = null;
     this.flush();
     this.pauseCapture();
     this.loopback?.close();

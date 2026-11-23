@@ -16,7 +16,19 @@ import {
   startRealtimeRuntime,
   type RealtimeRuntime,
 } from '../../../../src/row_bot/voice/realtime_runtime.js';
-import { BrowserVoiceAudio, type VoiceAudio } from './voice-audio';
+import {
+  BrowserVoiceAudio,
+  CAPTURE_CONSTRAINTS,
+  followStreamLevel,
+  type VoiceAudio,
+} from './voice-audio';
+import {
+  canChooseOutput,
+  deviceChoice,
+  onDeviceChoice,
+  openMicrophone,
+} from './devices';
+import { VoicePresence } from './presence';
 import {
   BrowserShare,
   sendStill,
@@ -143,6 +155,7 @@ const INITIAL: VoiceSnapshot = {
   canShare: 'no',
   // Live voice speaks with its own voice: no cloud speech part stands in.
   fallbacks: [],
+  device: null,
 };
 
 export class LiveVoiceSession {
@@ -159,6 +172,10 @@ export class LiveVoiceSession {
   private stopped: Promise<unknown> = Promise.resolve();
   private share: VoiceShare;
   private showing: ReturnType<typeof setInterval> | null = null;
+  private presence: VoicePresence | null = null;
+  // OpenAI's call: its speech's loudness for Buddy, and the device choice it follows.
+  private unfollowLevel: (() => void) | null = null;
+  private unchoose: (() => void) | null = null;
 
   constructor(
     private deps: LiveVoiceDeps,
@@ -189,6 +206,7 @@ export class LiveVoiceSession {
   private set(patch: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...patch };
     setBuddyListening(this.snapshot.orb === 'listening');
+    this.presence?.update(this.snapshot);
     this.listeners.forEach((listener) => listener());
   }
 
@@ -200,6 +218,7 @@ export class LiveVoiceSession {
         await audio.startCapture({
           frame: (pcm) => this.sendAudio(pcm),
           level: (level) => this.inputLevel(level),
+          device: (device) => this.set({ device }),
         });
       } catch (error) {
         this.finish(microphoneError(error));
@@ -214,13 +233,28 @@ export class LiveVoiceSession {
     const opened = new Promise<void>((resolve) => (this.ready = resolve));
     this.connect(this.firstTicket);
     await opened;
-    if (!this.ended && !this.relayed) await this.call();
+    if (this.ended) return;
+    this.presence = new VoicePresence({
+      mute: (muted) => this.setMuted(muted),
+      end: () => void this.end(),
+    });
+    this.presence.update(this.snapshot);
+    if (!this.relayed) {
+      await this.call();
+      this.followCall();
+    }
   }
 
   /** OpenAI: the WebRTC call, its SDP exchanged by the host and its events sent up the socket. */
   private async call() {
     const start = this.deps.startRuntime ?? startRealtimeRuntime;
+    const chosen = deviceChoice();
     await start({
+      // The microphone and speaker chosen in this browser (the default when it isn't connected).
+      microphone: chosen.input
+        ? { ...CAPTURE_CONSTRAINTS, deviceId: { ideal: chosen.input } }
+        : CAPTURE_CONSTRAINTS,
+      speaker: canChooseOutput() ? chosen.output : '',
       exchangeManaged: true,
       sessionId: this.deps.sessionId,
       threadId: this.deps.conversationId,
@@ -237,6 +271,7 @@ export class LiveVoiceSession {
           this.finish('realtime_disconnected');
           return;
         }
+        if (raw.type === 'remote_audio_track') this.followSpeech();
         try {
           const event = projectEvent(raw);
           if (event) this.send({ type: 'event', event });
@@ -245,6 +280,76 @@ export class LiveVoiceSession {
         }
       },
     });
+  }
+
+  /** Buddy lip-syncs to the call's speech, read from its stream (the audio itself is untouched). */
+  private followSpeech() {
+    const stream = this.runtime?.session?.audio.srcObject;
+    this.unfollowLevel?.();
+    this.unfollowLevel =
+      stream instanceof MediaStream
+        ? followStreamLevel(stream, (level) => setBuddyVoiceLevel(level))
+        : null;
+  }
+
+  /** OpenAI's call: say when the default microphone stands in, and follow the device choice. */
+  private followCall() {
+    const call = this.runtime?.session;
+    if (!call || this.ended) return;
+    this.micChosen = deviceChoice().input;
+    this.watchTrack(call.stream, this.micChosen);
+    this.unchoose = onDeviceChoice(() => void this.switchDevices());
+  }
+
+  private watchTrack(stream: MediaStream | undefined, chosen: string) {
+    const track = stream?.getAudioTracks()[0];
+    if (!track) return;
+    const used = track.getSettings?.().deviceId;
+    this.set({ device: chosen && used && used !== chosen ? 'input' : null });
+    // The device went away: the default takes over at once.
+    track.addEventListener('ended', () => void this.switchMicrophone());
+  }
+
+  private micChosen = '';
+
+  private async switchDevices() {
+    const call = this.runtime?.session;
+    if (!call || this.ended) return;
+    const chosen = deviceChoice();
+    const audio = call.audio as HTMLAudioElement & {
+      setSinkId?(id: string): Promise<void>;
+    };
+    if (canChooseOutput() && audio.setSinkId)
+      await audio.setSinkId(chosen.output).catch(() => undefined);
+    if (chosen.input !== this.micChosen) await this.switchMicrophone();
+  }
+
+  /** Put the chosen microphone (or the default) on the call in place of the one it has. */
+  private async switchMicrophone() {
+    const call = this.runtime?.session;
+    if (!call || this.ended) return;
+    const chosen = deviceChoice().input;
+    this.micChosen = chosen;
+    let opened: Awaited<ReturnType<typeof openMicrophone>>;
+    try {
+      opened = await openMicrophone(CAPTURE_CONSTRAINTS, chosen);
+    } catch {
+      this.set({ device: 'no-input' });
+      return;
+    }
+    const track = opened.stream.getAudioTracks()[0];
+    const sender = call.pc
+      .getSenders()
+      .find((item) => item.track?.kind === 'audio' || item.track === null);
+    if (this.ended || !track || !sender || this.runtime?.session !== call) {
+      opened.stream.getTracks().forEach((item) => item.stop());
+      return;
+    }
+    track.enabled = !this.snapshot.muted;
+    await sender.replaceTrack(track);
+    call.stream?.getTracks().forEach((item) => item.stop());
+    call.stream = opened.stream;
+    this.watchTrack(opened.stream, chosen);
   }
 
   private connect(ticket: string) {
@@ -484,6 +589,12 @@ export class LiveVoiceSession {
       socket.close();
     }
     this.audio?.close();
+    this.presence?.release();
+    this.presence = null;
+    this.unfollowLevel?.();
+    this.unfollowLevel = null;
+    this.unchoose?.();
+    this.unchoose = null;
     this.showStills(false);
     this.share.stop('', false);
     void this.runtime?.stop();

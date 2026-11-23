@@ -10,6 +10,8 @@ import { setBuddyListening, setBuddyVoiceLevel } from '../buddy/living/voice';
 import type { VoiceSocket } from '../../api/types';
 import { BrowserVoiceAudio, type VoiceAudio } from './voice-audio';
 import { approvalQuestion } from '../shell/tool-activity';
+import type { DeviceNotice } from './devices';
+import { VoicePresence } from './presence';
 import {
   BrowserShare,
   sendStill,
@@ -90,6 +92,8 @@ export type VoiceSnapshot = {
   canShare: 'yes' | 'blind' | 'no';
   /** Cloud speech parts the person chose that run locally for now: their key is missing. */
   fallbacks: VoiceFallback[];
+  /** The chosen microphone or speaker isn't connected, so the default is used (or no microphone is left). */
+  device: DeviceNotice | null;
 };
 
 /** A chosen cloud service standing in for: "listen" (speech to text) or "speak" (its voice). */
@@ -169,6 +173,7 @@ const INITIAL: VoiceSnapshot = {
   share: null,
   canShare: 'no',
   fallbacks: [],
+  device: null,
 };
 
 export class VoiceSession {
@@ -183,6 +188,7 @@ export class VoiceSession {
   private wakeLock: { release(): Promise<void> } | null = null;
   private levelAt = 0;
   private share: VoiceShare;
+  private presence: VoicePresence | null = null;
 
   constructor(
     private deps: VoiceSessionDeps,
@@ -205,6 +211,7 @@ export class VoiceSession {
   private set(patch: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...patch };
     setBuddyListening(this.snapshot.orb === 'listening');
+    this.presence?.update(this.snapshot);
     this.listeners.forEach((listener) => listener());
   }
 
@@ -213,11 +220,18 @@ export class VoiceSession {
       await this.audio.startCapture({
         frame: (pcm) => this.sendAudio(pcm),
         level: (level) => this.inputLevel(level),
+        device: (device) => this.set({ device }),
       });
     } catch (error) {
       this.finish(microphoneError(error));
       return;
     }
+    if (this.ended) return;
+    this.presence = new VoicePresence({
+      mute: (muted) => this.setMuted(muted),
+      end: () => void this.end(),
+    });
+    this.presence.update(this.snapshot);
     this.audio.onPlayback({
       started: (segment, delayMs) => this.played(segment, delayMs),
       idle: () => this.send({ type: 'playback', state: 'idle' }),
@@ -475,6 +489,8 @@ export class VoiceSession {
     // Ending voice stops sharing: the camera or screen is released at once.
     this.share.stop('', false);
     setBuddyVoiceLevel(0);
+    this.presence?.release();
+    this.presence = null;
     void this.wakeLock?.release().catch(() => undefined);
     this.wakeLock = null;
     document.removeEventListener('visibilitychange', this.relock);

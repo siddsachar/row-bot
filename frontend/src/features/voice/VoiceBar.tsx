@@ -33,6 +33,12 @@ import type {
   VoiceSnapshot,
 } from './voice-session';
 import { shareSupport, type ShareSource, type ShareState } from './share';
+import {
+  DeviceMenu,
+  DeviceNoticeLine,
+  PhoneLimitsNotice,
+} from './VoiceDevices';
+import { usePushToTalkKeys } from './push-to-talk';
 
 export type VoiceBarSession = Pick<
   VoiceSession,
@@ -254,6 +260,8 @@ export default function VoiceBar(props: {
     props.onEnded();
   };
   const hold = (held: boolean) => props.session.hold(held);
+  // Space in this window, or the desktop hotkey, holds too.
+  usePushToTalkKeys(state.pushToTalk && orb !== 'ended', hold);
   return (
     <section
       className="voice-bar"
@@ -309,6 +317,8 @@ export default function VoiceBar(props: {
         {state.fallbacks.length > 0 && (
           <FallbackNotice fallbacks={state.fallbacks} />
         )}
+        {state.device && <DeviceNoticeLine notice={state.device} />}
+        {props.phone && orb !== 'ended' && <PhoneLimitsNotice />}
         {blindNotice && canShare === 'blind' && !share && (
           <BlindNotice onClose={() => setBlindNotice(false)} />
         )}
@@ -419,6 +429,7 @@ export default function VoiceBar(props: {
             className="voice-hold"
             variant={state.held ? 'primary' : 'secondary'}
             aria-pressed={state.held}
+            title={props.phone ? undefined : 'Or hold Space'}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture?.(event.pointerId);
               hold(true);
@@ -445,6 +456,7 @@ export default function VoiceBar(props: {
             onBlind={() => setBlindNotice(!blindNotice)}
           />
         )}
+        {orb !== 'ended' && <DeviceMenu disabled={orb === 'connecting'} />}
         <IconButton
           size="sm"
           label={showCaptions ? 'Hide captions' : 'Show captions'}

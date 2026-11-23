@@ -67,6 +67,7 @@ import { useSmallServer } from '../../api/server-memory';
 import { webPage } from '../shell/hosted-links';
 import { RuntimeContext } from '../../runtime';
 import SpeechModels, { useSpeechModels } from '../voice/SpeechModels';
+import { DeviceSettings, HotkeySetting } from '../voice/VoiceDevices';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -2412,9 +2413,10 @@ export function VoiceSnapshotPanel({
               mutation={mutation}
               field="runtime.push_to_talk"
               label="Push to talk"
-              hint="Row-Bot listens only while you hold the talk button in the voice bar."
+              hint="Row-Bot listens only while you hold the talk button in the voice bar, or Space when you aren’t typing."
               value={snapshot.runtime.push_to_talk ?? false}
             />
+            {snapshot.runtime.push_to_talk && <HotkeySetting />}
             {!cloudListen && talkEngines.length > 1 && (
               <SelectSetting
                 mutation={mutation}
@@ -2438,6 +2440,10 @@ export function VoiceSnapshotPanel({
           </>
         )}
         <SettingsItem
+          label="On a phone"
+          help="Phones stop listening when the screen locks or turns off, or when you switch apps (an iPhone home-screen app too). Row-Bot keeps the screen on while you talk."
+        />
+        <SettingsItem
           label="Try it"
           help="Talk starts from a conversation’s microphone."
           layout="inline"
@@ -2453,6 +2459,13 @@ export function VoiceSnapshotPanel({
             </Link>
           }
         />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Microphone and speaker"
+        anchor="devices"
+        note="Chosen for this browser only."
+      >
+        <DeviceSettings />
       </SettingsGroup>
       <SettingsGroup
         title="Dictation"

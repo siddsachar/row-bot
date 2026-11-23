@@ -16,6 +16,7 @@ import {
   safeDownloadName,
   safeExternalUrl,
   unavailable,
+  VOICE_HOTKEYS,
 } from './types';
 
 export interface NativeEndpoint {
@@ -305,6 +306,10 @@ export function createPyWebViewPlatform(
       );
       return true;
     },
+    voiceHotkey: (key) =>
+      key === null || VOICE_HOTKEYS.includes(key)
+        ? call('voice_hotkey', { key }, nullValue)
+        : Promise.resolve(unavailable('invalid_request')),
     openTerminal: (conversationId) =>
       call<{ terminalId: string }>(
         'terminal_open',
