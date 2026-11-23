@@ -18,8 +18,10 @@ tags: []
   with a logline and each scene's footage (clip, picture, ai, card or
   screen), what it shows, its line, length and music cue. Nothing is made.
   Footage that doesn't exist yet (an AI shot) has no source until you make
-  it. Show the storyboard; once the person approves, make the planned
-  footage, change those scenes with their sources, then video action make.
+  it. Show the storyboard; once the person approves, or at once when they
+  said to make the video, make the planned footage, change those scenes with
+  their sources, then video action make. A request to plan, draft or
+  storyboard a video, or to work on one together, gets the storyboard.
   A comment on a card comes to you as their message: change that scene.
   Quick edits and a video of one scene are made at once.
 - For footage not made yet its words are enough; make a frame with

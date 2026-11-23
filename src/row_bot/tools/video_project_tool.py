@@ -113,6 +113,13 @@ def _conversation() -> str:
     return str(current_thread_id() or "")
 
 
+def _workflow_run(conversation: str) -> bool:
+    """True while a workflow runs in this chat (F31): its message is the person's instruction, so a video is made."""
+    from row_bot import tasks
+
+    return tasks.active_run_for_conversation(conversation) is not None
+
+
 def _wait_for(project_id: str, conversation: str, number: int, seconds: float, shape: str = "") -> bool:
     """Wait for a version's video (or its export in *shape*) while the turn waits; the turn's Stop stops it. True
     once it's made, failed or stopped, False while it's still being made."""
@@ -301,7 +308,8 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
                                           note=note, voice=voice or "", voice_speed=voice_speed,
                                           logline=logline or "", approvals=(approved := []), cast=cast,
                                           music_mood=music_mood or "", on_beat=bool(on_beat), kept=(kept := []))
-            if len(found.latest.scenes) > 1:  # A new video of several scenes: its storyboard first (G6).
+            # A new video of several scenes: its storyboard first (G6), but a workflow's run has nobody to approve it.
+            if len(found.latest.scenes) > 1 and not _workflow_run(conversation):
                 return _with(approved, video_projects.summary(found) + _kept(kept))
             return _make(found, None, approved) + _kept(kept)
         found = video_projects.get(project, conversation)
@@ -373,7 +381,8 @@ def langchain_tool():
             "Make a video as scenes the person also edits in the Video panel: each scene a piece of a video "
             "(start, end) or a picture, with speed, zoom, a card and its line (voiced when made). create with a "
             "logline and every scene's footage type, shows and line: a video of several scenes is a storyboard "
-            "first, nothing made, which the person approves or comments on; make it when they approve. A video of "
+            "first, nothing made, which the person approves or comments on; make it when they approve, or at once when "
+            "they said to make the video. A video of "
             "one scene is made at once. change with every scene (keep scene ids) and a note: each change is a new "
             "version, made again once the video was made. make, change and "
             "export wait for the video; a longer one checks back here when it's made: never poll status. Each made "
