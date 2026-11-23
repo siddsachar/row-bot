@@ -29,7 +29,6 @@ pytest.importorskip("joserfc", reason="joserfc is not installed: uv sync --locke
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from row_bot_org.admin import ADMIN_GROUP  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
@@ -66,16 +65,15 @@ def idp() -> Iterator[FakeIdp]:
         yield running
 
 
-# The provider's groups as the server knows them; "IT Admins" is mapped to the admin group explicitly.
+# The provider's groups as the server knows them; "IT Admins" is mapped to the admin group "it-admins".
 IT_ADMINS = "IT Admins"
-GROUP_MAP = {IT_ADMINS: ADMIN_GROUP, **{name: name for name in ("Sales", "Engineering", "Finance", "Execs")}}
+GROUP_MAP = {IT_ADMINS: "it-admins", **{name: name for name in ("Sales", "Engineering", "Finance", "Execs")}}
 
 
 @contextmanager
-def org_server(database, idp: FakeIdp, gateway_key: str = GATEWAY_KEY, group_map: dict | None = None,
-               **env: str) -> Iterator[TestClient]:
+def org_server(database, idp: FakeIdp, gateway_key: str = GATEWAY_KEY, **env: str) -> Iterator[TestClient]:
     settings = load_settings({
-        "ROW_BOT_ORG_IDP": json.dumps(idp.config(group_map=GROUP_MAP if group_map is None else group_map)),
+        "ROW_BOT_ORG_IDP": json.dumps(idp.config(group_map=GROUP_MAP, admin_groups=["it-admins"])),
         "ROW_BOT_ORG_IDP_CLIENT_SECRET": CLIENT_SECRET,
         "ROW_BOT_ORG_PUBLIC_URL": PUBLIC_URL, "ROW_BOT_ORG_HMAC_PEPPER": PEPPER,
         "ROW_BOT_ORG_GATEWAY_KEY": gateway_key, **env,
@@ -232,13 +230,24 @@ def test_an_embeddings_call_goes_through_and_is_metered(org_database, idp) -> No
 
 # -- refusals ---------------------------------------------------------------------------------------
 
+def put_policy(admin: TestClient, document: dict, group: str | None = None) -> None:
+    path = "/api/admin/policy" + ("" if group is None else f"/groups/{group}")
+    view = admin.get("/api/admin/policy").json()
+    version = (view["company"] if group is None else view["groups"].get(group, {})).get("version", 0)
+    response = admin.put(path, json={"version": version, **document})
+    assert response.status_code == 200, response.text
+
+
 def test_a_model_the_person_may_not_use_is_refused_and_never_reaches_the_endpoint(org_database, idp) -> None:
     with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
         admin = admin_of(server, idp)
         endpoint_id = add_endpoint(admin, endpoint.base_url)
         add_model(admin, endpoint_id, "everyone-chat")
-        add_model(admin, endpoint_id, "engineering-chat", allowed_groups=["Engineering"])
+        add_model(admin, endpoint_id, "engineering-chat")
         add_model(admin, endpoint_id, "company-embed", kind="embeddings")
+        # The policy is the one allow-list: the company allows two, Engineering's override adds a third.
+        put_policy(admin, {"models": {"allowed": ["everyone-chat", "company-embed"]}})
+        put_policy(admin, {"models": {"allowed": ["engineering-chat"]}}, "Engineering")
         sales, engineer = person(server, idp, "sam", ["Sales"]), person(server, idp, "eve", ["Engineering"])
 
         assert [m["id"] for m in sales.get("/api/models").json()["models"]] == ["everyone-chat", "company-embed"]
@@ -421,7 +430,7 @@ def test_a_request_may_not_pick_other_models_or_send_a_stream_flag_that_isnt_a_b
         admin = admin_of(server, idp)
         endpoint_id = add_endpoint(admin, endpoint.base_url)
         add_model(admin, endpoint_id, "cheap-chat", upstream_model="openai/gpt-4o-mini")
-        add_model(admin, endpoint_id, "exec-chat", upstream_model="anthropic/claude-opus-4", allowed_groups=["Execs"])
+        add_model(admin, endpoint_id, "exec-chat", upstream_model="anthropic/claude-opus-4")
         ada = person(server, idp, "ada", ["Sales"])
         call = {"model": "cheap-chat", "messages": HELLO}
 
@@ -563,13 +572,16 @@ def test_a_new_host_for_an_endpoint_never_gets_its_old_key(org_database, idp) ->
         assert real.requests == []
 
 
-@pytest.mark.parametrize("group_map", [{}, {"Sales": "Sales"}], ids=["no-map", "map-without-admins"])
-def test_a_provider_group_named_like_the_admin_group_never_makes_an_admin(org_database, idp,
-                                                                         group_map: dict) -> None:
-    with org_server(org_database, idp, group_map=group_map) as server:
-        mallory = person(server, idp, "mallory", [ADMIN_GROUP, "Sales"])
-        assert mallory.get("/api/admin/endpoints").status_code == 403
-        assert mallory.get("/api/admin/usage").status_code == 403
+def test_a_catalog_model_is_named_by_an_id_the_policy_can_allow(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        endpoint_id = add_endpoint(admin, "http://h.example.test/v1")
+        for name in ("*", "two words", "-leading-dash", "x" * 201, "café"):
+            refused = admin.post("/api/admin/models", json={"endpoint_id": endpoint_id, "name": name, "kind": "chat"})
+            assert refused.status_code == 422, name
+        model = add_model(admin, endpoint_id, "meta-llama/Llama-3.3-70B:fp8")
+        assert admin.patch(f"/api/admin/models/{model['id']}", json={"name": "*"}).status_code == 422
+        assert [m["name"] for m in admin.get("/api/admin/models").json()["models"]] == ["meta-llama/Llama-3.3-70B:fp8"]
 
 
 def test_admin_refusals_never_echo_a_key(org_database, idp) -> None:
@@ -599,7 +611,7 @@ def test_one_person_never_reads_anothers_usage_or_the_budgets(org_database, idp)
     with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
         admin = admin_of(server, idp)
         add_model(admin, add_endpoint(admin, endpoint.base_url), "company-chat", **PRICES)
-        add_model(admin, add_endpoint(admin, endpoint.base_url), "finance-chat", allowed_groups=["Finance"])
+        add_model(admin, add_endpoint(admin, endpoint.base_url), "finance-chat")
         ada, bob = person(server, idp, "ada", ["Sales"]), person(server, idp, "bob", ["Sales"])
         ada_id, bob_id = ada.get("/api/me").json()["id"], bob.get("/api/me").json()["id"]
         admin.put("/api/admin/budgets", json={"scope": "group", "subject": "Sales", "soft_limit": "1"})
@@ -616,9 +628,10 @@ def test_one_person_never_reads_anothers_usage_or_the_budgets(org_database, idp)
             # No WHERE: row-level security alone keeps Ada to her own usage.
             assert conn.execute("SELECT principal_id::text FROM row_bot_org.usage_events").fetchall() == [(ada_id,)]
             assert conn.execute("SELECT count(*) FROM row_bot_org.budgets").fetchone() == (0,)
-            # Only the endpoints behind models she may use, and no change to any of them.
-            assert conn.execute("SELECT count(*) FROM row_bot_org.model_endpoints").fetchone() == (1,)
-            assert conn.execute("SELECT name FROM row_bot_org.catalog_models").fetchall() == [("company-chat",)]
+            # The catalog (the policy decides which of it she may use), and no change to any of it.
+            assert conn.execute("SELECT count(*) FROM row_bot_org.model_endpoints").fetchone() == (2,)
+            assert conn.execute("SELECT name FROM row_bot_org.catalog_models ORDER BY name").fetchall() == [
+                ("company-chat",), ("finance-chat",)]
             assert conn.execute("UPDATE row_bot_org.catalog_models SET input_price = 0").rowcount == 0
             assert conn.execute("DELETE FROM row_bot_org.usage_events").rowcount == 0
             # Her group's budget, with what the whole group spent, and nothing else.

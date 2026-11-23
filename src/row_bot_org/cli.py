@@ -1,5 +1,6 @@
-"""``row-bot-org``: ``serve`` starts the Org server, ``migrate`` brings its database up to date and
-``check-config`` checks its settings and database role.
+"""``row-bot-org``: ``serve`` starts the Org server, ``migrate`` brings its database up to date,
+``check-config`` checks its settings and database role, and ``principals`` (``revoke-sessions``,
+``grant-admin``, ``revoke-admin``) are the operator's commands, as the migrating role.
 
 The database URLs are read once, from a copy of the environment, and taken out of the environment
 before anything else runs. No message shows them, or any part of them: a database error is reported by
@@ -44,6 +45,10 @@ def _parser() -> argparse.ArgumentParser:
     actions = principals.add_subparsers(dest="action", required=True)
     revoke = actions.add_parser("revoke-sessions", help="sign a principal out everywhere: revoke its sessions")
     revoke.add_argument("principal_id", type=_principal_id, help="the principal's id (a UUID)")
+    for action, text in (("grant-admin", "make a person an admin (they must have signed in once)"),
+                         ("revoke-admin", "take the stored admin role away from a person")):
+        role = actions.add_parser(action, help=text)
+        role.add_argument("person", help="the principal's id (a UUID) or email address")
     return parser
 
 
@@ -111,6 +116,42 @@ def _revoke_sessions(url: str, principal_id: str) -> int:
     except psycopg.Error as error:
         return _database_unreachable(error)
     sys.stdout.write(f"Revoked {_plural(revoked, 'session')} of principal {principal_id}.\n")
+    return 0
+
+
+def _set_admin(url: str, settings: OrgSettings, person: str, grant: bool) -> int:
+    import psycopg
+
+    from row_bot_org.identity import store
+    from row_bot_org.identity.people import role_changed
+    from row_bot_org.identity.roles import ADMIN, MEMBER, admin_groups
+
+    try:
+        with psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT) as conn:
+            found = store.find_people(conn, person)
+            if not found:
+                return _fail(f"Nobody with the id or email {person} has signed in. They sign in once first "
+                             "(deploy/org/README.md, People and admins).")
+            if len(found) > 1:
+                return _fail(f"{_plural(len(found), 'principal')} have the email {person}: name one by its id ("
+                             + ", ".join(p.id for p in found) + ").")
+            target = found[0]
+            if (not grant and target.role == ADMIN and not admin_groups(settings)
+                    and store.stored_admins(conn) == 1):
+                return _fail(f"Principal {target.id} is the last admin, and ROW_BOT_ORG_IDP sets no admin_groups: "
+                             "grant another admin first, so the server keeps one.")
+            role = ADMIN if grant else MEMBER
+            changed = store.set_role(conn, target.id, role) != role
+            if changed:
+                role_changed(conn, actor="operator", target=target.id, granted=grant, via="cli")
+    except psycopg.Error as error:
+        return _database_unreachable(error)
+    label = target.id + (f" ({target.email})" if target.email else "")
+    if changed:
+        state = "is now an admin" if grant else "is no longer an admin"
+    else:
+        state = "is already an admin" if grant else "has no stored admin role"
+    sys.stdout.write(f"Principal {label} {state}.\n")
     return 0
 
 
@@ -231,8 +272,10 @@ def main(argv: list[str] | None = None) -> int:
         return _fail(f"Row-Bot Org settings are not valid: {bad} is not a usable postgresql:// address")
     if args.command == "migrate":
         return _migrate(url)
-    if args.command == "principals":
+    if args.command == "principals" and args.action == "revoke-sessions":
         return _revoke_sessions(url, args.principal_id)
+    if args.command == "principals":
+        return _set_admin(url, settings, args.person, args.action == "grant-admin")
     if args.command == "check-config":
         return _check_config(settings, url)
     return _serve(settings, url)

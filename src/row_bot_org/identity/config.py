@@ -4,7 +4,8 @@ One provider per server. ``ROW_BOT_ORG_IDP`` is a JSON object (not a secret)::
 
     {"kind": "entra", "issuer": "https://login.microsoftonline.com/<tenant id>/v2.0",
      "client_id": "...", "allowed_tenants": ["<tenant id>"], "groups_claim": "groups",
-     "group_map": {"<group object id>": "engineering"}, "allowed_email_domains": ["contoso.com"]}
+     "group_map": {"<group object id>": "engineering", "<admins' object id>": "it-admins"},
+     "admin_groups": ["it-admins"], "allowed_email_domains": ["contoso.com"]}
 
 ``ROW_BOT_ORG_IDP_CLIENT_SECRET`` (a secret) is the client secret the server sends to the token
 endpoint (``client_secret_basic``).
@@ -12,6 +13,9 @@ endpoint (``client_secret_basic``).
 Google needs ``hosted_domains``: the Workspace domains whose accounts may sign in (the ID token's ``hd``).
 Without it any Google account in the world would get in. Entra takes no ``allowed_email_domains``: it sends
 no ``email_verified``, so its tenants (``allowed_tenants``) and the application's assignment decide.
+
+``admin_groups`` names Row-Bot groups (``group_map`` targets) whose members are admins. Each must be a target
+of ``group_map``: a group the provider merely sends never makes an admin.
 
 Each problem is worded without the value, as for every setting.
 """
@@ -32,7 +36,7 @@ _TENANT = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 _DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 _CLAIM = re.compile(r"^[A-Za-z0-9_:./-]{1,64}$")
 _KEYS = {"kind", "issuer", "client_id", "allowed_tenants", "hosted_domains", "groups_claim", "group_map",
-         "allowed_email_domains"}
+         "admin_groups", "allowed_email_domains"}
 _MAX_GROUP_NAME = 256
 
 
@@ -52,6 +56,8 @@ class IdpConfig:
     groups_claim: str = "groups"
     # IdP group (an Entra object id, an Okta group name) -> Row-Bot group. With a map, other groups are dropped.
     group_map: tuple[tuple[str, str], ...] = ()
+    # Row-Bot groups (group_map targets) whose members are admins.
+    admin_groups: tuple[str, ...] = ()
     # With domains, sign-in needs a verified email in one of them.
     allowed_email_domains: tuple[str, ...] = ()
     # Never in the repr.
@@ -145,11 +151,18 @@ def parse_idp(raw: str, client_secret: str) -> IdpConfig:
         for k, v in raw_map.items()
     ):
         raise IdpConfigError("group_map must map group names to non-empty group names")
+    group_map = tuple(sorted((k, v.strip()) for k, v in raw_map.items()))
+    raw_admins = entry.get("admin_groups", [])
+    if not isinstance(raw_admins, list) or not all(isinstance(group, str) and group.strip() for group in raw_admins):
+        raise IdpConfigError("admin_groups must be a list of group names")
+    admin_groups = tuple(dict.fromkeys(group.strip() for group in raw_admins))
+    # Only a group_map target counts: without the map, a group's name is whatever the provider sends.
+    if set(admin_groups) - {target for _, target in group_map}:
+        raise IdpConfigError("admin_groups may name only groups that group_map maps a provider group to")
     domains = _strings(entry.get("allowed_email_domains", []), "allowed_email_domains", _DOMAIN, lower=True)
     return IdpConfig(
         kind=kind, issuer=issuer, client_id=client_id, allowed_tenants=tenants, hosted_domains=hosted,
-        groups_claim=groups_claim,
-        group_map=tuple(sorted((k, v.strip()) for k, v in raw_map.items())), allowed_email_domains=domains,
+        groups_claim=groups_claim, group_map=group_map, admin_groups=admin_groups, allowed_email_domains=domains,
         client_secret=client_secret,
     )
 

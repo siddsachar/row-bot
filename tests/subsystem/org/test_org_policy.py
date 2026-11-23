@@ -2,7 +2,7 @@
 the server's policy routes and a real (throwaway) Postgres as the runtime role.
 
 Covers the effective policy (merged from the person's groups, its version, ETag and 304), admin-only
-reads and writes (the placeholder admin check, S2's to replace), strict validation, versions, history and
+reads and writes (an admin by stored role), strict validation, versions, history and
 conflicts, the policy.changed audit event, and row-level security on the policies table.
 Security-sensitive: these run in the pull request lane's Org job.
 """
@@ -34,7 +34,6 @@ from row_bot_org import cli  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
-from row_bot_org.identity import roles  # noqa: E402
 from row_bot_org.policy import store  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
 from tests.fixtures.oidc_idp import CLIENT_SECRET, PUBLIC_URL, FakeIdp, running_idp  # noqa: E402
@@ -76,19 +75,17 @@ def idp() -> Iterator[FakeIdp]:
         yield running
 
 
-@pytest.fixture
-def admins(monkeypatch: pytest.MonkeyPatch) -> set[str]:
-    """Principal ids the admin check says yes to (standing in for S2's roles)."""
-    chosen: set[str] = set()
-    monkeypatch.setattr(roles, "is_admin", lambda principal: principal.principal_id in chosen)
-    return chosen
+def make_admin(database, browser: TestClient) -> None:
+    """Store the admin role, as ``row-bot-org principals grant-admin`` does."""
+    with psycopg.connect(database.owner_url) as conn:
+        conn.execute("UPDATE row_bot_org.principals SET role = 'admin' WHERE id = %s", (principal_id(browser),))
 
 
 @pytest.fixture
-def server(org_database, idp: FakeIdp, admins: set[str]):
+def server(org_database, idp: FakeIdp):
     with org_server(org_database, idp) as client:
         admin = person(client, idp, "admin-1", ["IT"])
-        admins.add(principal_id(admin))
+        make_admin(org_database, admin)
         yield client, admin
 
 
@@ -199,7 +196,7 @@ def test_a_member_can_neither_read_nor_change_the_policies(server, idp: FakeIdp,
     assert _rows(org_database) == []
 
 
-def test_until_s2_the_placeholder_makes_nobody_an_admin(org_database, idp: FakeIdp) -> None:
+def test_a_group_alone_makes_nobody_an_admin(org_database, idp: FakeIdp) -> None:
     with org_server(org_database, idp) as client:
         someone = person(client, idp, "it-person", ["IT", "Admins"])
         assert someone.get("/api/admin/policy").status_code == 403

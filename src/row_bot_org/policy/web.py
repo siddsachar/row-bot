@@ -14,7 +14,7 @@
   warn about. Each write emits ``policy.changed``.
 - ``GET /api/admin/policy/history``: every version, newest first (``limit``, ``before``).
 
-The admin routes need an admin (``identity.roles``; 403 otherwise, before the body is parsed).
+The admin routes need an admin (``identity.roles.admin_connection``; 403 otherwise, before the body is read).
 """
 
 from __future__ import annotations
@@ -74,6 +74,7 @@ def _revision(revision: store.Revision) -> dict[str, Any]:
 
 def policy_router() -> APIRouter:
     router = APIRouter()
+    admin = Depends(roles.admin_connection, scope="function")
 
     @router.get("/api/policy/effective")
     def effective(request: Request, principal: RequestPrincipal = Depends(request_principal),
@@ -85,10 +86,7 @@ def policy_router() -> APIRouter:
         return Response(body, media_type="application/json", headers={"ETag": etag})
 
     @router.get("/api/admin/policy")
-    def current(principal: RequestPrincipal = Depends(request_principal),
-                conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> JSONResponse:
-        if not roles.enter_admin(conn, principal):
-            return _error(403, "admin_required")
+    def current(conn: psycopg.Connection = admin) -> JSONResponse:
         company, overrides = store.current(conn)
         return JSONResponse({
             "company": document_to_dict(company.document) if company else {"version": 0},
@@ -97,8 +95,6 @@ def policy_router() -> APIRouter:
 
     def _put(conn: psycopg.Connection, principal: RequestPrincipal, group: str | None,
              body: bytes | None) -> JSONResponse:
-        if not roles.enter_admin(conn, principal):
-            return _error(403, "admin_required")
         if group is not None and not _valid_group(group):
             return _error(422, "invalid_group")
         if body is None:
@@ -126,22 +122,18 @@ def policy_router() -> APIRouter:
         return JSONResponse(answer)
 
     @router.put("/api/admin/policy")
-    def put_company(body: bytes | None = Depends(_body), principal: RequestPrincipal = Depends(request_principal),
-                    conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> JSONResponse:
+    def put_company(conn: psycopg.Connection = admin, body: bytes | None = Depends(_body),
+                    principal: RequestPrincipal = Depends(request_principal)) -> JSONResponse:
         return _put(conn, principal, None, body)
 
     @router.put("/api/admin/policy/groups/{group:path}")
-    def put_group(group: str, body: bytes | None = Depends(_body),
-                  principal: RequestPrincipal = Depends(request_principal),
-                  conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> JSONResponse:
+    def put_group(group: str, conn: psycopg.Connection = admin, body: bytes | None = Depends(_body),
+                  principal: RequestPrincipal = Depends(request_principal)) -> JSONResponse:
         return _put(conn, principal, group, body)
 
     @router.get("/api/admin/policy/history")
-    def history(limit: int = Query(50, ge=1, le=200), before: int | None = Query(None, ge=1),
-                principal: RequestPrincipal = Depends(request_principal),
-                conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> JSONResponse:
-        if not roles.enter_admin(conn, principal):
-            return _error(403, "admin_required")
+    def history(conn: psycopg.Connection = admin, limit: int = Query(50, ge=1, le=200),
+                before: int | None = Query(None, ge=1)) -> JSONResponse:
         return JSONResponse({"entries": [_revision(revision)
                                          for revision in store.history(conn, limit=limit, before=before)]})
 

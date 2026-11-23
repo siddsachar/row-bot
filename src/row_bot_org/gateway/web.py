@@ -12,7 +12,10 @@ their groups' hard monthly budget is spent. A soft budget reached adds ``X-Row-B
 (``person``, ``group`` or both). The server sends the endpoint's key, passes streams through as they
 come, and records one usage row per call it forwards, from the endpoint's own usage fields.
 
-For admins (``row_bot_org.admin``): ``/api/admin/endpoints``, ``/api/admin/models``,
+A person may use the catalog models their effective policy allows (``models.allowed``, with their groups'
+overrides): ``/api/models`` lists only those, and a call to any other is refused as unknown.
+
+For admins (``row_bot_org.identity.roles``): ``/api/admin/endpoints``, ``/api/admin/models``,
 ``/api/admin/budgets`` and ``GET /api/admin/usage``. An endpoint's key goes in once and never comes
 back out: responses say only ``has_key``.
 
@@ -41,12 +44,14 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from row_bot_org.admin import admin_connection
+from row_bot.policy.model import CATALOG_MODEL_ID
 from row_bot_org.db.rls import principal_transaction
 from row_bot_org.gateway import store, upstream
 from row_bot_org.gateway.keys import KeyUnavailable, endpoint_origin, seal, unseal
 from row_bot_org.identity.gate import RequestPrincipal, request_principal
+from row_bot_org.identity.roles import admin_connection
 from row_bot_org.identity.web import principal_connection
+from row_bot_org.policy import store as policy_store
 from row_bot_org.settings import OrgSettings
 
 logger = logging.getLogger(__name__)
@@ -100,6 +105,8 @@ class GatewayService:
 
     def _lookup(self, principal: RequestPrincipal, model: str) -> tuple[store.Route | None, list[store.BudgetState]]:
         with principal_transaction(self.pool, principal.principal_id, principal.groups) as conn:
+            if not store.allowed(policy_store.effective(conn, principal.groups), model):
+                return None, []
             return store.route(conn, model), store.budget_state(conn)
 
     def _record(self, principal: RequestPrincipal, route: store.Route, usage: upstream.Usage, started: float,
@@ -371,6 +378,8 @@ def _upstream_refusal(route: store.Route, error: Exception) -> _Refusal:
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 ModelName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+# The id people call a model by, as the policy's models.allowed names it (without its "*").
+CatalogName = Annotated[str, StringConstraints(strip_whitespace=True, pattern=f"^(?:{CATALOG_MODEL_ID})$")]
 Group = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 # Printable ASCII: it goes into an HTTP header.
 ApiKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8192, pattern=r"^[!-~]+$")]
@@ -427,25 +436,23 @@ class EndpointChange(_Body):
 
 class ModelIn(_Body):
     endpoint_id: uuid.UUID
-    name: ModelName
+    name: CatalogName
     upstream_model: ModelName | None = None
     display_name: ModelName | None = None
     kind: Literal["chat", "embeddings"]
     context_window: int | None = Field(None, ge=1)
     input_price: Price = Decimal(0)
     output_price: Price = Decimal(0)
-    allowed_groups: list[Group] = Field(default_factory=list, max_length=100)
     is_default: bool = False
 
 
 class ModelChange(_Body):
-    name: ModelName | None = None
+    name: CatalogName | None = None
     upstream_model: ModelName | None = None
     display_name: ModelName | None = None
     context_window: int | None = Field(None, ge=1)
     input_price: Price | None = None
     output_price: Price | None = None
-    allowed_groups: list[Group] | None = Field(None, max_length=100)
     is_default: bool | None = None
 
 
@@ -485,8 +492,11 @@ def gateway_router(service: GatewayService) -> APIRouter:
     # -- for connected Row-Bots ------------------------------------------------------------------
 
     @router.get("/api/models")
-    def models(conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> JSONResponse:
-        return JSONResponse({"models": store.available_models(conn)})
+    def models(principal: RequestPrincipal = Depends(request_principal),
+               conn: psycopg.Connection = Depends(principal_connection, scope="function")) -> JSONResponse:
+        policy = policy_store.effective(conn, principal.groups)
+        return JSONResponse({"models": [model for model in store.available_models(conn)
+                                        if store.allowed(policy, model["id"])]})
 
     @router.post("/api/gateway/openai/v1/chat/completions")
     async def openai_chat(request: Request, principal: RequestPrincipal = Depends(request_principal)) -> Response:
