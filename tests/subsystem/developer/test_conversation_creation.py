@@ -382,47 +382,58 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
     assert not (root / "image.png").exists()
 
 
-def test_explicit_output_save_is_scoped_idempotent_and_outside_code_folder(creation):
-    from row_bot.application.attachments import register_attachment, list_generated_outputs
+def test_save_to_workspace_keeps_any_files_own_name_is_scoped_idempotent_and_outlives_its_chat(creation,
+                                                                                               monkeypatch):
+    from row_bot.application.attachments import register_attachment
     from row_bot.application.conversation_media_copy import save_output
 
     service, conversation, root = creation
-    output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
-    reference = output["attachment_ref"]
-    assert list_generated_outputs(conversation) == [{"media_ref": reference, "mime_type": "image/png"}]
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(root))
+    film = register_attachment(conversation, "Birthday montage.mp4", b"\x00\x00\x00\x18ftypmp42" + b"1" * 32,
+                               role="draft", output_id="vid-0001", version=1)
+    second = register_attachment(conversation, "Birthday montage.mp4", b"\x00\x00\x00\x18ftypmp42" + b"2" * 32,
+                                 role="final", output_id="vid-0001", version=2)
+    budget = register_attachment(conversation, "Q3 budget £480 café.pdf", b"%PDF-1.4 budget")
     with pytest.raises(ValueError, match="media_scope_conflict"):
-        save_output(conversation, "other:" + reference)
-    name = save_output(conversation, reference)
-    saved = root / "Saved outputs" / name
-    assert saved.read_bytes() == b"\x89PNG\r\n\x1a\nfixture"
-    assert save_output(conversation, reference) == name
-    # If the configured root itself is a code folder, it must use Developer.
+        save_output(conversation, "other:" + film["attachment_ref"])
+
+    # Its own name, never a "vN" pasted in, in the folder the Outputs pane names; £ and accents stay.
+    assert save_output(conversation, second["attachment_ref"]) == "Saved outputs/Birthday montage.mp4"
+    assert save_output(conversation, budget["attachment_ref"]) == "Saved outputs/Q3 budget £480 café.pdf"
+    assert (root / "Saved outputs" / "Q3 budget £480 café.pdf").read_bytes() == b"%PDF-1.4 budget"
+    # The same file again is the same copy; another version under the same name is kept beside it.
+    assert save_output(conversation, second["attachment_ref"]) == "Saved outputs/Birthday montage.mp4"
+    assert save_output(conversation, film["attachment_ref"]) == "Saved outputs/Birthday montage-2.mp4"
+    assert (root / "Saved outputs" / "Birthday montage.mp4").read_bytes().endswith(b"2" * 32)
+    assert (root / "Saved outputs" / "Birthday montage-2.mp4").read_bytes().endswith(b"1" * 32)
     _draft(service, conversation)
-    assert saved.exists()
     from row_bot.thread_cleanup import delete_thread
     assert delete_thread(conversation).deleted is True
-    assert saved.exists()
+    assert (root / "Saved outputs" / "Birthday montage.mp4").exists()
 
 
-def test_explicit_output_save_rejects_code_folder_without_creating_destination(creation):
+def test_explicit_output_save_rejects_code_folder_without_creating_destination(creation, monkeypatch):
     from row_bot.application.attachments import register_attachment
     from row_bot.application.conversation_media_copy import save_output
     from row_bot.developer.state import DeveloperWorkspace
     from row_bot.developer.storage import save_workspace
 
     _, conversation, root = creation
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(root))
     output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
+    root.mkdir(parents=True, exist_ok=True)
     save_workspace(DeveloperWorkspace(id="root", name="root", path=str(root)))
     with pytest.raises(ValueError, match="media_destination_is_code_folder"):
         save_output(conversation, output["attachment_ref"])
     assert not (root / "Saved outputs").exists()
 
 
-def test_media_save_command_returns_a_replayable_receipt(creation):
+def test_media_save_command_returns_a_replayable_receipt(creation, monkeypatch):
     from row_bot.api.v1.schemas import MediaSavePayload
     from row_bot.application.attachments import register_attachment
 
     service, conversation, root = creation
+    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(root))
     output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
     payload = MediaSavePayload.model_validate({"media_ref": output["attachment_ref"]})
     identity = str(uuid4())
@@ -432,6 +443,7 @@ def test_media_save_command_returns_a_replayable_receipt(creation):
     result = service.execute(owner_id="fixture", idempotency_key=identity,
                              command=command, target=conversation)
     assert result["status"] == "completed"
-    assert (root / "Saved outputs" / result["saved_name"]).is_file()
+    assert result["saved_name"] == "Saved outputs/generated-image.png"
+    assert (root / result["saved_name"]).is_file()
     assert service.execute(owner_id="fixture", idempotency_key=identity,
                            command=command, target=conversation) == result

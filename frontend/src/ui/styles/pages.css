@@ -341,6 +341,16 @@
   line-height: var(--leading-13);
   font-weight: var(--weight-medium);
 }
+.media-library-draft {
+  margin-inline-start: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-regular);
+  line-height: 18px;
+}
 .media-library-meta {
   color: var(--text-muted);
   font-size: var(--type-size-metadata);

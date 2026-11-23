@@ -1,6 +1,7 @@
 import * as wire from '../../../contracts/client-platform/v1/typescript/client';
 import type {
   ClientTransport,
+  OutputFilter,
   RowBotSandboxCreate,
   VideoBrand,
   VideoProjectChange,
@@ -559,6 +560,9 @@ export class HttpTransport implements ClientTransport {
   }
   setMediaTags(ref: string, tags: string[]) {
     return wire.setMediaTags(this.base, this.session(), { ref, tags });
+  }
+  outputs(filter: OutputFilter, signal?: AbortSignal) {
+    return wire.getOutputs(this.base, this.session(), filter, signal);
   }
   videoProject(projectId: string, version?: number, signal?: AbortSignal) {
     return wire.getVideoProject(

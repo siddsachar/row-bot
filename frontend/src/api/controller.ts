@@ -17,6 +17,7 @@ import { sha256Hex } from '../platform/crypto';
 import type {
   AnswerStateChange,
   ClientState,
+  OutputFilter,
   PageDecisionWrite,
   PageTheme,
   RowBotSandboxCreate,
@@ -3015,6 +3016,9 @@ export class ClientController {
     this.query(() => this.transport.media?.(filter, signal));
   setMediaTags = (ref: string, tags: string[]) =>
     this.query(() => this.transport.setMediaTags?.(ref, tags));
+  /** The outputs list (W3): a chat's Outputs pane, Library › Media, the phone's Files. */
+  outputs = (filter: OutputFilter, signal?: AbortSignal) =>
+    this.query(() => this.transport.outputs?.(filter, signal));
   /** A video project (5.3.1 B3): read, change, go back, make again. */
   videoProject = (projectId: string, version?: number, signal?: AbortSignal) =>
     this.query(() => this.transport.videoProject?.(projectId, version, signal));

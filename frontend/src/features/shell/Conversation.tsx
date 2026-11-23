@@ -83,7 +83,6 @@ import DelegatedActivity, {
   recentReads,
 } from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
-import type { ConversationOutput } from './ContextOutputs';
 import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
@@ -810,6 +809,10 @@ export default function Conversation({
   }, [id, fitComposer]);
   const generation = state.projection?.generation;
   const running = generation && !generation.quiesced;
+  // The last turn that settled, kept while the next one runs.
+  const [settledTurn, setSettledTurn] = useState('');
+  if (!running && generation && generation.generation_id !== settledTurn)
+    setSettledTurn(generation.generation_id);
   const controls = state.workspace?.controls;
   const resources = state.workspace?.resources ?? [];
   const defaultTargetIds = resources
@@ -2701,52 +2704,12 @@ export default function Conversation({
   const writerQueued =
     lastWriterEvent?.type === 'agent.activity' &&
     lastWriterEvent.payload.status === 'queued';
-  const durableOutputs = rows.flatMap((row) =>
-    (row.traces ?? []).flatMap((group) =>
-      group.items.flatMap((item) =>
-        (item.specialization?.media ?? []).map((media) => ({
-          id: media.media_ref,
-          reference: media.media_ref,
-          mime: media.mime_type,
-          prompt: media.prompt,
-        })),
-      ),
-    ),
-  );
-  const liveOutputs = state.activity
-    .filter((item) => item.event.type === 'media.available')
-    .map((item) => ({
-      id: item.event.event_id,
-      reference:
-        item.event.type === 'media.available'
-          ? item.event.payload.media_ref
-          : '',
-      mime:
-        item.event.type === 'media.available'
-          ? item.event.payload.mime_type
-          : '',
-      prompt:
-        item.event.type === 'media.available'
-          ? item.event.payload.prompt
-          : undefined,
-    }));
-  // One output per result; its prompt (5.3.3) comes from whichever source has it.
-  const outputsByReference = new Map<string, ConversationOutput>();
-  for (const output of [
-    ...(state.workspace?.generated_outputs ?? []).map((output) => ({
-      id: output.media_ref,
-      reference: output.media_ref,
-      mime: output.mime_type,
-      prompt: output.prompt,
-    })),
-    ...durableOutputs,
-    ...liveOutputs,
-  ])
-    outputsByReference.set(output.reference, {
-      ...output,
-      prompt: output.prompt || outputsByReference.get(output.reference)?.prompt,
-    });
-  const outputs = [...outputsByReference.values()];
+  // The Outputs pane reads the chat's outputs list again when a tool made or presented a file, and when a turn
+  // settles (a video's checks may have made its render final).
+  const outputsRefresh = `${
+    state.activity.filter((item) => item.event.type === 'media.available')
+      .length
+  }:${settledTurn}`;
   const contextReady = state.status === 'ready' && historyReady;
   const contextRail = id ? (
     <ConversationContextRail
@@ -2770,7 +2733,7 @@ export default function Conversation({
         state.conversation?.id === id &&
         state.conversation.parent_conversation_id,
       )}
-      outputs={outputs}
+      outputsRefresh={outputsRefresh}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}
       onCancelWait={() => void action('conversation.stop')}

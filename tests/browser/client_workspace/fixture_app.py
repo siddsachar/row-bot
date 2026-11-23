@@ -1574,15 +1574,22 @@ _S4_STEPS = [{"op": "trim", "start": 2, "end": 8}, {"op": "speed", "factor": 2},
              {"op": "captions", "text": "1\n00:00:00,500 --> 00:00:02,000\nCreate your account\n"}]
 
 
+_MEDIA_SEEDED: dict = {}
+
+
 @app.post("/__media_fixture/seed")
 def media_seed(x_fixture_token: str = Header(default="")) -> dict:
-    """Library › Media (5.3.1 B3): a chat holding a recording, two pictures and a voice line."""
+    """Library › Media and the Outputs pane (5.3.1 B3, W3), once per backend: a chat that made a sign-up film in
+    three versions (the second presented, the third a newer draft, with a review sheet), two AI pictures, and on
+    the way a recording and a voice line; and a brief the person added."""
     import io
     import wave
 
     predecessor._authorize(x_fixture_token)
+    if _MEDIA_SEEDED:
+        return _MEDIA_SEEDED
     from row_bot import threads
-    from row_bot.application.attachments import register_attachment
+    from row_bot.application.attachments import register_attachment, set_role
 
     thread = "media-fixture-launch"
     threads._save_thread_meta(thread, "Launch assets", allow_recreate=True)
@@ -1592,10 +1599,26 @@ def media_seed(x_fixture_token: str = Header(default="")) -> dict:
         out.setsampwidth(2)
         out.setframerate(16000)
         out.writeframes(b"\x00\x00" * 8000)
-    for name, data in (("voice-line-01.wav", voice.getvalue()), ("signup-walkthrough.mp4", _s3_video()),
-                       ("pricing-step.png", _s4_steps_picture(2)), ("launch-card.png", _s4_steps_picture(1))):
-        register_attachment(thread, name, data)
-    return {"conversation_id": thread}
+    film = {"role": "draft", "output_id": "vid-fixture01"}
+    register_attachment(thread, "launch-brief.pdf", b"%PDF-1.4\n% Launch brief\n")
+    register_attachment(thread, "generated-recording.mp4", _s3_video(), role="working", output_id="rec-fixture1")
+    register_attachment(thread, "voice-line-01.wav", voice.getvalue(), role="working")
+    register_attachment(thread, "Sign-up walkthrough.mp4", _s3_video(), version=1, **film)
+    presented = register_attachment(thread, "Sign-up walkthrough.mp4", _s3_video(), version=2, **film)
+    register_attachment(thread, "Sign-up walkthrough review.png", _s4_steps_picture(3), role="working",
+                        output_id="vid-fixture01")
+    set_role(presented["attachment_ref"], "final")
+    register_attachment(thread, "Sign-up walkthrough.mp4", _s3_video(), version=3, **film)
+    register_attachment(thread, "pricing-step.png", _s4_steps_picture(2), role="final")
+    register_attachment(thread, "launch-card.png", _s4_steps_picture(1), role="final")
+    from row_bot.threads import append_checkpoint_messages
+
+    append_checkpoint_messages(thread, [
+        HumanMessage(id=fixture_id("media-seed:ask"), content="Make the launch assets."),
+        AIMessage(id=fixture_id("media-seed:answer"),
+                  content="Here are the launch card, the pricing step and the sign-up walkthrough.")])
+    _MEDIA_SEEDED.update(conversation_id=thread)
+    return _MEDIA_SEEDED
 
 
 def _captured(thread: str, run, label: str = ""):

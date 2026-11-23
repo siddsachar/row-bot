@@ -157,6 +157,10 @@ vi.mock('../../runtime', () => {
       approval: mock.approval,
       pendingApprovals: mock.pendingApprovals,
       waits: async () => ({ schema_version: 1, items: [] }),
+      outputs: async () => ({
+        items: [],
+        counts: { made: 0, uploads: 0, working: 0 },
+      }),
       skillOffers: async (conversation: string) => ({
         conversation_id: conversation,
         revision: 'none',

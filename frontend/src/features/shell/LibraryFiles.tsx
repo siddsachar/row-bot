@@ -1,17 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Film,
-  FolderGit2,
-  Image,
-  LayoutTemplate,
-  Music,
-  Palette,
-  Search,
-} from 'lucide-react';
+import { FolderGit2, LayoutTemplate, Palette, Search } from 'lucide-react';
 import type { ClientController } from '../../api/controller';
 import { clientError } from '../../api/errors';
-import type { MediaItem } from '../../api/types';
+import type { OutputView } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { absoluteTime, parseTimestamp } from '../../ui/format';
 import {
@@ -25,43 +17,50 @@ import {
 import { requestPagePanel } from '../pages/open-page';
 import { shortTime } from './conversation-groups';
 import { Thumb } from './LibraryMedia';
+import {
+  OUTPUT_ICONS,
+  OUTPUT_KIND_WORDS,
+  outputTitle,
+  versionWords,
+} from './outputs';
 
-export type FileKind = 'all' | 'design' | 'page' | 'media' | 'folder';
+/** What Files lists: what Row-Bot made, by kind; then the files the person added, and the working files. */
+export type FileKind =
+  'all' | 'design' | 'page' | 'media' | 'folder' | 'uploads' | 'working';
 
 type MadeFile = {
   id: string;
-  kind: 'design' | 'folder' | 'page' | MediaItem['kind'];
+  kind: 'design' | 'folder' | 'page' | OutputView['kind'];
   title: string;
   conversationId: string;
   conversationTitle: string;
   at?: string;
   pageId?: string;
   resourceRef?: string;
-  media?: MediaItem;
+  media?: OutputView;
 };
 
+// The outputs list's own chips (W3) close the row, as in Library › Media.
 const KINDS: { value: FileKind; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'design', label: 'Designs' },
   { value: 'page', label: 'Pages' },
   { value: 'media', label: 'Media' },
   { value: 'folder', label: 'Folders' },
+  { value: 'uploads', label: 'Uploads' },
+  { value: 'working', label: 'Working files' },
 ];
 const WHAT: Record<MadeFile['kind'], string> = {
   design: 'Design',
   folder: 'Code folder',
   page: 'Page',
-  image: 'Picture',
-  video: 'Video',
-  audio: 'Sound',
+  ...OUTPUT_KIND_WORDS,
 };
 const ICONS = {
   design: Palette,
   folder: FolderGit2,
   page: LayoutTemplate,
-  image: Image,
-  video: Film,
-  audio: Music,
+  ...OUTPUT_ICONS,
 } as const;
 
 /** The newest chats with a design or code folder whose names are read. */
@@ -72,6 +71,16 @@ const matchesKind = (file: MadeFile, kind: FileKind) =>
   kind === 'all' ||
   file.kind === kind ||
   (kind === 'media' && Boolean(file.media));
+
+const fromOutput = (item: OutputView): MadeFile => ({
+  id: `media:${item.conversation_id}:${item.id}`,
+  kind: item.kind,
+  title: outputTitle(item),
+  conversationId: item.conversation_id,
+  conversationTitle: item.conversation_title ?? '',
+  at: item.updated_at,
+  media: item,
+});
 
 /**
  * The designs and code folders bound to the newest chats. Those chats are
@@ -137,14 +146,14 @@ async function loadResources(
   return resources;
 }
 
-/** Every page, and every picture, video and sound in the chats. */
+/** Every page, and what the chats made: the same outputs list as Library › Media. */
 async function loadPagesAndMedia(
   controller: ClientController,
   signal: AbortSignal,
 ): Promise<MadeFile[]> {
   const [pages, media] = await Promise.all([
     controller.pages(undefined, signal),
-    controller.media({}, signal),
+    controller.outputs({ show: 'made' }, signal),
   ]);
   return [
     ...(pages?.items ?? []).map((page) => ({
@@ -156,21 +165,14 @@ async function loadPagesAndMedia(
       at: page.updated_at,
       pageId: page.page_id,
     })),
-    ...(media?.items ?? []).map((item) => ({
-      id: `media:${item.ref}`,
-      kind: item.kind,
-      title: item.name,
-      conversationId: item.conversation_id,
-      conversationTitle: item.conversation_title ?? '',
-      at: item.added_at,
-      media: item,
-    })),
+    ...(media?.items ?? []).map(fromOutput),
   ];
 }
 
 /**
  * Chats › Files on the phone (D10 A): what Row-Bot made, with search and
- * labelled chips. Each opens in its chat: a design or code folder in its
+ * labelled chips, and the files the person added and the working files on
+ * request (W3). Each opens in its chat: a design or code folder in its
  * panel, a page beside it, a picture or recording where it was shared.
  */
 export default function LibraryFiles({
@@ -183,6 +185,11 @@ export default function LibraryFiles({
   // and folders, which take a read per chat.
   const [files, setFiles] = useState<MadeFile[] | null>(null);
   const [resources, setResources] = useState<MadeFile[] | null>(null);
+  // Uploads or Working files, read when their chip is chosen.
+  const [others, setOthers] = useState<{
+    kind: FileKind;
+    files: MadeFile[];
+  } | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<FileKind>(initialKind);
@@ -203,18 +210,36 @@ export default function LibraryFiles({
     return () => abort.abort();
   }, [controller, attempt]);
 
+  const other = kind === 'uploads' || kind === 'working';
+  useEffect(() => {
+    if (kind !== 'uploads' && kind !== 'working') return;
+    const abort = new AbortController();
+    controller.outputs({ show: kind }, abort.signal).then(
+      (page) => {
+        if (!abort.signal.aborted)
+          setOthers({ kind, files: (page?.items ?? []).map(fromOutput) });
+      },
+      (cause) => {
+        if (!abort.signal.aborted) setError(clientError(cause).message);
+      },
+    );
+    return () => abort.abort();
+  }, [controller, kind, attempt]);
+
   const words = query.trim().toLowerCase();
-  const shown = [...(files ?? []), ...(resources ?? [])]
+  const listed = other ? (others?.kind === kind ? others.files : null) : files;
+  const shown = [...(listed ?? []), ...(other ? [] : (resources ?? []))]
     .sort((a, b) => time(b.at) - time(a.at))
     .filter(
       (file) =>
-        matchesKind(file, kind) &&
+        (other || matchesKind(file, kind)) &&
         (!words ||
           `${file.title} ${file.conversationTitle}`
             .toLowerCase()
             .includes(words)),
     );
-  const resourcesPending = !resources && kind !== 'page' && kind !== 'media';
+  const resourcesPending =
+    !other && !resources && kind !== 'page' && kind !== 'media';
   const now = new Date();
   return (
     <section className="library-files" aria-label="Files">
@@ -248,7 +273,7 @@ export default function LibraryFiles({
         >
           {error}
         </ErrorState>
-      ) : !files || (shown.length === 0 && resourcesPending) ? (
+      ) : !listed || (shown.length === 0 && resourcesPending) ? (
         <ListSkeleton label="Loading files" rows={9} />
       ) : shown.length === 0 ? (
         words || kind !== 'all' ? (
@@ -257,8 +282,8 @@ export default function LibraryFiles({
           </EmptyState>
         ) : (
           <EmptyState title="Nothing made yet">
-            Designs, code folders, pages, pictures and recordings Row-Bot makes
-            in your chats show here.
+            Designs, code folders, pages, films, pictures and documents Row-Bot
+            makes in your chats show here.
           </EmptyState>
         )
       ) : (
@@ -295,8 +320,14 @@ export default function LibraryFiles({
                   <span className="phone-row-text">
                     <span className="phone-row-title">{file.title}</span>
                     <span className="phone-row-meta">
-                      {WHAT[file.kind]} · in{' '}
-                      {file.conversationTitle || 'a chat'}
+                      {[
+                        WHAT[file.kind],
+                        file.media?.role === 'draft' ? 'Draft' : '',
+                        file.media ? versionWords(file.media) : '',
+                        `in ${file.conversationTitle || 'a chat'}`,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </span>
                   </span>
                   {date && (
@@ -314,7 +345,7 @@ export default function LibraryFiles({
           })}
         </ul>
       )}
-      {!error && files && shown.length > 0 && resourcesPending && (
+      {!error && listed && shown.length > 0 && resourcesPending && (
         <ListSkeleton label="Loading designs and folders" rows={2} />
       )}
     </section>

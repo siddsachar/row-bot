@@ -9,7 +9,8 @@ import { useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
 import ContextGoal from './ContextGoal';
 import { ContextLive } from './ContextLive';
-import ContextOutputs, { type ConversationOutput } from './ContextOutputs';
+import ContextOutputs from './ContextOutputs';
+import { useOutputs } from './outputs';
 import ProjectNotes from './ProjectNotes';
 import { requestWorkspaceFile } from '../panels/workspace-file-requests';
 import {
@@ -61,7 +62,8 @@ type Props = {
   agentsWorking?: number;
   /** A delegated agent's own conversation: the section is "This agent" (B242). */
   childConversation?: boolean;
-  outputs?: ConversationOutput[];
+  /** Changes when the conversation may have made something: its outputs are read again. */
+  outputsRefresh?: string;
   completedDesignId?: string;
   writerQueued?: boolean;
   onCancelWait?: () => void;
@@ -98,7 +100,7 @@ export default function ConversationContextRail({
   agentsLive = 0,
   agentsWorking = 0,
   childConversation = false,
-  outputs = [],
+  outputsRefresh = '',
   completedDesignId,
   writerQueued = false,
   onCancelWait,
@@ -116,6 +118,14 @@ export default function ConversationContextRail({
   const { controller } = useRuntime();
   // Goals are read after the open settles so they never compete with it (B29).
   const settled = useShellSettled();
+  // The outputs list (W3), read once the open settles and again as the chat makes things.
+  const made = useOutputs(
+    { conversation_id: conversationId },
+    outputsRefresh,
+    ready && settled,
+  ).page;
+  const outputs = made?.items ?? [];
+  const workingCount = made?.counts?.working ?? 0;
   const [composeGoal, setComposeGoal] = useState(false);
   useEffect(() => setComposeGoal(false), [conversationId]);
   const [summaries, setSummaries] = useState<Record<string, ResourceSummary>>(
@@ -267,7 +277,7 @@ export default function ConversationContextRail({
         ? 'writer'
         : resources.length || loading
           ? 'resources'
-          : suggestions.length || outputs.length
+          : suggestions.length || outputs.length || workingCount
             ? 'outputs'
             : 'goal';
   const firstMark = (section: typeof first) =>
@@ -425,7 +435,7 @@ export default function ConversationContextRail({
           </ul>
         </section>
 
-        {(!!suggestions.length || !!outputs.length) && (
+        {(!!suggestions.length || !!outputs.length || !!workingCount) && (
           <section
             className="context-rail-section"
             aria-labelledby="context-outputs"
@@ -439,11 +449,13 @@ export default function ConversationContextRail({
                 </span>
               )}
             </h3>
-            {!!outputs.length && (
+            {(!!outputs.length || !!workingCount) && (
               <ContextOutputs
                 conversationId={conversationId}
                 conversationRevision={conversationRevision}
                 outputs={outputs}
+                workingCount={workingCount}
+                refresh={outputsRefresh}
                 resources={resources}
                 onUseOutputInCode={onUseOutputInCode}
               />

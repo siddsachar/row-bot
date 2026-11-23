@@ -1,7 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import type { ResourceView } from '../../api/types';
+import type { OutputView, ResourceView } from '../../api/types';
+import { OverlayProvider } from '../../ui/overlays';
 import ConversationContextRail from './ConversationContextRail';
 
 const runtime = vi.hoisted(() => ({
@@ -24,6 +32,11 @@ const runtime = vi.hoisted(() => ({
   })),
   reviewGoal: vi.fn(),
   executeGoal: vi.fn(),
+  attachmentThumbnail: vi.fn(async () => null),
+  outputs: vi.fn(async () => ({
+    items: [] as OutputView[],
+    counts: { made: 0, uploads: 0, working: 0 },
+  })),
 }));
 vi.mock('../../shell-settled', () => ({ useShellSettled: () => true }));
 
@@ -390,4 +403,69 @@ it('names each suggested panel action after its panel', () => {
     screen.getByRole('button', { name: 'Dismiss Synthetic notes' }),
   );
   expect(onDismissSuggestion).toHaveBeenCalledWith(suggestion);
+});
+
+it('shows the chat’s outputs from its outputs list, and reads it again when the chat makes something (W3)', async () => {
+  const film = {
+    ref: 'conversation-a:film-1',
+    version: 1,
+    role: 'final' as const,
+    file_name: 'Birthday montage.mp4',
+    mime_type: 'video/mp4',
+    size: 4096,
+    created_at: '2026-11-22T10:00:00Z',
+  };
+  const output: OutputView = {
+    ...film,
+    id: '0'.repeat(24),
+    conversation_id: 'conversation-a',
+    name: 'Birthday montage',
+    kind: 'video',
+    versions: [film],
+    version_count: 1,
+    working_count: 2,
+    updated_at: '2026-11-22T10:00:00Z',
+  };
+  runtime.outputs.mockResolvedValue({
+    items: [output],
+    counts: { made: 1, uploads: 0, working: 2 },
+  });
+  const rail = (refresh: string) => (
+    <ConversationContextRail
+      conversationId="conversation-a"
+      conversationRevision="1"
+      resources={[]}
+      suggestions={[]}
+      ready
+      connectionStatus="ready"
+      agents={null}
+      outputsRefresh={refresh}
+      onAddResource={vi.fn()}
+      onOpenResource={vi.fn()}
+      onUnbindResource={vi.fn()}
+      onManageConversation={vi.fn()}
+      onManageBrowser={vi.fn()}
+      onDeleteConversation={vi.fn()}
+      onOpenSuggestion={vi.fn()}
+      onDismissSuggestion={vi.fn()}
+    />
+  );
+  const { rerender } = render(rail('0'), { wrapper: OverlayProvider });
+  const outputs = await screen.findByRole('region', { name: 'Outputs' });
+  expect(
+    within(outputs).getByRole('button', { name: 'Open Birthday montage' }),
+  ).toBeVisible();
+  expect(
+    within(outputs).getByRole('switch', { name: 'Show working files' }),
+  ).not.toBeChecked();
+  expect(runtime.outputs).toHaveBeenCalledWith(
+    { conversation_id: 'conversation-a' },
+    expect.any(AbortSignal),
+  );
+  // Read again once the chat's burst of changes holds still.
+  await act(async () => rerender(rail('1')));
+  expect(runtime.outputs).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(runtime.outputs).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
 });
