@@ -46,7 +46,9 @@ def seed() -> None:
     if "row_bot.models" in sys.modules:
         sys.modules["row_bot.models"].adopt_saved_default(FIXTURE_DEFAULT_MODEL)
     from row_bot.tools.registry import set_tool_config
-    set_tool_config("filesystem", "workspace_root", str(DATA / "attachment-workspace"))
+    # The workspace sits beside the data folder, as a person's does: Row-Bot never writes its files inside its
+    # own private data folder (``data_paths.is_private_data_path``), so one there refuses Save to workspace.
+    set_tool_config("filesystem", "workspace_root", str(DATA.parent / "attachment-workspace"))
     state = default_docs_capture_demo_state()
     state["messages"] = []
     state["threads"] = []

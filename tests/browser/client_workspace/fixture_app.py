@@ -4317,7 +4317,7 @@ def _p4_registered_folder(resource_id: str, workspace) -> Path:
     from row_bot.developer.review import scoped_workspace_path
     folder = Path(workspace.path).absolute()
     name = folder.name
-    drafts = predecessor.DATA / "attachment-workspace" / "Drafts"
+    drafts = predecessor.DATA.parent / "attachment-workspace" / "Drafts"
     # Drafts are named from the request ("Code folder", "Tiny date app 2"),
     # so a local draft is known by where it lives, not by its name.
     if folder.parent == drafts.absolute():
