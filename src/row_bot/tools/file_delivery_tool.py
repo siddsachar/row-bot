@@ -222,7 +222,7 @@ class SendFileTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return ("Send files from a chat to your own devices (they show in the chat on each one, with a notice) "
+        return ("Send files from a chat to your own devices (each gets a notice, and the files show in that chat there) "
                 "or to a chat app (Telegram, Discord, Slack, WhatsApp). Sending to a chat app asks first.")
 
     @property

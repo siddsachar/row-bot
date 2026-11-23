@@ -182,7 +182,7 @@ it('says plainly when the download has ended, and reads the card again', async (
     within(card).getByRole('button', { name: 'Download report.pdf' }),
   );
   expect(await within(card).findByRole('alert')).toHaveTextContent(
-    'This download has ended: a download from a send lasts 7 days.',
+    'This download has ended: sent files can be downloaded for 7 days.',
   );
   await waitFor(() => expect(deliveries.load).toHaveBeenCalledTimes(2));
 });
