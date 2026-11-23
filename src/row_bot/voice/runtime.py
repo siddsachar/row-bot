@@ -50,6 +50,21 @@ def _coerce_eagerness(value: Any) -> str:
     return value if value in TURN_EAGERNESS else "normal"
 
 
+def save_talk_model(engine_id: str) -> None:
+    """Choose what Talk listens with (a downloaded speech model, or Whisper), as Settings would."""
+    from row_bot.integrations.safe import write_atomic
+
+    settings_path = _settings_path()
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8")) if settings_path.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data["talk_model"] = str(engine_id)
+    write_atomic(settings_path, json.dumps(data, indent=2, ensure_ascii=False))
+
+
 def load_voice_runtime_settings() -> VoiceRuntimeSettings:
     settings_path = _settings_path()
     try:

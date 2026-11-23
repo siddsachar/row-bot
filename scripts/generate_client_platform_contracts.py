@@ -85,7 +85,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningModelSearch", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "OutputVersionView", "OutputView", "OutputCounts", "OutputPage", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "VideoSceneApproval", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "OutputVersionView", "OutputView", "OutputCounts", "OutputPage", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "SpeechModelsView", "SpeechModelInstallRequest", "SpeechModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -259,6 +259,8 @@ OPERATIONS = (
     ("post", "/video-projects/{project_id}/restore", "VideoProjectRestore", "VideoProjectView"),
     ("post", "/video-projects/{project_id}/make", None, "VideoProjectView"),
     ("post", "/video-projects/{project_id}/export", "VideoProjectExport", "VideoProjectView"),
+    ("post", "/video-projects/{project_id}/approve", "VideoSceneApproval", "VideoProjectView"),
+    ("get", "/video-projects/{project_id}/scenes/{scene_id}/frame", None, "bytes"),
     ("get", "/video-brand", None, "VideoBrand"),
     ("get", "/waits", None, "WaitPage"),
     ("get", "/activity", None, "ActivityPage"),
@@ -345,6 +347,10 @@ OPERATIONS = (
     ("post", "/local-runtime/stop", None, "LocalModelRuntimeView"),
     ("post", "/local-runtime/remove", "LocalModelRemoveRequest", "LocalModelRuntimeView"),
     ("post", "/local-runtime/repair", None, "LocalModelRuntimeView"),
+    ("get", "/voice/speech-models", None, "SpeechModelsView"),
+    ("post", "/voice/speech-models/install", "SpeechModelInstallRequest", "SpeechModelsView"),
+    ("post", "/voice/speech-models/stop", None, "SpeechModelsView"),
+    ("post", "/voice/speech-models/remove", "SpeechModelRemoveRequest", "SpeechModelsView"),
     ("post", "/setup/model-test", None, "ModelTestResult"),
     ("post", "/setup/provider-key/check", "ProviderKeyCheckRequest", "ProviderKeyCheck"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
@@ -1071,6 +1077,18 @@ export const exportVideoProject = (base: string, proof: SessionProof, project: s
 /** Make the latest version's video again. */
 export const makeVideoProject = (base: string, proof: SessionProof, project: string, signal?: AbortSignal): Promise<VideoProjectView> =>
   jsonRequest(base, `/video-projects/${id(project)}/make`, 'VideoProjectView', proof, 'POST', undefined, undefined, signal);
+export const approveVideoScenes = (base: string, proof: SessionProof, project: string, body: VideoSceneApproval, signal?: AbortSignal): Promise<VideoProjectView> =>
+  jsonRequest(base, `/video-projects/${id(project)}/approve`, 'VideoProjectView', proof, 'POST', validateWire('VideoSceneApproval', body), undefined, signal);
+/** A storyboard card's frame (C1): a small JPEG, loaded as the card shows. */
+export async function readVideoSceneFrame(base: string, proof: SessionProof, project: string, scene: string, version?: number, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/video-projects/${id(project)}/scenes/${id(scene)}/frame` + query({version: version === undefined ? undefined : String(version)}), {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 1048576) throw new Error('protocol_incompatible');
+  return data;
+}
 /** Files sent to the person's devices or a chat app (F7), or one conversation's: newest first. */
 export const getDeliveries = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<DeliveryPage> =>
   jsonRequest(base, '/deliveries' + query({conversation_id}), 'DeliveryPage', proof, 'GET', undefined, undefined, signal);
@@ -1178,6 +1196,14 @@ export const removeLocalModelRuntime = (base: string, proof: SessionProof, body:
   jsonRequest(base, '/local-runtime/remove', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelRemoveRequest', body), undefined, signal);
 export const repairLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
   jsonRequest(base, '/local-runtime/repair', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
+export const getSpeechModels = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models', 'SpeechModelsView', proof, 'GET', undefined, undefined, signal);
+export const installSpeechModel = (base: string, proof: SessionProof, body: SpeechModelInstallRequest, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models/install', 'SpeechModelsView', proof, 'POST', validateWire('SpeechModelInstallRequest', body), undefined, signal);
+export const stopSpeechModelDownload = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models/stop', 'SpeechModelsView', proof, 'POST', undefined, undefined, signal);
+export const removeSpeechModel = (base: string, proof: SessionProof, body: SpeechModelRemoveRequest, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models/remove', 'SpeechModelsView', proof, 'POST', validateWire('SpeechModelRemoveRequest', body), undefined, signal);
 export const testChosenModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelTestResult> =>
   jsonRequest(base, '/setup/model-test', 'ModelTestResult', proof, 'POST', undefined, undefined, signal);
 export const checkProviderKey = (base: string, proof: SessionProof, body: ProviderKeyCheckRequest, signal?: AbortSignal): Promise<ProviderKeyCheck> =>

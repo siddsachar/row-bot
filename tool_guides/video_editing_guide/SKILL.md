@@ -14,6 +14,16 @@ tags: []
   full path on this computer, used where it is, never copied. A scene
   without a source is a title card, and it voices each line and lays the
   music itself.
+- A new video of several scenes is a storyboard first: video action create
+  with a logline and each scene's footage (clip, picture, ai, card or
+  screen), what it shows, its line, length and music cue. Nothing is made.
+  Footage that doesn't exist yet (an AI shot) has no source until you make
+  it. Show the storyboard; once the person approves, make the planned
+  footage, change those scenes with their sources, then video action make.
+  A comment on a card comes to you as their message: change that scene.
+  Quick edits and a video of one scene are made at once.
+- For footage not made yet its words are enough; make a frame with
+  generate_image only when the person asked for pictures in the storyboard.
 - Render the final through the video tool whenever it can do the job. Only
   when a look needs more than it offers, a script of your own (ffmpeg,
   Pillow) is the fallback: check still frames of each scene first, render
@@ -24,8 +34,9 @@ tags: []
   step mark a beat with its note (a short title) and its line, do the step,
   and stay on it about as long as the line takes (the beat says how long);
   beat=work before a wait, cut for a stretch to leave out. Stop, then video
-  action create with recording=rec-…: one scene per beat with its title,
-  line and voice. The camera follows what was done (leave zoom empty).
+  action create with recording=rec-…: a storyboard of one scene per beat
+  with its title, line and voice. The camera follows what was done (leave
+  zoom empty).
 - The video is the app, not slides: at most an opening and a closing card
   (3 s, a few words); titles go over the footage as a scene's card.
 - Phone demos: browser_viewport phone before recording (taps show as

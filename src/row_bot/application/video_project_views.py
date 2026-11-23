@@ -1,9 +1,10 @@
 """The client's views of video projects (5.3.1 B3): the Video panel reads and changes them.
 
 The person's changes are new versions by "you", made on the version they saw (a newer one is
-refused, so two editors never overwrite each other), and each makes the video again. Making a
-video downloads nothing: when ffmpeg isn't here yet, the panel says to ask Row-Bot, whose step
-asks to download it.
+refused, so two editors never overwrite each other). A change to a made video makes it again; a
+change to a storyboard (C1) stays a storyboard until the person makes it. Approving a scene marks
+it on its version. Making a video downloads nothing: when ffmpeg isn't here yet, the panel says
+to ask Row-Bot, whose step asks to download it.
 """
 
 from __future__ import annotations
@@ -46,7 +47,10 @@ def change_video_project(project_id: str, body: dict[str, Any]) -> dict[str, Any
     project = _project(project_id)
     if project is None:
         return None
-    _need_ffmpeg()
+    base = project.version(int(body["base"]))
+    making = base is not None and not video_projects.storyboard(base)
+    if making:
+        _need_ffmpeg()
     try:
         version = video_projects.change(project, by="you", base=int(body["base"]), scenes=list(body["scenes"]),
                                         title=body.get("title") or None, music_volume=body.get("music_volume"),
@@ -54,8 +58,27 @@ def change_video_project(project_id: str, body: dict[str, Any]) -> dict[str, Any
                                         voice=body.get("voice"), note=body.get("note") or "Edited in the panel")
     except ProjectError as error:
         raise ProjectRefused("video_project_stale" if error.stale else "video_project_invalid") from None
-    video_projects.make(project, version.number)
+    if making:
+        video_projects.make(project, version.number)
     return video_projects.view(_stored(project), version.number)
+
+
+def approve_video_scenes(project_id: str, body: dict[str, Any]) -> dict[str, Any] | None:
+    project = _project(project_id)
+    if project is None:
+        return None
+    try:
+        version = video_projects.approve(project, list(body["scene_ids"]), bool(body["approved"]),
+                                         base=int(body["base"]))
+    except ProjectError as error:
+        raise ProjectRefused("video_project_stale" if error.stale else "video_project_invalid") from None
+    return video_projects.view(_stored(project), version.number)
+
+
+def video_scene_frame(project_id: str, scene_id: str, number: int | None = None) -> bytes | None:
+    """A storyboard card's frame, a JPEG; None when the scene has none to show."""
+    project = _project(project_id)
+    return None if project is None else video_projects.scene_frame(project, scene_id, number)
 
 
 def restore_video_project(project_id: str, number: int) -> dict[str, Any] | None:
@@ -91,5 +114,8 @@ def make_video_project(project_id: str, number: int | None = None) -> dict[str, 
     if project is None or (number is not None and project.version(number) is None):
         return None
     _need_ffmpeg()
-    video_projects.make(project, number or project.latest.number)
+    try:
+        video_projects.make(project, number or project.latest.number)
+    except ProjectError:  # Footage still to make: Row-Bot makes it (the panel asks in the chat).
+        raise ProjectRefused("video_project_invalid") from None
     return video_projects.view(_stored(project), number)

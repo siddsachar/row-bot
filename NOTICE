@@ -29,3 +29,11 @@ pipecat-resampler (BSD-2-Clause), loudness and sentencex (MIT), loguru (MIT), ai
 (Apache-2.0), Markdown (BSD-3-Clause), and num2words (https://github.com/savoirfairelinux/num2words,
 GNU Lesser General Public License 2.1) with docopt (MIT). num2words is pure Python, installed as
 its own package and used unmodified.
+
+Row-Bot Voice's streaming speech-to-text runs on sherpa-onnx (sherpa-onnx and sherpa-onnx-core
+2.0, https://github.com/k2-fsa/sherpa-onnx, Apache-2.0), whose wheel bundles ONNX Runtime
+(https://github.com/microsoft/onnxruntime, MIT). Its models are downloaded only when the person
+presses Download in Settings › Voice, from sherpa-onnx's GitHub releases: Moonshine Base, English
+(https://github.com/moonshine-ai/moonshine, Useful Sensors, MIT), and Nemotron Speech Streaming
+0.6B, English (https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b, NVIDIA, NVIDIA
+Open Model License).

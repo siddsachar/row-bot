@@ -1069,6 +1069,7 @@ _STATUS.update(
         "voice_session_expired": 410,
         "whisper_model_missing": 409,
         "sensevoice_unavailable": 409,
+        "speech_model_missing": 409,
         "voice_provider_unavailable": 409,
         "ffmpeg_unavailable": 503,
         "unsupported_audio_type": 415,
@@ -6080,6 +6081,30 @@ def create_router(
         result = await _project_call(restore_video_project, _project_id(project_id), body.number)
         return await respond(request, dto.VideoProjectView, result)
 
+    @router.post("/video-projects/{project_id}/approve")
+    async def approve_video_scenes_route(request: Request, project_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_project_views import approve_video_scenes
+
+        body = await _body(request, dto.VideoSceneApproval, 16 * 1024)
+        result = await _project_call(approve_video_scenes, _project_id(project_id), body.model_dump())
+        return await respond(request, dto.VideoProjectView, result)
+
+    @router.get("/video-projects/{project_id}/scenes/{scene_id}/frame")
+    async def video_scene_frame_route(request: Request, project_id: str, scene_id: str,
+                                      version: int | None = None) -> Response:
+        """A storyboard card's frame (C1): a still of the scene's footage, read here, loaded as the card shows."""
+        current = await session(request, lane="view")
+        from row_bot.application.video_project_views import video_scene_frame
+        from row_bot.video_projects import SCENE_ID
+
+        if not SCENE_ID.fullmatch(str(scene_id or "")):
+            raise ProtocolError("video_project_unavailable", 404)
+        data = await _project_call(video_scene_frame, _project_id(project_id), scene_id, version)
+        security.session(await _context(request), current.id, current.csrf)
+        return Response(data, media_type="image/jpeg", headers={
+            **HEADERS, "Content-Disposition": "inline", "Content-Security-Policy": "default-src 'none'; sandbox"})
+
     # Sandboxes (5.3.1 B4): second Row-Bots on made-up data, started, stopped and opened from Settings › Data.
     def _row_bot_sandbox_id(value: str) -> str:
         from row_bot.sandboxes import SANDBOX_ID
@@ -7164,6 +7189,38 @@ def create_router(
         from row_bot.application.client_local_runtime import repair
 
         return await local_model_runtime(request, await call(repair))
+
+    # Row-Bot Voice's streaming speech models (VD3): picked for this computer, downloaded only on Download.
+    @router.get("/voice/speech-models")
+    async def speech_models_view(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_speech_models import snapshot
+
+        return await respond(request, dto.SpeechModelsView, await call(snapshot))
+
+    @router.post("/voice/speech-models/install")
+    async def speech_models_install(request: Request) -> JSONResponse:
+        # The person pressed Download (the button named the size).
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SpeechModelInstallRequest, 1024)
+        from row_bot.application.client_speech_models import install
+
+        return await respond(request, dto.SpeechModelsView, await call(install, body.model_id, body.download_bytes))
+
+    @router.post("/voice/speech-models/stop")
+    async def speech_models_stop(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_speech_models import stop
+
+        return await respond(request, dto.SpeechModelsView, await call(stop))
+
+    @router.post("/voice/speech-models/remove")
+    async def speech_models_remove(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SpeechModelRemoveRequest, 1024)
+        from row_bot.application.client_speech_models import remove
+
+        return await respond(request, dto.SpeechModelsView, await call(remove, body.model_id))
 
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:

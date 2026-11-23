@@ -241,6 +241,8 @@ sentencex==1.0.34
 setuptools==81.0.0
 sgmllib3k==1.0.0
 shellingham==1.5.4
+sherpa-onnx==2.0.1
+sherpa-onnx-core==2.0.1
 simpleeval==1.0.7
 simplejson==4.1.1
 six==1.17.0

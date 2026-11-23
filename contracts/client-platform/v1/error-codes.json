@@ -671,6 +671,7 @@
     "skill_unavailable": 503,
     "skills_response_too_large": 413,
     "snapshot_revision_conflict": 409,
+    "speech_model_missing": 409,
     "subscription_busy": 429,
     "subscription_callback_invalid": 409,
     "subscription_cancelled": 409,

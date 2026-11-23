@@ -64,8 +64,11 @@ def bridge_logging() -> None:
 
 
 def prepare() -> None:
+    from row_bot import onnxruntime_telemetry
+
     scrub_environment()
     bridge_logging()
+    onnxruntime_telemetry.switch_off()  # before Silero or Smart Turn opens an ONNX Runtime session
 
 
 class SileroActivity:

@@ -8962,6 +8962,17 @@
           "default": null,
           "title": "Time Zone"
         },
+        "video_panel": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoPanelRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "write_targets": {
           "anyOf": [
             {
@@ -9980,6 +9991,27 @@
         "binding_id"
       ],
       "title": "UnbindPayload",
+      "type": "object"
+    },
+    "VideoPanelRequest": {
+      "additionalProperties": false,
+      "description": "The Video panel's request sent as the person's message (C1): a comment on a storyboard card, a swap of its\nfootage, a new take, or making a storyboard whose footage Row-Bot makes first.",
+      "properties": {
+        "action": {
+          "enum": [
+            "comment",
+            "swap",
+            "new_take",
+            "make"
+          ],
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "VideoPanelRequest",
       "type": "object"
     },
     "WikiConfigureCommand": {

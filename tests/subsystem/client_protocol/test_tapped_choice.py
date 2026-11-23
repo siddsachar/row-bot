@@ -77,3 +77,39 @@ def test_a_tap_naming_no_reply_of_this_chat_is_refused(service, offered, tapped)
         refused = _submit(client, headers, service, offered, tapped_choice=tapped)
         assert refused.status_code in {400, 422}, refused.text
     assert len(threads.get_latest_checkpoint_messages(offered)) == before
+
+
+
+@pytest.mark.parametrize("action", ["comment", "swap", "new_take", "make"])
+def test_a_video_panel_request_is_the_person_s_own_message_marked_with_its_button(service, offered, action):
+    """C1: a comment, swap, new take or make sent from a storyboard is the person's words, marked with which of the
+    Video panel's buttons sent it, as a reply button's tap is."""
+    from langchain_core.messages import AIMessage
+    from row_bot import approval_review, threads
+
+    fake = ScriptedAgentStream((CheckpointCommit((AIMessage(id="answer", content="Done."),), "answer"),
+                                ("done", None)))
+    service.stream_factory = fake.stream
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        sent = _submit(client, headers, service, offered, video_panel={"action": action})
+        assert sent.status_code == 202, sent.text
+        assert service.registry.get(sent.json()["execution_id"]).producer_done.wait(5)
+        human = [message for message in threads.get_latest_checkpoint_messages(offered)
+                 if message.type == "human"][-1]
+        assert human.content == "List my subscriptions"
+        assert human.additional_kwargs["video_panel"] == {"action": action}
+        assert not {"platform_note", "row_bot_note", "tapped_choice"} & set(human.additional_kwargs)
+        assert approval_review.person_messages([human]) == ("List my subscriptions",)
+
+
+@pytest.mark.parametrize("panel", [{"action": "delete"}, {"action": "comment", "scene": "s000000"}])
+def test_a_video_panel_request_with_another_action_is_refused(service, offered, panel):
+    from row_bot import threads
+
+    before = len(threads.get_latest_checkpoint_messages(offered))
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        refused = _submit(client, headers, service, offered, video_panel=panel)
+        assert refused.status_code in {400, 422}, refused.text
+    assert len(threads.get_latest_checkpoint_messages(offered)) == before

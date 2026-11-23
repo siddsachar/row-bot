@@ -155,6 +155,12 @@ class TappedChoice(WireModel):
     label: str | None = Field(default=None, min_length=1, max_length=40)
 
 
+class VideoPanelRequest(WireModel):
+    """The Video panel's request sent as the person's message (C1): a comment on a storyboard card, a swap of its
+    footage, a new take, or making a storyboard whose footage Row-Bot makes first."""
+    action: Literal["comment", "swap", "new_take", "make"]
+
+
 class SubmitPayload(WireModel):
     submission_id: UUID
     text: Annotated[str, StringConstraints(min_length=1, max_length=200000)]
@@ -167,6 +173,8 @@ class SubmitPayload(WireModel):
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
     # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
     tapped_choice: TappedChoice | None = None
+    # The Video panel's request (C1): which of its buttons sent the person's words.
+    video_panel: VideoPanelRequest | None = None
     # The sending device's IANA zone ("Europe/London"): "local time" in this turn means it (M10).
     time_zone: str | None = Field(default=None, max_length=64)
 
@@ -2792,6 +2800,68 @@ class LocalModelInstallRequest(WireModel):
 class LocalModelRemoveRequest(WireModel):
     # One model; absent: the runtime and every model.
     model_id: LocalModelId | None = None
+
+
+SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
+
+
+class SpeechModelOption(WireModel):
+    """One pinned streaming speech-to-text model Row-Bot Voice can download (VD3)."""
+
+    id: SpeechModelId
+    name: str = Field(max_length=128)
+    # The saved Talk engine id that chooses it ("Speech model" in Settings › Voice).
+    engine_id: str = Field(max_length=128)
+    # The download, and the space it takes once unpacked.
+    size_bytes: int = Field(ge=0)
+    installed_bytes: int = Field(ge=0)
+    # What pressing Download would fetch now (a stopped download resumes); 0 when installed.
+    download_bytes: int = Field(ge=0)
+    installed: bool
+    # The model's language (BCP 47), or None when it detects the language itself.
+    language: str | None = Field(default=None, max_length=16)
+    licence: str = Field(max_length=64)
+    source: str = Field(max_length=256)
+    runs_best_on: Literal["gpu", "cpu"]
+
+
+class SpeechModelDownload(WireModel):
+    model_id: SpeechModelId
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class SpeechModelsView(WireModel):
+    """Settings › Voice: the streaming speech models, the one picked for this computer, the download."""
+
+    schema_version: Literal[1]
+    # unavailable: the speech runtime (the voice extra) isn't installed.
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "failed"]
+    computer: str = Field(max_length=256)
+    recommended: SpeechModelId
+    # Why: "gpu" (an NVIDIA card the runtime uses), "cpu", "mac", or "no_gpu_runtime" (an NVIDIA
+    # card, but the installed speech runtime runs on the processor only).
+    reason: Literal["gpu", "cpu", "mac", "no_gpu_runtime"]
+    models: list[SpeechModelOption] = Field(max_length=8)
+    download: SpeechModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    # The saved Talk engine id now in use.
+    talk_engine: str = Field(max_length=128)
+    disk_bytes: int = Field(ge=0)
+    freed_bytes: int | None = Field(default=None, ge=0)
+
+
+class SpeechModelInstallRequest(WireModel):
+    model_id: SpeechModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class SpeechModelRemoveRequest(WireModel):
+    model_id: SpeechModelId
 
 
 class ModelTestResult(WireModel):
@@ -6356,6 +6426,7 @@ class VideoEditPage(WireModel):
 
 VideoProjectId = Annotated[str, StringConstraints(pattern=r"^vid-[0-9a-f]{8}$")]
 VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
+VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
 
 
 class VideoScene(WireModel):
@@ -6379,6 +6450,15 @@ class VideoScene(WireModel):
     # What the live preview plays: its video and its voice line, by reference (None when there's none to play).
     source_ref: str | None = Field(default=None, max_length=512)
     voice_ref: str | None = Field(default=None, max_length=512)
+    # Its storyboard card (C1): its footage type (with no source, footage still to make, unless a card), what it
+    # shows, its music cue, whether the person approved it, whether it has a frame to show (its frame route), and
+    # how the made video got it: drawn now ("new"), unchanged from before ("reused"), or "" (a card, or not made).
+    footage: VideoFootage = "clip"
+    shows: str = Field(default="", max_length=200)
+    cue: str = Field(default="", max_length=80)
+    approved: bool = False
+    has_frame: bool = False
+    made: Literal["", "new", "reused"] = ""
 
 
 class VideoSceneWrite(WireModel):
@@ -6391,6 +6471,11 @@ class VideoSceneWrite(WireModel):
     zoom: list[float] | None = Field(default=None, min_length=4, max_length=4)
     card: str = Field(default="", max_length=120)
     line: str = Field(default="", max_length=300)
+    # Its storyboard card: left out, a scene keeps its own.
+    footage: VideoFootage | None = None
+    shows: str | None = Field(default=None, max_length=200)
+    frame: str | None = Field(default=None, max_length=512)
+    cue: str | None = Field(default=None, max_length=80)
 
 
 class VideoVersionView(WireModel):
@@ -6438,16 +6523,18 @@ class VideoProjectView(WireModel):
     # Every kept version, newest first.
     versions: list[VideoVersionView] = Field(max_length=50)
     number: int = Field(ge=1)
-    scenes: list[VideoScene] = Field(max_length=60)
+    # The storyboard's one line: what the video is ("" none).
+    logline: str = Field(default="", max_length=160)
+    scenes: list[VideoScene] = Field(max_length=200)
     # The scenes this version added or changed against the one before it.
-    changed: list[VideoSceneId] = Field(max_length=60)
+    changed: list[VideoSceneId] = Field(max_length=200)
     music: str = Field(max_length=200)
     music_volume: float = Field(ge=0, le=1)
     # One voice file said over the whole video ("" none): its scenes' lines then aren't said one by one.
     narration: str = Field(default="", max_length=200)
     captions: bool
     voice_lines: bool
-    # draft (not made yet), voicing, rendering, made, failed or stopped.
+    # draft (a storyboard: not made yet), voicing, rendering, made, failed or stopped.
     status: Literal["draft", "voicing", "rendering", "made", "failed", "stopped"]
     problem: str = Field(max_length=400)
     # The edit that makes (or made) this version's video.
@@ -6470,13 +6557,20 @@ class VideoProjectView(WireModel):
 class VideoProjectChange(WireModel):
     """The person's change in the Video panel, made on version ``base``: a new version, then its video."""
     base: int = Field(ge=1)
-    scenes: list[VideoSceneWrite] = Field(min_length=1, max_length=60)
+    scenes: list[VideoSceneWrite] = Field(min_length=1, max_length=200)
     title: str = Field(default="", max_length=80)
     music_volume: float | None = Field(default=None, ge=0, le=1)
     captions: bool | None = None
     brand: bool | None = None
     voice: str | None = Field(default=None, max_length=64)
     note: str = Field(default="", max_length=200)
+
+
+class VideoSceneApproval(WireModel):
+    """The person approves storyboard scenes of version ``base`` as they are, or takes that back (C1)."""
+    base: int = Field(ge=1)
+    scene_ids: list[VideoSceneId] = Field(min_length=1, max_length=200)
+    approved: bool
 
 
 class VideoProjectRestore(WireModel):
