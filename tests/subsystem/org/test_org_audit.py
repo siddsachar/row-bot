@@ -243,6 +243,21 @@ def test_a_person_sees_and_refreshes_only_their_own_devices(org_database, idp, p
         conn.execute("UPDATE row_bot_org.devices SET revoked_at = now()")
 
 
+def test_a_revoked_device_stays_revoked_even_for_an_admin_on_their_own(org_database, idp, pool) -> None:
+    with org_server(org_database, idp) as server:
+        it = person(server, idp, "it", ["IT Admins"])
+        it_id = me(it)
+        desk = it.post("/api/devices", json=LAPTOP).json()["id"]
+        assert it.post(f"/api/admin/devices/{desk}/revoke").status_code == 200
+
+    for change in ("revoked_at = NULL", "revoked_at = now() + interval '1 day'"):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match="stays revoked"), \
+                principal_transaction(pool, it_id, ["it-admins"]) as conn:
+            conn.execute("SELECT set_config('row_bot.admin', 'on', true)")
+            conn.execute(f"UPDATE row_bot_org.devices SET {change} WHERE id = %s", (desk,))
+    assert owner_sql(org_database, "SELECT revoked_at IS NOT NULL FROM row_bot_org.devices") == [(True,)]
+
+
 # -- the server's own events --------------------------------------------------------------------------
 
 def test_query_filters_and_pages_newest_first(org_database, idp, monkeypatch) -> None:
@@ -331,10 +346,16 @@ def test_ingest_takes_the_actor_from_the_session_and_keeps_only_metadata(org_dat
             id=new_event_id(), occurred_at=datetime.now(timezone.utc), recorded_at=datetime.now(timezone.utc),
             org_id="acme", actor=Actor(ActorKind.ADMIN, "it"), action=Action.DATA_EXPORTED, outcome="succeeded",
             layer="org", target=Target(TargetKind.EXPORT, "exp-1"), details={"scope": "person", "item_count": 3}))
-        answer = ada.post("/api/audit/events", json={"events": [sent, exported]})
+        locked = to_dict(AuditEvent(
+            id=new_event_id(), occurred_at=datetime.now(timezone.utc), recorded_at=datetime.now(timezone.utc),
+            org_id="acme", actor=Actor(ActorKind.PERSON, "x"), action=Action.DEVICE_LOCKED_DOWN, outcome="succeeded",
+            layer="org", target=Target(TargetKind.DEVICE, device), device_id=device, details={"offline_days": 8}))
+        answer = ada.post("/api/audit/events", json={"events": [sent, exported, locked]})
         again = ada.post("/api/audit/events", json={"events": [sent]})
 
-    assert answer.json() == {"accepted": 2, "duplicates": 0}
+    assert answer.json() == {"accepted": 3, "duplicates": 0}
+    assert summary(stored_events(org_database.owner_url, "device.locked_down")[0]) == (
+        "device.locked_down", "person", ada_id, device, "succeeded", {"offline_days": 8})
     assert again.json() == {"accepted": 0, "duplicates": 1}  # A retry stores nothing twice.
     tool, export = stored_events(org_database.owner_url, "tool.called", "data.exported")
     assert (tool["id"], tool["actor"], tool["org_id"], tool["device_id"]) == (
@@ -363,6 +384,20 @@ def test_ingest_refuses_other_actions_bad_events_unknown_devices_and_big_batches
         broken = {**tool_event(), "layer": "personal"}
         assert send(broken)[0] == 422 and send(broken)[1]["error"] == "invalid_event"
         assert send(tool_event(device_id=other)) == (422, {"error": "unknown_device", "index": 0})
+        # Only an export of the person's own data, and a lockdown only of the device that reports it.
+        now = datetime.now(timezone.utc)
+
+        def event(action: Action, target: Target, **fields) -> dict:
+            return to_dict(AuditEvent(id=new_event_id(), occurred_at=now, recorded_at=now, org_id="acme",
+                                      actor=Actor(ActorKind.PERSON, "x"), action=action, outcome="succeeded",
+                                      layer="org", target=target, **fields))
+
+        company = event(Action.DATA_EXPORTED, Target(TargetKind.EXPORT, "e1"), details={"scope": "company"})
+        assert send(company) == (422, {"error": "action_not_accepted", "index": 0})
+        second = ada.post("/api/devices", json={**LAPTOP, "name": "Ada's desktop"}).json()["id"]
+        for target, on in ((device, None), (second, device), (other, device)):
+            lockdown = event(Action.DEVICE_LOCKED_DOWN, Target(TargetKind.DEVICE, target), device_id=on)
+            assert send(lockdown) == (422, {"error": "device_mismatch", "index": 0}), (target, on)
         assert send(events=[]) == (422, {"error": "invalid_batch"})
         assert send(**{"events": [tool_event()], "actor": "x"}) == (422, {"error": "invalid_batch"})
         assert send(*[tool_event() for _ in range(audit_web.MAX_BATCH + 1)]) == (413, {"error": "batch_too_large"})
@@ -375,7 +410,25 @@ def test_ingest_refuses_other_actions_bad_events_unknown_devices_and_big_batches
                         ).status_code == 403
 
     # Nothing refused was stored, not even a batch's good events.
-    assert [e["action"] for e in stored_events(org_database.owner_url)][before:] == ["device.removed"]
+    assert [e["action"] for e in stored_events(org_database.owner_url)][before:] == ["device.joined",
+                                                                                     "device.removed"]
+
+
+def test_an_event_id_another_person_stored_refuses_the_batch(org_database, idp) -> None:
+    with org_server(org_database, idp) as server:
+        ada, bo = person(server, idp, "ada"), person(server, idp, "bo")
+        taken = tool_event()
+        assert ada.post("/api/audit/events", json={"events": [taken]}).json() == {"accepted": 1, "duplicates": 0}
+        mine = tool_event()
+        refused = bo.post("/api/audit/events", json={"events": [mine, taken]})
+        assert (refused.status_code, refused.json()) == (409, {"error": "event_id_taken"})
+        # Ada's own retry is still a duplicate, and Bo's batch without the taken id goes in.
+        assert ada.post("/api/audit/events", json={"events": [taken]}).json() == {"accepted": 0, "duplicates": 1}
+        assert bo.post("/api/audit/events", json={"events": [mine]}).json() == {"accepted": 1, "duplicates": 0}
+        ada_id, bo_id = me(ada), me(bo)
+
+    assert [(e["id"], e["actor"]["id"]) for e in stored_events(org_database.owner_url, "tool.called")] == [
+        (taken["id"], ada_id), (mine["id"], bo_id)]
 
 
 # -- devices ------------------------------------------------------------------------------------------

@@ -47,7 +47,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from row_bot.audit import Action, Outcome, Target, TargetKind
+from row_bot.audit import Action, InvalidAuditEvent, Outcome, Target, TargetKind
 from row_bot.policy.model import CATALOG_MODEL_ID
 from row_bot_org import audit
 from row_bot_org.db.rls import principal_transaction
@@ -123,11 +123,19 @@ class GatewayService:
             store.record_usage(conn, principal_id=principal.principal_id, groups=principal.groups, model=route.model,
                                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, cost=cost,
                                duration_ms=duration_ms, outcome=outcome)
-            audit.emit(conn, Action.MODEL_CALLED, actor=audit.person(principal.principal_id),
-                       outcome=Outcome.SUCCEEDED if outcome == "ok" else Outcome.FAILED,
-                       details={"provider": route.api, "model": route.model, "input_tokens": usage.input_tokens,
-                                "output_tokens": usage.output_tokens, "duration_ms": duration_ms,
-                                "cost_micros": int((cost * _MILLION).to_integral_value())})
+            # The meter never depends on the audit event: an event that can't be built or stored is logged, and
+            # the usage row stays (the answer already went out).
+            try:
+                with conn.transaction():
+                    audit.emit(conn, Action.MODEL_CALLED, actor=audit.person(principal.principal_id),
+                               outcome=Outcome.SUCCEEDED if outcome == "ok" else Outcome.FAILED,
+                               details={"provider": route.api, "model": route.model,
+                                        "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+                                        "duration_ms": duration_ms,
+                                        "cost_micros": int((cost * _MILLION).to_integral_value())})
+            except (InvalidAuditEvent, psycopg.Error) as error:
+                logger.error("a call to endpoint %s was metered but not audited (%s)", route.endpoint_name,
+                             type(error).__name__)
 
     async def record(self, principal: RequestPrincipal, route: store.Route, usage: upstream.Usage, started: float,
                      outcome: str) -> None:
@@ -389,8 +397,10 @@ def _upstream_refusal(route: store.Route, error: Exception) -> _Refusal:
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 ModelName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-# The id people call a model by, as the policy's models.allowed names it (without its "*").
-CatalogName = Annotated[str, StringConstraints(strip_whitespace=True, pattern=f"^(?:{CATALOG_MODEL_ID})$")]
+# The id people call a model by, as the policy's models.allowed names it (without its "*"), at most as long as
+# an audit event's model id (row_bot.audit.vocabulary.MODEL_PATTERN).
+CatalogName = Annotated[str, StringConstraints(strip_whitespace=True, max_length=128,
+                                               pattern=f"^(?:{CATALOG_MODEL_ID})$")]
 Group = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 # Printable ASCII: it goes into an HTTP header.
 ApiKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8192, pattern=r"^[!-~]+$")]

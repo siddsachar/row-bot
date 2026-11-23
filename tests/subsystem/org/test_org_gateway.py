@@ -599,12 +599,42 @@ def test_a_catalog_model_is_named_by_an_id_the_policy_can_allow(org_database, id
     with org_server(org_database, idp) as server:
         admin = admin_of(server, idp)
         endpoint_id = add_endpoint(admin, "http://h.example.test/v1")
-        for name in ("*", "two words", "-leading-dash", "x" * 201, "café"):
+        # 128 at most: the longest model id an audit event holds.
+        for name in ("*", "two words", "-leading-dash", "x" * 129, "café"):
             refused = admin.post("/api/admin/models", json={"endpoint_id": endpoint_id, "name": name, "kind": "chat"})
             assert refused.status_code == 422, name
         model = add_model(admin, endpoint_id, "meta-llama/Llama-3.3-70B:fp8")
         assert admin.patch(f"/api/admin/models/{model['id']}", json={"name": "*"}).status_code == 422
+        assert admin.patch(f"/api/admin/models/{model['id']}", json={"name": "x" * 129}).status_code == 422
         assert [m["name"] for m in admin.get("/api/admin/models").json()["models"]] == ["meta-llama/Llama-3.3-70B:fp8"]
+
+
+def test_a_call_whose_audit_event_cant_be_built_is_still_metered(org_database, idp, log_text) -> None:
+    long_name = "m" * 200  # Stored before names were capped at 128: too long for an audit event's model id.
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        endpoint_id = add_endpoint(admin, endpoint.base_url)
+        superuser_sql(org_database, "INSERT INTO row_bot_org.catalog_models (endpoint_id, name, upstream_model,"
+                      " display_name, kind, input_price, output_price) VALUES (%s, %s, 'llama', 'Long', 'chat', 3, 15)",
+                      endpoint_id, long_name)
+        ada = person(server, idp, "ada")
+
+        for stream in (False, True):
+            assert ada.post(CHAT, json={"model": long_name, "messages": HELLO, "stream": stream}).status_code == 200
+        assert usage(admin) == [{"model": long_name, "calls": 2, "input_tokens": 2 * INPUT_TOKENS,
+                                 "output_tokens": 2 * OUTPUT_TOKENS, "cost": 2 * CALL_COST}]
+
+    assert stored_events(org_database.owner_url, "model.called") == []
+    assert log_text().count("metered but not audited (InvalidAuditEvent)") == 2
+    assert long_name not in log_text()
+
+
+def test_token_counts_beyond_the_safe_range_are_capped() -> None:
+    from row_bot_org.gateway import upstream
+
+    huge = upstream.usage_of("anthropic", {"usage": {"input_tokens": 2**60, "cache_read_input_tokens": 5,
+                                                     "output_tokens": 2**53}})
+    assert (huge.input_tokens, huge.output_tokens) == (2**53 - 1, 2**53 - 1)
 
 
 def test_admin_refusals_never_echo_a_key(org_database, idp) -> None:

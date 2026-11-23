@@ -45,7 +45,8 @@ CALL row_bot_org.grant_runtime_access('row_bot_org.audit_events');
 -- Appends one event (its canonical bytes) at the head of the chain: hash = SHA-256(lp('row-bot/audit/v1') ||
 -- lp(prev) || lp(event)), lp = an 8-byte big-endian length prefix, prev the previous hash's raw bytes, and the
 -- first link's prev the genesis hash of the chain 'company-server' (row_bot.audit.chain). An event whose id
--- is already stored is skipped (a device's retry): false.
+-- is already stored by the same actor is skipped (a device's retry): false. The id stored by another actor is
+-- refused (unique_violation): one person's event never passes as a copy of another's.
 CREATE FUNCTION row_bot_org.append_audit_event(p_event bytea) RETURNS boolean
     LANGUAGE plpgsql VOLATILE SECURITY DEFINER
     SET search_path = pg_catalog, pg_temp
@@ -56,12 +57,18 @@ DECLARE
     head_seq bigint;
     head_hash text;
     prev bytea;
+    stored_actor text;
 BEGIN
     -- The bytes of "RBOrgAud": one append at a time, until the appending transaction ends.
     PERFORM pg_catalog.pg_advisory_xact_lock(5927387412350203236);
-    IF EXISTS (SELECT 1 FROM row_bot_org.audit_events e
-               WHERE e.event_id OPERATOR(pg_catalog.=) (doc OPERATOR(pg_catalog.->>) 'id')::pg_catalog.uuid) THEN
-        RETURN false;
+    SELECT e.actor_id INTO stored_actor FROM row_bot_org.audit_events e
+    WHERE e.event_id OPERATOR(pg_catalog.=) (doc OPERATOR(pg_catalog.->>) 'id')::pg_catalog.uuid;
+    IF FOUND THEN
+        IF stored_actor OPERATOR(pg_catalog.=) ((doc OPERATOR(pg_catalog.->) 'actor') OPERATOR(pg_catalog.->>) 'id')
+        THEN
+            RETURN false;
+        END IF;
+        RAISE EXCEPTION 'this audit event id is stored for another actor' USING ERRCODE = 'unique_violation';
     END IF;
     SELECT e.seq, e.hash INTO head_seq, head_hash FROM row_bot_org.audit_events e ORDER BY e.seq DESC LIMIT 1;
     IF head_seq IS NULL THEN
@@ -130,6 +137,23 @@ CREATE POLICY devices_admin_read ON row_bot_org.devices FOR SELECT USING (row_bo
 CREATE POLICY devices_admin_revoke ON row_bot_org.devices FOR UPDATE
     USING (row_bot_org.row_bot_is_admin())
     WITH CHECK (row_bot_org.row_bot_is_admin() AND revoked_at IS NOT NULL);
+
+-- A revoke is final, whoever updates the row: permissive policies OR together, so an admin's own device would
+-- otherwise pass devices_admin_revoke's USING and devices_self_seen's WITH CHECK with revoked_at cleared.
+CREATE FUNCTION row_bot_org.devices_keep_revoked() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = pg_catalog, pg_temp
+    AS $$
+BEGIN
+    IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
+        RAISE EXCEPTION 'a revoked device stays revoked' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END
+$$;
+REVOKE ALL ON FUNCTION row_bot_org.devices_keep_revoked() FROM PUBLIC;
+CREATE TRIGGER devices_keep_revoked BEFORE UPDATE ON row_bot_org.devices
+    FOR EACH ROW EXECUTE FUNCTION row_bot_org.devices_keep_revoked();
 
 CALL row_bot_org.grant_runtime_access('row_bot_org.devices');
 

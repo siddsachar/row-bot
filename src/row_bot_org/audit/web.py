@@ -13,11 +13,13 @@ For admins (``identity.roles.admin_connection``):
 
 For a signed-in person (their Row-Bot's sender, C4):
 - ``POST /api/audit/events`` with ``{"events": [<AuditEvent JSON>, ...]}``: at most 100 events and 256 KiB.
-  Each must pass the contract's ``from_dict`` and be an action a device may send (``DEVICE_ACTIONS``), else 422
-  with its ``index``. The server sets the actor (the session's person), the organisation and the time
-  recorded, and stores the event at the metadata level; a ``device_id`` must be one of the person's devices
-  (422 ``unknown_device``, 403 ``device_revoked``). An event whose id is already stored is skipped (a retry):
-  ``{"accepted": n, "duplicates": m}``. The whole batch is stored in one transaction, or none of it.
+  Each must pass the contract's ``from_dict`` and be an action a device may send (``DEVICE_ACTIONS``: an export
+  only of the person's own data, scope ``person``), else 422 with its ``index``. The server sets the actor (the
+  session's person), the organisation and the time recorded, and stores the event at the metadata level; a
+  ``device_id`` must be one of the person's devices (422 ``unknown_device``, 403 ``device_revoked``), and a
+  lockdown names it as its target too (422 ``device_mismatch``). An event whose id the person already stored is
+  skipped (a retry): ``{"accepted": n, "duplicates": m}``; an id stored for anyone else refuses the batch (409
+  ``event_id_taken``). The whole batch is stored in one transaction, or none of it.
 """
 
 from __future__ import annotations
@@ -148,11 +150,15 @@ def audit_router() -> APIRouter:
                 event = from_dict(data)
             except InvalidAuditEvent as error:
                 return _error(422, "invalid_event", index=index, detail=str(error))
-            if event.action not in DEVICE_ACTIONS:
+            if event.action not in DEVICE_ACTIONS or (
+                    event.action == Action.DATA_EXPORTED and event.details.get("scope") != "person"):
                 return _error(422, "action_not_accepted", index=index)
             if event.device_id is not None and (state := _device_state(conn, event.device_id)) != "ok":
                 return _error(403, "device_revoked", index=index) if state == "revoked" else _error(
                     422, "unknown_device", index=index)
+            if event.action == Action.DEVICE_LOCKED_DOWN and (
+                    event.device_id is None or event.target is None or event.target.ref != event.device_id):
+                return _error(422, "device_mismatch", index=index)
             # The actor is the session's person, whatever the device said; nothing above metadata is kept.
             try:
                 checked.append(redact(dataclasses.replace(
@@ -160,7 +166,11 @@ def audit_router() -> APIRouter:
                     RedactionLevel.METADATA))
             except InvalidAuditEvent as error:  # An action the person, as the actor, can't take.
                 return _error(422, "invalid_event", index=index, detail=str(error))
-        accepted = sum(audit.record(conn, event) for event in checked)
+        try:
+            with conn.transaction():
+                accepted = sum(audit.record(conn, event) for event in checked)
+        except psycopg.errors.UniqueViolation:  # An id stored for someone else: nothing of the batch is kept.
+            return _error(409, "event_id_taken")
         return JSONResponse({"accepted": accepted, "duplicates": len(checked) - accepted})
 
     return router
