@@ -7860,6 +7860,8 @@ class LocalModelThinkingSettings(WireModel):
     # The model has a Thinking control on this engine.
     available: bool
     value: Literal["auto", "on", "off"]
+    # What Automatic gives this model (Row-Bot's default for it); None where the model's template decides.
+    automatic: bool | None = None
 
 
 class LocalModelReplyLimitSettings(WireModel):

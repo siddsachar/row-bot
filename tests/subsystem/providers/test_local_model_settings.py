@@ -205,6 +205,18 @@ def test_a_server_the_person_runs_gets_their_reply_limit_and_thinking_per_reques
     assert body["chat_template_kwargs"]["enable_thinking"] is False  # the model's own beats the endpoint's
 
 
+def test_the_sheet_says_automatic_thinking_is_the_servers_own_setting_or_the_models(store):
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+
+    automatic = {}
+    for endpoint_id, mode in (("off-server", "off"), ("on-server", "on"), ("auto-server", "auto")):
+        provider = _endpoint(endpoint_id, "http://127.0.0.1:1/v1", reasoning_mode=mode)
+        automatic[mode] = read_local_model_settings(f"model:{provider}:qwen3.5-9b")["thinking"]["automatic"]
+
+    # A server left on auto: the model's template decides, so the sheet doesn't claim either.
+    assert automatic == {"off": False, "on": True, "auto": None}
+
+
 def test_a_remote_endpoint_and_learnings_endpoints_ignore_per_model_settings(store, monkeypatch):
     from row_bot.providers import custom
 

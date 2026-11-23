@@ -81,6 +81,10 @@ test('a model Row-Bot runs offers the windows that fit, with their memory, and s
   await expect(
     dialog.getByRole('radiogroup', { name: 'Thinking' }),
   ).toBeVisible();
+  // The 9B answers without thinking unless a chat turns it on (D3).
+  await expect(dialog).toContainText(
+    'Automatic: off for this model. A chat’s own choice still wins.',
+  );
   await accessibility(page, testInfo, 'built-in-sheet-axe');
   await bothSchemes(page, testInfo, 'desktop-built-in-sheet');
 

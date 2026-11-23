@@ -154,6 +154,13 @@ function serverWindowHelp(view: LocalModelSettingsView): string {
   }
 }
 
+/** What Automatic means for this model's Thinking, in words. */
+function thinkingHelp(automatic: boolean | null | undefined): string {
+  const chat = 'A chat’s own choice still wins.';
+  if (automatic == null) return `Automatic lets the model decide. ${chat}`;
+  return `Automatic: ${automatic ? 'on' : 'off'} for this model. ${chat}`;
+}
+
 /** What a save means for the next reply, in words. */
 function appliedWords(view: LocalModelSettingsView): string {
   if (view.applied === 'when_idle')
@@ -431,7 +438,7 @@ export function LocalModelSheet({
             {view.thinking.available && (
               <SettingRow
                 label="Thinking"
-                description="Automatic lets the model decide. A chat’s own choice still wins."
+                description={thinkingHelp(view.thinking.automatic)}
                 control={
                   <Segmented<Thinking>
                     label="Thinking"

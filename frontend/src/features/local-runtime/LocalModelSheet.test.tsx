@@ -247,6 +247,20 @@ it('saves Thinking and, under More, the reply length', async () => {
   );
 });
 
+it.each([
+  [false, 'Automatic: off for this model. A chat’s own choice still wins.'],
+  [true, 'Automatic: on for this model. A chat’s own choice still wins.'],
+])(
+  'says what Automatic thinking is for this model (thinks by default: %s)',
+  async (automatic, words) => {
+    const view = builtIn();
+    view.thinking = { ...view.thinking, automatic };
+    open(view);
+
+    expect(await screen.findByText(words)).toBeTruthy();
+  },
+);
+
 it('shows the model card’s sampling and lets the person set their own', async () => {
   open(builtIn());
   await screen.findByRole('button', { name: /^Context:/ });

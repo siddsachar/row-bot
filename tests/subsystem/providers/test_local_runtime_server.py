@@ -549,6 +549,21 @@ def test_only_windows_that_fit_the_card_are_offered_and_a_choice_is_what_the_end
     assert local_runtime.model_context("qwen3.5-4b") == 131_072
 
 
+def test_the_sheet_says_what_automatic_thinking_is_for_each_built_in_model(tmp_path, monkeypatch, settings_store):
+    """D3: the 27B thinks unless a chat says otherwise, the 9B and 4B don't; the sheet's Automatic says which."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 24)
+    built_in = [models.get("qwen3.8-27b-q4"), models.get("qwen3.5-9b"), models.get("qwen3.5-4b")]
+    monkeypatch.setattr(install, "installed_models", lambda root=None: built_in)
+    server.save_endpoint()
+
+    thinking = [_sheet(model.id)["thinking"] for model in built_in]
+
+    assert [item["automatic"] for item in thinking] == [True, False, False]
+    assert all(item["available"] and item["value"] == "auto" for item in thinking)
+
+
 def test_a_mac_may_choose_a_larger_window_with_a_slow_first_reply_said(tmp_path, monkeypatch, settings_store):
     from row_bot.local_runtime import builds, hardware
 

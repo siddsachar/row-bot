@@ -367,6 +367,18 @@
     "LocalModelThinkingSettings": {
       "additionalProperties": false,
       "properties": {
+        "automatic": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic"
+        },
         "available": {
           "title": "Available",
           "type": "boolean"

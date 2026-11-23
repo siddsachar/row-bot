@@ -788,6 +788,15 @@ def built_in_model_thinks(endpoint: Mapping[str, Any] | None, model_id: str) -> 
     return found.thinks if found is not None else None
 
 
+def local_thinking_default(endpoint: Mapping[str, Any] | None, model_id: str) -> bool | None:
+    """Whether a model on a local server thinks when neither the person nor the chat chose: the endpoint's own
+    Thinking setting, else a Run on this computer model's (D3); None where the model's template decides."""
+    if not isinstance(endpoint, Mapping):
+        return None
+    mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
+    return mode == "on" if mode in {"on", "off"} else built_in_model_thinks(endpoint, model_id)
+
+
 def _local_template_thinking_capabilities(provider_id: str, model_id: str) -> ReasoningCapabilities | None:
     """On/Off for a hybrid Qwen model on llama.cpp, vLLM or SGLang on this computer."""
     from row_bot.providers.ollama import normalize_ollama_family
@@ -806,10 +815,9 @@ def _local_template_thinking_capabilities(provider_id: str, model_id: str) -> Re
         return None
     from row_bot.models import local_thinking
 
-    mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
     default = local_thinking(provider_id, model_id)  # the person's Thinking for this model (U1)
     if default is None:
-        default = mode == "on" if mode in {"on", "off"} else built_in_model_thinks(endpoint, model_id)
+        default = local_thinking_default(endpoint, model_id)
     return ReasoningCapabilities(
         default_enabled=True if default is None else default,  # the templates think unless told not to
         can_disable=True,

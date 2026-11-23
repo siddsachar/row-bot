@@ -171,6 +171,12 @@ def read_local_model_settings(model_ref: str, *, validate: Callable[[], None] = 
     else:
         automatic_reply = None  # the server's own default
     thinking = _thinking_available(provider_id, model_id)
+    if thinking and endpoint is not None:
+        from row_bot.providers.reasoning import local_thinking_default
+
+        thinks_by_default = local_thinking_default(endpoint, model_id)
+    else:
+        thinks_by_default = None  # Ollama's template decides
     result = {
         "schema_version": 1,
         "model_ref": model_ref,
@@ -186,7 +192,8 @@ def read_local_model_settings(model_ref: str, *, validate: Callable[[], None] = 
             "reload_choices": reload_choices,
         },
         "thinking": {"available": thinking,
-                     "value": {"on": "on", "off": "off"}.get(saved.get("reasoning") if thinking else "", "auto")},
+                     "value": {"on": "on", "off": "off"}.get(saved.get("reasoning") if thinking else "", "auto"),
+                     "automatic": thinks_by_default},
         "reply_limit": {"value": saved.get("reply_limit"), "automatic": automatic_reply,
                         "choices": [size for size in REPLY_LIMITS if not window or size < window]},
         "sampling": _sampling(provider_id, model_id, profile, saved, thinking),
