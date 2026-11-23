@@ -779,6 +779,8 @@
     "voice_session_expired": 410,
     "voice_session_limit": 429,
     "wait_unavailable": 404,
+    "wake_model_missing": 409,
+    "wake_word_off": 409,
     "watch_invalid": 422,
     "watch_lifetime_max": 409,
     "watch_limit": 409,

@@ -3423,6 +3423,15 @@ const CATALOG: Record<string, Entry> = {
     'Row-Bot’s voice can’t speak this reply’s language yet, so it stays on screen.',
     'none',
   ],
+  wake_word_off: [
+    'The wake word is off. Turn it on in Voice settings.',
+    'review',
+    VOICE,
+  ],
+  wake_model_missing: [
+    'This Row-Bot doesn’t have the wake word model. Update Row-Bot to use it.',
+    'none',
+  ],
   voice_rate_limited: [
     'Voice has been used a lot in the last minute. Wait a moment, then try again.',
     'retry',

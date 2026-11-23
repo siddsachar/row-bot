@@ -835,6 +835,8 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     push_to_talk: bool = False
     # What the person speaks: a language code, or "auto" (detect it).
     speech_language: str = Field(default="auto", min_length=2, max_length=8)
+    # "Hey Row-Bot" on the desktop: off until the person turns it on.
+    wake_word: bool = False
 
 
 class VoiceLocalSettingsSnapshot(WireModel):
@@ -11575,6 +11577,9 @@ class DictationCapability(WireModel):
     # Read aloud on a reply: "available", or the code saying what it needs (kokoro_model_missing).
     read_aloud_reason: str = Field(default="host_unavailable", max_length=128)
     live_providers: list[LiveVoiceProvider] = Field(default_factory=list, max_length=8)
+    # "Hey Row-Bot": "available" in the desktop app on this computer, or why not
+    # (not_this_computer, wake_model_missing, host_unavailable).
+    wake_reason: str = Field(default="host_unavailable", max_length=128)
 
 
 class DictationStart(WireModel):

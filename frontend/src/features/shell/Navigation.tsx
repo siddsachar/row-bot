@@ -38,6 +38,7 @@ import { useClientState, useRuntime } from '../../runtime';
 import { useLive } from '../../live';
 import { fallbackDue } from '../../api/live-updates';
 import AttentionIndicator from './AttentionIndicator';
+import { WakeWordIndicator } from '../voice/WakeWord';
 import SandboxNotice from './SandboxNotice';
 import ViewOnlyNotice from './ViewOnlyNotice';
 import { useWaits } from './Waits';
@@ -1185,6 +1186,7 @@ export default function Navigation({
       )}
       <footer className="nav-footer" aria-label="Workspace destinations">
         {showBuddy && <BuddySurface />}
+        <WakeWordIndicator row />
         {/* Settings is its own row under Buddy's large avatar (B225). */}
         <Link
           className="button ghost nav-row nav-settings"
@@ -1274,6 +1276,7 @@ export function NavigationRail({
       <div className="navigation-rail-group navigation-rail-footer">
         <SandboxNotice compact />
         <ViewOnlyNotice compact />
+        <WakeWordIndicator />
         <AttentionIndicator
           load={backgroundReady ? controller.attention : undefined}
           loadApprovals={

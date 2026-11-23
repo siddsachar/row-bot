@@ -737,6 +737,8 @@ export interface ClientTransport {
   ): Promise<Wire.VoiceTicket>;
   /** The Row-Bot Voice socket on this server's own origin. */
   openVoiceSocket?(): WebSocket;
+  /** A single-use ticket for the voice socket's wake mode (desktop only). */
+  wakeTicket?(signal?: AbortSignal): Promise<Wire.VoiceTicket>;
   startRealtime?(
     conversation: string,
     body: Wire.TalkStart,

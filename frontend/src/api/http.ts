@@ -2051,6 +2051,9 @@ export class HttpTransport implements ClientTransport {
   talkTicket(handle: wire.DictationHandle, signal?: AbortSignal) {
     return wire.talkTicket(this.base, this.session(), handle, signal);
   }
+  wakeTicket(signal?: AbortSignal) {
+    return wire.wakeTicket(this.base, this.session(), signal);
+  }
   openVoiceSocket() {
     // Same origin as every other request; the session cookie authenticates it.
     const url = new URL(

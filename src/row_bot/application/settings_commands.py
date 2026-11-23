@@ -135,6 +135,7 @@ _RETIRED_FIELDS = {("tools", "compression_mode")}
 _BOOL_FIELDS = {
     ("voice", "runtime.captions_enabled"),
     ("voice", "runtime.push_to_talk"),
+    ("voice", "runtime.wake_word"),
     ("system", "shell.enabled"),
     ("system", "shell.allow_data_folder"),
     ("system", "browser.enabled"),

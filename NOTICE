@@ -37,3 +37,14 @@ presses Download in Settings › Voice, from sherpa-onnx's GitHub releases: Moon
 (https://github.com/moonshine-ai/moonshine, Useful Sensors, MIT), and Nemotron Speech Streaming
 0.6B, English (https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b, NVIDIA, NVIDIA
 Open Model License).
+
+The "Hey Row-Bot" wake word model (src/row_bot/voice/hey_row_bot.onnx) is licensed under the
+Apache License, Version 2.0. Row-Bot fine-tuned it, with LiveKit WakeWord's training code
+(https://github.com/livekit/livekit-wakeword, Apache-2.0), from LiveKit, Inc.'s pretrained encoder
+livekit-wakeword-encoder-standard (Copyright 2025-2026 LiveKit, Inc., Apache License 2.0). Its
+training data: synthetic speech from Kokoro v1.0 (https://github.com/thewh1teagle/kokoro-onnx,
+Apache-2.0) and from Piper's en_US-libritts_r-medium generator
+(https://github.com/rhasspy/piper-sample-generator, MIT), trained on LibriTTS-R (Koizumi et al.,
+https://www.openslr.org/141/, CC BY 4.0); background speech from LibriSpeech (Panayotov et al.,
+https://www.openslr.org/12/, CC BY 4.0); noise from MS-SNSD (https://github.com/microsoft/MS-SNSD,
+Microsoft), only its Freesound clips (CC0); and generated noise and rooms.
