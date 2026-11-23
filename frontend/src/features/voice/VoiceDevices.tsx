@@ -167,6 +167,7 @@ export function DeviceSettings() {
     return (
       <SettingsItem
         label="Microphone"
+        bind={false}
         help={
           refused
             ? 'The microphone isn’t allowed in this browser. Allow it in the browser’s site settings to choose one.'
