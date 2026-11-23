@@ -382,13 +382,24 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
     assert not (root / "image.png").exists()
 
 
+def _pin_workspace(monkeypatch, root: Path) -> None:
+    """Make *root* the workspace Save to workspace writes to, the way ``data_paths.workspace_folder`` reads it:
+    the folder chosen in Settings, which wins over the default (``ROW_BOT_WORKSPACE``) whenever it exists."""
+    from row_bot.tools import registry
+
+    root.mkdir(parents=True, exist_ok=True)
+    read = registry.get_tool_config
+    monkeypatch.setattr(registry, "get_tool_config", lambda tool, key, default=None: (
+        str(root) if (tool, key) == ("filesystem", "workspace_root") else read(tool, key, default)))
+
+
 def test_save_to_workspace_keeps_any_files_own_name_is_scoped_idempotent_and_outlives_its_chat(creation,
                                                                                                monkeypatch):
     from row_bot.application.attachments import register_attachment
     from row_bot.application.conversation_media_copy import save_output
 
     service, conversation, root = creation
-    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(root))
+    _pin_workspace(monkeypatch, root)
     film = register_attachment(conversation, "Birthday montage.mp4", b"\x00\x00\x00\x18ftypmp42" + b"1" * 32,
                                role="draft", output_id="vid-0001", version=1)
     second = register_attachment(conversation, "Birthday montage.mp4", b"\x00\x00\x00\x18ftypmp42" + b"2" * 32,
@@ -419,9 +430,8 @@ def test_explicit_output_save_rejects_code_folder_without_creating_destination(c
     from row_bot.developer.storage import save_workspace
 
     _, conversation, root = creation
-    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(root))
+    _pin_workspace(monkeypatch, root)
     output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
-    root.mkdir(parents=True, exist_ok=True)
     save_workspace(DeveloperWorkspace(id="root", name="root", path=str(root)))
     with pytest.raises(ValueError, match="media_destination_is_code_folder"):
         save_output(conversation, output["attachment_ref"])
@@ -433,7 +443,7 @@ def test_media_save_command_returns_a_replayable_receipt(creation, monkeypatch):
     from row_bot.application.attachments import register_attachment
 
     service, conversation, root = creation
-    monkeypatch.setenv("ROW_BOT_WORKSPACE", str(root))
+    _pin_workspace(monkeypatch, root)
     output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
     payload = MediaSavePayload.model_validate({"media_ref": output["attachment_ref"]})
     identity = str(uuid4())
