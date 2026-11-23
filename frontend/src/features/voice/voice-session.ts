@@ -2,12 +2,22 @@
  * Row-Bot Voice in the browser: one socket on Row-Bot's own origin carries the
  * person's 16 kHz microphone frames up and the assistant's speech and events
  * down. The host decides turns, barge-in and what to say; this side captures,
- * plays, ducks and flushes on its word, and shows the state.
+ * plays, ducks and flushes on its word, and shows the state. While the person
+ * shares their camera or screen, the host asks for a still at the end of each
+ * spoken turn and this side sends one.
  */
 import { setBuddyListening, setBuddyVoiceLevel } from '../buddy/living/voice';
 import type { VoiceSocket } from '../../api/types';
 import { BrowserVoiceAudio, type VoiceAudio } from './voice-audio';
 import { approvalQuestion } from '../shell/tool-activity';
+import {
+  BrowserShare,
+  sendStill,
+  VoiceShare,
+  type ShareCapture,
+  type ShareSource,
+  type ShareState,
+} from './share';
 
 const OPEN = 1;
 
@@ -64,6 +74,14 @@ export type VoiceSnapshot = {
   latency: VoiceLatency | null;
   approval: VoiceApproval | null;
   error: string;
+  /** The camera or screen being shared, or null. */
+  share: ShareState | null;
+  /**
+   * Whether sharing can start: yes; blind (this chat's model can't see
+   * images, so the bar says so); no (hidden: still connecting, or a Live
+   * voice provider that takes no images).
+   */
+  canShare: 'yes' | 'blind' | 'no';
 };
 
 export type VoiceSessionDeps = {
@@ -73,6 +91,7 @@ export type VoiceSessionDeps = {
   /** Stop the lease on the host (best effort when the socket is gone). */
   stop(): Promise<unknown>;
   audio?: VoiceAudio;
+  share?: ShareCapture;
 };
 
 const ERRORS: Record<string, string> = {
@@ -86,6 +105,9 @@ const ERRORS: Record<string, string> = {
   no_microphone: 'No microphone was found.',
   microphone_failed: 'The microphone couldn’t start. Try again.',
   disconnected: 'Voice disconnected.',
+  voice_share_unavailable:
+    'This chat’s model can’t see images, so nothing can be shared.',
+  voice_still_refused: 'A still of what you share couldn’t be sent.',
 };
 
 /** Why the microphone could not start, as one of the codes above. */
@@ -114,6 +136,8 @@ const INITIAL: VoiceSnapshot = {
   latency: null,
   approval: null,
   error: '',
+  share: null,
+  canShare: 'no',
 };
 
 export class VoiceSession {
@@ -127,12 +151,17 @@ export class VoiceSession {
   private reconnected = false;
   private wakeLock: { release(): Promise<void> } | null = null;
   private levelAt = 0;
+  private share: VoiceShare;
 
   constructor(
     private deps: VoiceSessionDeps,
     private firstTicket: string,
   ) {
     this.audio = deps.audio ?? new BrowserVoiceAudio();
+    this.share = new VoiceShare(deps.share ?? new BrowserShare(), {
+      changed: (share, error) => this.set(error ? { share, error } : { share }),
+      tell: (source) => this.send({ type: 'share', source }),
+    });
   }
 
   subscribe = (listener: () => void) => {
@@ -214,7 +243,19 @@ export class VoiceSession {
         this.set({
           pushToTalk: Boolean(event.push_to_talk),
           captionsDefault: event.captions !== false,
+          canShare: event.sees_images === false ? 'blind' : 'yes',
         });
+        if (event.sees_images === false) this.share.stop('', false);
+        // A reconnected socket is a new host session: it hears the sharing again.
+        else if (this.share.state)
+          this.send({ type: 'share', source: this.share.state.source });
+        break;
+      case 'sharing':
+        // The host stopped it (a pause): the camera or screen is released here too.
+        if (!event.source) this.share.stop('', false);
+        break;
+      case 'look':
+        void this.look();
         break;
       case 'state': {
         const orb = String(event.state) as VoiceOrb;
@@ -265,6 +306,27 @@ export class VoiceSession {
         this.set({ error: voiceError(String(event.code ?? '')) });
         break;
     }
+  }
+
+  /** The host needs a still of what is shared, for the turn that just ended. */
+  private async look() {
+    const data = await this.share.still();
+    const socket = this.socket;
+    if (data && socket?.readyState === OPEN) sendStill(socket, data);
+  }
+
+  startShare(source: ShareSource) {
+    if (this.ended || this.snapshot.canShare !== 'yes')
+      return Promise.resolve();
+    return this.share.start(source);
+  }
+
+  stopShare() {
+    this.share.stop();
+  }
+
+  switchCamera() {
+    return this.share.switchCamera();
   }
 
   private played(segment: number, delayMs: number) {
@@ -362,6 +424,8 @@ export class VoiceSession {
       socket.close();
     }
     this.audio.close();
+    // Ending voice stops sharing: the camera or screen is released at once.
+    this.share.stop('', false);
     setBuddyVoiceLevel(0);
     void this.wakeLock?.release().catch(() => undefined);
     this.wakeLock = null;

@@ -25,6 +25,14 @@ Open the **Talk** menu in a chat and choose a Live voice provider. Each one show
 
 Your provider key never leaves the computer running Row-Bot, and the app page connects only to Row-Bot. For Gemini Live and Grok Voice, Row-Bot relays your voice and the provider's speech; for OpenAI Realtime, Row-Bot sets up the call with a short-lived credential it keeps. Row-Bot Voice, on your own computer, stays the default.
 
+## Show Row-Bot Your Camera Or Screen
+
+While you talk, the video button in the voice bar shares your camera or, in a desktop browser or the Windows app, a screen or window. On a phone it shares the camera, and **Switch camera** flips between front and back. Nothing is captured until you choose to share. While sharing, the bar always says **Camera on** or **Sharing your screen** with a small live preview (larger in the phone's full-screen view), and one tap on the button stops it. Ending voice, or a long quiet pause, stops sharing too. Sharing goes on while you are muted.
+
+With Row-Bot Voice, nothing is streamed: when you finish saying something, Row-Bot takes one still of what you are showing and sends it with what you said, as an image in your message. You see exactly what was sent, and it is kept like any image you attach (in an incognito chat too, with the chat's other files). If the chat's model can't see images, the bar says so and links to the Vision model setting; nothing is sent. Something you say while Row-Bot is still working steers it with your words only.
+
+Gemini Live sees what you share as well: it is shown a still about once a second while you share, so it can talk about it, and its disclosure says so. OpenAI Realtime and Grok Voice don't take pictures in a live session, so they offer no sharing.
+
 ## Choosing A Mode
 
 Use Dictate when accuracy and review matter. Use Talk when you want a faster hands-light conversation. Use local voice when privacy and offline-style behavior matter. Whisper remains the default local transcription engine. SenseVoice is an optional alternative on Windows, Linux, and Apple Silicon macOS; Intel macOS continues to use Whisper. Use Live voice for the most natural conversation when you accept that audio goes to the provider you choose, at its price.
@@ -70,7 +78,7 @@ Use Dictate when you want to review speech as text before sending. Use Talk when
 
 ## Privacy And Safety
 
-Voice input can become chat text. Live voice sends your audio, the chat's recent messages, the agent profile's name and a few relevant memories (none in an incognito chat) to the provider you choose, only while you talk. Installing SenseVoice contacts ModelScope for the requested model and standard SDK metadata, but Row-Bot does not send audio, prompts, or usage data; inference stays local after installation. Buddy preferences and looks are local and Buddy animates on your computer; making a new look calls your configured image model. The desktop Buddy reads only the position and size of the window you are using (never its title or contents) to sit on it.
+Voice input can become chat text. Live voice sends your audio, the chat's recent messages, the agent profile's name and a few relevant memories (none in an incognito chat) to the provider you choose, only while you talk; Gemini Live is also shown what you share on camera or screen. A shared camera or screen is captured only after you start sharing, and with Row-Bot Voice only one still per thing you say leaves the page, saved in your message. Installing SenseVoice contacts ModelScope for the requested model and standard SDK metadata, but Row-Bot does not send audio, prompts, or usage data; inference stays local after installation. Buddy preferences and looks are local and Buddy animates on your computer; making a new look calls your configured image model. The desktop Buddy reads only the position and size of the window you are using (never its title or contents) to sit on it.
 
 ## Troubleshooting
 

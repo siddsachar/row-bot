@@ -5,7 +5,9 @@ with the person's Google key (never sent to the browser), sends the setup
 (model, the front's instructions and the bridge tools), relays 16 kHz audio up
 and 24 kHz audio down, and maps Gemini's messages onto Row-Bot's Live voice
 events. The consult is asynchronous (``NON_BLOCKING``), so Gemini keeps talking
-while the agent works; its answer comes back as a ``toolResponse``.
+while the agent works; its answer comes back as a ``toolResponse``. While the
+person shares their camera or screen, the host relays stills to it as video
+frames (at most one a second).
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from row_bot.voice.agent_bridge import realtime_bridge_tool_declarations
+from row_bot.voice.engine.stills import Still
 from row_bot.voice.live_front import RUN_ANSWER, RUN_STATUS, front_instructions
 from row_bot.voice.live_relay import LiveOutput, connect_socket
 from row_bot.voice.provider_base import VoiceProviderStatus, live_voice_status, provider_api_key
@@ -26,6 +29,9 @@ INPUT_RATE = 16000
 _CONSULT = "row_bot_agent_consult"
 # The bridge's consult runs while the front keeps talking (asynchronous function calling).
 _NON_BLOCKING = {_CONSULT}
+# Gemini sees what the person shares; the agent behind the consult does not.
+SHARE_LINE = ("When the person shares their camera or screen you see it too; answer questions about what it "
+              "shows yourself.")
 
 
 def _schema(value: Any) -> Any:
@@ -68,7 +74,7 @@ class GeminiLiveProvider:
         return {"setup": {
             "model": f"models/{GEMINI_LIVE_MODEL}",
             "generationConfig": {"responseModalities": ["AUDIO"]},
-            "systemInstruction": {"parts": [{"text": instructions or front_instructions()}]},
+            "systemInstruction": {"parts": [{"text": (instructions or front_instructions()) + "\n" + SHARE_LINE}]},
             "tools": [{"functionDeclarations": function_declarations()}],
             "inputAudioTranscription": {},
             "outputAudioTranscription": {},
@@ -110,6 +116,11 @@ class GeminiRelay:
     async def send_audio(self, pcm16: bytes) -> None:
         await self._send({"realtimeInput": {"audio": {
             "data": base64.b64encode(pcm16).decode("ascii"), "mimeType": f"audio/pcm;rate={INPUT_RATE}"}}})
+
+    async def send_image(self, still: Still) -> None:
+        """What the person shares on camera or screen, as one video frame."""
+        await self._send({"realtimeInput": {"video": {
+            "data": base64.b64encode(still.data).decode("ascii"), "mimeType": still.mime_type}}})
 
     async def send_output(self, output: LiveOutput) -> bool:
         """Say Row-Bot's answer or status; True when Gemini was asked to speak."""
