@@ -2075,10 +2075,9 @@ function cloudPrice(option: CloudSpeech) {
   return `${option.price.charAt(0).toUpperCase()}${option.price.slice(1)} (${option.company}’s prices, ${option.price_checked})`;
 }
 
-/** A picker entry: its name, its price a minute ("~$0.005/min"), and whether it still needs a key. */
+/** A picker entry: its name, where it runs, and whether it still needs a key (its price is in the hint). */
 function cloudChoiceLabel(option: CloudSpeech) {
-  const price = /\$[\d.]+/.exec(option.price)?.[0];
-  return `${option.label}${price ? ` · ~${price}/min` : ''}${option.key_saved ? '' : ' · needs your key'}`;
+  return `${option.label} · cloud${option.key_saved ? '' : ' · needs key'}`;
 }
 
 /** A choice the person may still be making: its draft, else the saved value. */

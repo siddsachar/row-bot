@@ -3075,8 +3075,8 @@ it('lists local listening and speaking first, then cloud ones with their price a
       .map((option) => option.textContent),
   ).toEqual([
     'Whisper · on this computer',
-    'Deepgram Nova-3 · ~$0.005/min · needs your key',
-    'Gemini Transcribe Live · ~$0.009/min',
+    'Deepgram Nova-3 · cloud · needs key',
+    'Gemini Transcribe Live · cloud',
   ]);
   const speak = screen.getByLabelText('Speak with');
   expect(speak).toHaveValue('local');
