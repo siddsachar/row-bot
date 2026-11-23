@@ -7,6 +7,7 @@ export type RealtimeMetadata = {
 export type RealtimeRuntime = {
   stop(): Promise<void>;
   sendFunctionOutput(callId: string, output: string, metadata?: RealtimeMetadata): boolean;
+  /** Ask the front to speak: *text* is the whole request, as the host wrote it. */
   sendRunEvent(text: string, metadata?: RealtimeMetadata): boolean;
   clearGeneration(sessionId: number, threadId: string, generationId: string): boolean;
   setGeneration(sessionId: number, threadId: string, previous: string, next: string): boolean;

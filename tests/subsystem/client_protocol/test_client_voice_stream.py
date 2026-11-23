@@ -292,3 +292,53 @@ def test_a_typed_turn_runs_in_voice_mode_only_while_voice_listens(voice, listeni
     finally:
         voice.service.voice_listeners.pop(voice.conversation, None)
     assert configs and bool(configs[-1].get("voice_mode")) is listening
+
+
+def _caption(socket, **match) -> dict:
+    while True:
+        caption = _until(socket, "caption", limit=2000)
+        if all(caption.get(key) == value for key, value in match.items()):
+            return caption
+
+
+@pytest.mark.slow
+def test_a_spoken_yes_after_the_summary_approves_an_undoable_action_through_the_card(service):
+    stt = _bind(service, "Tidy my files", "Yes, go ahead.")
+    answers = []
+
+    def stream(_text, _enabled, _config, *, stop_event=None):
+        yield "interrupt", [{"__interrupt_id": "card-1", "tool": "workspace_move_file", "label": "Move / rename file",
+                             "description": "Move / rename file: 'a.md' to 'notes/a.md'",
+                             "args": {"source_path": "a.md", "destination_path": "notes/a.md"}}]
+
+    def resume(_enabled, _config, approved, *, interrupt_ids=None, stop_event=None):
+        answers.append(approved)
+        yield "token", "Moved it."
+        yield "done", None
+
+    service.stream_factory, service.resume_factory = stream, resume
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation, body = _conversation(client, headers)
+        started = _start(client, headers, conversation, body)
+        with client.websocket_connect(STREAM, headers={"Origin": "http://localhost"}) as socket:
+            socket.send_text(json.dumps({"type": "hello", "ticket": started["ticket"]}))
+            _until(socket, "ready")
+            for frame in [VOICED] * 30 + [SILENT] * 20:
+                socket.send_bytes(frame)
+            asked = _until(socket, "approval", limit=2000)
+            assert asked["voice"] is True and asked["card"]["action_label"] == "workspace_move_file"
+            # The client sends back the title its card shows; that is what is said.
+            socket.send_text(json.dumps({"type": "approval_title", "approval_id": asked["approval_id"],
+                                         "title": "Move a file?"}))
+            summary = _caption(socket, kind="approval")
+            assert summary["text"] == "I need your OK. Move a file? Say yes or no, or tap the card."
+            socket.send_text(json.dumps({"type": "playback", "state": "idle"}))
+            for frame in [VOICED] * 30 + [SILENT] * 20:
+                socket.send_bytes(frame)
+            assert _until(socket, "approval", limit=2000)["approval_id"] == ""
+            assert _caption(socket, role="assistant")["text"] == "Moved it."
+            socket.send_text(json.dumps({"type": "end"}))
+    assert answers == [True]
+    assert [text for text, _ in stt.finished] == ["Tidy my files", "Yes, go ahead."]
+    service.close_voice()

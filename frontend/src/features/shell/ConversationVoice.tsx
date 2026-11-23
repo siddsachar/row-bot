@@ -1,26 +1,72 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { ClientController } from '../../api/controller';
-import type { DictationHandle, TalkStart, VoiceRunView } from '../../api/types';
+import type {
+  DictationHandle,
+  LiveVoiceProvider,
+  OutputView,
+  TalkStart,
+} from '../../api/types';
 import type { DictationScope } from './VoiceControls';
 import { Button, Menu } from '../../ui/primitives';
 import { AudioLines } from 'lucide-react';
 import { takeVoiceOnOpen } from './new-chat';
-import RealtimeTalkControls from './RealtimeTalkControls';
-import VoiceBar from '../voice/VoiceBar';
+import VoiceBar, {
+  type VoiceBarSession,
+  type VoiceResult,
+} from '../voice/VoiceBar';
 import { VoiceSession, voiceError } from '../voice/voice-session';
+import { LiveVoiceSession } from '../voice/live-voice-session';
 import { primeVoicePlayback } from '../voice/voice-audio';
+import {
+  LiveVoiceDisclosure,
+  liveVoiceActions,
+  liveVoiceDisclosed,
+} from './live-voice';
+import { useOptionalOverlay } from '../../ui/overlays';
+import { OutputThumb } from './ContextOutputs';
+import { openMediaViewer } from './MediaPreview';
+import { outputTitle } from './outputs';
+
+/** The chat's outputs when voice began (W3); null until the chat's list was read. */
+const outputRefs = (outputs?: OutputView[]) =>
+  outputs ? new Set(outputs.map((output) => output.ref)) : null;
+
+/** The newest picture or video made since voice began, as the phone's focus mode shows it. */
+function newestResult(
+  outputs: OutputView[],
+  before: ReadonlySet<string> | null,
+  open: (output: OutputView, name: string) => void,
+): VoiceResult | null {
+  const output = before
+    ? outputs.find(
+        (item) =>
+          (item.kind === 'image' || item.kind === 'video') &&
+          !before.has(item.ref),
+      )
+    : undefined;
+  if (!output) return null;
+  const name = outputTitle(output);
+  return {
+    label: name,
+    thumb: <OutputThumb output={output} />,
+    open: () => open(output, name),
+  };
+}
 
 /**
- * Voice in a chat: Row-Bot Voice (the default, hands-free, with barge-in) runs
- * in a bar above the composer; Live voice (OpenAI Realtime) keeps its panel.
+ * Voice in a chat, in a bar above the composer: Row-Bot Voice (the default,
+ * hands-free, with barge-in) or Live voice (a cloud speech-to-speech provider
+ * chosen from the Talk menu, after a one-time disclosure of what it sends).
  */
 export default function ConversationVoice(props: {
   controller: ClientController;
   scope: DictationScope;
   available: boolean;
-  /** Live voice (a paid provider) can be chosen here too. */
-  liveAvailable?: boolean;
+  /** The Live voice fronts and whether each provider's key is saved. */
+  liveProviders?: LiveVoiceProvider[];
+  /** An incognito chat sends Live voice no memories; its disclosure says so. */
+  incognito?: boolean;
   compact?: boolean;
   /** Render the trigger as a small chevron beside the dictation mic. */
   chevron?: boolean;
@@ -35,21 +81,22 @@ export default function ConversationVoice(props: {
   /** Show and focus the composer ("Type instead"). */
   focusComposer?(): void;
   phone?: boolean;
+  /** The chat's outputs list (W3), newest first; undefined until it is read. */
+  outputs?: OutputView[];
 }) {
   const [voice, setVoice] = useState<{
-    session: VoiceSession;
+    session: VoiceBarSession;
     handle: DictationHandle;
     targets: string[];
+    label?: string;
+    /** What the chat already had when voice began (null until its list was read). */
+    outputsBefore: ReadonlySet<string> | null;
   } | null>(null);
+  const overlay = useOptionalOverlay();
   const [starting, setStarting] = useState(false);
   const [typing, setTyping] = useState(false);
-  const [live, setLive] = useState(false);
-  const [liveBusy, setLiveBusy] = useState(false);
-  const [liveActive, setLiveActive] = useState<{
-    handle: DictationHandle;
-    run: string | null;
-  } | null>(null);
-  const [run, setRun] = useState<VoiceRunView | null>(null);
+  // The Live voice provider whose disclosure (or missing key) is showing.
+  const [disclosing, setDisclosing] = useState<LiveVoiceProvider | null>(null);
   const [error, setError] = useState('');
   const latest = useRef(props);
   latest.current = props;
@@ -62,6 +109,15 @@ export default function ConversationVoice(props: {
   const controller = props.controller;
   const current = useRef(voice);
   current.current = voice;
+  const loaded = props.outputs;
+  useEffect(() => {
+    if (loaded)
+      setVoice((active) =>
+        active && !active.outputsBefore
+          ? { ...active, outputsBefore: outputRefs(loaded) }
+          : active,
+      );
+  }, [loaded]);
   // The bar is the composer's first row, whatever holds the Talk button.
   const root = useRef<HTMLDivElement>(null);
   const [barHost, setBarHost] = useState<HTMLElement | null>(null);
@@ -95,7 +151,12 @@ export default function ConversationVoice(props: {
         },
         started.ticket,
       );
-      setVoice({ session, handle, targets: [...latest.current.targets] });
+      setVoice({
+        session,
+        handle,
+        targets: [...latest.current.targets],
+        outputsBefore: outputRefs(latest.current.outputs),
+      });
       setTyping(false);
       await session.start();
     } catch (failure) {
@@ -104,6 +165,62 @@ export default function ConversationVoice(props: {
     } finally {
       setStarting(false);
     }
+  }
+
+  async function startLive(provider: LiveVoiceProvider) {
+    if (starting || current.current) return;
+    primeVoicePlayback();
+    setStarting(true);
+    setDisclosing(null);
+    setError('');
+    try {
+      const started = await controller.startRealtime(
+        scope,
+        { ...context(crypto.randomUUID()), live_provider: provider.id },
+        new AbortController().signal,
+      );
+      const handle = started.snapshot.handle;
+      const session = new LiveVoiceSession(
+        {
+          transport: started.snapshot.transport,
+          sessionId: handle.voice_session_id,
+          conversationId: handle.conversation_id,
+          openSocket: () => controller.openLiveSocket(scope),
+          ticket: async () =>
+            (await controller.realtimeTicket(scope, handle)).ticket,
+          stop: () => controller.stopRealtime(scope, handle),
+          exchange: (sdp) =>
+            controller.realtimeExchange(
+              scope,
+              handle,
+              sdp,
+              new AbortController().signal,
+            ),
+        },
+        started.ticket,
+        started.snapshot.run_id,
+      );
+      setVoice({
+        session,
+        handle,
+        targets: [...latest.current.targets],
+        label: provider.label,
+        outputsBefore: outputRefs(latest.current.outputs),
+      });
+      setTyping(false);
+      await session.start();
+    } catch (failure) {
+      const code = (failure as { code?: string })?.code ?? '';
+      setError(voiceError(code));
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  function chooseLive(provider: LiveVoiceProvider) {
+    if (provider.available && liveVoiceDisclosed(provider.id))
+      void startLive(provider);
+    else setDisclosing(provider);
   }
 
   // Leaving the chat ends its voice session.
@@ -129,52 +246,6 @@ export default function ConversationVoice(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.available, props.context, voice, conversationId]);
 
-  // Live voice reads its run's final answer for the provider to speak.
-  useEffect(() => {
-    if (!liveActive?.run) return;
-    const abort = new AbortController();
-    let pending = false,
-      terminal = false;
-    const read = async () => {
-      if (
-        pending ||
-        terminal ||
-        abort.signal.aborted ||
-        document.visibilityState === 'hidden'
-      )
-        return;
-      pending = true;
-      try {
-        const value = await controller.voiceRun(
-          scope,
-          'realtime',
-          liveActive.handle,
-          abort.signal,
-        );
-        if (abort.signal.aborted || value.run_id !== liveActive.run) return;
-        setRun(value);
-        terminal = !['running', 'stopping'].includes(value.state);
-      } catch {
-        if (!abort.signal.aborted) {
-          terminal = true;
-          setError(
-            'Voice could not read this conversation’s result. Stop Live voice before trying again.',
-          );
-        }
-      } finally {
-        pending = false;
-      }
-    };
-    const timer = setInterval(() => void read(), 1000);
-    document.addEventListener('visibilitychange', read);
-    void read();
-    return () => {
-      abort.abort();
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', read);
-    };
-  }, [controller, scope, liveActive]);
-
   const canStart =
     props.available &&
     !props.disabled &&
@@ -191,26 +262,29 @@ export default function ConversationVoice(props: {
     barHost ? createPortal(node, barHost) : node;
   const glyph = <AudioLines size={props.compact ? 18 : 17} aria-hidden />;
 
+  const live = props.liveProviders ?? [];
+  // The menu shows when Live voice is a choice; a phone with no provider key keeps its one tap.
+  const menu =
+    live.length > 0 &&
+    (!props.startOnOpen || live.some((provider) => provider.available));
   return (
     <div className="conversation-voice" ref={root}>
       {!voice &&
-        !liveBusy &&
-        (props.liveAvailable && !props.startOnOpen ? (
+        (menu ? (
           <Menu
             label="Talk"
             iconOnly
             variant="ghost"
+            hint={reason}
+            disabled={starting}
             actions={[
               {
                 label: 'Talk with Row-Bot',
+                description: 'Row-Bot Voice, with this chat’s model',
                 disabled: !canStart,
                 onSelect: () => void startVoice(),
               },
-              {
-                label: 'Live voice · OpenAI, paid per minute',
-                disabled: !canStart,
-                onSelect: () => setLive(true),
-              },
+              ...liveVoiceActions(live, chooseLive, !canStart),
             ]}
           >
             {glyph}
@@ -236,6 +310,26 @@ export default function ConversationVoice(props: {
             typing={typing}
             phone={props.phone}
             targets={voice.targets}
+            label={voice.label}
+            result={
+              overlay &&
+              newestResult(
+                props.outputs ?? [],
+                voice.outputsBefore,
+                (output, name) =>
+                  openMediaViewer(overlay, {
+                    reference: output.ref,
+                    mime: output.mime_type,
+                    name,
+                    size: output.size,
+                  }),
+              )
+            }
+            onShowApproval={() =>
+              document
+                .querySelector<HTMLElement>('.approval-card')
+                ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            }
             onTypeInstead={() => {
               const next = !typing;
               setTyping(next);
@@ -250,81 +344,14 @@ export default function ConversationVoice(props: {
           {error}
         </p>
       )}
-      {live && (
-        <section
-          aria-label="Live voice"
-          className="surface conversation-voice-surface"
-        >
-          <p className="voice-intro">
-            Live voice talks through OpenAI Realtime, paid per minute. Spoken
-            requests use this chat’s model and approval settings.
-          </p>
-          <RealtimeTalkControls
-            scope={scope}
-            available={Boolean(props.liveAvailable)}
-            disabled={props.disabled || !props.context}
-            start={async (request, signal) => {
-              setError('');
-              const value = await controller.startRealtime(
-                scope,
-                context(request),
-                signal,
-              );
-              setLiveActive({
-                handle: value.snapshot.handle,
-                run: value.snapshot.run_id,
-              });
-              return value;
-            }}
-            stop={(handle) =>
-              controller.voiceControl(scope, 'realtime', handle, 'stop')
-            }
-            heartbeat={(handle, signal) =>
-              controller.voiceControl(
-                scope,
-                'realtime',
-                handle,
-                'heartbeat',
-                signal,
-              )
-            }
-            exchange={(handle, sdp, signal) =>
-              controller.realtimeExchange(scope, handle, sdp, signal)
-            }
-            event={(handle, event, signal) =>
-              controller.realtimeEvent(scope, handle, event, signal)
-            }
-            output={
-              run?.run_id && run.output_id && run.text
-                ? {
-                    id: run.output_id,
-                    runId: run.run_id,
-                    text: run.text,
-                    kind: 'final',
-                  }
-                : undefined
-            }
-            onBusy={(busy) => {
-              setLiveBusy(busy);
-              latest.current.onBusy(busy);
-              if (!busy) {
-                setLiveActive(null);
-                setRun(null);
-              }
-            }}
-            onRun={(runId) => {
-              setRun(null);
-              setLiveActive((value) =>
-                value ? { ...value, run: runId } : value,
-              );
-            }}
-          />
-          {!liveBusy && (
-            <Button variant="ghost" onClick={() => setLive(false)}>
-              Close
-            </Button>
-          )}
-        </section>
+      {disclosing && !voice && (
+        <LiveVoiceDisclosure
+          provider={disclosing}
+          incognito={props.incognito}
+          disabled={!canStart || starting}
+          onStart={() => void startLive(disclosing)}
+          onClose={() => setDisclosing(null)}
+        />
       )}
     </div>
   );

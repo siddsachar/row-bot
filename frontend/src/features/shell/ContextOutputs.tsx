@@ -41,7 +41,7 @@ const FOLDED = 6;
  * A small server thumbnail: a picture's, or a video's frame half a second in
  * (I20) under a play mark. Anything else, or without one, its kind's icon.
  */
-function Thumb({ output }: { output: OutputView }) {
+export function OutputThumb({ output }: { output: OutputView }) {
   const { controller } = useRuntime();
   const [src, setSrc] = useState('');
   const video = output.kind === 'video';
@@ -136,7 +136,7 @@ function Tiles({
                 }
               >
                 <span className="context-output-frame">
-                  <Thumb output={output} />
+                  <OutputThumb output={output} />
                   {(output.role === 'draft' || output.version_count > 1) && (
                     <span className="context-output-badges" aria-hidden>
                       {output.role === 'draft' && (

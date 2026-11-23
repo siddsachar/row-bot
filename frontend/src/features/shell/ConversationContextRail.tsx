@@ -10,7 +10,7 @@ import { useShellSettled } from '../../shell-settled';
 import ContextGoal from './ContextGoal';
 import { ContextLive } from './ContextLive';
 import ContextOutputs from './ContextOutputs';
-import { useOutputs } from './outputs';
+import type { OutputView } from '../../api/types';
 import ProjectNotes from './ProjectNotes';
 import { requestWorkspaceFile } from '../panels/workspace-file-requests';
 import {
@@ -62,6 +62,9 @@ type Props = {
   agentsWorking?: number;
   /** A delegated agent's own conversation: the section is "This agent" (B242). */
   childConversation?: boolean;
+  /** The conversation's outputs list (W3): what it made, newest first, and its working files' count. */
+  outputs?: OutputView[];
+  workingCount?: number;
   /** Changes when the conversation may have made something: its outputs are read again. */
   outputsRefresh?: string;
   completedDesignId?: string;
@@ -100,6 +103,8 @@ export default function ConversationContextRail({
   agentsLive = 0,
   agentsWorking = 0,
   childConversation = false,
+  outputs = [],
+  workingCount = 0,
   outputsRefresh = '',
   completedDesignId,
   writerQueued = false,
@@ -118,14 +123,6 @@ export default function ConversationContextRail({
   const { controller } = useRuntime();
   // Goals are read after the open settles so they never compete with it (B29).
   const settled = useShellSettled();
-  // The outputs list (W3), read once the open settles and again as the chat makes things.
-  const made = useOutputs(
-    { conversation_id: conversationId },
-    outputsRefresh,
-    ready && settled,
-  ).page;
-  const outputs = made?.items ?? [];
-  const workingCount = made?.counts?.working ?? 0;
   const [composeGoal, setComposeGoal] = useState(false);
   useEffect(() => setComposeGoal(false), [conversationId]);
   const [summaries, setSummaries] = useState<Record<string, ResourceSummary>>(

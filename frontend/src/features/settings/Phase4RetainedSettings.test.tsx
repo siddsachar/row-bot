@@ -94,11 +94,26 @@ const snapshot = {
       voice: 'af_heart',
       speed: 1,
     },
-    openai_realtime_credential: {
-      configured: true,
-      source: 'keyring',
-      fingerprint: 'must-not-render',
-    },
+    live_providers: [
+      {
+        id: 'openai',
+        label: 'OpenAI Realtime',
+        company: 'OpenAI',
+        price: 'about $0.10 a minute',
+        price_checked: '22 Nov 2026',
+        available: true,
+        reason: 'available',
+      },
+      {
+        id: 'gemini',
+        label: 'Gemini Live',
+        company: 'Google',
+        price: 'about $0.02 a minute',
+        price_checked: '22 Nov 2026',
+        available: false,
+        reason: 'realtime_key_missing',
+      },
+    ],
     talk_providers: [
       { value: 'local', label: 'Local' },
       { value: 'openai_realtime', label: 'OpenAI Realtime' },
@@ -517,7 +532,14 @@ it('renders real voice controls without probing a device or provider', async () 
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
   expect(screen.getByText('Kokoro')).toBeVisible();
-  expect(screen.getByText('Credential saved · not checked')).toBeVisible();
+  // Live voice: each front's price, who hears the audio, and whether its key is saved.
+  expect(screen.getByText('Key saved')).toBeVisible();
+  expect(screen.getByText('Needs your Google API key')).toBeVisible();
+  expect(
+    screen.getByText(
+      /About \$0\.02 a minute \(Google’s prices, 22 Nov 2026\)\. Your voice, the chat’s recent messages, the agent profile’s name and a few related memories go to Google \(no memories in an incognito chat\)\./,
+    ),
+  ).toBeVisible();
   expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);
   expect(
     screen.queryByRole('button', {

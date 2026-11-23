@@ -3298,6 +3298,32 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "voice work fixture" in text:
+        # V3: a turn makes a picture, then asks to move a file (or, "delete", to delete one).
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "voice-work")
+        thread = call["conversation_id"]
+        identity = f"voice-work:{call['generation_id']}"
+        delete = "delete" in text.lower()
+        tool = "workspace_file_delete" if delete else "workspace_move_file"
+        args = ({"file_path": "notes/old-draft.md"} if delete
+                else {"source_path": "draft.md", "destination_path": "notes/draft.md"})
+        tool_id = fixture_id(identity + ":approval-tool")
+        try:
+            yield from _s3_steps(thread, identity, [("generate_image", {"prompt": "A lighthouse at dawn, watercolour"},
+                                                     lambda: ("Made the picture.",
+                                                              _s3_media(thread, _s3_page_picture(640, 400))))])
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":approval-call"), content="",
+                tool_calls=[{"id": tool_id, "name": tool, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": tool, "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": tool,
+                                 "label": "Delete file" if delete else "Move / rename file",
+                                 "description": ("Delete file: notes/old-draft.md" if delete
+                                                 else "Move / rename file: draft.md to notes/draft.md"),
+                                 "args": args}]
+        finally:
+            call["quiesced"] = True
+        return
     if "reviewer asked fixture" in text:
         # Auto (A0): the reviewer asked the person rather than approving; its reason is on the card.
         from row_bot.threads import append_checkpoint_messages
@@ -6061,7 +6087,43 @@ def main() -> None:
         assert client_secret == 'synthetic-browser-ephemeral'
         _voice_fixture['exchanges'] += 1
         return b'v=0\r\nsynthetic-browser-answer'
-    client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
+    class FixtureRelay:
+        """A relayed front (Gemini Live) that hears the browser's audio and says nothing."""
+
+        def __init__(self):
+            self.done = None
+
+        async def send_audio(self, pcm16):
+            _voice_fixture['relayed_audio'] = _voice_fixture.get('relayed_audio', 0) + len(pcm16)
+
+        async def send_output(self, output):
+            return False
+
+        async def stop_speaking(self):
+            return False
+
+        async def close(self):
+            if self.done is not None:
+                self.done.set()
+
+        async def actions(self):
+            import asyncio
+            self.done = asyncio.Event()
+            await self.done.wait()
+            return
+            yield
+
+    async def fixture_relay(instructions, *, connect=None):
+        return FixtureRelay()
+
+    live_ready = lambda: VoiceProviderStatus('fixture_live', 'Fixture live voice', True)  # noqa: E731
+    client_voice.realtime_provider = lambda option='openai': SimpleNamespace(
+        transport='gemini_live', status=live_ready, open_relay=fixture_relay) if option == 'gemini' else SimpleNamespace(
+        create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange, transport='openai_realtime',
+        status=live_ready)
+    # Live voice: OpenAI's and Google's keys are saved here, xAI's is not (the picker shows both states).
+    from row_bot.voice import provider_base
+    provider_base.provider_api_key = lambda credential: 'synthetic-saved-key' if credential in {'openai', 'google'} else ''
     _install_voice_engine_fixture()
 
     # The middleware stack is built on the first request. Wrap the completed

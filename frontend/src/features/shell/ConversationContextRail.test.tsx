@@ -1,11 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type { OutputView, ResourceView } from '../../api/types';
@@ -405,7 +398,7 @@ it('names each suggested panel action after its panel', () => {
   expect(onDismissSuggestion).toHaveBeenCalledWith(suggestion);
 });
 
-it('shows the chat’s outputs from its outputs list, and reads it again when the chat makes something (W3)', async () => {
+it('shows the chat’s outputs as its Outputs section, with working files behind a toggle (W3)', async () => {
   const film = {
     ref: 'conversation-a:film-1',
     version: 1,
@@ -426,11 +419,7 @@ it('shows the chat’s outputs from its outputs list, and reads it again when th
     working_count: 2,
     updated_at: '2026-11-22T10:00:00Z',
   };
-  runtime.outputs.mockResolvedValue({
-    items: [output],
-    counts: { made: 1, uploads: 0, working: 2 },
-  });
-  const rail = (refresh: string) => (
+  render(
     <ConversationContextRail
       conversationId="conversation-a"
       conversationRevision="1"
@@ -439,7 +428,8 @@ it('shows the chat’s outputs from its outputs list, and reads it again when th
       ready
       connectionStatus="ready"
       agents={null}
-      outputsRefresh={refresh}
+      outputs={[output]}
+      workingCount={2}
       onAddResource={vi.fn()}
       onOpenResource={vi.fn()}
       onUnbindResource={vi.fn()}
@@ -448,24 +438,16 @@ it('shows the chat’s outputs from its outputs list, and reads it again when th
       onDeleteConversation={vi.fn()}
       onOpenSuggestion={vi.fn()}
       onDismissSuggestion={vi.fn()}
-    />
+    />,
+    { wrapper: OverlayProvider },
   );
-  const { rerender } = render(rail('0'), { wrapper: OverlayProvider });
-  const outputs = await screen.findByRole('region', { name: 'Outputs' });
+  const outputs = screen.getByRole('region', { name: 'Outputs' });
   expect(
     within(outputs).getByRole('button', { name: 'Open Birthday montage' }),
   ).toBeVisible();
   expect(
     within(outputs).getByRole('switch', { name: 'Show working files' }),
   ).not.toBeChecked();
-  expect(runtime.outputs).toHaveBeenCalledWith(
-    { conversation_id: 'conversation-a' },
-    expect.any(AbortSignal),
-  );
-  // Read again once the chat's burst of changes holds still.
-  await act(async () => rerender(rail('1')));
-  expect(runtime.outputs).toHaveBeenCalledTimes(1);
-  await waitFor(() => expect(runtime.outputs).toHaveBeenCalledTimes(2), {
-    timeout: 3000,
-  });
+  // The list itself is read by the conversation: the rail reads none.
+  expect(runtime.outputs).not.toHaveBeenCalled();
 });

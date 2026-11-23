@@ -421,7 +421,7 @@ class ClientPlatformService:
     def bind_voice(self, coordinator: VoiceSessionCoordinator, *,
                    browser_service: Callable[[], BrowserLocalVoiceService],
                    clock: Callable[[], float] = time.monotonic,
-                   realtime_provider_factory: Callable[[], Any] | None = None,
+                   realtime_provider_factory: Callable[[str], Any] | None = None,
                    voice_engine: Any = None) -> None:
         """Expose the host's existing voice owner without starting a service."""
         binding = (coordinator, browser_service, clock, realtime_provider_factory, voice_engine)
@@ -443,7 +443,9 @@ class ClientPlatformService:
             self.realtime = ClientRealtimeTransport(dictation=self.dictation,
                 provider_factory=realtime_provider_factory or realtime_provider,
                 submit=self.voice_admission.submit, active_generation=self.voice_admission.active,
-                control_generation=self.voice_admission.control)
+                control_generation=self.voice_admission.control,
+                session_context=self.voice_admission.front_context, save_front=self.voice_admission.save_front,
+                run_view=self.voice_admission.run_view)
             self._voice_binding = binding
 
     def close_voice(self) -> bool:
@@ -1991,6 +1993,11 @@ class ClientPlatformService:
         """A Row-Bot Voice session is open and listening in this conversation (not paused)."""
         listener = self.voice_listeners.get(conversation_id)
         return bool(listener is not None and getattr(listener, "live", lambda: False)())
+
+    def voice_later_answer(self, conversation_id: str, text: str) -> None:
+        """An answer that came after its turn ended (a later orchestration wake): an open voice session says it
+        at its next pause; with none open, nothing is said."""
+        self._voice_follows(conversation_id, ("later_answer", str(text or "")), None)
 
     def _voice_follows(self, conversation_id: str, event: tuple, handle: Any) -> None:
         listener = self.voice_listeners.get(conversation_id)

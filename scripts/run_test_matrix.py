@@ -167,6 +167,9 @@ BROWSER_SMOKE_SPECS = (
     # Row-Bot Voice (V1): a spoken turn through the real capture worklet, socket and engine; the voice bar in
     # every state at desktop and phone width, light and dark. Appended likewise.
     "voice-duplex",
+    # Live voice (V4): the Talk menu's providers, the disclosure before first use, a relayed session in the
+    # voice bar, several starts on one page; desktop and phone, light and dark. Appended likewise.
+    "live-voice",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

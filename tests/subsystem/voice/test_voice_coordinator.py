@@ -15,12 +15,13 @@ def realtime():
     """A coordinator whose realtime sessions start and stop the way the browser starts them."""
     coordinator = VoiceSessionCoordinator()
     provider = SimpleNamespace(
-        create_client_secret=lambda **_: {"value": "synthetic-ephemeral", "expires_at": 1060})
+        create_client_secret=lambda **_: {"value": "synthetic-ephemeral", "expires_at": 1060},
+        transport="openai_realtime", status=lambda: SimpleNamespace(ready=True))
     dictation = ClientDictationTransport(
         coordinator=coordinator, clock=lambda: 0.0,
         browser_service=lambda: pytest.fail("realtime must not load local speech models"))
     adapter = ClientRealtimeTransport(
-        dictation=dictation, provider_factory=lambda: provider,
+        dictation=dictation, provider_factory=lambda option: provider,
         submit=lambda *args: pytest.fail("no turn is submitted here"),
         active_generation=lambda owner: None,
         control_generation=lambda *args: pytest.fail("no turn is controlled here"),
@@ -192,33 +193,25 @@ def test_coordinator_records_realtime_latency_per_session(realtime):
 def test_coordinator_summarizes_realtime_turn_latency(realtime):
     coordinator = realtime.coordinator
     coordinator.mark_realtime_latency("speech_stopped", now=100.0)
-    coordinator.mark_realtime_latency("thinking_ui", now=100.01)
     coordinator.mark_realtime_latency("transcript_final", now=100.25)
-    coordinator.mark_realtime_latency("function_call_ready", now=100.3)
-    coordinator.mark_realtime_latency("forced_consult_started", now=100.4)
-    coordinator.mark_realtime_latency("row_bot_consult_started", now=100.5)
-    coordinator.mark_realtime_latency("first_token", now=101.0)
-    coordinator.mark_realtime_latency("first_speakable_chunk", now=101.25)
-    coordinator.mark_realtime_latency("first_substantive_audio_requested", now=101.3)
-    coordinator.mark_realtime_latency("provider_response_create", now=101.5)
-    coordinator.mark_realtime_latency("first_assistant_audio", now=102.0)
+    coordinator.mark_realtime_latency("first_assistant_audio", now=100.4)
+    coordinator.mark_realtime_latency("function_call_ready", now=100.5)
+    coordinator.mark_realtime_latency("row_bot_consult_started", now=100.6)
+    coordinator.mark_realtime_latency("consult_answered", now=102.6)
+    coordinator.mark_realtime_latency("provider_response_create", now=102.7)
+    coordinator.mark_realtime_latency("first_answer_audio", now=103.2)
 
     summary = coordinator.realtime_latency_summary()
 
     assert summary == {
-        "speech_stop_to_thinking_ui": 10,
         "speech_stop_to_transcript_final": 250,
-        "speech_stop_to_function_call_ready": 299,
-        "speech_stop_to_forced_consult": 400,
-        "speech_stop_to_row_bot_start": 500,
-        "speech_stop_to_first_token": 1000,
-        "speech_stop_to_first_speakable_chunk": 1250,
-        "speech_stop_to_first_spoken_row_bot": 1299,
-        "transcript_final_to_forced_consult": 150,
-        "consult_to_first_token": 500,
-        "first_token_to_first_speakable_chunk": 250,
-        "first_speakable_chunk_to_provider_response_create": 250,
-        "provider_response_create_to_first_audio": 500,
+        "speech_stop_to_first_audio": 400,
+        "speech_stop_to_function_call_ready": 500,
+        "function_call_to_row_bot_start": 99,
+        "row_bot_start_to_answer": 2000,
+        "answer_to_provider_response_create": 100,
+        "provider_response_create_to_answer_audio": 500,
+        "speech_stop_to_answer_audio": 3200,
     }
     assert coordinator.diagnostic_snapshot()["realtime_latency_summary_ms"] == summary
 
@@ -260,7 +253,7 @@ def test_coordinator_drops_duplicate_realtime_transcript_item_ids(realtime):
     assert coordinator.record_realtime_transcript("please inspect the repo", session_id=session_id, item_id="item-1") is None
 
 
-def test_coordinator_drops_realtime_assistant_echo_and_short_fragments(realtime):
+def test_coordinator_drops_realtime_assistant_echo_but_keeps_short_replies(realtime):
     coordinator = realtime.coordinator
     session_id = realtime.start()
     coordinator.record_assistant_output("The answer is visible in the app.")
@@ -272,7 +265,7 @@ def test_coordinator_drops_realtime_assistant_echo_and_short_fragments(realtime)
 
     coordinator.record_realtime_speech_started(session_id=session_id)
     coordinator.record_realtime_speech_stopped(session_id=session_id)
-    assert coordinator.record_realtime_transcript("ok", session_id=session_id, item_id="item-2") is None
+    assert coordinator.record_realtime_transcript("Hello", session_id=session_id, item_id="item-2") == "Hello"
 
 
 def test_coordinator_accepts_realtime_question_fragment_after_speech_window(realtime):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -57,8 +57,41 @@ class SpeechOutputProvider(Protocol):
 
 
 class RealtimeVoiceProvider(Protocol):
+    """A Live voice front: a cloud speech-to-speech model.
+
+    ``credential`` names the person's provider key in Providers (never stored
+    here, never sent to the browser); ``transport`` names how the session runs.
+    OpenAI Realtime (``openai_realtime``) mints an ephemeral secret the host
+    keeps for the browser call's SDP exchange (``create_client_secret``).
+    A relayed front (``gemini_live``, ``grok_voice``) is opened by the host
+    (``open_relay``), which carries its audio and events over Row-Bot's socket.
+    """
+
     provider_id: str
     display_name: str
+    credential: str
+    transport: str
 
     def status(self) -> VoiceProviderStatus:
         ...
+
+
+def provider_api_key(credential: str) -> str:
+    """The person's saved key for a provider in Providers ("" when none or unreadable)."""
+    from row_bot.providers.auth_store import get_provider_secret
+
+    try:
+        return str(get_provider_secret(credential) or "")
+    except Exception:
+        return ""
+
+
+def live_voice_status(provider: Any, configured: bool) -> VoiceProviderStatus:
+    return VoiceProviderStatus(
+        provider_id=provider.provider_id,
+        display_name=provider.display_name,
+        ready=configured,
+        reason="" if configured else "realtime_key_missing",
+        local=False,
+        unavailable_code="realtime_key_missing",
+    )
