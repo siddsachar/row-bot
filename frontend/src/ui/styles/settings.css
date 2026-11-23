@@ -3344,8 +3344,12 @@
   margin-top: 6px;
 }
 /* Voice's sheet on a small server: where it gets more memory (A2, A4). */
-.voice-sheet-grow {
+.voice-sheet-grow,
+.voice-sheet-cloud {
   margin: 0 0 12px;
+}
+.voice-sheet-cloud {
+  color: var(--text-muted);
 }
 .voice-sheet-grow a svg {
   margin-left: 3px;

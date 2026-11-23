@@ -2535,6 +2535,12 @@
           "title": "Push To Talk",
           "type": "boolean"
         },
+        "realtime_model": {
+          "default": "gpt-realtime-2",
+          "maxLength": 128,
+          "title": "Realtime Model",
+          "type": "string"
+        },
         "realtime_voice": {
           "maxLength": 32,
           "title": "Realtime Voice",

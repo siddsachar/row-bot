@@ -410,7 +410,7 @@ function telegramWithSwitch(on: boolean, help: string): ChannelPage {
 it('shows the voice-note reply switch with the channel and saves it on a tap', async () => {
   const props = options();
   const missing =
-    "Needs Row-Bot's voice (Kokoro), which isn't installed: answers stay text until you install it in Settings › Voice.";
+    "Needs a voice that can speak: install Kokoro, or add your cloud voice's key, in Settings › Voice. Until then answers stay text.";
   props.load.mockResolvedValue(telegramWithSwitch(true, missing));
   render(<ChannelSettings {...props} />);
   fireEvent.click((await screen.findByText('Telegram')).closest('summary')!);

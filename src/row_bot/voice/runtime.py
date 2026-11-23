@@ -7,9 +7,15 @@ from typing import Any
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.voice import languages
 from row_bot.voice.openai_realtime import (
+    DEFAULT_REALTIME_MODEL,
     DEFAULT_REALTIME_VOICE,
     REALTIME_VOICE_OPTIONS,
 )
+
+# Before Live voice, "Listen with" could be OpenAI Realtime, and the realtime model was saved as the
+# talk model. Such a file now reads as listening locally, with that model kept for Live voice.
+_RETIRED_TALK_PROVIDER = "openai_realtime"
+_REALTIME_PREFIX = "gpt-realtime"
 
 
 def _settings_path():
@@ -24,6 +30,8 @@ class VoiceRuntimeSettings:
     dictation_model: str = "local-whisper"
     speech_output_provider: str = "local"
     speech_output_model: str = "local-kokoro"
+    # Live voice's OpenAI Realtime: its model and voice.
+    realtime_model: str = DEFAULT_REALTIME_MODEL
     realtime_voice: str = DEFAULT_REALTIME_VOICE
     captions_enabled: bool = True
     # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.
@@ -50,6 +58,34 @@ def _coerce_realtime_voice(value: Any) -> str:
     if voice in REALTIME_VOICE_OPTIONS:
         return voice
     return DEFAULT_REALTIME_VOICE
+
+
+def _realtime_model(value: Any) -> str | None:
+    model = str(value or "")
+    return model if model.startswith(_REALTIME_PREFIX) and len(model) <= 128 else None
+
+
+def retire_realtime_listen(data: dict[str, Any]) -> None:
+    """Rewrite an older file's "Listen with: OpenAI Realtime" in place: Talk listens locally, and a
+    realtime model saved as the talk model moves to ``realtime_model`` (unless one is saved there)."""
+    legacy = _realtime_model(data.get("talk_model"))
+    if data.get("talk_provider") == _RETIRED_TALK_PROVIDER:
+        data["talk_provider"] = "local"
+    if legacy is not None:
+        data["talk_model"] = "local-whisper"
+        if _realtime_model(data.get("realtime_model")) is None:
+            data["realtime_model"] = legacy
+
+
+def talk_and_realtime(data: dict[str, Any]) -> dict[str, str]:
+    """What Talk listens with and Live voice's OpenAI model, from a saved file of any age."""
+    data = dict(data)
+    retire_realtime_listen(data)
+    return {
+        "talk_provider": str(data.get("talk_provider") or "local"),
+        "talk_model": str(data.get("talk_model") or "local-whisper"),
+        "realtime_model": _realtime_model(data.get("realtime_model")) or DEFAULT_REALTIME_MODEL,
+    }
 
 
 TURN_EAGERNESS = ("relaxed", "normal", "eager")
@@ -81,6 +117,7 @@ def save_voice_settings(values: dict[str, Any]) -> None:
         data = {}
     if not isinstance(data, dict):
         data = {}
+    retire_realtime_listen(data)
     data.update(values)
     write_atomic(settings_path, json.dumps(data, indent=2, ensure_ascii=False))
 
@@ -97,8 +134,7 @@ def load_voice_runtime_settings() -> VoiceRuntimeSettings:
             data = json.loads(settings_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return VoiceRuntimeSettings(
-                    talk_provider=str(data.get("talk_provider") or "local"),
-                    talk_model=str(data.get("talk_model") or "local-whisper"),
+                    **talk_and_realtime(data),
                     dictation_provider=str(data.get("dictation_provider") or "local"),
                     dictation_model=str(data.get("dictation_model") or "local-whisper"),
                     speech_output_provider=str(data.get("speech_output_provider") or "local"),

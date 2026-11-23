@@ -826,6 +826,8 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     dictation_model: str = Field(max_length=128)
     speech_output_provider: str = Field(max_length=64)
     speech_output_model: str = Field(max_length=128)
+    # Live voice's OpenAI Realtime: its model and voice.
+    realtime_model: str = Field(default="gpt-realtime-2", max_length=128)
     realtime_voice: str = Field(max_length=32)
     captions_enabled: bool
     # Row-Bot Voice: how readily a pause ends the person's turn, and push to talk.

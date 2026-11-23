@@ -106,6 +106,12 @@ ticket for `WS /api/v1/voice/live`, which carries the session's events.
   rename it).
 - Live voice is always hands-free (no push to talk); only Gemini Live takes
   shared stills.
+- OpenAI Realtime's model and voice are `realtime_model` and `realtime_voice`
+  (Settings › Voice › Live voice). "Listen with" offers only speech-to-text
+  (local or the V5 cloud services). An older file with
+  `talk_provider: "openai_realtime"` reads as `local`, and a `gpt-realtime…`
+  talk model moves to `realtime_model` (`voice/runtime.py`
+  `retire_realtime_listen`); the next save of any voice setting rewrites it.
 
 ## Voice-note replies in chat apps (V9)
 
@@ -206,7 +212,7 @@ after Stop), is checked against its pin, and only the model's listed files are
 copied out (no other entry, no link, no path outside) into a staging folder
 that becomes `<data>/models/speech/<id>/` after `model.json` is written last.
 The archive is then deleted. A finished download becomes what Talk listens
-with (`talk_model`), unless Talk is set to Realtime. Remove deletes the folder
+with (`talk_model`). Remove deletes the folder
 and puts Talk back on Whisper if it used it. The language reported with each
 transcript is the model's own (`TranscriptUpdate.language`); a model that
 detects languages would report what it heard; see Languages (V8) below.

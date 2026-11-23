@@ -41,13 +41,11 @@ def installer() -> speech_models.Installer:
 
 
 def _ready(model: speech_models.SpeechModel) -> None:
-    """A model finished installing: Talk listens with it (the Download button said so), unless Talk
-    is set to listen with Realtime, whose saved talk model names the realtime model."""
+    """A model finished installing: Talk listens with it (the Download button said so)."""
 
-    from row_bot.voice.runtime import load_voice_runtime_settings, save_talk_model
+    from row_bot.voice.runtime import save_talk_model
 
-    if load_voice_runtime_settings().talk_provider != "openai_realtime":
-        save_talk_model(model.engine_id)
+    save_talk_model(model.engine_id)
 
 
 def snapshot() -> dict[str, Any]:

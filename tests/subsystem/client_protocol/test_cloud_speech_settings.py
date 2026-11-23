@@ -78,6 +78,31 @@ def test_listen_and_speak_choices_and_voices_are_checked(keys):
         assert response.json()["code"] == "invalid_settings_command", (field, response.text)
 
 
+def test_listen_with_offers_only_speech_to_text_and_an_old_realtime_choice_reads_as_local(keys):
+    client, headers, data, _ = keys
+    (data / "voice_runtime_settings.json").write_text(json.dumps(
+        {"talk_provider": "openai_realtime", "talk_model": "gpt-realtime-2-mini", "realtime_voice": "cedar"}),
+        encoding="utf-8")
+    snapshot = client.get(BASE, headers=headers).json()["voice"]
+    assert [row["value"] for row in snapshot["talk_providers"]] == [
+        "local", "deepgram", "assemblyai", "openai_transcribe", "gemini_transcribe"]
+    runtime = snapshot["runtime"]
+    assert (runtime["talk_provider"], runtime["talk_model"]) == ("local", "local-whisper")
+    assert (runtime["realtime_model"], runtime["realtime_voice"]) == ("gpt-realtime-2-mini", "cedar")
+
+    before = client.get(BASE, headers=headers).json()["revision"]
+    for field, value in (("runtime.talk_provider", "openai_realtime"), ("runtime.realtime_model", "whisper-1")):
+        response = client.post(BASE + "/review", headers=headers, json={
+            "settings_revision": before, "page": "voice", "field": field, "value": value})
+        assert response.json()["code"] == "invalid_settings_command", (field, response.text)
+
+    # Live voice's OpenAI model is its own setting now; saving it rewrites the old choice too.
+    _set(client, headers, "runtime.realtime_model", "gpt-realtime-2")
+    saved = json.loads((data / "voice_runtime_settings.json").read_text(encoding="utf-8"))
+    assert saved == {"talk_provider": "local", "talk_model": "local-whisper",
+                     "realtime_model": "gpt-realtime-2", "realtime_voice": "cedar"}
+
+
 def test_describe_a_voice_makes_an_elevenlabs_voice_from_words_and_picks_it(keys, monkeypatch):
     client, headers, data, secret_state = keys
     secret_state["ELEVENLABS_API_KEY"] = "synthetic-eleven-key"
