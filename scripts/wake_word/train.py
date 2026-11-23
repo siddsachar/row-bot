@@ -134,9 +134,13 @@ def main() -> int:
     parser.add_argument("out", type=Path)
     parser.add_argument("--steps", type=int, default=6000)
     parser.add_argument("--target-fpph", type=float, default=0.5)
+    parser.add_argument("--threads", type=int, default=0, help="CPU threads for torch (0: torch's default)")
     parser.add_argument("--calibration-minutes", type=float, default=120.0,
                         help="held-out speech scored to set the threshold (and a third as much noise)")
     args = parser.parse_args()
+    import logging
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     from dataclasses import replace
 
@@ -170,14 +174,36 @@ def main() -> int:
     # In-process loading (spawned workers would not see the local data): no prefetching then.
     from torch.utils.data import DataLoader
 
-    L.DataLoader = lambda *a, **k: DataLoader(*a, **{**k, "prefetch_factor": None})
+    checkpoint = args.out.with_suffix(".checkpoint.pt")
 
+    class Batches:
+        """The trainer's batches, in this process; every 1,000 it saves the weights it is training."""
+
+        def __init__(self, *a, **k) -> None:
+            self.loader = DataLoader(*a, **{**k, "prefetch_factor": None})
+
+        def __iter__(self):
+            for index, batch in enumerate(self.loader):
+                if index and index % 1000 == 0:
+                    torch.save({"step": index, "weights": start.state_dict()}, checkpoint)
+                    logging.info("checkpoint at step %d", index)
+                yield batch
+
+    L.DataLoader = Batches
+
+    if args.threads:
+        torch.set_num_threads(args.threads)
     device = L.default_device()
-    print(f"training on {device}")
+    print(f"training on {device}", flush=True)
+    logging.info("training starts")
     start = load_pretrained("standard").bake(PHRASE)
     aug = L.default_aug(start)
     config = L.TrainConfig(steps=args.steps, aug=replace(aug, p_party=STANDARD_P_PARTY), workers=0)
+    import time
+
+    began = time.monotonic()
     detector = L.train(start, "local", config, device=device)
+    logging.info("trained %d steps in %.0f s", args.steps, time.monotonic() - began)
     logit = L.calibration_logit(detector, target_fpph=args.target_fpph, device=device, aug=aug,
                                 minutes=args.calibration_minutes, noise_minutes=args.calibration_minutes / 3)
     print(f"calibration: score 0.5 = {args.target_fpph} false alarms an hour (logit {logit:.2f})")

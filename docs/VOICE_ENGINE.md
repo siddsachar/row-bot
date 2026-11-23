@@ -294,7 +294,7 @@ libraries contain no provider). On Windows:
   listens to, so events reach Microsoft only from an official build, and only
   as far as the person's Windows diagnostic data settings send them.
 - **The PyPI `onnxruntime` 1.27 (Kokoro, faster-whisper's voice filter,
-  Silero VAD, Smart Turn): telemetry built in.** Its `onnxruntime.dll` and
+  Silero VAD, Smart Turn, the wake word): telemetry built in.** Its `onnxruntime.dll` and
   `onnxruntime_pybind11_state.pyd` both contain the provider GUID and the
   group GUID `{4f50731a-89cf-4782-b3e0-dce8c90476ba}` (the same group as in
   Microsoft's ONNX Runtime inside `moonshine-voice`), plus the event names.
@@ -302,9 +302,9 @@ libraries contain no provider). On Windows:
   `onnxruntime.disable_telemetry_events()` ("Disables platform-specific
   telemetry collection", ONNX Runtime Python API) once per process, before
   any session: Kokoro's load (`tts.py`), Whisper's load (`voice/__init__.py`,
-  whose voice filter is an ONNX Runtime session) and Pipecat's analyzers
-  (`pipecat_boundary.prepare`). A PR-lane test checks the order on all three
-  paths. Every event function returns early while `enabled_` is false.
+  whose voice filter is an ONNX Runtime session), Pipecat's analyzers
+  (`pipecat_boundary.prepare`) and the wake word's model (`voice/wake.py`).
+  A PR-lane test checks the order on every path. Every event function returns early while `enabled_` is false.
   **What is left:** ONNX Runtime's ETW enable callback also writes
   `enabled_` (`ORT_TL_EtwEnableCallback` sets it to whether a controller
   enables the provider), so if a Windows component enables or re-enables the

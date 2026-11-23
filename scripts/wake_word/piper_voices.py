@@ -1,7 +1,7 @@
 """More voices for "Hey Row-Bot": Piper's 904-speaker LibriTTS-R generator, and blends of its speakers.
 
 Runs in the throwaway training environment (``piper-sample-generator==3.2.0``; it brings Piper and
-its espeak-ng, used here as a tool and never shipped), on the CPU (``CUDA_VISIBLE_DEVICES=``):
+its espeak-ng, used here as a tool and never shipped), on the CPU (``CUDA_VISIBLE_DEVICES=-1``) or a GPU:
 
     python scripts/wake_word/piper_voices.py <sources> <clips>
 
@@ -43,6 +43,8 @@ def main() -> int:
     model_path = args.sources / "en_US-libritts_r-medium.pt"
     config = json.loads(Path(f"{model_path}.json").read_text(encoding="utf-8"))
     model = torch.load(model_path, weights_only=False, map_location="cpu").eval()
+    if torch.cuda.is_available():  # the generator moves its inputs to the GPU when it sees one
+        model = model.cuda()
     rate = config["audio"]["sample_rate"]
     voice = config["espeak"]["voice"]
     rng = np.random.default_rng(SEED)
