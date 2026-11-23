@@ -143,6 +143,19 @@ const STATES = [
     events: [{ type: 'state', state: 'listening', muted: false }],
   },
   {
+    // A streaming speech model's live caption while the person speaks.
+    name: 'listening',
+    shot: 'hearing',
+    events: [
+      {
+        type: 'caption',
+        role: 'user',
+        text: 'What’s on my calendar',
+        final: false,
+      },
+    ],
+  },
+  {
     name: 'thinking',
     events: [
       {
@@ -221,10 +234,12 @@ for (const viewport of [
         // Row-Bot's caption shows as its words start playing.
         if (state.name === 'speaking')
           await expect(bar).toContainText('You have two meetings');
+        if ('shot' in state)
+          await expect(bar).toContainText('What’s on my calendar');
         await screenshot(
           page,
           info,
-          `voice-bar-${viewport.label}-${scheme}-${state.name}`,
+          `voice-bar-${viewport.label}-${scheme}-${'shot' in state ? state.shot : state.name}`,
         );
       }
       if (viewport.label === 'phone') {

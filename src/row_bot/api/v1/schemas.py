@@ -2802,6 +2802,68 @@ class LocalModelRemoveRequest(WireModel):
     model_id: LocalModelId | None = None
 
 
+SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
+
+
+class SpeechModelOption(WireModel):
+    """One pinned streaming speech-to-text model Row-Bot Voice can download (VD3)."""
+
+    id: SpeechModelId
+    name: str = Field(max_length=128)
+    # The saved Talk engine id that chooses it ("Speech model" in Settings › Voice).
+    engine_id: str = Field(max_length=128)
+    # The download, and the space it takes once unpacked.
+    size_bytes: int = Field(ge=0)
+    installed_bytes: int = Field(ge=0)
+    # What pressing Download would fetch now (a stopped download resumes); 0 when installed.
+    download_bytes: int = Field(ge=0)
+    installed: bool
+    # The model's language (BCP 47), or None when it detects the language itself.
+    language: str | None = Field(default=None, max_length=16)
+    licence: str = Field(max_length=64)
+    source: str = Field(max_length=256)
+    runs_best_on: Literal["gpu", "cpu"]
+
+
+class SpeechModelDownload(WireModel):
+    model_id: SpeechModelId
+    total_bytes: int = Field(ge=0)
+    done_bytes: int = Field(ge=0)
+    phase: Literal["downloading", "checking", "finished", "stopped", "failed"]
+    reason: str | None = Field(default=None, max_length=64)
+    facts: dict[str, int] | None = None
+
+
+class SpeechModelsView(WireModel):
+    """Settings › Voice: the streaming speech models, the one picked for this computer, the download."""
+
+    schema_version: Literal[1]
+    # unavailable: the speech runtime (the voice extra) isn't installed.
+    state: Literal["unavailable", "not_installed", "downloading", "installed", "failed"]
+    computer: str = Field(max_length=256)
+    recommended: SpeechModelId
+    # Why: "gpu" (an NVIDIA card the runtime uses), "cpu", "mac", or "no_gpu_runtime" (an NVIDIA
+    # card, but the installed speech runtime runs on the processor only).
+    reason: Literal["gpu", "cpu", "mac", "no_gpu_runtime"]
+    models: list[SpeechModelOption] = Field(max_length=8)
+    download: SpeechModelDownload | None = None
+    failure: LocalModelFailure | None = None
+    # The saved Talk engine id now in use.
+    talk_engine: str = Field(max_length=128)
+    disk_bytes: int = Field(ge=0)
+    freed_bytes: int | None = Field(default=None, ge=0)
+
+
+class SpeechModelInstallRequest(WireModel):
+    model_id: SpeechModelId
+    # The size the Download button showed; the download starts only while it still holds.
+    download_bytes: int = Field(ge=0)
+
+
+class SpeechModelRemoveRequest(WireModel):
+    model_id: SpeechModelId
+
+
 class ModelTestResult(WireModel):
     schema_version: Literal[1]
     ok: bool

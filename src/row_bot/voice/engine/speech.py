@@ -3,8 +3,8 @@
 ``SegmentedSpeechToText`` turns a whole-utterance engine (faster-whisper or
 SenseVoice, whichever the person selected) into a ``StreamingSpeechToText``:
 audio is buffered as it arrives, ``partial`` transcribes what has arrived so
-far, and ``finish`` transcribes the whole utterance. A true streaming engine
-can replace it behind the same interface.
+far, and ``finish`` transcribes the whole utterance. The streaming models
+(``sherpa_speech.py``) sit behind the same interface.
 
 ``ProviderSentenceSpeech`` speaks one sentence at a time through the selected
 speech-output provider (Kokoro), so saved pronunciations and voice settings
@@ -76,6 +76,9 @@ class _SegmentedStream:
 
 
 class SegmentedSpeechToText:
+    # Each partial is a whole decode of the utterance so far: read only to check a barge-in.
+    live_partials = False
+
     def __init__(self, provider: SpeechToTextProvider) -> None:
         self._provider = provider
         self.provider_id = provider.provider_id

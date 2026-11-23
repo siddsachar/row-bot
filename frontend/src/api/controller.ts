@@ -3251,6 +3251,33 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.repairLocalModelRuntime(signal);
     });
+  /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
+  speechModels = (signal?: AbortSignal) =>
+    this.query(() => this.transport.speechModels?.(signal));
+  /** The person pressed Download; `downloadBytes` is the size the button showed. */
+  installSpeechModel = (modelId: string, downloadBytes: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.installSpeechModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.installSpeechModel(
+        { model_id: modelId, download_bytes: downloadBytes },
+        signal,
+      );
+    });
+  /** Stop a speech-model download (it resumes on the next Download). */
+  stopSpeechModelDownload = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopSpeechModelDownload)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopSpeechModelDownload(signal);
+    });
+  /** Delete a downloaded speech model (Talk goes back to Whisper if it used it). */
+  removeSpeechModel = (modelId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.removeSpeechModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.removeSpeechModel({ model_id: modelId }, signal);
+    });
   /** One short message to the model just chosen; the result is in words. */
   testChosenModel = () =>
     this.authenticatedResult((signal) => {

@@ -932,6 +932,21 @@ export class HttpTransport implements ClientTransport {
   repairLocalModelRuntime(signal?: AbortSignal) {
     return wire.repairLocalModelRuntime(this.base, this.session(), signal);
   }
+  speechModels(signal?: AbortSignal) {
+    return wire.getSpeechModels(this.base, this.session(), signal);
+  }
+  installSpeechModel(
+    body: wire.SpeechModelInstallRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.installSpeechModel(this.base, this.session(), body, signal);
+  }
+  stopSpeechModelDownload(signal?: AbortSignal) {
+    return wire.stopSpeechModelDownload(this.base, this.session(), signal);
+  }
+  removeSpeechModel(body: wire.SpeechModelRemoveRequest, signal?: AbortSignal) {
+    return wire.removeSpeechModel(this.base, this.session(), body, signal);
+  }
   testChosenModel(signal?: AbortSignal) {
     return wire.testChosenModel(this.base, this.session(), signal);
   }

@@ -1372,6 +1372,18 @@ export interface ClientTransport {
   repairLocalModelRuntime?(
     signal?: AbortSignal,
   ): Promise<Wire.LocalModelRuntimeView>;
+  speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
+  installSpeechModel?(
+    body: Wire.SpeechModelInstallRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
+  stopSpeechModelDownload?(
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
+  removeSpeechModel?(
+    body: Wire.SpeechModelRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
   testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
   checkProviderKey?(
     body: Wire.ProviderKeyCheckRequest,

@@ -56,6 +56,8 @@ MAX_AUDIO_MESSAGE_BYTES = 16 * 1024
 _TURN_AUDIO_BYTES = 8 * INPUT_SAMPLE_RATE * 2
 #: Assistant audio goes down in pieces of about a quarter second.
 _AUDIO_CHUNK_SECONDS = 0.25
+#: A streaming speech model's words so far are read at most this often (audio time).
+PARTIAL_EVERY_MS = 100
 #: Words that keep someone listening rather than taking the turn.
 BACKCHANNELS = frozenset({
     "mhm", "mm", "mmm", "hmm", "hm", "uh", "um", "uh huh", "uh-huh", "mm-hmm", "mhmm", "yeah", "yep", "yes",
@@ -220,6 +222,11 @@ class DuplexSession:
         self._utterance_at = 0.0
         self._utterance_over_voice = False
         self._turn_audio = bytearray()
+        # A streaming model's partial transcripts: live captions and words for barge-in.
+        self._live_partials = bool(getattr(parts.stt, "live_partials", False))
+        self._reading_partial = False
+        self._partial_at_ms = 0
+        self._partial_shown = ""
         self._last_voice_at = 0.0
         self._voice_run_ms = 0
         self._pause_generation = 0
@@ -372,6 +379,7 @@ class DuplexSession:
         heard = self.tracker.feed(pcm16)
         if self._utterance is not None:
             self._push(pcm16)
+            self._follow_partials()
         for event in heard:
             if event.kind == "voice":
                 self._last_voice_at = self.clock()
@@ -422,8 +430,39 @@ class DuplexSession:
         self._utterance_at = float(self.tracker.speech_started_ms)
         self._utterance_over_voice = self._audible
         self._turn_audio = bytearray()
+        self._partial_shown = ""
         self._push(bytes(self._preroll))
         self._idle_from_ms = self.tracker.now_ms
+
+    def _follow_partials(self) -> None:
+        if (not self._live_partials or self._reading_partial or self._utterance is None
+                or self.tracker.now_ms - self._partial_at_ms < PARTIAL_EVERY_MS):
+            return
+        self._reading_partial = True
+        self._partial_at_ms = self.tracker.now_ms
+        self._spawn(self._read_partial(self._utterance))
+
+    async def _read_partial(self, stream: SpeechToTextStream) -> None:
+        try:
+            heard = await asyncio.to_thread(stream.partial)
+        finally:
+            self._reading_partial = False
+        if heard is None or stream is not self._utterance or self.closed:
+            return
+        text = " ".join(heard.text.split())
+        barge = self._barge
+        if barge is not None and not barge.confirmed:
+            # Words over Row-Bot's voice confirm (or rule out) a barge-in; they are never a caption.
+            barge.heard_words = bool(text) and not is_backchannel(text) and not self.host.drops(text)
+            return
+        if text and text != self._partial_shown:
+            self._partial_shown = text
+            await self.link.send_event({"type": "caption", "role": "user", "text": text, "final": False})
+
+    async def _clear_partial(self) -> None:
+        if self._partial_shown:
+            self._partial_shown = ""
+            await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": True})
 
     def _drop_utterance(self) -> None:
         if self._utterance is not None:
@@ -544,7 +583,9 @@ class DuplexSession:
         marks.mark("turn_end", self.clock())
         self._thinking = True
         await self._publish_state()
-        await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": False})
+        if not self._partial_shown:  # A live caption stays until the final words replace it.
+            await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": False})
+        self._partial_shown = ""
         looking = None
         if self.sharing is not None:
             # A fresh still of what the person shows, while their words are written down.
@@ -841,6 +882,7 @@ class DuplexSession:
             if self.muted and self._utterance is not None:
                 self._barge = None
                 self._drop_utterance()
+                await self._clear_partial()
         elif kind == "hold":
             self.held = bool(message.get("held"))
             if not self.held and self._utterance is not None and self.settings.push_to_talk:
@@ -934,6 +976,7 @@ class DuplexSession:
         self.paused = True
         self._paused_at = self.clock()
         self._drop_utterance()
+        await self._clear_partial()
         await self._share(None)  # A paused session shares nothing.
         await self._publish_state()
 
