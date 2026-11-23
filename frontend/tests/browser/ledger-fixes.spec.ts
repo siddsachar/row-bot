@@ -201,9 +201,19 @@ test('an approval for an app tool reads as the app and the action, and a phone s
     await expect(card).not.toContainText('mcp_');
     // Its step row names the app too, never "MCP counter create tally" (B391).
     const log = page.getByRole('log', { name: 'Conversation', exact: true });
-    await expect(log.getByText(/Counter · Create tally/).first()).toBeVisible();
+    // The steps fold under one line, which reads "Waiting for your approval"
+    // once the turn waits on the card: open them to read the step.
+    const activity = log.getByRole('group', { name: 'Tool activity' });
+    const fold = activity.locator('summary').first();
+    await fold.click();
+    await expect(
+      activity
+        .getByRole('list', { name: 'Steps' })
+        .getByText(/Counter · Create tally/),
+    ).toBeVisible();
     // (Its raw name stays in the step's own collapsed details.)
     await expect(log).not.toContainText('MCP');
+    await fold.click();
     const approve = card.getByRole('button', { name: 'Approve', exact: true });
     // Ctrl ↵ where a keyboard is likely: a fine pointer (B389), never touch.
     if (await page.evaluate(() => matchMedia('(pointer: fine)').matches))
