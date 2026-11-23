@@ -31,8 +31,9 @@ def test_without_a_gateway_key_there_is_none() -> None:
     assert load_settings({}).gateway_key is None
 
 
-@pytest.mark.parametrize("value", [base64.b64encode(secrets.token_bytes(16)).decode(), "not*base64!" * 4,
-                                   base64.b64encode(secrets.token_bytes(48)).decode()])
+# Fixed values: parametrize ids must match across xdist workers, so nothing random at collection.
+@pytest.mark.parametrize("value", [base64.b64encode(bytes(range(16))).decode(), "not*base64!" * 4,
+                                   base64.b64encode(bytes(range(48))).decode()])
 def test_a_bad_gateway_key_is_refused_without_its_value(value: str) -> None:
     with pytest.raises(SettingsError) as raised:
         load_settings({"ROW_BOT_ORG_GATEWAY_KEY": value})
