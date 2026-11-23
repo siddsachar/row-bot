@@ -1,14 +1,14 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ConversationView, MediaItem } from '../../api/types';
+import type { ConversationView, OutputView } from '../../api/types';
 import { takeWaitingPage } from '../pages/open-page';
 import LibraryFiles from './LibraryFiles';
 
 const runtime = vi.hoisted(() => ({
   conversationsOfGroup: vi.fn(),
   pages: vi.fn(),
-  media: vi.fn(),
+  outputs: vi.fn(),
   workspaceFor: vi.fn(),
   attachmentThumbnail: vi.fn(),
 }));
@@ -57,17 +57,37 @@ const resource = (
   resource_revision: '1',
   available: true,
 });
-const voice: MediaItem = {
-  ref: 'chat-media:voice',
-  name: 'voice-line-01.wav',
-  kind: 'audio',
-  mime_type: 'audio/wav',
-  size: 16_000,
-  added_at: '2026-11-18T09:00:00Z',
-  conversation_id: 'chat-media',
-  conversation_title: 'Launch assets',
-  tags: [],
-};
+function output(
+  name: string,
+  fileName: string,
+  extra: Partial<OutputView> = {},
+): OutputView {
+  const version = {
+    ref: `chat-media:${name}`,
+    version: 1,
+    role: 'final' as const,
+    file_name: fileName,
+    mime_type: 'audio/wav',
+    size: 16_000,
+    created_at: '2026-11-18T09:00:00Z',
+  };
+  return {
+    ...version,
+    id: `${name.length}`.padStart(24, '0'),
+    conversation_id: 'chat-media',
+    conversation_title: 'Launch assets',
+    name,
+    kind: 'audio',
+    versions: [version],
+    version_count: 1,
+    working_count: 0,
+    updated_at: '2026-11-18T09:00:00Z',
+    tags: [],
+    ...extra,
+  };
+}
+/** What the chats made: a finished jingle, the outputs list's made view. */
+const voice = output('Launch jingle', 'Launch jingle.wav');
 
 beforeEach(() => {
   // Each listing group from the server: the chats with a design, and those
@@ -115,7 +135,27 @@ beforeEach(() => {
       },
     ],
   });
-  runtime.media.mockReset().mockResolvedValue({ items: [voice] });
+  runtime.outputs
+    .mockReset()
+    .mockImplementation(async ({ show }: { show: string }) => ({
+      items:
+        show === 'made'
+          ? [voice]
+          : show === 'uploads'
+            ? [
+                output('Guest list.pdf', 'Guest list.pdf', {
+                  role: 'upload',
+                  kind: 'document',
+                  mime_type: 'application/pdf',
+                }),
+              ]
+            : [
+                output('recording', 'generated-recording.mp4', {
+                  role: 'working',
+                  kind: 'video',
+                }),
+              ],
+    }));
   runtime.attachmentThumbnail.mockReset().mockResolvedValue(null);
 });
 
@@ -154,7 +194,7 @@ it('lists what Row-Bot made, newest first, each with its chat; chips and search 
     expect.stringMatching(
       /^demo-release-notesCode folder · in Release notes cleanup/,
     ),
-    expect.stringMatching(/^voice-line-01\.wavSound · in Launch assets/),
+    expect.stringMatching(/^Launch jingleSound · in Launch assets/),
     expect.stringMatching(/^Beta launch planPage · in Beta launch notes/),
   ]);
   // Only the chats with a design or a folder are listed, each in one page,
@@ -170,7 +210,11 @@ it('lists what Row-Bot made, newest first, each with its chat; chips and search 
   fireEvent.click(screen.getByRole('radio', { name: 'Folders' }));
   expect(names()).toEqual([expect.stringMatching(/^demo-release-notes/)]);
   fireEvent.click(screen.getByRole('radio', { name: 'Media' }));
-  expect(names()).toEqual([expect.stringMatching(/^voice-line-01\.wav/)]);
+  expect(names()).toEqual([expect.stringMatching(/^Launch jingle/)]);
+  // Only what was made is read until another chip asks (W3).
+  expect(runtime.outputs.mock.calls.map(([filter]) => filter)).toEqual([
+    { show: 'made' },
+  ]);
   fireEvent.click(screen.getByRole('radio', { name: 'All' }));
   fireEvent.change(
     screen.getByRole('searchbox', { name: 'Search what Row-Bot made' }),
@@ -216,7 +260,7 @@ it('says when nothing is made yet', async () => {
     next_cursor: null,
   });
   runtime.pages.mockResolvedValue({ items: [] });
-  runtime.media.mockResolvedValue({ items: [] });
+  runtime.outputs.mockResolvedValue({ items: [] });
   renderFiles();
   expect(await screen.findByText('Nothing made yet')).toBeVisible();
 });
@@ -238,7 +282,7 @@ it('shows pages and media while the designs and folders are still read, then add
       .getAllByRole('link')
       .map((link) => link.textContent);
   expect(names()).toEqual([
-    expect.stringMatching(/^voice-line-01\.wav/),
+    expect.stringMatching(/^Launch jingle/),
     expect.stringMatching(/^Beta launch plan/),
   ]);
   expect(
@@ -251,7 +295,7 @@ it('shows pages and media while the designs and folders are still read, then add
   expect(names()).toEqual([
     expect.stringMatching(/^Community Workshop Deck/),
     expect.stringMatching(/^demo-release-notes/),
-    expect.stringMatching(/^voice-line-01\.wav/),
+    expect.stringMatching(/^Launch jingle/),
     expect.stringMatching(/^Beta launch plan/),
   ]);
   expect(
@@ -262,8 +306,8 @@ it('shows pages and media while the designs and folders are still read, then add
 it('shows loading rows in the list shape until every kind of file is read', async () => {
   vi.useFakeTimers();
   try {
-    let release!: (value: { items: MediaItem[] }) => void;
-    runtime.media.mockReturnValue(
+    let release!: (value: { items: OutputView[] }) => void;
+    runtime.outputs.mockReturnValue(
       new Promise((resolve) => {
         release = resolve;
       }),
@@ -282,4 +326,51 @@ it('shows loading rows in the list shape until every kind of file is read', asyn
   } finally {
     vi.useRealTimers();
   }
+});
+
+it('lists the files the person added and the working files on their own chips', async () => {
+  renderFiles();
+  await screen.findByRole('list', { name: 'Files' });
+  // Each chip's list is read afresh, with loading rows between.
+  const names = () =>
+    within(screen.getByRole('list', { name: 'Files' }))
+      .getAllByRole('link')
+      .map((link) => link.textContent);
+  fireEvent.click(screen.getByRole('radio', { name: 'Uploads' }));
+  expect(
+    await screen.findByRole('link', { name: /^Guest list\.pdf/ }),
+  ).toBeVisible();
+  expect(names()).toEqual([
+    expect.stringMatching(/^Guest list\.pdfDocument · in Launch assets/),
+  ]);
+  fireEvent.click(screen.getByRole('radio', { name: 'Working files' }));
+  expect(await screen.findByRole('link', { name: /^Recording/ })).toBeVisible();
+  expect(names()).toEqual([
+    expect.stringMatching(/^RecordingVideo · in Launch assets/),
+  ]);
+  expect(runtime.outputs.mock.calls.map(([filter]) => filter)).toEqual([
+    { show: 'made' },
+    { show: 'uploads' },
+    { show: 'working' },
+  ]);
+});
+
+it('adds older media on Show more, from the next page of the same list', async () => {
+  const older = output('Old jingle', 'Old jingle.wav', {
+    updated_at: '2026-11-01T09:00:00Z',
+  });
+  runtime.outputs
+    .mockResolvedValueOnce({ items: [voice], next: 'page-2' })
+    .mockResolvedValueOnce({ items: [older], next: null });
+  renderFiles();
+  await screen.findByRole('list', { name: 'Files' });
+  fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+  expect(
+    await screen.findByRole('link', { name: /^Old jingle/ }),
+  ).toBeVisible();
+  expect(runtime.outputs).toHaveBeenLastCalledWith({
+    show: 'made',
+    before: 'page-2',
+  });
+  expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
 });

@@ -135,3 +135,19 @@ def test_media_reads_only_the_folders_that_can_hold_the_newest_items(platform, m
     assert [item["name"] for item in media_library.items(limit=1)] == ["launch-card.png"]
     assert read == ["conversation-a"]
     assert {item["name"] for item in media_library.items(limit=3)} == {"launch-card.png", "demo.mp4", "line-01.wav"}
+
+
+def test_the_outputs_list_shares_the_folder_listing_and_never_reads_a_files_bytes(platform, monkeypatch):  # noqa: F811
+    from row_bot import media_library, threads
+    from row_bot.application import attachments
+
+    _files(attachments.register_attachment)
+    for folder in Path(threads._MEDIA_DIR).iterdir():
+        _settled(folder, time.time() - 60)
+    monkeypatch.setattr(attachments, "read_attachment", lambda *_: pytest.fail("a file was read"))
+    read = _counted_listing(monkeypatch)
+
+    first = media_library.outputs(show="uploads")
+    assert sorted(item["file_name"] for item in first["items"]) == ["demo.mp4", "launch-card.png", "notes.pdf"]
+    read.clear()
+    assert media_library.outputs(show="uploads") == first and media_library.items() and read == []

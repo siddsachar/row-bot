@@ -54,24 +54,38 @@ async function seed(page: Page, info: TestInfo, who: string): Promise<void> {
     ).toBe(true);
 }
 /**
- * A recording for Files to list, answered in place of the backend's media so
- * that other specs' media counts stay their own.
+ * A sound for Files to list, answered in place of the backend's outputs list
+ * so that other specs' media counts stay their own.
  */
-const recording = (who: string) => ({
-  items: [
-    {
-      ref: 'loading-spec:00000000-0000-4000-8000-000000000001',
-      name: `loading-spec-${who}.wav`,
-      kind: 'audio',
-      mime_type: 'audio/wav',
-      size: 16_000,
-      added_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
-      conversation_id: 'loading-spec',
-      conversation_title: 'Loading spec recordings',
-      tags: [],
-    },
-  ],
-});
+const recording = (who: string) => {
+  const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const version = {
+    ref: 'loading-spec:00000000-0000-4000-8000-000000000001',
+    version: 1,
+    role: 'final',
+    file_name: `Loading spec ${who}.wav`,
+    mime_type: 'audio/wav',
+    size: 16_000,
+    created_at: at,
+  };
+  return {
+    items: [
+      {
+        ...version,
+        id: '0'.repeat(24),
+        conversation_id: 'loading-spec',
+        conversation_title: 'Loading spec recordings',
+        name: `Loading spec ${who}`,
+        kind: 'audio',
+        versions: [version],
+        version_count: 1,
+        working_count: 0,
+        updated_at: at,
+        tags: [],
+      },
+    ],
+  };
+};
 
 /** Light and dark screenshots of what is on screen now. */
 async function views(page: Page, info: TestInfo, name: string) {
@@ -153,7 +167,7 @@ for (const phone of PHONES.slice(1))
 
       const media = await hold(
         page,
-        (url) => url.pathname.endsWith('/api/v1/media'),
+        (url) => url.pathname.endsWith('/api/v1/outputs'),
         recording(who),
       );
       await page.getByRole('radio', { name: 'Files' }).click();

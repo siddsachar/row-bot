@@ -514,11 +514,9 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     ready = status["state"] == "ready" or bool(status["backup_name"])
     from row_bot.application.context_status import read_usage
     from row_bot.application.reasoning_controls import reasoning_view
-    from row_bot.application.attachments import list_generated_outputs
     from row_bot.application.conversation_writer import writer_status
     return {"conversation_id": identity, "revision": str(row["client_revision"]), "controls": controls,
             "model_status": status,
-            "generated_outputs": list_generated_outputs(identity),
             "writer_status": writer_status(identity),
             "context_usage": read_usage(service, identity, controls),
             "reasoning": reasoning_view(identity, model),

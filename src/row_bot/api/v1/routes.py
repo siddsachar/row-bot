@@ -6664,6 +6664,25 @@ def create_router(
                            kind=kind if kind in {"image", "video", "audio"} else "", limit=500)
         return await respond(request, dto.MediaPage, {"items": items})
 
+    @router.get("/outputs")
+    async def outputs_list(request: Request, conversation_id: str = "", show: str = "made", query: str = "",
+                           kind: str = "", before: str = "") -> JSONResponse:
+        # The outputs list (W3): a chat's Outputs pane, or Library › Media and the phone's Files across chats.
+        await session(request, lane="view")
+        from row_bot import media_library
+
+        if (show not in media_library.SHOWS or (kind and kind not in media_library.OUTPUT_KINDS)
+                or (before and not media_library.CURSOR.fullmatch(before))):
+            raise ProtocolError("invalid_command", 422)
+        try:
+            # One chat's outputs come whole; across chats a page at a time, so Library › Media opens fast.
+            page = await call(media_library.outputs, conversation_id=conversation_id[:256], show=show,
+                              query=query[:200], kind=kind, before=before[:64],
+                              limit=500 if conversation_id else media_library.PAGE)
+        except media_library.MediaError:
+            raise ProtocolError("not_found", 404) from None
+        return await respond(request, dto.OutputPage, page)
+
     @router.put("/media/tags")
     async def media_tags(request: Request) -> JSONResponse:
         await session(request, lane="mutation")

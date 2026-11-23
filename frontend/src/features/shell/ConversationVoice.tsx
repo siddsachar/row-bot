@@ -4,6 +4,7 @@ import type { ClientController } from '../../api/controller';
 import type {
   DictationHandle,
   LiveVoiceProvider,
+  OutputView,
   TalkStart,
 } from '../../api/types';
 import type { DictationScope } from './VoiceControls';
@@ -23,29 +24,39 @@ import {
   liveVoiceDisclosed,
 } from './live-voice';
 import { useOptionalOverlay } from '../../ui/overlays';
-import {
-  OutputThumb,
-  shortPrompt,
-  type ConversationOutput,
-} from './ContextOutputs';
+import { OutputThumb } from './ContextOutputs';
 import { openMediaViewer } from './MediaPreview';
+import { outputTitle } from './outputs';
+
+/**
+ * What the chat had when voice began (W3): its outputs, or, while the chat's
+ * list wasn't read yet (a chat voice opened), the time voice began.
+ */
+type OutputsBefore = { refs: ReadonlySet<string> | null; since: number };
+
+/** Server times have whole seconds and may run a moment apart from this device's clock. */
+const CLOCK_SLACK_MS = 2000;
+
+const outputsBefore = (outputs?: OutputView[]): OutputsBefore => ({
+  refs: outputs ? new Set(outputs.map((output) => output.ref)) : null,
+  since: Date.now() - CLOCK_SLACK_MS,
+});
 
 /** The newest picture or video made since voice began, as the phone's focus mode shows it. */
 function newestResult(
-  outputs: ConversationOutput[],
-  before: ReadonlySet<string>,
-  open: (output: ConversationOutput, name: string) => void,
+  outputs: OutputView[],
+  before: OutputsBefore,
+  open: (output: OutputView, name: string) => void,
 ): VoiceResult | null {
-  const output = [...outputs]
-    .reverse()
-    .find((item) => !before.has(item.reference));
+  const output = outputs.find(
+    (item) =>
+      (item.kind === 'image' || item.kind === 'video') &&
+      (before.refs
+        ? !before.refs.has(item.ref)
+        : Date.parse(item.created_at) >= before.since),
+  );
   if (!output) return null;
-  const video = output.mime.startsWith('video/');
-  const name = output.prompt
-    ? shortPrompt(output.prompt)
-    : video
-      ? 'Video'
-      : 'Picture';
+  const name = outputTitle(output);
   return {
     label: name,
     thumb: <OutputThumb output={output} />,
@@ -80,8 +91,8 @@ export default function ConversationVoice(props: {
   /** Show and focus the composer ("Type instead"). */
   focusComposer?(): void;
   phone?: boolean;
-  /** The chat's pictures and videos, oldest first. */
-  outputs?: ConversationOutput[];
+  /** The chat's outputs list (W3), newest first; undefined until it is read. */
+  outputs?: OutputView[];
 }) {
   const [voice, setVoice] = useState<{
     session: VoiceBarSession;
@@ -89,7 +100,7 @@ export default function ConversationVoice(props: {
     targets: string[];
     label?: string;
     /** What the chat already had when voice began. */
-    outputsBefore: ReadonlySet<string>;
+    outputsBefore: OutputsBefore;
   } | null>(null);
   const overlay = useOptionalOverlay();
   const [starting, setStarting] = useState(false);
@@ -145,9 +156,7 @@ export default function ConversationVoice(props: {
         session,
         handle,
         targets: [...latest.current.targets],
-        outputsBefore: new Set(
-          (latest.current.outputs ?? []).map((output) => output.reference),
-        ),
+        outputsBefore: outputsBefore(latest.current.outputs),
       });
       setTyping(false);
       await session.start();
@@ -197,9 +206,7 @@ export default function ConversationVoice(props: {
         handle,
         targets: [...latest.current.targets],
         label: provider.label,
-        outputsBefore: new Set(
-          (latest.current.outputs ?? []).map((output) => output.reference),
-        ),
+        outputsBefore: outputsBefore(latest.current.outputs),
       });
       setTyping(false);
       await session.start();
@@ -312,9 +319,10 @@ export default function ConversationVoice(props: {
                 voice.outputsBefore,
                 (output, name) =>
                   openMediaViewer(overlay, {
-                    reference: output.reference,
-                    mime: output.mime,
+                    reference: output.ref,
+                    mime: output.mime_type,
                     name,
+                    size: output.size,
                   }),
               )
             }

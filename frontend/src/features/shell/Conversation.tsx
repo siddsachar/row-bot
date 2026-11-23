@@ -32,7 +32,11 @@ import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
 import type { FilePickerOptions } from '../../platform/types';
-import { useBackgroundReady, useSettledIdentity } from '../../shell-settled';
+import {
+  useBackgroundReady,
+  useSettledIdentity,
+  useShellSettled,
+} from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -83,8 +87,8 @@ import DelegatedActivity, {
   interruptedWork,
   recentReads,
 } from './DelegatedActivity';
+import { useOutputs } from './outputs';
 import ConversationContextRail from './ConversationContextRail';
-import type { ConversationOutput } from './ContextOutputs';
 import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
@@ -818,6 +822,10 @@ export default function Conversation({
   }, [id, fitComposer]);
   const generation = state.projection?.generation;
   const running = generation && !generation.quiesced;
+  // The last turn that settled, kept while the next one runs.
+  const [settledTurn, setSettledTurn] = useState('');
+  if (!running && generation && generation.generation_id !== settledTurn)
+    setSettledTurn(generation.generation_id);
   const controls = state.workspace?.controls;
   const resources = state.workspace?.resources ?? [];
   const defaultTargetIds = resources
@@ -2709,53 +2717,20 @@ export default function Conversation({
   const writerQueued =
     lastWriterEvent?.type === 'agent.activity' &&
     lastWriterEvent.payload.status === 'queued';
-  const durableOutputs = rows.flatMap((row) =>
-    (row.traces ?? []).flatMap((group) =>
-      group.items.flatMap((item) =>
-        (item.specialization?.media ?? []).map((media) => ({
-          id: media.media_ref,
-          reference: media.media_ref,
-          mime: media.mime_type,
-          prompt: media.prompt,
-        })),
-      ),
-    ),
-  );
-  const liveOutputs = state.activity
-    .filter((item) => item.event.type === 'media.available')
-    .map((item) => ({
-      id: item.event.event_id,
-      reference:
-        item.event.type === 'media.available'
-          ? item.event.payload.media_ref
-          : '',
-      mime:
-        item.event.type === 'media.available'
-          ? item.event.payload.mime_type
-          : '',
-      prompt:
-        item.event.type === 'media.available'
-          ? item.event.payload.prompt
-          : undefined,
-    }));
-  // One output per result; its prompt (5.3.3) comes from whichever source has it.
-  const outputsByReference = new Map<string, ConversationOutput>();
-  for (const output of [
-    ...(state.workspace?.generated_outputs ?? []).map((output) => ({
-      id: output.media_ref,
-      reference: output.media_ref,
-      mime: output.mime_type,
-      prompt: output.prompt,
-    })),
-    ...durableOutputs,
-    ...liveOutputs,
-  ])
-    outputsByReference.set(output.reference, {
-      ...output,
-      prompt: output.prompt || outputsByReference.get(output.reference)?.prompt,
-    });
-  const outputs = [...outputsByReference.values()];
+  // The Outputs pane reads the chat's outputs list again when a tool made or presented a file, and when a turn
+  // settles (a video's checks may have made its render final).
+  const outputsRefresh = `${
+    state.activity.filter((item) => item.event.type === 'media.available')
+      .length
+  }:${settledTurn}`;
   const contextReady = state.status === 'ready' && historyReady;
+  // The outputs list (W3), read once the open settles: the Outputs pane's tiles and voice's newest result.
+  const shellSettled = useShellSettled();
+  const madeOutputs = useOutputs(
+    { conversation_id: id ?? '' },
+    outputsRefresh,
+    Boolean(id) && contextReady && shellSettled,
+  ).page;
   const contextRail = id ? (
     <ConversationContextRail
       conversationId={id}
@@ -2778,7 +2753,9 @@ export default function Conversation({
         state.conversation?.id === id &&
         state.conversation.parent_conversation_id,
       )}
-      outputs={outputs}
+      outputs={madeOutputs?.items ?? []}
+      workingCount={madeOutputs?.counts?.working ?? 0}
+      outputsRefresh={outputsRefresh}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}
       onCancelWait={() => void action('conversation.stop')}
@@ -4672,7 +4649,7 @@ export default function Conversation({
                           voiceExposure.talk
                         }
                         phone={phone}
-                        outputs={outputs}
+                        outputs={madeOutputs?.items}
                         focusComposer={() =>
                           composerRef.current?.focus({ preventScroll: true })
                         }

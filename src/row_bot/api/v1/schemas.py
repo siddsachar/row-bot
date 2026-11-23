@@ -7244,6 +7244,51 @@ class MediaTags(WireModel):
     tags: list[MediaTag] = Field(max_length=12)
 
 
+# What a file is to the person (W1): a final, a draft, a working file made on the way, or a file they added.
+OutputRole = Literal["final", "draft", "working", "upload"]
+
+
+class OutputVersionView(WireModel):
+    """One version of an output: a file in its chat."""
+    ref: str = Field(min_length=3, max_length=300)
+    version: int = Field(ge=1, le=100_000)
+    role: OutputRole
+    file_name: str = Field(min_length=1, max_length=240)
+    mime_type: str = Field(max_length=64)
+    size: int = Field(ge=1)
+    created_at: str = Field(max_length=40)
+
+
+class OutputView(OutputVersionView):
+    """One thing in a chat's outputs (W3): the version shown (its final, else its latest draft), its versions
+    newest first, and how many working files were made for it on the way."""
+    id: str = Field(pattern=r"^[0-9a-f]{24}$")
+    conversation_id: str = Field(min_length=1, max_length=256)
+    conversation_title: str = Field(default="", max_length=256)
+    name: str = Field(min_length=1, max_length=240)
+    kind: Literal["video", "image", "audio", "document", "file"]
+    versions: list[OutputVersionView] = Field(min_length=1, max_length=50)
+    version_count: int = Field(ge=1)
+    working_count: int = Field(ge=0)
+    updated_at: str = Field(max_length=40)
+    tags: list[MediaTag] = Field(default_factory=list, max_length=12)
+
+
+class OutputCounts(WireModel):
+    """How many outputs each filter lists in one chat."""
+    made: int = Field(ge=0)
+    uploads: int = Field(ge=0)
+    working: int = Field(ge=0)
+
+
+class OutputPage(WireModel):
+    """A chat's outputs, or every chat's (Library › Media, the phone's Files): newest first."""
+    items: list[OutputView] = Field(max_length=500)
+    counts: OutputCounts | None = None
+    # The page after this one (pass it as ``before``); None on the last page.
+    next: str | None = Field(default=None, max_length=64)
+
+
 class PageTheme(WireModel):
     """Row-Bot's colours for both themes (token name to colour) and the one in use."""
     mode: Literal["light", "dark"]
@@ -9931,7 +9976,8 @@ class CommandReceipt(WireModel):
     revision: Revision | None = None
     approval_id: OpaqueId | None = None
     attachment_ref: Reference | None = None
-    saved_name: str | None = Field(default=None, max_length=128)
+    # media.save: where the file was saved, inside the workspace ("Saved outputs/Birthday montage.mp4").
+    saved_name: str | None = Field(default=None, max_length=300)
     # conversation.link.start (5.3.1 C): the conversation the person started from a proposal.
     linked_conversation_id: OpaqueId | None = None
     # conversation.fork (B5): the new conversation, and for "edit" the edited message's files, copied into it.
@@ -11058,7 +11104,6 @@ class ConversationWorkspace(WireModel):
     model_status: ConversationModelStatus | None = None
     profiles: list[ProfileChoice] = Field(max_length=256)
     resources: list[ResourceView] = Field(max_length=200)
-    generated_outputs: list[MediaAvailable] = Field(default_factory=list, max_length=20)
     writer_status: str = Field(default="", max_length=40)
     actions: list[ActionReadiness] = Field(max_length=6)
     context_usage: ContextUsageView | None = None

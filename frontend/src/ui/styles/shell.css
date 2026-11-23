@@ -1619,6 +1619,44 @@
   background: rgb(10 13 18 / 0.72);
   color: #fff;
 }
+/* A draft's mark and its versions' count, over the thumbnail's corner. */
+.context-output-badges {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+.context-output-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: rgb(10 13 18 / 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  backdrop-filter: blur(6px);
+}
+.context-output-working {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+.context-output-working + .context-output-grid {
+  margin-top: 4px;
+}
 .context-output-tile[data-busy] .context-output-open {
   opacity: 0.6;
 }
