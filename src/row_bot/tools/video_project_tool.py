@@ -384,8 +384,9 @@ def langchain_tool():
             "video comes with its checks, by scene and time: fix what they list and make it again; it's ready to "
             "share only when they pass (no analyze_image passes of your own). undo goes back one version; export "
             "makes the same version in another shape or a GIF; brand saves how every video should look (framing, "
-            "caption style, music mood, voice, loudness). For one quick edit use edit_video. A title or end card is a scene "
-            "without a video: never make background videos or other working files in the person's workspace for it."
+            "caption style, music mood, voice, loudness). For one quick edit use edit_video. A title or end card is a "
+            "scene without a video: never make background videos or other working files in the person's workspace "
+            "for it."
         ),
         args_schema=_VideoInput,
     )

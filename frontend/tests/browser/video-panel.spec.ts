@@ -82,7 +82,9 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await page.getByRole('menuitem', { name: /^Whoosh/ }).click();
   const effects = panel.getByRole('list', { name: 'Scene 2 sound effects' });
   await expect(effects.getByRole('listitem')).toHaveCount(2);
-  await views(page, info, 'video-panel-sound', effects);
+  await page.mouse.move(0, 0); // The add button's tooltip closes.
+  await cast.scrollIntoViewIfNeeded();
+  await views(page, info, 'video-panel-sound', cast);
   await page.setViewportSize(PHONE);
   await views(page, info, 'video-panel-sound-phone', effects);
   await page.setViewportSize(DESKTOP);
