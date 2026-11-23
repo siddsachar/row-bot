@@ -6081,6 +6081,30 @@ def create_router(
         result = await _project_call(restore_video_project, _project_id(project_id), body.number)
         return await respond(request, dto.VideoProjectView, result)
 
+    @router.post("/video-projects/{project_id}/approve")
+    async def approve_video_scenes_route(request: Request, project_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.video_project_views import approve_video_scenes
+
+        body = await _body(request, dto.VideoSceneApproval, 16 * 1024)
+        result = await _project_call(approve_video_scenes, _project_id(project_id), body.model_dump())
+        return await respond(request, dto.VideoProjectView, result)
+
+    @router.get("/video-projects/{project_id}/scenes/{scene_id}/frame")
+    async def video_scene_frame_route(request: Request, project_id: str, scene_id: str,
+                                      version: int | None = None) -> Response:
+        """A storyboard card's frame (C1): a still of the scene's footage, read here, loaded as the card shows."""
+        current = await session(request, lane="view")
+        from row_bot.application.video_project_views import video_scene_frame
+        from row_bot.video_projects import SCENE_ID
+
+        if not SCENE_ID.fullmatch(str(scene_id or "")):
+            raise ProtocolError("video_project_unavailable", 404)
+        data = await _project_call(video_scene_frame, _project_id(project_id), scene_id, version)
+        security.session(await _context(request), current.id, current.csrf)
+        return Response(data, media_type="image/jpeg", headers={
+            **HEADERS, "Content-Disposition": "inline", "Content-Security-Policy": "default-src 'none'; sandbox"})
+
     # Sandboxes (5.3.1 B4): second Row-Bots on made-up data, started, stopped and opened from Settings › Data.
     def _row_bot_sandbox_id(value: str) -> str:
         from row_bot.sandboxes import SANDBOX_ID

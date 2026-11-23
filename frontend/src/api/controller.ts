@@ -22,6 +22,7 @@ import type {
   RowBotSandboxCreate,
   VideoBrand,
   VideoProjectChange,
+  VideoSceneApproval,
   VideoProjectExport,
   DictationScope,
   DictationHandle,
@@ -2989,6 +2990,17 @@ export class ClientController {
     this.query(() => this.transport.restoreVideoProject?.(projectId, number));
   makeVideoProject = (projectId: string) =>
     this.query(() => this.transport.makeVideoProject?.(projectId));
+  approveVideoScenes = (projectId: string, approval: VideoSceneApproval) =>
+    this.query(() => this.transport.approveVideoScenes?.(projectId, approval));
+  videoSceneFrame = (
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.videoSceneFrame?.(projectId, sceneId, version, signal),
+    );
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits = (signal?: AbortSignal) =>
     this.query(() => this.transport.waits?.(signal));

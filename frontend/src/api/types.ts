@@ -1162,6 +1162,18 @@ export interface ClientTransport {
     number: number,
   ): Promise<Wire.VideoProjectView>;
   makeVideoProject?(projectId: string): Promise<Wire.VideoProjectView>;
+  /** Approve storyboard scenes as they are, or take that back (C1). */
+  approveVideoScenes?(
+    projectId: string,
+    approval: Wire.VideoSceneApproval,
+  ): Promise<Wire.VideoProjectView>;
+  /** A storyboard card's frame, a small JPEG (C1). */
+  videoSceneFrame?(
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   videoBrand?(signal?: AbortSignal): Promise<Wire.VideoBrand>;
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;

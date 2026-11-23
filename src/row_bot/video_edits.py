@@ -82,6 +82,9 @@ class VideoEdit:
     marks: list[float] = field(default_factory=list)
     # A video project's review sheet: frames of each scene, labelled, in the chat's files (its name).
     sheet: str = ""
+    # How each of a video project's scenes was made: "new" (drawn now), "reused" (unchanged, drawn before) or ""
+    # (a title card).
+    scene_makes: list[str] = field(default_factory=list)
     done: threading.Event = field(default_factory=threading.Event)
     stop_event: threading.Event = field(default_factory=threading.Event)
 
@@ -119,6 +122,8 @@ class Request:
     role: str = "working"
     output_id: str = ""
     version: int = 1
+    # Where a video project keeps its scenes' drawn clips, so making it again draws only the scenes that changed.
+    scene_cache: Path | None = None
 
 
 def _lineage(edit: "VideoEdit", request: Request, role: str = "") -> dict[str, Any]:
@@ -160,7 +165,7 @@ def _iso(value: float | None) -> str | None:
 _SAVED_FIELDS = ("edit_id", "conversation_id", "kind", "summary", "output_name", "started_at", "status",
                  "expected_seconds", "process_id", "ended_at", "stopped_by", "problem", "detail", "media_ref",
                  "mime_type", "size_bytes", "frame_refs", "frame_times", "frame_names", "ffmpeg", "checks", "checks_passed", "marks",
-                 "sheet", "silent")
+                 "sheet", "silent", "scene_makes")
 
 
 def _save(edit: VideoEdit) -> None:
@@ -200,6 +205,8 @@ def _load(path: Path) -> VideoEdit | None:
 
         edit.marks = [float(item) for item in data.get("marks") or []][:MAX_SCENES + 1]
         edit.silent = bool(data.get("silent"))
+        edit.scene_makes = [str(item) if item in ("new", "reused") else ""
+                            for item in data.get("scene_makes") or []][:MAX_SCENES]
         return edit
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -358,7 +365,7 @@ def _inputs(edit: VideoEdit, request: Request, ffmpeg: Any, folder: Path) -> lis
     """Each source as a file the edit reads: chat files are copied in (checked); workspace files and files elsewhere
     on this computer are read where they are, never copied, however large. A picture (a project's still scene) is
     read for its size only."""
-    from row_bot.video_editing import InputVideo
+    from row_bot.video_editing import EditError, InputVideo
     from row_bot.video_studio import still_info
 
     inputs = []
@@ -367,11 +374,16 @@ def _inputs(edit: VideoEdit, request: Request, ffmpeg: Any, folder: Path) -> lis
         if source.ref:
             name = f"input-{index}{'.png' if source.kind == 'image' else '.mp4'}"
             (folder / name).write_bytes(source.read_bytes())
-            path = name
+            path, identity = name, f"ref:{source.ref}"
         else:
             path = str(source.path)
+            try:
+                found = source.path.stat()
+            except OSError:
+                raise EditError(f"{source.label} can't be read.") from None
+            identity = f"{source.path}:{found.st_size}:{found.st_mtime_ns}"
         info = still_info(folder / path) if source.kind == "image" else probe_video(ffmpeg, path, folder)
-        inputs.append(InputVideo(path=path, info=info, label=source.label))
+        inputs.append(InputVideo(path=path, info=info, label=source.label, identity=identity))
     return inputs
 
 
@@ -668,10 +680,11 @@ def _run(edit: VideoEdit, request: Request) -> None:
                 def drawing(done: int, total: int) -> None:
                     _set(edit, detail=f"Drawing scene {done + 1} of {total}")
 
-                inputs, steps[0] = video_studio.prepare(inputs, steps[0], folder, stopped=edit.stop_event.is_set,
-                                                        progress=drawing)
+                inputs, steps[0], made = video_studio.prepare(inputs, steps[0], folder,
+                                                              stopped=edit.stop_event.is_set, progress=drawing,
+                                                              cache=request.scene_cache)
                 _check(edit)
-                _set(edit, detail="")
+                _set(edit, detail="", scene_makes=made)
             plan = build_plan(inputs, steps, "output.mp4", sounds=sounds,
                               graph_option=graph_option_for(ffmpeg.version),
                               encoder=ffmpeg_runtime.h264_encoder(ffmpeg))

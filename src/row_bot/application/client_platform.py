@@ -147,6 +147,18 @@ def _tapped_choice(conversation_id: str, value: Any) -> dict[str, str] | None:
     return {"message_id": message_id, **({"label": label} if label else {})}
 
 
+VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
+
+
+def _video_panel(value: Any) -> dict[str, str] | None:
+    """The Video panel's request sent as the person's message (C1): which of its buttons sent it."""
+    if not value:
+        return None
+    if not isinstance(value, dict) or set(value) != {"action"} or value.get("action") not in VIDEO_PANEL_ACTIONS:
+        raise ClientPlatformError("invalid_command")
+    return {"action": str(value["action"])}
+
+
 def with_run_failures(conversation_id: str, rows: list[dict]) -> list[dict]:
     """A workflow run that didn't finish says why under its last line in the chat.
 
@@ -466,7 +478,8 @@ class ClientPlatformService:
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "", retry: bool = False, shown: dict[str, str] | None = None,
                         linked: dict[str, Any] | None = None, held: tuple[dict, ...] = (),
-                        tapped_choice: dict[str, str] | None = None) -> Any:
+                        tapped_choice: dict[str, str] | None = None,
+                        video_panel: dict[str, str] | None = None) -> Any:
         """Single admission path for every conversation turn.
 
         ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
@@ -541,6 +554,10 @@ class ClientPlatformService:
                 # A reply button's tap (F3): the person's own message, its words the button's; this only says which
                 # reply offered it. Never a note: the turn stays the person's request.
                 public_metadata = {**public_metadata, "tapped_choice": dict(tapped_choice)}
+            elif video_panel:
+                # The Video panel's request (C1): the person's own words, from one of its buttons. Never a note: the
+                # turn stays the person's request; this only says which button sent it.
+                public_metadata = {**public_metadata, "video_panel": dict(video_panel)}
             first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
             # A retry finds the turn it replaces by what the chat shows of the person's message.
             retry_text = ((shown["text"] if shown else text)
@@ -1657,6 +1674,10 @@ class ClientPlatformService:
         if tapped and (page_id or resume or followup is not None or queue_record is not None
                        or frozen_context is not None or attachment_refs):
             raise ClientPlatformError("invalid_command")
+        panel = _video_panel(payload.get("video_panel"))
+        if panel and (tapped or page_id or resume or followup is not None or queue_record is not None
+                      or frozen_context is not None or attachment_refs):
+            raise ClientPlatformError("invalid_command")
         # Retry on the reply to a message sent from a page runs that message again: the same decisions, as the
         # page wrote them, still marked as from the page (never the words the chat shows, as the person's own).
         retried_page = (self._retried_page_message(conversation_id, text)
@@ -1791,7 +1812,7 @@ class ClientPlatformService:
                 linked=({"text": followup.shown or followup.prompt, **(followup.linked_from or {})}
                         if followup is not None and followup.kind == "linked" else None),
                 held=followup.held if followup is not None else (),
-                tapped_choice=tapped)
+                tapped_choice=tapped, video_panel=panel)
         except BaseException:
             if page_id:
                 from row_bot import pages

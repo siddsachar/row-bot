@@ -10,6 +10,19 @@
           "title": "Card",
           "type": "string"
         },
+        "cue": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cue"
+        },
         "end": {
           "anyOf": [
             {
@@ -23,6 +36,38 @@
           "default": null,
           "title": "End"
         },
+        "footage": {
+          "anyOf": [
+            {
+              "enum": [
+                "clip",
+                "picture",
+                "ai",
+                "card",
+                "screen"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Footage"
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame"
+        },
         "line": {
           "default": "",
           "maxLength": 300,
@@ -35,6 +80,19 @@
           "pattern": "^(s[0-9a-f]{6})?$",
           "title": "Scene Id",
           "type": "string"
+        },
+        "shows": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shows"
         },
         "source": {
           "default": "",
@@ -133,7 +191,7 @@
       "items": {
         "$ref": "#/$defs/VideoSceneWrite"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "minItems": 1,
       "title": "Scenes",
       "type": "array"
