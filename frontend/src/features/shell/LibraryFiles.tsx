@@ -146,16 +146,16 @@ async function loadResources(
   return resources;
 }
 
-/** Every page, and what the chats made: the same outputs list as Library › Media. */
+/** Every page, and what the chats made: the first page of the outputs list Library › Media shows. */
 async function loadPagesAndMedia(
   controller: ClientController,
   signal: AbortSignal,
-): Promise<MadeFile[]> {
+): Promise<{ files: MadeFile[]; next: string | null }> {
   const [pages, media] = await Promise.all([
     controller.pages(undefined, signal),
     controller.outputs({ show: 'made' }, signal),
   ]);
-  return [
+  const files = [
     ...(pages?.items ?? []).map((page) => ({
       id: `page:${page.page_id}`,
       kind: 'page' as const,
@@ -167,6 +167,7 @@ async function loadPagesAndMedia(
     })),
     ...(media?.items ?? []).map(fromOutput),
   ];
+  return { files, next: media?.next ?? null };
 }
 
 /**
@@ -185,11 +186,15 @@ export default function LibraryFiles({
   // and folders, which take a read per chat.
   const [files, setFiles] = useState<MadeFile[] | null>(null);
   const [resources, setResources] = useState<MadeFile[] | null>(null);
+  // The made media's next page (W3), read on Show more.
+  const [madeNext, setMadeNext] = useState<string | null>(null);
   // Uploads or Working files, read when their chip is chosen.
   const [others, setOthers] = useState<{
     kind: FileKind;
     files: MadeFile[];
+    next: string | null;
   } | null>(null);
+  const [more, setMore] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<FileKind>(initialKind);
@@ -202,7 +207,9 @@ export default function LibraryFiles({
       if (!abort.signal.aborted) setError(clientError(cause).message);
     };
     loadPagesAndMedia(controller, abort.signal).then((result) => {
-      if (!abort.signal.aborted) setFiles(result);
+      if (abort.signal.aborted) return;
+      setFiles(result.files);
+      setMadeNext(result.next);
     }, failed);
     loadResources(controller, abort.signal).then((result) => {
       if (!abort.signal.aborted) setResources(result);
@@ -217,7 +224,11 @@ export default function LibraryFiles({
     controller.outputs({ show: kind }, abort.signal).then(
       (page) => {
         if (!abort.signal.aborted)
-          setOthers({ kind, files: (page?.items ?? []).map(fromOutput) });
+          setOthers({
+            kind,
+            files: (page?.items ?? []).map(fromOutput),
+            next: page?.next ?? null,
+          });
       },
       (cause) => {
         if (!abort.signal.aborted) setError(clientError(cause).message);
@@ -240,6 +251,43 @@ export default function LibraryFiles({
     );
   const resourcesPending =
     !other && !resources && kind !== 'page' && kind !== 'media';
+  // Older media pages come on request; designs, pages and folders come whole.
+  const next = other
+    ? others?.kind === kind
+      ? others.next
+      : null
+    : kind === 'all' || kind === 'media'
+      ? madeNext
+      : null;
+  async function showMore() {
+    if (!next || more) return;
+    setMore(true);
+    try {
+      const page = await controller.outputs({
+        show: other ? (kind as 'uploads' | 'working') : 'made',
+        before: next,
+      });
+      const added = (page?.items ?? []).map(fromOutput);
+      if (other)
+        setOthers((last) =>
+          last && last.kind === kind
+            ? {
+                kind,
+                files: [...last.files, ...added],
+                next: page?.next ?? null,
+              }
+            : last,
+        );
+      else {
+        setFiles((last) => [...(last ?? []), ...added]);
+        setMadeNext(page?.next ?? null);
+      }
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setMore(false);
+    }
+  }
   const now = new Date();
   return (
     <section className="library-files" aria-label="Files">
@@ -344,6 +392,17 @@ export default function LibraryFiles({
             );
           })}
         </ul>
+      )}
+      {!error && listed && next && (
+        <Button
+          variant="ghost"
+          className="library-files-more"
+          aria-busy={more}
+          disabled={more}
+          onClick={() => void showMore()}
+        >
+          {more ? 'Loading…' : 'Show more'}
+        </Button>
       )}
       {!error && listed && shown.length > 0 && resourcesPending && (
         <ListSkeleton label="Loading designs and folders" rows={2} />

@@ -341,6 +341,9 @@
   line-height: var(--leading-13);
   font-weight: var(--weight-medium);
 }
+.button.media-library-more {
+  align-self: center;
+}
 .media-library-draft {
   margin-inline-start: 6px;
   padding: 0 6px;

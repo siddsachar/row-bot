@@ -196,10 +196,15 @@ export default function LibraryMedia() {
   const [show, setShow] = useState<OutputShow>('made');
   const [kind, setKind] = useState<Kind>('');
   const [attempt, setAttempt] = useState(0);
+  // The next page of a long list (its `next`), and whether it is being read.
+  const [next, setNext] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  const filter = { show, query: query.trim(), kind: kind || undefined };
 
   useEffect(() => {
     const abort = new AbortController();
     setError('');
+    setNext(null);
     const timer = window.setTimeout(() => {
       controller
         .outputs(
@@ -208,7 +213,9 @@ export default function LibraryMedia() {
         )
         .then(
           (page) => {
-            if (!abort.signal.aborted) setItems(page?.items ?? []);
+            if (abort.signal.aborted) return;
+            setItems(page?.items ?? []);
+            setNext(page?.next ?? null);
           },
           (cause) => {
             if (!abort.signal.aborted) setError(clientError(cause).message);
@@ -220,6 +227,20 @@ export default function LibraryMedia() {
       window.clearTimeout(timer);
     };
   }, [controller, query, show, kind, attempt]);
+
+  async function showMore() {
+    if (!next || more) return;
+    setMore(true);
+    try {
+      const page = await controller.outputs({ ...filter, before: next });
+      setItems((list) => [...(list ?? []), ...(page?.items ?? [])]);
+      setNext(page?.next ?? null);
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setMore(false);
+    }
+  }
 
   const now = new Date();
   return (
@@ -347,6 +368,17 @@ export default function LibraryMedia() {
             );
           })}
         </ul>
+      )}
+      {!error && items && next && (
+        <Button
+          variant="ghost"
+          className="media-library-more"
+          aria-busy={more}
+          disabled={more}
+          onClick={() => void showMore()}
+        >
+          {more ? 'Loading…' : 'Show more'}
+        </Button>
       )}
     </section>
   );

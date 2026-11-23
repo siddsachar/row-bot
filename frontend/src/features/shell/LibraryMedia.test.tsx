@@ -135,3 +135,25 @@ it('filters by kind and saves tags on the version shown', async () => {
   ]);
   expect(within(list).getByText('x post')).toBeVisible();
 });
+
+it('reads a long list a page at a time, the next page on Show more', async () => {
+  const older = { ...clip, id: 'fedcba9876543210fedcba98', name: 'Teaser' };
+  runtime.outputs
+    .mockResolvedValueOnce({ items: [clip], next: 'page-2' })
+    .mockResolvedValueOnce({ items: [older], next: null });
+  renderMedia();
+  await settle();
+  const list = await screen.findByRole('list', { name: 'Media items' });
+  fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+  expect(
+    await within(list).findByRole('link', { name: 'Teaser, in Launch assets' }),
+  ).toBeVisible();
+  expect(runtime.outputs).toHaveBeenLastCalledWith({
+    show: 'made',
+    query: '',
+    kind: undefined,
+    before: 'page-2',
+  });
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+});

@@ -354,3 +354,23 @@ it('lists the files the person added and the working files on their own chips', 
     { show: 'working' },
   ]);
 });
+
+it('adds older media on Show more, from the next page of the same list', async () => {
+  const older = output('Old jingle', 'Old jingle.wav', {
+    updated_at: '2026-11-01T09:00:00Z',
+  });
+  runtime.outputs
+    .mockResolvedValueOnce({ items: [voice], next: 'page-2' })
+    .mockResolvedValueOnce({ items: [older], next: null });
+  renderFiles();
+  await screen.findByRole('list', { name: 'Files' });
+  fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+  expect(
+    await screen.findByRole('link', { name: /^Old jingle/ }),
+  ).toBeVisible();
+  expect(runtime.outputs).toHaveBeenLastCalledWith({
+    show: 'made',
+    before: 'page-2',
+  });
+  expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+});

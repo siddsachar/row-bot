@@ -47,6 +47,8 @@ export type OutputFilter = {
   show?: 'made' | 'uploads' | 'working';
   query?: string;
   kind?: Wire.OutputView['kind'];
+  /** The page after one read before (its `next`). */
+  before?: string;
 };
 export type DictationScope = Readonly<{
   conversationId: string;
