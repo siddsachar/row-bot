@@ -299,3 +299,43 @@ def test_a_real_short_is_captioned_word_by_word_with_the_word_being_said_lit(stu
     lit = [sum(1 for red, green, blue in frames[moment].getdata() if red > 200 and green > 160 and blue < 90)
            for moment in (0.5, 1.2, 2.2)]
     assert frames[0.5].size == (1080, 1920) and all(count > 200 for count in lit), "a word lit at each moment"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_caption_is_as_large_as_its_frame_is_tall(studio, tmp_path):
+    """C7 for real: a boxed caption is sized by the frame's height, so a tall short's reads on a phone, and it stays
+    clear of the bottom of a phone app's screen."""
+    import av
+
+    from row_bot import ffmpeg_runtime
+    from row_bot.application.attachments import read_attachment
+    from row_bot.media_sources import resolve
+    from row_bot.video_editing import Look, SceneCut, Step
+
+    real = ffmpeg_runtime.find()
+    edits = studio["edits"]
+
+    def caption_rows(shape: str, size: str) -> tuple[int, int]:
+        """How many rows of the made video's middle column are the caption's dark box, and its last row."""
+        name = f"plain-{shape.replace(':', 'x')}.mp4"
+        clip = tmp_path / name
+        subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        f"color=c=0xdddddd:size={size}:rate=30:duration=2", "-c:v", "libx264", "-pix_fmt",
+                        "yuv420p", str(clip)], check=True)
+        studio["register"](studio["chat"], name, clip.read_bytes())
+        step = Step(op="scenes", aspect=shape, style="caption", look=Look(captions="box"),
+                    scenes=[SceneCut(input=0, end=2.0, line="Who's coming back?",
+                                     words=((0.0, 0.6, "Who's"), (0.6, 1.2, "coming"), (1.2, 1.9, "back?")))])
+        edit = edits.start(edits.Request(conversation_id=studio["chat"], kind="video", sources=resolve(name, studio[
+            "chat"]), steps=[step], output_name=name, role="draft", scene_cache=tmp_path / f"scenes-{size}"))
+        assert edits.wait(edit, 300) and edit.status == "saved", edit.detail
+        made = tmp_path / f"made-{name}"
+        made.write_bytes(read_attachment(edit.media_ref)[1])
+        with av.open(str(made)) as reader:
+            frame = next(frame.to_image() for frame in reader.decode(video=0) if frame.time >= 1.0)
+        dark = [y for y in range(frame.height) if max(frame.getpixel((frame.width // 2, y))) < 90]
+        return len(dark), max(dark)
+
+    wide, (tall, bottom) = caption_rows("16:9", "640x360")[0], caption_rows("9:16", "360x640")
+    assert tall > 1.4 * wide, (wide, tall)
+    assert bottom < 1920 * 0.8, "above a phone app's own buttons and caption"

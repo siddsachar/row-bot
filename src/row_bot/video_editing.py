@@ -656,7 +656,10 @@ def _wrap(draw: Any, text: str, typeface: Any, max_width: int, max_lines: int) -
         lines.append(current)
     if len(lines) > max_lines:
         lines = lines[:max_lines]
-        lines[-1] = lines[-1].rstrip(" .,;:") + "…"
+        last = lines[-1].rstrip(" .,;:")
+        while " " in last and draw.textlength(last + "…", font=typeface) > max_width:
+            last = last.rsplit(" ", 1)[0].rstrip(" .,;:")  # Its "…" fits on the line too.
+        lines[-1] = last + "…"
     return [line for line in lines if line]
 
 
@@ -675,15 +678,26 @@ class Overlay:
     inset: int = 0
 
 
-# A caption's phrase (PHRASE_CHARACTERS) fits on one line; bold captions (no box) are larger.
-_STYLE_SIZES = {"badge": 0.05, "title": 0.08, "caption": 0.045}
-BOLD_CAPTION = 1.3
+_STYLE_SIZES = {"badge": 0.05, "title": 0.08}
+# A caption's letters (C7), by its style: a share of the frame's height, as subtitles are sized (49 px at 1080p,
+# 86 px on a phone's 1920), and never wider than a share of its width, so a phrase still fits across a tall frame.
+CAPTION_SIZES = {"box": (0.045, 0.075), "clean": (0.045, 0.075), "bold": (0.05, 0.083), "title": (0.07, 0.1)}
+# A caption wraps onto at most this many lines.
+CAPTION_LINES = 2
+
+
+def caption_size(style: str, frame_width: int, frame_height: int) -> int:
+    """How tall a caption's letters are in this caption style (``CAPTION_SIZES``), in pixels."""
+    height, width = CAPTION_SIZES.get(style, CAPTION_SIZES["box"])
+    return max(12, round(min(frame_height * height, frame_width * width)))
 
 
 def _letter_size(style: str, plain: bool, frame_width: int, frame_height: int) -> int:
+    if style == "caption":
+        return caption_size("bold" if plain else "box", frame_width, frame_height)
     # Sized as on a 16:9 picture of this width, so a square or tall cut fits the same words on a line.
     reference = min(frame_height, frame_width * 9 / 16)
-    return max(12, round(reference * _STYLE_SIZES[style] * (BOLD_CAPTION if plain and style == "caption" else 1)))
+    return max(12, round(reference * _STYLE_SIZES[style]))
 
 
 def phrase_limit(captions: str, frame_width: int, frame_height: int, family: str = "sans") -> int:
@@ -691,29 +705,33 @@ def phrase_limit(captions: str, frame_width: int, frame_height: int, family: str
     draws with (they differ in width): fewer, the larger its letters."""
     from PIL import Image, ImageDraw
 
-    style = "title" if captions == "title" else "caption"
-    size = _letter_size(style, captions in {"bold", "title"}, frame_width, frame_height)
+    size = caption_size(captions, frame_width, frame_height)
     sample = "Row-Bot opens the shop's orders and drafts a note to each customer."
     each = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textlength(sample, font=font(size, family)) / len(sample)
-    # A tenth to spare: a phrase of wide letters still fits.
-    return max(16, min(PHRASE_CHARACTERS, int(frame_width * 0.86 * 0.9 / each)))
+    # Within its box's room (``render_text``), a tenth to spare: a phrase of wide letters still fits.
+    return max(16, min(PHRASE_CHARACTERS, int((frame_width * 0.86 - 1.4 * size) * 0.9 / each)))
 
 
 def render_text(text: str, style: str, frame_width: int, frame_height: int, *,
                 fill: tuple[int, int, int, int] | None = None, plain: bool = False,
-                shadow: bool = False, family: str = "sans", scale: float = 1.0) -> tuple[bytes, int, int]:
+                shadow: bool = False, family: str = "sans", scale: float = 1.0,
+                size: int | None = None) -> tuple[bytes, int, int]:
     """Draw text as a picture: a rounded dark badge, a large title, or a caption box; in a brand's colour
     (``fill``), or ``plain``: no box, the letters outlined so they read on any picture, or with a soft
-    ``shadow`` instead (a title card's own backdrop); in a typeface of ``FONTS``, *scale* times its style's size."""
+    ``shadow`` instead (a title card's own backdrop); in a typeface of ``FONTS``, *scale* times its style's size
+    (or *size* pixels). A caption wraps onto at most ``CAPTION_LINES``."""
     from PIL import Image, ImageDraw, ImageFilter
 
     style = style or "badge"
-    size = max(12, round(_letter_size(style, plain, frame_width, frame_height) * scale))
+    size = size or max(12, round(_letter_size(style, plain, frame_width, frame_height) * scale))
     typeface = font(size, family)
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
-    lines = _wrap(probe, text, typeface, max_width, 3 if style != "badge" else 2) or [" "]
     pad_x, pad_y = round(size * 0.7), round(size * 0.42)
+    max_width = int(frame_width * (0.86 if style != "badge" else 0.6))
+    if style == "caption":  # The whole box within 86% of the width: inside a tall frame's safe area.
+        max_width -= 2 * pad_x
+    most = {"badge": 2, "caption": CAPTION_LINES}.get(style, 3)
+    lines = _wrap(probe, text, typeface, max_width, most) or [" "]
     line_height = round(size * 1.22)
     text_width = max(math.ceil(probe.textlength(line, font=typeface)) for line in lines)
     width = min(frame_width, text_width + 2 * pad_x)
@@ -1584,14 +1602,12 @@ class _Builder:
         if look.captions == "word":
             png, width, height = render_words(words, active, self.width, self.height, family=look.font)
             position = "bottom" if self.width > self.height * 1.2 else "lower"
-        elif look.captions == "title":
-            png, width, height = render_text(text, "title", self.width, self.height, plain=True, family=look.font)
-            position = "center"
-        else:
+        else:  # Sized by the frame's height (``caption_size``), on at most two lines.
             png, width, height = render_text(text, "caption", self.width, self.height, family=look.font,
-                                             plain=look.captions in ("bold", "clean"), shadow=look.captions == "clean",
-                                             scale=1 / BOLD_CAPTION if look.captions == "clean" else 1.0)
-            position = "bottom"
+                                             plain=look.captions in ("bold", "clean", "title"),
+                                             shadow=look.captions == "clean",
+                                             size=caption_size(look.captions, self.width, self.height))
+            position = "center" if look.captions == "title" else "bottom"
         x, y = place(position, width, height, self.width, self.height)
         return Overlay(png, width, height, x, y)
 

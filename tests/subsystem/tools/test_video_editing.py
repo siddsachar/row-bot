@@ -316,16 +316,21 @@ def test_a_sped_up_scene_carries_no_badge_and_a_gif_is_made_small():
     assert "palettegen" in " ".join(gif) and gif[-1] == "file:output.gif" and "file:input-1.mp4" in gif
 
 
-def test_a_caption_reads_the_same_in_a_square_or_tall_cut_as_in_a_wide_one():
-    from row_bot.video_editing import render_text
+def test_a_caption_is_sized_by_the_frames_height_fits_its_width_and_wraps_onto_two_lines_at_most():
+    """C7: captions read on a phone and a TV alike: 4.5% of the height (49 px at 1080p), as a tall short's are,
+    never wider than the frame, and a long one on two lines at most."""
+    from row_bot.video_editing import caption_size, render_text
 
+    assert caption_size("box", 1920, 1080) == 49 and caption_size("box", 1280, 720) == 32
+    short = "Who's coming back for another cup?"
+    wide, tall = render_text(short, "caption", 1280, 720), render_text(short, "caption", 720, 1280)
+    assert tall[2] > 1.4 * wide[2], "a tall frame's caption is larger, as its height is"
     line = ("First, let's see who's coming back for another cup. We ask Row-Bot to check the October "
             "orders file and show customers who ordered more than once.")
-    wide = render_text(line, "caption", 1280, 720)
-    # The same lines at the same size, nothing cut short, whatever the shape of a picture this wide.
-    assert render_text(line, "caption", 1280, 1280)[1:] == wide[1:]
-    assert render_text(line, "caption", 1280, 2276)[1:] == wide[1:]
-    assert render_text(line, "caption", 720, 1280)[1] <= 720
+    for width, height in ((1280, 720), (720, 1280), (1080, 1080)):
+        _png, shown_width, shown_height = render_text(line, "caption", width, height)
+        size = caption_size("box", width, height)
+        assert shown_width <= width * 0.86 + 1 and shown_height < 3.5 * size, (width, height)
 
 
 def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_corner():
