@@ -156,3 +156,18 @@ def test_read_aloud_and_voice_notes_speak_with_the_chosen_cloud_voice(keys, monk
     assert speech.content_type == "audio/wav" and speech.audio.startswith(b"RIFF")
     assert heard[-1]["transcript"] == "Hello there."
     assert voice_replies.speech_output_ready() is True
+
+
+def test_the_languages_said_to_be_spoken_follow_the_chosen_voice(keys):
+    client, headers, data, secret_state = keys
+    from row_bot.voice import languages
+    from row_bot.voice.cloud_speech import option
+
+    _set(client, headers, "runtime.speech_output_provider", "elevenlabs")
+    # Without its key, Kokoro speaks, and the list is Kokoro's.
+    spoken = client.get(BASE, headers=headers).json()["voice"]["language"]["spoken"]
+    assert spoken == sorted(languages.KOKORO_LANGUAGES)
+    secret_state["ELEVENLABS_API_KEY"] = "synthetic-eleven-key"
+    spoken = client.get(BASE, headers=headers).json()["voice"]["language"]["spoken"]
+    assert spoken == sorted(option("elevenlabs", "speak").speaks)
+    assert "de" in spoken and "he" not in spoken

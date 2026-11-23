@@ -2424,7 +2424,7 @@
           "items": {
             "type": "string"
           },
-          "maxItems": 16,
+          "maxItems": 64,
           "title": "Spoken",
           "type": "array"
         },

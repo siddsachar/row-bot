@@ -279,7 +279,8 @@ def test_elevenlabs_streams_24_khz_pcm_in_whole_samples_with_its_key_in_a_header
     assert request.url.path == "/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb/stream"
     assert request.url.params["output_format"] == "pcm_24000"
     assert request.headers["xi-api-key"] == KEY and KEY not in str(request.url)
-    assert http.bodies()[0] == {"text": "Hello there.", "model_id": "eleven_flash_v2_5"}
+    # The text's own language goes with it.
+    assert http.bodies()[0] == {"text": "Hello there.", "model_id": "eleven_flash_v2_5", "language_code": "en"}
 
 
 def test_cartesia_and_gemini_requests_and_gemini_style_from_the_description():
@@ -342,6 +343,39 @@ def test_closing_a_cloud_sentence_closes_its_request():
     assert next(pieces).pcm16
     pieces.close()
     assert closed.is_set()
+
+
+def test_a_cloud_voice_speaks_the_languages_its_company_lists_and_says_which_it_cant():
+    http = Http(pcm_pieces(4))
+    hebrew = "שלום, מה שלומך היום? הכול בסדר."
+    eleven = _speaker("elevenlabs", http)
+    # ElevenLabs Flash doesn't speak Hebrew: nothing is sent, and the answer is marked unspoken.
+    assert eleven.synthesize(hebrew).unspoken == "he"
+    piece = next(eleven.sentence_speech().stream(hebrew))
+    assert piece.unspoken == "he" and not piece.pcm16
+    assert http.requests == []
+    # Cartesia does, and is told so.
+    cartesia = _speaker("cartesia", http)
+    assert cartesia.synthesize(hebrew).audio.startswith(b"RIFF")
+    assert http.bodies()[-1]["language"] == "he"
+    # A short reply with no clear language takes the language the person was heard speaking.
+    eleven.synthesize("Ja.", language="de")
+    assert http.bodies()[-1]["language_code"] == "de"
+
+
+def test_a_listener_reports_the_language_it_heard_for_a_whole_recording():
+    def heard_in_french(socket: FakeSocket, message):
+        if isinstance(message, bytes):
+            return []
+        if json.loads(message)["type"] == "Terminate":
+            return [{"type": "Turn", "turn_order": 0, "transcript": "Bonjour.", "end_of_turn": True,
+                     "language_code": "fr"}, {"type": "Termination"}]
+        return []
+
+    stt, connector = _listener("assemblyai", heard_in_french)
+    heard = stt.transcribe_heard(SPEECH * 3, language=None)
+    assert (heard.text, heard.language) == ("Bonjour.", "fr")
+    assert "language_detection=true" in connector.sockets[0].url
 
 
 # ── describe a voice; no cloning ──────────────────────────────────────────
@@ -410,6 +444,9 @@ def test_a_chosen_cloud_part_is_used_with_its_key_and_replaced_by_the_local_one_
     assert cloud_speech.fallbacks(settings) == []
     assert speech_to_text_provider("talk", voice_service=voice, settings=settings).provider_id == "cloud_deepgram"
     assert speech_output_provider(tts_service=SimpleNamespace(), settings=settings).provider_id == "cloud_elevenlabs"
+    # The saved language reaches the cloud listener.
+    french = VoiceRuntimeSettings(talk_provider="deepgram", speech_language="fr")
+    assert speech_to_text_provider("talk", voice_service=voice, settings=french).language == "fr"
     # Dictation and chat-app voice notes keep listening locally.
     assert speech_to_text_provider("dictate", voice_service=voice, settings=settings).provider_id == "local_whisper"
 
@@ -457,7 +494,7 @@ class StreamingVoice:
     def synthesize(self, text: str) -> SpeechAudio:
         return SpeechAudio(b"\x01\x00" * 240, 24_000)
 
-    def stream(self, text: str):
+    def stream(self, text: str, *, language: str | None = None):
         self.spoken.append(text)
         try:
             yield SpeechAudio(b"\x01\x00" * 240, 24_000)
@@ -466,6 +503,36 @@ class StreamingVoice:
             yield SpeechAudio(b"\x01\x00" * 240, 24_000)
         finally:
             self.closed.append(text)
+
+
+def test_a_cloud_sentence_in_a_language_the_voice_cant_speak_stays_on_screen():
+    from tests.helpers.voice_fakes import FakeClock, FakeHost, FakeLink, FakeSpeechToText, fake_engine_parts
+    from row_bot.voice.engine.session import DuplexSession, EngineParts
+
+    class Unspoken(StreamingVoice):
+        def stream(self, text: str, *, language: str | None = None):
+            self.hints = language
+            yield SpeechAudio(b"", 24_000, unspoken="he")
+
+    clock = FakeClock()
+    voice = Unspoken()
+    base = fake_engine_parts(clock, FakeSpeechToText(clock))
+    link = FakeLink()
+
+    async def scenario():
+        session = DuplexSession(EngineParts(base.stt, voice, base.activity, base.end_of_turn), link, FakeHost(),
+                                clock=clock)
+        link.session = session
+        await session.start()
+        session.agent_event("token", "Something the voice can't say. ", "pass-1")
+        session.agent_event("done", None, "pass-1")
+        await session.idle()
+        await session.close()
+
+    asyncio.run(scenario())
+    assert link.audio == []
+    assert link.of("caption")[-1]["spoken"] is False
+    assert link.of("unspoken") == [{"type": "unspoken", "language": "he"}]
 
 
 def test_the_engine_sends_a_cloud_sentence_first_piece_early_and_closes_it_at_a_barge_in():

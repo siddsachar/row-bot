@@ -873,8 +873,8 @@ class VoiceLanguageNotice(WireModel):
 
 class VoiceLanguageSnapshot(WireModel):
     options: list[SettingsChoice] = Field(max_length=64)
-    # The languages the voice (Kokoro) speaks.
-    spoken: list[str] = Field(max_length=16)
+    # The languages the chosen voice speaks: Kokoro, or a cloud voice with its key saved.
+    spoken: list[str] = Field(max_length=64)
     voice_options: list[VoiceLanguageVoiceOptions] = Field(max_length=16)
     notices: list[VoiceLanguageNotice] = Field(max_length=4)
 

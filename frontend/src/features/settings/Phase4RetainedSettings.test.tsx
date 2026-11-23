@@ -3154,3 +3154,31 @@ it('picks a cloud voice and makes one from a description only, after a review (V
     ),
   );
 });
+
+it('a cloud voice says which chosen language it can’t speak, not Kokoro (V5, V8)', () => {
+  showLanguage({
+    runtime: {
+      ...snapshot.voice.runtime,
+      speech_language: 'ar',
+      speech_output_provider: 'elevenlabs',
+    },
+    cloud_speech: [
+      {
+        id: 'elevenlabs',
+        part: 'speak',
+        label: 'ElevenLabs Flash',
+        company: 'ElevenLabs',
+        price: 'about $0.04 a minute of speech',
+        price_checked: '23 Nov 2026',
+        key_saved: true,
+      },
+    ],
+    language: { ...snapshot.voice.language, spoken: ['de', 'en', 'es'] },
+  });
+  expect(
+    screen.getByText(
+      'ElevenLabs Flash can’t speak Arabic yet, so answers in Arabic stay on screen.',
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/Kokoro can’t speak/)).toBeNull();
+});
