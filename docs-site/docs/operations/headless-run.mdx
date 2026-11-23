@@ -17,7 +17,7 @@ row-bot run --task-file task.txt --workspace /app \
 
 ## What It Never Does
 
-- **No profile access by default.** Each run gets a fresh, empty data folder, which is deleted when the run ends. Your conversations, memories, settings and keys aren't read or written. `--data-dir DIR` uses a folder you name instead; Row-Bot keeps it, and it's refused while Row-Bot (or its server) has that folder open.
+- **No profile access by default.** Each run gets a fresh, empty data folder, which is deleted when the run ends. This holds even when `ROW_BOT_DATA_DIR` is set. Your conversations, memories, settings and keys aren't read or written. `--data-dir DIR` uses a folder you name instead; Row-Bot keeps it, and it's refused while Row-Bot (or its server) has that folder open.
 - **No telemetry.** No install-count ping is sent, and `ROW_BOT_INSTALL_COUNT` is set to `0` for the run.
 - **No update check.** The updater doesn't run.
 - **No server.** No web app, tray, window or remote access starts.

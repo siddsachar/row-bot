@@ -96,7 +96,11 @@ def run(options: RunOptions, *, data_dir: Path, throwaway: bool) -> RunResult:
                 logger.exception("row-bot run failed")
                 result.stop("error", f"{type(exc).__name__}: {exc}")
             if options.output_dir is not None:
-                _write_outputs(options, result, thread_id, started, throwaway)
+                try:
+                    _write_outputs(options, result, thread_id, started, throwaway)
+                except Exception as exc:  # noqa: BLE001 - the run's answer is still printed
+                    logger.exception("row-bot run couldn't write its output files")
+                    result.stop("error", f"the output files weren't written: {type(exc).__name__}: {exc}")
     except FolderInUse as exc:
         result.stop("usage_error", str(exc))
     finally:
@@ -316,6 +320,9 @@ def _answer(agent: Any, tools: list[str], config: dict[str, Any], waiting: list[
 
     from row_bot import questions
 
+    # What the model reads here is the app's own wording, unchanged: a refusal reads as the person's no, a
+    # question as nobody answering in time. Wording that says no person is available in a headless run waits
+    # on Learning's review of model-visible text; none is added until then.
     if any(questions.is_question(item) for item in waiting):
         result.unanswered_questions += 1
         return agent.resume_stream_agent(tools, config, False,
