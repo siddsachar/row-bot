@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 import threading
 import time
 import uuid
@@ -88,18 +89,12 @@ def run(options: RunOptions, *, data_dir: Path, throwaway: bool) -> RunResult:
                 model_ref = _setup(options, data_dir)
                 result.model = model_ref
                 thread_id = _new_conversation(model_ref, options)
-                _drive(result, thread_id, model_ref, options)
+                drive(thread_id, model_ref, options, result)
             except UsageError as exc:
                 result.stop("usage_error", str(exc))
             except Exception as exc:  # noqa: BLE001 - recorded; the exit code says it
                 logger.exception("row-bot run failed")
                 result.stop("error", f"{type(exc).__name__}: {exc}")
-            if result.status == "running" and result.refused_actions:
-                result.status = "refused"
-                result.reason = (f"{len(result.refused_actions)} action(s) needed approval that nobody could give "
-                                 f"(--approval {options.approval}), so they did not run")
-            elif result.status == "running":
-                result.status = "done"
             if options.output_dir is not None:
                 _write_outputs(options, result, thread_id, started, throwaway)
     except FolderInUse as exc:
@@ -109,8 +104,20 @@ def run(options: RunOptions, *, data_dir: Path, throwaway: bool) -> RunResult:
             logging.getLogger().removeHandler(log)
             log.close()
         if throwaway:
-            shutil.rmtree(data_dir, ignore_errors=True)
+            _forget(data_dir)
     return result
+
+
+def _forget(data_dir: Path) -> None:
+    """Delete the throwaway data folder, its conversation database closed first (Windows keeps open files)."""
+
+    threads = sys.modules.get("row_bot.threads")
+    if threads is not None:
+        try:
+            threads.conn.close()
+        except Exception:  # noqa: BLE001 - the folder goes all the same, or what is left with it
+            logger.debug("The conversation database didn't close", exc_info=True)
+    shutil.rmtree(data_dir, ignore_errors=True)
 
 
 # ── Set-up ───────────────────────────────────────────────────────────────────
@@ -232,8 +239,9 @@ def _new_conversation(model_ref: str, options: RunOptions) -> str:
 # ── The turns ────────────────────────────────────────────────────────────────
 
 
-def _drive(result: RunResult, thread_id: str, model_ref: str, options: RunOptions) -> None:
-    """The task's turn, then the follow-up the app would start after it, if any (never after a follow-up)."""
+def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult | None = None) -> RunResult:
+    """Run the task on the conversation *thread_id*: its turn, then the follow-up the app would start after it,
+    if any (never after a follow-up), answering what waits for a person as nobody can. The settled result."""
 
     import row_bot.agent as agent
     from row_bot.application.conversation_followups import followup_after
@@ -245,6 +253,8 @@ def _drive(result: RunResult, thread_id: str, model_ref: str, options: RunOption
     if timer is not None:
         timer.daemon = True
         timer.start()
+    result = result if result is not None else RunResult()
+    result.status = "running"
     prompt: str | None = options.task
     try:
         while prompt is not None and result.status == "running":
@@ -272,6 +282,13 @@ def _drive(result: RunResult, thread_id: str, model_ref: str, options: RunOption
     finally:
         if timer is not None:
             timer.cancel()
+    if result.status == "running" and result.refused_actions:
+        result.status = "refused"
+        result.reason = (f"{len(result.refused_actions)} action(s) needed approval that nobody could give "
+                         f"(--approval {options.approval}), so they did not run")
+    elif result.status == "running":
+        result.status = "done"
+    return result
 
 
 def _consume(events: Iterable[tuple[str, Any]], result: RunResult) -> list[dict[str, Any]]:
@@ -398,4 +415,4 @@ def _iso(epoch: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
-__all__ = ["RunResult", "run"]
+__all__ = ["RunResult", "drive", "run"]
