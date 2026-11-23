@@ -3,7 +3,7 @@
 Kokoro is a fast, high-quality neural text-to-speech model that runs
 entirely via ONNX Runtime.  This module manages model downloads,
 preprocesses agent responses (stripping markdown, truncating long text),
-and plays audio through the default output device using sounddevice.
+and returns WAV bytes for the browser to play: it never uses a host speaker.
 
 Everything runs locally — no audio is sent to the cloud.
 """
@@ -14,18 +14,16 @@ import io
 import json
 import logging
 import os
-import re
 import tempfile
 import threading
-import time
 import wave
 from pathlib import Path
-from queue import Queue, Empty
 from typing import Any, Callable
 
 import numpy as np
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.voice.speech_policy import make_speakable_response
+from row_bot.voice import languages
+from row_bot.voice.speech_policy import clean_for_speech
 
 logger = logging.getLogger(__name__)
 
@@ -93,58 +91,6 @@ VOICE_CATALOG: dict[str, str] = {
 }
 _DEFAULT_VOICE = "af_heart"
 
-# ── Markdown / noise stripping patterns ──────────────────────────────────────
-# Order matters: links/code first, then blocks, then line-level (bullets
-# BEFORE emphasis so `* ` bullets aren't eaten by the *italic* regex),
-# then emphasis (triple before double before single), then cleanup.
-_MD_STRIP: list[tuple[re.Pattern, str]] = [
-    # ── Fenced code blocks (must run BEFORE inline code) ─────────────
-    (re.compile(r"```[\s\S]*?```"),                   ""),       # fenced code blocks
-
-    # ── Inline formatting (keep inner text) ──────────────────────────
-    (re.compile(r"`([^`]+)`"),                         r"\1"),    # inline code → text
-    (re.compile(r"\[([^\]]+)\]\([^\)]*\)"),            r"\1"),    # [text](url) → text
-
-    # ── Blocks (remove entirely) ─────────────────────────────────────
-    (re.compile(r"^\|.*\|$", re.MULTILINE),           ""),       # table rows
-    (re.compile(r"^[-=]{3,}$", re.MULTILINE),         ""),       # horizontal rules
-    (re.compile(r"!\[.*?\]\(.*?\)"),                   ""),       # images
-    (re.compile(r"https?://\S+"),                      ""),       # raw URLs
-    (re.compile(r"\S+@\S+\.\S+"),                      ""),       # email addresses
-
-    # ── Line-level (must run BEFORE emphasis) ────────────────────────
-    (re.compile(r"^#{1,6}\s+", re.MULTILINE),          ""),       # headers
-    (re.compile(r"^>\s?", re.MULTILINE),               ""),       # blockquotes
-    (re.compile(r"^\s*[-*+•◦▪▸●○⬤◉⚫]\s+", re.MULTILINE), ""),  # bullet lists
-    (re.compile(r"^\s*\d+[.)]\s+", re.MULTILINE),      ""),       # numbered lists
-
-    # ── Emphasis (triple before double before single) ────────────────
-    (re.compile(r"\*{3}(.+?)\*{3}", re.DOTALL),       r"\1"),    # ***bold italic***
-    (re.compile(r"_{3}(.+?)_{3}", re.DOTALL),          r"\1"),    # ___bold italic___
-    (re.compile(r"\*{2}(.+?)\*{2}", re.DOTALL),       r"\1"),    # **bold**
-    (re.compile(r"_{2}(.+?)_{2}", re.DOTALL),          r"\1"),    # __bold__
-    (re.compile(r"(?<!\*)\*(?!\*)(.+?)\*(?!\*)", re.DOTALL), r"\1"),  # *italic*
-    (re.compile(r"~~(.+?)~~", re.DOTALL),              r"\1"),    # ~~strikethrough~~
-
-    # ── Emoji ────────────────────────────────────────────────────────
-    (re.compile(
-        r"[\U0001f000-\U0001ffff\u2600-\u27bf\ufe00-\ufe0f\u200d]"
-    ), ""),
-
-    # ── Final cleanup sweeps ─────────────────────────────────────────
-    (re.compile(r"[•◦▪▸▹►▻●○⬤◉⚫·∙⋅]"),             ""),       # ALL dot/bullet chars
-    (re.compile(r"[–—]"),                              " "),      # en/em dashes → space
-    (re.compile(r"\*{2,}"),                            ""),       # leftover ** or ***
-    (re.compile(r"(?<!\w)\*(?!\w)"),                   ""),       # stray lone *
-    (re.compile(r"\n{3,}"),                            "\n\n"),   # excess newlines
-    (re.compile(r"[ \t]{2,}"),                         " "),      # excess whitespace
-]
-
-_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
-_MAX_SPEAK_SENTENCES = 3
-_FALLBACK_MSG = "I've provided the response in the app."
-_TRUNCATION_SUFFIX = " The full response is shown in the app."
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # TTSService
@@ -172,34 +118,17 @@ _KOKORO_LOAD_LOCK = threading.Lock()
 
 
 class TTSService:
-    """Text-to-speech using Kokoro TTS via ONNX Runtime (local, offline).
-
-    Mic gating: when a ``voice_service`` is attached, this service will
-    call ``voice_service.mute()`` before speaking and
-    ``voice_service.unmute()`` when finished, preventing echo
-    feedback loops.
-    """
+    """Text-to-speech using Kokoro TTS via ONNX Runtime (local, offline): WAV bytes, never host playback."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._playback_thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
-
-        # Streaming TTS queue
-        self._stream_queue: Queue[str | None] = Queue()
-        self._stream_worker: threading.Thread | None = None
-
-        # Reference to VoiceService for mic gating (set via property)
-        self._voice_service = None
-
         # Lazy-loaded Kokoro instance (heavy — loads ~169 MB model)
         self._kokoro = None
 
         # Persisted settings
         self._voice: str = _DEFAULT_VOICE
         self._speed: float = 1.0
-        self._enabled: bool = False
-        self._auto_speak: bool = True
+        # The voice the person picked for a language other than their own voice's ({"fr": "ff_siwis"}).
+        self._language_voices: dict[str, str] = {}
         self._load_settings()
 
     # ── Kokoro model (lazy-loaded) ───────────────────────────────────────
@@ -218,6 +147,9 @@ class TTSService:
                 return None
 
             try:
+                from row_bot import onnxruntime_telemetry
+
+                onnxruntime_telemetry.switch_off()  # before Kokoro opens its ONNX Runtime session
                 from kokoro_onnx import Kokoro
                 logger.info("Loading Kokoro TTS model from %s", _MODEL_PATH)
                 _SHARED_KOKORO.append(_SerialKokoro(Kokoro(str(_MODEL_PATH), str(_VOICES_PATH))))
@@ -229,79 +161,19 @@ class TTSService:
 
         return self._kokoro
 
-    # ── Voice service link (mic gating) ──────────────────────────────────
-
-    @property
-    def voice_service(self):
-        return self._voice_service
-
-    @voice_service.setter
-    def voice_service(self, svc) -> None:
-        self._voice_service = svc
-
-    def _mute_mic(self) -> None:
-        """Tell the voice service to pause mic processing."""
-        if self._voice_service and self._voice_service.is_running:
-            self._voice_service.mute()
-
-    def _unmute_mic(self) -> None:
-        """Tell the voice service to resume listening."""
-        if self._voice_service and self._voice_service.is_running:
-            self._voice_service.unmute()
-
-    def _record_voice_output(self, text: str) -> None:
-        if self._voice_service and hasattr(self._voice_service, "record_assistant_output"):
-            try:
-                self._voice_service.record_assistant_output(text)
-            except Exception:
-                logger.debug("Could not record assistant voice output", exc_info=True)
-
     # ── Properties ───────────────────────────────────────────────────────
 
     @property
     def voice(self) -> str:
         return self._voice
 
-    @voice.setter
-    def voice(self, v: str) -> None:
-        self._voice = v
-        self._save_settings()
-
     @property
     def speed(self) -> float:
         return self._speed
 
-    @speed.setter
-    def speed(self, s: float) -> None:
-        self._speed = max(0.5, min(2.0, s))
-        self._save_settings()
-
-    @property
-    def enabled(self) -> bool:
-        return self._enabled
-
-    @enabled.setter
-    def enabled(self, e: bool) -> None:
-        self._enabled = e
-        self._save_settings()
-
-    @property
-    def auto_speak(self) -> bool:
-        return self._auto_speak
-
-    @auto_speak.setter
-    def auto_speak(self, a: bool) -> None:
-        self._auto_speak = a
-        self._save_settings()
-
-    @property
-    def is_speaking(self) -> bool:
-        return (
-            (self._playback_thread is not None
-             and self._playback_thread.is_alive())
-            or (self._stream_worker is not None
-                and self._stream_worker.is_alive())
-        )
+    def voice_for(self, text: str, *, hint: str | None = None) -> tuple[str, str | None]:
+        """The language *text* is spoken in and the voice that speaks it (None: Kokoro can't speak it)."""
+        return languages.kokoro_voice_for(text, hint=hint, own=self._voice, picked=self._language_voices)
 
     # ── Status checks ────────────────────────────────────────────────────
 
@@ -309,41 +181,14 @@ class TTSService:
         """True if the Kokoro model and voices file are both present."""
         return _MODEL_PATH.exists() and _VOICES_PATH.exists()
 
-    # Backward-compatible aliases used by app.py
-    def is_piper_installed(self) -> bool:
-        """Alias for is_installed() — kept for backward compatibility."""
-        return self.is_installed()
+    # ── Synthesis ────────────────────────────────────────────────────────
 
-    def is_voice_installed(self, voice_id: str | None = None) -> bool:
-        """True if the TTS engine is installed (all voices are bundled)."""
-        return self.is_installed()
+    def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, speed: float | None = None) -> bytes:
+        """Generate local Kokoro audio without using a physical device: every sentence, without markdown.
 
-    def get_installed_voices(self) -> list[str]:
-        """Return voice IDs available in the catalog."""
-        if not self.is_installed():
-            return []
-        return sorted(VOICE_CATALOG.keys())
-
-    # ── Core speak / stop ────────────────────────────────────────────────
-
-    def speak(self, text: str, from_voice_input: bool = False) -> None:
-        """Auto-speak: only fires for voice input when *auto_speak* is on."""
-        if not self._enabled or not self._auto_speak or not from_voice_input:
-            return
-        self._speak_internal(text)
-
-    def speak_now(self, text: str) -> None:
-        """Speak immediately (test button / future read-aloud)."""
-        self._speak_internal(text)
-
-    def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, speed: float | None = None,
-                             truncate: bool = True) -> bytes:
-        """Generate local Kokoro audio without using a physical device.
-
-        *voice* and *speed* override the saved ones for this call; *truncate* False keeps every sentence (a voice
-        file, 5.3.1 B) instead of a spoken reply's few.
+        *voice* and *speed* override the saved ones for this call.
         """
-        clean = _prepare_text(text, truncate=truncate)
+        clean = clean_for_speech(text)
         if not clean.strip():
             return b""
         samples, sample_rate = self._synthesize_samples(clean, voice=voice, speed=speed)
@@ -359,129 +204,6 @@ class TTSService:
             wav.writeframes(pcm.tobytes())
         return output.getvalue()
 
-    def stop(self) -> None:
-        """Stop current playback and clear the streaming queue."""
-        self._stop_event.set()
-        # Drain the streaming queue
-        try:
-            while True:
-                self._stream_queue.get_nowait()
-        except Empty:
-            pass
-        # Stop any sounddevice playback immediately
-        try:
-            import sounddevice as sd
-            sd.stop()
-        except Exception:
-            pass
-        # Don't block — let daemon threads wind down on their own
-        if self._playback_thread and self._playback_thread.is_alive():
-            self._playback_thread.join(timeout=0.5)
-        if self._stream_worker and self._stream_worker.is_alive():
-            # Signal worker to exit only if it's alive to consume the sentinel
-            self._stream_queue.put(None)
-            self._stream_worker.join(timeout=0.5)
-        self._stream_worker = None
-
-    # ── Streaming TTS (sentence-by-sentence) ─────────────────────────
-
-    def speak_streaming(self, sentence: str) -> None:
-        """Queue a sentence for streaming playback. Non-blocking."""
-        if not self._enabled or not self._auto_speak:
-            return
-        if not self.is_installed():
-            return
-
-        clean = _prepare_text(sentence, truncate=False)
-        if not clean.strip():
-            return
-
-        # Mute mic on first sentence queued
-        self._mute_mic()
-        self._record_voice_output(clean)
-
-        # Ensure worker thread is running
-        if self._stream_worker is None or not self._stream_worker.is_alive():
-            self._stop_event.clear()
-            # Drain any stale items left from a previous stop()/session
-            try:
-                while True:
-                    self._stream_queue.get_nowait()
-            except Empty:
-                pass
-            self._stream_worker = threading.Thread(
-                target=self._stream_worker_loop, daemon=True,
-                name="row-bot-tts-stream",
-            )
-            self._stream_worker.start()
-
-        self._stream_queue.put(clean)
-
-    def flush_streaming(self, remaining: str = "") -> None:
-        """Send any remaining text and signal end-of-stream."""
-        if remaining and remaining.strip():
-            self.speak_streaming(remaining)
-        # Sentinel: worker will exit after playing everything queued
-        self._stream_queue.put(None)
-
-    def _stream_worker_loop(self) -> None:
-        """Background worker: pick sentences from the queue and play them.
-
-        When the stream ends naturally via the end-of-stream sentinel from
-        ``flush_streaming``, the mic is unmuted.  If ``stop()`` kills this
-        worker (sets ``_stop_event``), the mic stays muted so the caller
-        can decide what to do next.
-        """
-        try:
-            import sounddevice as sd
-        except Exception:
-            # No sound system to play through (a Linux machine without PulseAudio).
-            logger.warning("TTS stream playback unavailable", exc_info=True)
-            return
-
-        natural_end = False
-
-        while not self._stop_event.is_set():
-            try:
-                sentence = self._stream_queue.get(timeout=1)
-            except Empty:
-                continue
-
-            if sentence is None:
-                natural_end = True
-                break  # end-of-stream sentinel
-
-            if self._stop_event.is_set():
-                break
-
-            kokoro = self._get_kokoro()
-            if kokoro is None:
-                continue
-
-            try:
-                lang = _voice_lang(self._voice)
-                samples, sample_rate = kokoro.create(
-                    sentence,
-                    voice=self._voice,
-                    speed=self._speed,
-                    lang=lang,
-                )
-
-                if self._stop_event.is_set():
-                    break
-
-                sd.play(samples, samplerate=sample_rate)
-                sd.wait()
-
-            except Exception:
-                logger.debug("TTS stream playback error", exc_info=True)
-
-        # Only unmute on NATURAL end-of-stream (not forced stop).
-        if natural_end and not self._stop_event.is_set():
-            time.sleep(0.5)
-            if not self._stop_event.is_set():
-                self._unmute_mic()
-
     # ── Download helpers ─────────────────────────────────────────────────
 
     def download_model(
@@ -496,69 +218,19 @@ class TTSService:
         logger.info("Downloading Kokoro voices from %s", _VOICES_URL)
         _download_file(_VOICES_URL, _VOICES_PATH, None, size=_VOICES_BYTES, sha256=_VOICES_SHA256)
 
-    # Backward-compatible aliases
-    def download_piper(
-        self, progress: Callable[[float], None] | None = None
-    ) -> None:
-        """Alias for download_model() — kept for backward compatibility."""
-        self.download_model(progress)
-
-    def download_voice(
-        self,
-        voice_id: str | None = None,
-        progress: Callable[[float], None] | None = None,
-    ) -> None:
-        """No-op — all Kokoro voices are bundled in a single file."""
-        pass  # All voices included in voices-v1.0.bin
-
     # ── Internal ─────────────────────────────────────────────────────────
-
-    def _speak_internal(self, text: str) -> None:
-        """Prepare text and start background playback."""
-        if not self.is_installed():
-            return
-
-        clean = _prepare_text(text)
-        if not clean.strip():
-            return
-
-        self.stop()
-        self._stop_event.clear()
-        # Mute mic before speaking
-        self._mute_mic()
-        self._record_voice_output(clean)
-        self._playback_thread = threading.Thread(
-            target=self._play, args=(clean,), daemon=True,
-        )
-        self._playback_thread.start()
-
-    def _play(self, text: str) -> None:
-        """Generate audio with Kokoro and play it via sounddevice."""
-        try:
-            import sounddevice as sd
-
-            samples, sample_rate = self._synthesize_samples(text)
-
-            if self._stop_event.is_set():
-                return
-
-            sd.play(samples, samplerate=sample_rate)
-            sd.wait()
-
-        except Exception:
-            logger.warning("TTS playback error", exc_info=True)
 
     def _synthesize_samples(self, text: str, *, voice: str | None = None,
                             speed: float | None = None) -> tuple[np.ndarray, int]:
         kokoro = self._get_kokoro()
         if kokoro is None:
             raise RuntimeError("Kokoro model is not installed")
-        chosen = voice if voice in VOICE_CATALOG else self._voice
+        chosen = voice if voice in VOICE_CATALOG or voice in languages.kokoro_voice_ids() else self._voice
         samples, sample_rate = kokoro.create(
             text,
             voice=chosen,
             speed=float(speed) if speed else self._speed,
-            lang=_voice_lang(chosen),
+            lang=languages.kokoro_phonemes(chosen),
         )
         return np.asarray(samples), int(sample_rate)
 
@@ -582,102 +254,18 @@ class TTSService:
                 else:
                     self._voice = _DEFAULT_VOICE
                 self._speed = data.get("speed", 1.0)
-                self._enabled = data.get("enabled", False)
-                self._auto_speak = data.get("auto_speak", True)
+                picked = data.get("language_voices")
+                self._language_voices = {
+                    language: voice for language, voice in (picked.items() if isinstance(picked, dict) else ())
+                    if voice in languages.KOKORO_VOICES.get(language, ())
+                }
         except Exception:
             logger.warning("Failed to load TTS settings from %s", _SETTINGS_PATH, exc_info=True)
-
-    def _save_settings(self) -> None:
-        try:
-            _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "voice": self._voice,
-                "speed": self._speed,
-                "enabled": self._enabled,
-                "auto_speak": self._auto_speak,
-            }
-            _SETTINGS_PATH.write_text(json.dumps(data, indent=2))
-        except Exception:
-            logger.warning("Failed to save TTS settings", exc_info=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Module-level helpers
 # ═════════════════════════════════════════════════════════════════════════════
-
-def _voice_lang(voice_id: str) -> str:
-    """Infer the ``lang`` parameter from a Kokoro voice ID prefix.
-
-    Kokoro voice IDs use a two-letter prefix:
-      a* = American English, b* = British English,
-      j* = Japanese, z* = Mandarin Chinese, etc.
-    """
-    prefix = voice_id[:1] if voice_id else "a"
-    return {
-        "a": "en-us",
-        "b": "en-gb",
-        "j": "ja",
-        "z": "cmn",
-        "e": "es",
-        "f": "fr-fr",
-        "h": "hi",
-        "i": "it",
-        "p": "pt-br",
-    }.get(prefix, "en-us")
-
-
-def _prepare_text(text: str, *, truncate: bool = True) -> str:
-    """Strip markdown formatting and optionally truncate for speech.
-
-    When *truncate* is ``False`` the sentence-cap / truncation-suffix
-    logic is skipped — useful for streaming TTS where the caller
-    manages the sentence budget."""
-    speakable = make_speakable_response(
-        text,
-        max_sentences=_MAX_SPEAK_SENTENCES,
-        allow_long=not truncate,
-        fallback_text=_FALLBACK_MSG,
-        truncation_text=_TRUNCATION_SUFFIX.strip(),
-    )
-    return speakable.text
-
-    clean = text
-    for pattern, repl in _MD_STRIP:
-        clean = pattern.sub(repl, clean)
-
-    # Split into lines, ensure each ends with punctuation so the TTS
-    # pauses naturally between sentences / paragraphs.
-    lines = [ln.strip() for ln in clean.splitlines() if ln.strip()]
-    for i, ln in enumerate(lines):
-        if ln and not ln[-1] in ".!?:;,":
-            lines[i] = ln + "."
-    clean = "\n".join(lines)
-
-    clean = clean.strip()
-
-    # If most content was code/tables (stripped away), use a fallback phrase
-    if not clean or len(clean) < len(text.strip()) * 0.25:
-        return _FALLBACK_MSG
-
-    if not truncate:
-        return clean
-
-    # Split into sentences
-    sentences = _SENTENCE_END_RE.split(clean)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    if not sentences:
-        return _FALLBACK_MSG
-
-    # Short responses → read in full
-    if len(sentences) <= _MAX_SPEAK_SENTENCES:
-        return clean
-
-    # Long responses → first N sentences + truncation notice
-    truncated = " ".join(sentences[:_MAX_SPEAK_SENTENCES])
-    if not truncated.endswith((".", "!", "?")):
-        truncated += "."
-    return truncated + _TRUNCATION_SUFFIX
-
 
 def _download_file(
     url: str,

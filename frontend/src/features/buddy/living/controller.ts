@@ -207,6 +207,7 @@ const ACTIVITY_BEHAVIOUR: Record<string, string> = {
   stopped: 'pause',
   error: 'worry',
   disconnected: 'pause',
+  listening: 'listen',
 };
 
 const MOOD_FACE: Record<string, Expression & { eyeOpen?: number }> = {

@@ -19,6 +19,14 @@ _STATUS_PHRASES = (
     "status",
     "where are we",
     "are you still working",
+    "how's it going",
+    "hows it going",
+    "how is it going",
+    "how's it coming",
+    "how is it coming",
+    "any progress",
+    "any update",
+    "are you done",
 )
 _CANCEL_PHRASES = (
     "cancel",
@@ -127,7 +135,7 @@ async def submit_voice_text(
 
 def classify_active_run_control(text: str) -> ActiveRunControlKind:
     """Classify user input received while a Row-Bot run is active."""
-    normalized = " ".join(str(text or "").strip().lower().split())
+    normalized = " ".join(str(text or "").strip().lower().replace("’", "'").split())
     if not normalized:
         return "none"
     if any(normalized == phrase or normalized.startswith(f"{phrase} ") for phrase in _CANCEL_PHRASES):

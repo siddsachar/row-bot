@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createClientController } from '../api';
 import { selectClientPlatform } from '../platform';
 import { bindDraftSync } from '../draft-sync';
+import { receiveBuddyVoice } from '../features/buddy/living/voice';
 import { keepNativeLease, reloadWhenLeaseLapses } from '../native-lease';
 import { ThemeProvider } from '../ui/theme';
 import { installInputModality } from '../ui/input-modality';
@@ -55,6 +56,8 @@ async function start() {
       configurable: true,
     });
   const unbindDrafts = bindDraftSync(controller);
+  // Buddy listens and lip-syncs to voice in the main window.
+  const unreceiveVoice = receiveBuddyVoice();
   const releaseLease = keepNativeLease(controller, platform);
   platform = reloadWhenLeaseLapses(platform, () => location.reload());
   createRoot(document.getElementById('root')!).render(
@@ -71,6 +74,7 @@ async function start() {
   window.addEventListener('pagehide', (event) => {
     if (event.persisted) return;
     unbindDrafts();
+    unreceiveVoice();
     releaseLease();
     controller.dispose();
   });

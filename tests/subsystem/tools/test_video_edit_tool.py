@@ -119,8 +119,9 @@ def studio(tmp_path, monkeypatch, reload_for_data_dir):
 
 
 def _edit_id(result: str) -> str:
-    line = result.splitlines()[-1] if result.startswith("Approval:") else result
-    return line.split(":", 1)[0].removeprefix("Video edit ")
+    import re
+
+    return re.search(r"Video edit (edit-[0-9a-f]{8}): ", result).group(1)
 
 
 def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_the_chat(studio):
@@ -129,21 +130,41 @@ def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_
 
     result = studio.edit(inputs=["demo.mp4"], steps=[{"op": "trim", "start": 1, "end": 4}], name="cut")
 
-    assert result.startswith("Video edit edit-") and ": saved 0:03 of video" in result
-    assert "to this chat's files as cut.mp4; the person sees it in the chat. Trimmed." in result
+    assert result.startswith("Video edit edit-") and result.splitlines()[0].endswith(
+        ': Output "cut" v1 (working) · cut.mp4')
+    assert "Saved 0:03 of video (1 KB) to this chat's files: present shows it to the person. Trimmed." in result
     assert studio.asked == []  # A new file in the chat's files replaces nothing: no approval.
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["status"], view["mime_type"], view["progress"]) == ("saved", "video/mp4", 1.0)
     assert view["ffmpeg"] == "ffmpeg 7.1 (GPL version 3 or later), downloaded from PyPI"
     assert read_attachment(view["media_ref"])[1] == MP4
+    from row_bot.application.attachments import attachment_lineage
+
+    lineage = attachment_lineage(view["media_ref"])  # A working file of its own edit, made from its source.
+    assert (lineage["role"], lineage["output_id"], lineage["made_from"]) == ("working", edit.edit_id, ["demo.mp4"])
     [run] = studio.started
     assert run["argv"][0] == "ffmpeg" and "-/filter_complex" in run["argv"]
-    assert "trim=start=1:end=4" in run["graph"]
+    assert run["argv"][run["argv"].index("-ss"):run["argv"].index("-ss") + 4] == ["-ss", "1", "-t", "3"]
     assert run["folder"] == studio.edits.working_folder(edit)
     assert not run["folder"].exists()  # The working folder goes once it is saved.
     [process] = background_processes.list_processes(studio.chat)
     assert process.name == "Video edit" and process.status == "finished"
+
+
+def test_a_video_projects_render_is_a_draft_version_of_its_project(studio):
+    from row_bot.application.attachments import attachment_lineage
+    from row_bot.media_sources import resolve
+    from row_bot.video_editing import parse_steps
+
+    edit = studio.edits.start(studio.edits.Request(
+        conversation_id=studio.chat, kind="video", sources=resolve("demo.mp4", studio.chat),
+        steps=parse_steps([{"op": "trim", "start": 1, "end": 4}]), output_name="Launch demo v2.mp4",
+        role="draft", output_id="vid-1a2b3c4d", version=2))
+    studio.edits.wait(edit, 10)
+
+    lineage = attachment_lineage(studio.edits.get(edit.edit_id).media_ref)
+    assert (lineage["role"], lineage["output_id"], lineage["version"]) == ("draft", "vid-1a2b3c4d", 2)
 
 
 def test_a_long_edit_carries_on_with_progress_and_stops_with_nothing_saved(studio, monkeypatch):
@@ -244,7 +265,7 @@ def test_an_earlier_edit_can_be_edited_again_without_replacing_it(studio):
     first = _edit_id(studio.edit(inputs=["demo.mp4"], name="demo"))
     second = studio.edit(inputs=[first], steps=[{"op": "text", "text": "v2"}], name="demo")
 
-    assert "to this chat's files as demo-3.mp4" in second  # Each file in a chat has its own name.
+    assert second.splitlines()[0].endswith(" · demo-3.mp4")  # Each output in a chat has its own name.
     names = [item["name"] for item in list_conversation_files(studio.chat)]
     assert sorted(names) == ["demo-2.mp4", "demo-3.mp4", "demo.mp4"]  # None replaced; each has its own name.
 
@@ -297,6 +318,9 @@ def test_frames_are_saved_as_stills_with_one_contact_sheet(studio):
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["kind"], view["frame_count"], view["mime_type"]) == ("frames", 3, "image/jpeg")
+    # Stills and their sheet are working files the person doesn't see unless they're presented.
+    assert "as working files (the person doesn't see them)" in result
+    assert {item["role"] for item in files if item["name"].startswith(("frame", "generated-frame"))} == {"working"}
 
 
 def test_a_second_edits_stills_are_named_as_saved_and_read_by_name_or_by_their_edit(studio):

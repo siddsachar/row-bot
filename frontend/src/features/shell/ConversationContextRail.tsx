@@ -9,7 +9,8 @@ import { useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
 import ContextGoal from './ContextGoal';
 import { ContextLive } from './ContextLive';
-import ContextOutputs, { type ConversationOutput } from './ContextOutputs';
+import ContextOutputs from './ContextOutputs';
+import type { OutputView } from '../../api/types';
 import ProjectNotes from './ProjectNotes';
 import { requestWorkspaceFile } from '../panels/workspace-file-requests';
 import {
@@ -61,7 +62,11 @@ type Props = {
   agentsWorking?: number;
   /** A delegated agent's own conversation: the section is "This agent" (B242). */
   childConversation?: boolean;
-  outputs?: ConversationOutput[];
+  /** The conversation's outputs list (W3): what it made, newest first, and its working files' count. */
+  outputs?: OutputView[];
+  workingCount?: number;
+  /** Changes when the conversation may have made something: its outputs are read again. */
+  outputsRefresh?: string;
   completedDesignId?: string;
   writerQueued?: boolean;
   onCancelWait?: () => void;
@@ -99,6 +104,8 @@ export default function ConversationContextRail({
   agentsWorking = 0,
   childConversation = false,
   outputs = [],
+  workingCount = 0,
+  outputsRefresh = '',
   completedDesignId,
   writerQueued = false,
   onCancelWait,
@@ -267,7 +274,7 @@ export default function ConversationContextRail({
         ? 'writer'
         : resources.length || loading
           ? 'resources'
-          : suggestions.length || outputs.length
+          : suggestions.length || outputs.length || workingCount
             ? 'outputs'
             : 'goal';
   const firstMark = (section: typeof first) =>
@@ -425,7 +432,7 @@ export default function ConversationContextRail({
           </ul>
         </section>
 
-        {(!!suggestions.length || !!outputs.length) && (
+        {(!!suggestions.length || !!outputs.length || !!workingCount) && (
           <section
             className="context-rail-section"
             aria-labelledby="context-outputs"
@@ -439,11 +446,13 @@ export default function ConversationContextRail({
                 </span>
               )}
             </h3>
-            {!!outputs.length && (
+            {(!!outputs.length || !!workingCount) && (
               <ContextOutputs
                 conversationId={conversationId}
                 conversationRevision={conversationRevision}
                 outputs={outputs}
+                workingCount={workingCount}
+                refresh={outputsRefresh}
                 resources={resources}
                 onUseOutputInCode={onUseOutputInCode}
               />

@@ -28,11 +28,18 @@ def test_generated_outputs_are_deterministic_and_cover_actual_routes():
     assert outputs == generator.outputs()
     for path, expected in outputs.items():
         assert path.read_text(encoding="utf-8") == expected, str(path)
-    actual = {(method.lower(), route.path) for route in create_router(object(), ClientSecurity("fixture")).routes
+    from fastapi.routing import APIRoute, APIWebSocketRoute
+    routes = create_router(object(), ClientSecurity("fixture")).routes
+    # Every route is an HTTP operation or a WebSocket: each kind has its own promise.
+    assert all(isinstance(route, (APIRoute, APIWebSocketRoute)) for route in routes)
+    actual = {(method.lower(), route.path) for route in routes if isinstance(route, APIRoute)
               for method in route.methods}
     promised = {(method, "/api/v1" + path) for method, path, _, _ in generator.OPERATIONS}
     assert actual == promised
+    sockets = {route.path for route in routes if isinstance(route, APIWebSocketRoute)}
+    assert sockets == {"/api/v1" + path for path, _ in generator.WEBSOCKETS}
     openapi = json.loads(outputs[ROOT / "contracts/client-platform/v1/schema/openapi.json"])
+    assert [entry["path"] for entry in openapi["x-websockets"]] == ["/api/v1" + path for path, _ in generator.WEBSOCKETS]
     for path, operations in openapi["paths"].items():
         for operation in operations.values():
             assert operation["responses"]["200"]["content"], path

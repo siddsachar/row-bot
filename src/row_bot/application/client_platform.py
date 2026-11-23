@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from row_bot.voice.coordinator import VoiceSessionCoordinator
     from row_bot.voice.browser_local import BrowserLocalVoiceService
     from row_bot.voice.client_transport import ClientDictationTransport
+    from row_bot.conversation_resources import ResourceSnapshot
 
 from row_bot.runtime import admissions
 from row_bot.runtime.executions import generation_registry
@@ -144,6 +145,18 @@ def _tapped_choice(conversation_id: str, value: Any) -> dict[str, str] | None:
         raise ClientPlatformError("invalid_command")
     label = str(value.get("label") or "")[:40]
     return {"message_id": message_id, **({"label": label} if label else {})}
+
+
+VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
+
+
+def _video_panel(value: Any) -> dict[str, str] | None:
+    """The Video panel's request sent as the person's message (C1): which of its buttons sent it."""
+    if not value:
+        return None
+    if not isinstance(value, dict) or set(value) != {"action"} or value.get("action") not in VIDEO_PANEL_ACTIONS:
+        raise ClientPlatformError("invalid_command")
+    return {"action": str(value["action"])}
 
 
 def with_run_failures(conversation_id: str, rows: list[dict]) -> list[dict]:
@@ -405,7 +418,10 @@ class ClientPlatformService:
         self.dictation: ClientDictationTransport | None = None
         self.talk = None
         self.realtime = None
+        self.wake = None
         self.voice_admission = None
+        # A live Row-Bot Voice session hears its conversation's run events.
+        self.voice_listeners: dict[str, Callable[[tuple, Any], None]] = {}
         self._voice_binding: tuple[Any, ...] | None = None
         self._voice_binding_lock = threading.Lock()
         from row_bot.application.subscription_controls import SubscriptionFlows
@@ -418,9 +434,10 @@ class ClientPlatformService:
     def bind_voice(self, coordinator: VoiceSessionCoordinator, *,
                    browser_service: Callable[[], BrowserLocalVoiceService],
                    clock: Callable[[], float] = time.monotonic,
-                   realtime_provider_factory: Callable[[], Any] | None = None) -> None:
+                   realtime_provider_factory: Callable[[str], Any] | None = None,
+                   voice_engine: Any = None, wake_options: Any = None) -> None:
         """Expose the host's existing voice owner without starting a service."""
-        binding = (coordinator, browser_service, clock, realtime_provider_factory)
+        binding = (coordinator, browser_service, clock, realtime_provider_factory, voice_engine, wake_options)
         with self._voice_binding_lock:
             if self._voice_binding is not None:
                 if all(old is new for old, new in zip(self._voice_binding, binding)):
@@ -430,15 +447,21 @@ class ClientPlatformService:
             self.dictation = ClientDictationTransport(coordinator=coordinator,
                                                       browser_service=browser_service, clock=clock)
             from row_bot.application.client_voice import ClientVoiceAdmission, realtime_provider
-            from row_bot.voice.client_talk import ClientTalkTransport
+            from row_bot.voice.client_duplex import DuplexTalkTransport, LocalVoiceEngine
             from row_bot.voice.client_realtime import ClientRealtimeTransport
             self.voice_admission = ClientVoiceAdmission(self)
-            self.talk = ClientTalkTransport(dictation=self.dictation,
-                submit=self.voice_admission.submit, resolve_output=self.voice_admission.output)
+            self.talk = DuplexTalkTransport(dictation=self.dictation, admission=self.voice_admission,
+                engine=voice_engine or LocalVoiceEngine(browser_service), listeners=self.voice_listeners,
+                clock=clock)
             self.realtime = ClientRealtimeTransport(dictation=self.dictation,
                 provider_factory=realtime_provider_factory or realtime_provider,
                 submit=self.voice_admission.submit, active_generation=self.voice_admission.active,
-                control_generation=self.voice_admission.control)
+                control_generation=self.voice_admission.control,
+                session_context=self.voice_admission.front_context, save_front=self.voice_admission.save_front,
+                run_view=self.voice_admission.run_view)
+            from row_bot.voice.wake import WakeListening
+            self.wake = WakeListening(voice_busy=self.dictation.holds_microphone, clock=clock,
+                                      options=wake_options)
             self._voice_binding = binding
 
     def close_voice(self) -> bool:
@@ -459,7 +482,8 @@ class ClientPlatformService:
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "", retry: bool = False, shown: dict[str, str] | None = None,
                         linked: dict[str, Any] | None = None, held: tuple[dict, ...] = (),
-                        tapped_choice: dict[str, str] | None = None) -> Any:
+                        tapped_choice: dict[str, str] | None = None,
+                        video_panel: dict[str, str] | None = None) -> Any:
         """Single admission path for every conversation turn.
 
         ``retry`` runs the person's last message again in place: the turn it replaces goes in the same write that
@@ -526,10 +550,18 @@ class ClientPlatformService:
                 # them with their structured list. Its note keeps it from counting as the person's request when
                 # the Auto reviewer decides an approval: a page's decision never approves a tool call.
                 public_metadata = {"platform_public_content": shown["text"], "platform_note": shown["note"]}
+            elif configurable.get("voice_still") in {"camera", "screen"} and attachments:
+                # A spoken turn carrying a live still of the camera or screen (V6): marked for Learning, which
+                # keeps the words and the description but not the picture. Metadata only: never sent to a model.
+                public_metadata = {**public_metadata, "voice_still": configurable["voice_still"]}
             elif tapped_choice:
                 # A reply button's tap (F3): the person's own message, its words the button's; this only says which
                 # reply offered it. Never a note: the turn stays the person's request.
                 public_metadata = {**public_metadata, "tapped_choice": dict(tapped_choice)}
+            elif video_panel:
+                # The Video panel's request (C1): the person's own words, from one of its buttons. Never a note: the
+                # turn stays the person's request; this only says which button sent it.
+                public_metadata = {**public_metadata, "video_panel": dict(video_panel)}
             first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
             # A retry finds the turn it replaces by what the chat shows of the person's message.
             retry_text = ((shown["text"] if shown else text)
@@ -631,6 +663,7 @@ class ClientPlatformService:
                 touch_thread(conversation_id)
             self.projection.publish(conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
+            self._voice_follows(conversation_id, ("finished", status), handle)
             from row_bot.application import approval_grants
             if status != "waiting_approval":
                 approval_grants.end_turn(handle.conversation_id)
@@ -750,11 +783,15 @@ class ClientPlatformService:
         awaiting_approval: bool | None = None,
         goal_waiting: bool | None = None,
         started_from: str | None = None,
+        row: dict | None = None,
+        resources: ResourceSnapshot | None = None,
     ) -> dict:
-        row = self._metadata(conversation_id)
+        # A listing page passes each row's metadata and bindings, read for the whole page at once.
+        row = row if row is not None else self._metadata(conversation_id)
         from row_bot import threads
-        from row_bot.conversation_resources import list_bindings
-        resources = list_bindings(conversation_id)
+        if resources is None:
+            from row_bot.conversation_resources import list_bindings
+            resources = list_bindings(conversation_id)
         if parent_conversation_id is None:
             from row_bot import agent_runs
             own_run = agent_runs.get_agent_run_for_thread(conversation_id)
@@ -879,19 +916,28 @@ class ClientPlatformService:
         goals_waiting = self._goals_waiting([row[0] for row in selected])
         from row_bot.linked_conversations import started_from as linked_sources
         sources = linked_sources([row[0] for row in selected])
+        # The page's metadata and bindings in two reads, not two connections per conversation.
+        metadata: dict[str, dict] = {}
+        if selected:
+            with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+                conn.row_factory = sqlite3.Row
+                metadata = {str(meta["thread_id"]): dict(meta) for meta in conn.execute(
+                    f"SELECT * FROM thread_meta WHERE thread_id IN ({','.join('?' for _ in selected)})",
+                    [row[0] for row in selected])}
+        from row_bot.conversation_resources import list_bindings_many
+        bindings = list_bindings_many(list(metadata))
         items = []
         for row in selected:
-            try:
-                items.append(self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
-                             parent_conversation_id=parent_ids.get(row[0], ""),
-                             orchestration_activity=activity.get(row[0], {}),
-                             awaiting_approval=row[0] in awaiting, goal_waiting=row[0] in goals_waiting,
-                             started_from=sources.get(row[0], "")))
-            except ClientPlatformError as error:
-                if error.code != "not_found":
-                    raise
-                # Deleted while the page was read (a workflow's conversation goes with its workflow):
-                # it is left out, never the whole list.
+            # One deleted while the page was read (a workflow's conversation goes with its workflow)
+            # is left out, never the whole list.
+            if row[0] not in metadata or row[0] not in bindings:
+                continue
+            items.append(self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
+                         parent_conversation_id=parent_ids.get(row[0], ""),
+                         orchestration_activity=activity.get(row[0], {}),
+                         awaiting_approval=row[0] in awaiting, goal_waiting=row[0] in goals_waiting,
+                         started_from=sources.get(row[0], ""), row=metadata[row[0]],
+                         resources=bindings[row[0]]))
         return {"items": items, "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
@@ -1632,6 +1678,10 @@ class ClientPlatformService:
         if tapped and (page_id or resume or followup is not None or queue_record is not None
                        or frozen_context is not None or attachment_refs):
             raise ClientPlatformError("invalid_command")
+        panel = _video_panel(payload.get("video_panel"))
+        if panel and (tapped or page_id or resume or followup is not None or queue_record is not None
+                      or frozen_context is not None or attachment_refs):
+            raise ClientPlatformError("invalid_command")
         # Retry on the reply to a message sent from a page runs that message again: the same decisions, as the
         # page wrote them, still marked as from the page (never the words the chat shows, as the person's own).
         retried_page = (self._retried_page_message(conversation_id, text)
@@ -1689,9 +1739,12 @@ class ClientPlatformService:
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
             for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
-                          "device_time_zone"):
+                          "device_time_zone", "voice_mode", "voice_still"):
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
+        if not resume and followup is None and self.voice_live(conversation_id):
+            # Typed while voice listens: the answer is spoken, so it is written for listening too.
+            config["configurable"]["voice_mode"] = True
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
         # Apps: the profile is the ceiling; this chat's switches and the message's mentions only narrow
         # it. A queued message narrows by its own mentions (never by the turn it waited behind); a
@@ -1763,7 +1816,7 @@ class ClientPlatformService:
                 linked=({"text": followup.shown or followup.prompt, **(followup.linked_from or {})}
                         if followup is not None and followup.kind == "linked" else None),
                 held=followup.held if followup is not None else (),
-                tapped_choice=tapped)
+                tapped_choice=tapped, video_panel=panel)
         except BaseException:
             if page_id:
                 from row_bot import pages
@@ -1963,6 +2016,25 @@ class ClientPlatformService:
     def observe_event(self, conversation_id: str, event: tuple, handle: Any) -> None:
         with _COMMAND_LOCK:
             self._observe_event_locked(conversation_id, event, handle)
+        self._voice_follows(conversation_id, event, handle)
+
+    def voice_live(self, conversation_id: str) -> bool:
+        """A Row-Bot Voice session is open and listening in this conversation (not paused)."""
+        listener = self.voice_listeners.get(conversation_id)
+        return bool(listener is not None and getattr(listener, "live", lambda: False)())
+
+    def voice_later_answer(self, conversation_id: str, text: str) -> None:
+        """An answer that came after its turn ended (a later orchestration wake): an open voice session says it
+        at its next pause; with none open, nothing is said."""
+        self._voice_follows(conversation_id, ("later_answer", str(text or "")), None)
+
+    def _voice_follows(self, conversation_id: str, event: tuple, handle: Any) -> None:
+        listener = self.voice_listeners.get(conversation_id)
+        if listener is not None:
+            try:
+                listener(event, handle)
+            except Exception:
+                _LOG.warning("Row-Bot Voice missed a run event in %s", conversation_id, exc_info=True)
 
     def _observe_event_locked(self, conversation_id: str, event: tuple, handle: Any) -> None:
         kind, payload = event
@@ -2106,18 +2178,6 @@ class ClientPlatformService:
                 if getter("media_error"):
                     self.projection.publish(conversation_id, "media.error", {"code": "media_unavailable",
                         "tool_call_id": str(getter("tool_call_id") or ""), "message_id": str(getter("message_id") or "")})
-                content = str(getter("content") or "")
-                if content.startswith("__IMAGE__:"):
-                    from row_bot.application.attachments import register_attachment
-                    encoded = content[len("__IMAGE__:"):].split("\n\n", 1)[0]
-                    if len(encoded) <= 36 * 1024 * 1024:
-                        data = base64.b64decode(encoded, validate=True)
-                        metadata = register_attachment(conversation_id, f"generated-{uuid.uuid4().hex}.png", data, "image/png")
-                        self.projection.publish(conversation_id, "media.available", {
-                            "media_ref": metadata["attachment_ref"], "mime_type": metadata["mime_type"],
-                            **({"prompt": prompt} if prompt else {}),
-                            "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
-                            "message_id": str(getter("message_id") or "")})
         elif kind == "thinking":
             self.projection.publish(conversation_id, "generation.activity", {"state": "thinking"})
         elif kind == "tool_writing" and isinstance(payload, dict):

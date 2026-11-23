@@ -405,15 +405,43 @@ function AskBox({
       >
         <Paperclip size={17} aria-hidden />
       </IconButton>
-      <IconButton
-        label="Start chat"
-        type="submit"
-        variant="primary"
-        className="overview-ask-send"
-        disabled={asking || !text.trim()}
-      >
-        <ArrowUp size={18} aria-hidden />
-      </IconButton>
+      {voice && !text.trim() ? (
+        // Nothing typed: dictate or talk in a new chat, as the phone's Ask box does.
+        <>
+          {voice.dictate && (
+            <IconButton
+              label="Dictate in a new chat"
+              disabled={asking}
+              onClick={() => onAsk(text, { send: false, voice: 'dictate' })}
+            >
+              <Mic size={17} aria-hidden />
+            </IconButton>
+          )}
+          <IconButton
+            label={
+              voice.talk
+                ? 'Talk in a new chat'
+                : 'Talk is unavailable on this host.'
+            }
+            variant="primary"
+            className="overview-ask-send"
+            disabled={asking || !voice.talk}
+            onClick={() => onAsk(text, { send: false, voice: 'talk' })}
+          >
+            <AudioLines size={18} aria-hidden />
+          </IconButton>
+        </>
+      ) : (
+        <IconButton
+          label="Start chat"
+          type="submit"
+          variant="primary"
+          className="overview-ask-send"
+          disabled={asking || !text.trim()}
+        >
+          <ArrowUp size={18} aria-hidden />
+        </IconButton>
+      )}
     </form>
   );
 }
@@ -1189,7 +1217,9 @@ export default function OverviewHome({
           </div>
         ) : (
           <>
-            {onAsk && !phone && <AskBox onAsk={onAsk} asking={asking} />}
+            {onAsk && !phone && (
+              <AskBox onAsk={onAsk} asking={asking} voice={voice} />
+            )}
             {quickStarts.length > 0 && !phone && (
               <div
                 className="overview-quick"

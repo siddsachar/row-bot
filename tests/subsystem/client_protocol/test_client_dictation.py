@@ -60,7 +60,7 @@ def test_passive_capability_then_one_authenticated_utterance_and_replay(api):
     assert first.json()["snapshot"]["state"] == "completed"
     assert first.json()["snapshot"]["quiesced"] is True
     assert len(api.runtime.calls) == 1
-    assert not api.runtime.voice.effects and not api.service.commands
+    assert not api.service.commands
     assert "access_binding" not in first.text and "csrf" not in first.text
     repeated = api.client.post(url(capture), headers=headers, content=b"synthetic audio")
     assert repeated.status_code == 200 and repeated.json()["text"] == "dictation result"
@@ -151,16 +151,15 @@ def test_another_presentation_cannot_upload_or_stop_a_lease(api):
 def test_same_host_binding_is_idempotent_and_passive(runtime):  # noqa: F811
     from row_bot.application.client_platform import ClientPlatformService
     from row_bot.voice.coordinator import VoiceSessionCoordinator
-    from tests.subsystem.voice.test_dictation_lifecycle import Voice
     service = ClientPlatformService()
-    coordinator = VoiceSessionCoordinator(Voice())
+    coordinator = VoiceSessionCoordinator()
     factory = lambda: pytest.fail("Passive binding constructed speech service")
     service.bind_voice(coordinator, browser_service=factory)
     owner = service.dictation
     service.bind_voice(coordinator, browser_service=factory)
     assert service.dictation is owner and owner.coordinator is coordinator
     with pytest.raises(ValueError, match="voice_owner_already_bound"):
-        service.bind_voice(VoiceSessionCoordinator(Voice()), browser_service=factory)
+        service.bind_voice(VoiceSessionCoordinator(), browser_service=factory)
     assert service.close_voice()
 
 

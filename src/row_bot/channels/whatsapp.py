@@ -48,6 +48,7 @@ from row_bot.channels import config as ch_config
 from row_bot.channels import conversations as ch_conversations
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.media import AttachmentCoalescer, InboundAttachment
+from row_bot.channels import voice_replies
 from row_bot.channels.streaming import (
     ChannelDeliveryResult,
     ChannelDeliveryUncertain,
@@ -798,8 +799,12 @@ def _process_inbound(data: dict) -> None:
     _run_text_turn(chat_id, body, msg_key)
 
 
-def _run_text_turn(chat_id: str, body: str, msg_key: dict | None) -> None:
-    """Answer one person message: approvals waiting on it first, then an agent turn."""
+def _run_text_turn(chat_id: str, body: str, msg_key: dict | None, *, voice_reply: bool = False) -> None:
+    """Answer one person message: approvals waiting on it first, then an agent turn.
+
+    *voice_reply* (a voice note came in and the channel's switch is on) runs the turn spoken and sends
+    the answer as a voice note after its text.
+    """
     # Check pending task approvals first (background workflows)
     from row_bot.channels import approval as approval_helpers
     with _pending_lock:
@@ -941,7 +946,9 @@ def _run_text_turn(chat_id: str, body: str, msg_key: dict | None) -> None:
 
     try:
         answer, interrupt_data, captured_images, captured_video_paths, delivery = (
-            _run_whatsapp_stream_turn_sync(chat_id, body, config)
+            _run_whatsapp_stream_turn_sync(
+                chat_id, body, voice_replies.spoken_config(config) if voice_reply else config,
+            )
         )
     except Exception as exc:
         from row_bot.channels.thread_repair import is_corrupt_thread_error
@@ -976,6 +983,8 @@ def _run_text_turn(chat_id: str, body: str, msg_key: dict | None) -> None:
             for url in yt_urls:
                 _send_raw_sync(chat_id, url)
             _send_whatsapp_media(chat_id, captured_images, captured_video_paths)
+            if voice_reply and clean_answer:
+                _send_voice_reply(chat_id, clean_answer)
             return
 
         if clean_answer and not delivery.delivered and not delivery.uncertain:
@@ -991,7 +1000,26 @@ def _run_text_turn(chat_id: str, body: str, msg_key: dict | None) -> None:
                 }
             from row_bot.channels import approval as approval_helpers
             _send_message_sync(chat_id, approval_helpers.interrupt_prompt(interrupt_data, "Reply YES or NO."))
+        elif voice_reply and clean_answer:
+            _send_voice_reply(chat_id, clean_answer)
         return
+
+
+def _send_voice_reply(chat_id: str, answer: str) -> None:
+    """The answer as a native voice note, after its text (V9); nothing more when one can't be made."""
+    import tempfile
+
+    _typing_sync(chat_id, "recording")
+    note = voice_replies.make_voice_note(answer, max_bytes=voice_replies.WHATSAPP_MAX_BYTES)
+    if note is None:
+        return
+    with tempfile.TemporaryDirectory(prefix="row-bot-voice-reply-") as folder:
+        path = Path(folder) / "reply.ogg"  # the bridge sends .ogg as a voice note (ptt)
+        path.write_bytes(note.audio)
+        try:
+            _send_media_sync(chat_id, str(path))
+        except Exception:
+            log.warning("A WhatsApp voice-note reply could not be sent", exc_info=True)
 
 
 
@@ -1024,6 +1052,7 @@ def _queue_media(chat_id: str, data: dict, caption: str) -> None:
         filename=data.get("filename", "file"),
         data=base64.b64decode(media_b64),
         content_type=data.get("mediaType", ""),
+        voice_note=data.get("isVoiceNote") is True,
     )
     order = _media_batches.begin(chat_id)
     _media_batches.add(chat_id, order, (attachment, caption, data.get("msgKey")))
@@ -1042,10 +1071,13 @@ def _run_media_batch(chat_id: str, items: list[tuple[InboundAttachment, str, dic
         cache_image=lambda name, data: _cache_inbound_image(thread_id, name, data),
     )
     if not turn.usable:
-        _send_message_sync(chat_id, "⚠️ I couldn't read that attachment.")
+        _send_message_sync(chat_id, turn.notice or "⚠️ I couldn't read that attachment.")
         return
     msg_key = next((key for _item, _text, key in items if key), None)
-    _run_text_turn(chat_id, turn.text, msg_key)
+    _run_text_turn(
+        chat_id, turn.text, msg_key,
+        voice_reply=voice_replies.reply_by_voice("whatsapp", voice_note_in=turn.voice_note),
+    )
 
 
 _media_batches: AttachmentCoalescer[tuple[InboundAttachment, str, dict | None]] = AttachmentCoalescer(
@@ -1674,6 +1706,7 @@ class WhatsAppChannel(Channel):
                 env_key="WHATSAPP_USER_PHONE",
                 help_text="Your phone in E.164 format for auto-auth (or use DM pairing)",
             ),
+            voice_replies.voice_replies_field(),
         ]
 
     async def start(self) -> bool:

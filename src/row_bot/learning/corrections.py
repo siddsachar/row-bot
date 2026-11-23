@@ -181,6 +181,11 @@ _TURN_CONTEXT_KEY = "row_bot_turn_context"
 _NOTE_KEY = "row_bot_note"  # Row-Bot's own note to the model (5.3.1's progress nudge), never the person's
 _MID_TURN_KEY = "mid_turn"  # 5.3.1: what the person sent while a turn worked, read at its next step
 _TAPPED_KEY = "tapped_choice"  # F3: the person tapped one of a reply's answer buttons; its words are the button's
+# C1: the Video panel sent it for the person (a comment on a storyboard card, a swap, a new take, make): the review
+# a storyboard asks for, never a correction of the reply before it.
+_VIDEO_PANEL_KEY = "video_panel"
+_VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
+_VOICE_FRONT_KEY = "voice_front"  # V4: a line Live voice's speech model said itself, saved after its run
 _REPLIES = frozenset({"ai", "AIMessageChunk"})
 
 
@@ -198,6 +203,31 @@ def is_row_bot_note(message: Any) -> bool:
     kept in the request exactly as sent, but never the person's words."""
 
     return bool(_kwargs(message).get(_NOTE_KEY))
+
+
+def is_voice_front(message: Any) -> bool:
+    """Whether a reply (captured, ``message_to_dict``, or as saved) is a line Live voice's speech model said
+    itself (a greeting, small talk): Row-Bot's model never wrote it, under other instructions and without
+    tools. It stays in later requests as context, but is never a reply to learn from."""
+
+    return bool(_kwargs(message).get(_VOICE_FRONT_KEY))
+
+
+def follows_voice_front(messages: Sequence[Any]) -> bool:
+    """Whether the person's newest message in a request came right after a Live voice line
+    (``is_voice_front``): the person was answering that line, not the reply before it, so their message
+    corrects nothing Learning recorded."""
+
+    from row_bot.turn_context import is_person_message
+
+    items = list(messages)
+    person = max((index for index, item in enumerate(items) if is_person_message(item)
+                  and not is_row_bot_note(item) and not is_row_bot_prompt(item)), default=-1)
+    for item in reversed(items[:max(person, 0)]):
+        kind = item.get("type") if isinstance(item, Mapping) else getattr(item, "type", "")
+        if str(kind or "") in _REPLIES:
+            return is_voice_front(item)
+    return False
 
 
 def is_row_bot_prompt(message: Any) -> bool:
@@ -228,7 +258,8 @@ def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool, bo
     """Each message the person sent in a captured request: (where it is, its text, whether they sent it while
     the turn worked, whether they tapped it). Human messages without Row-Bot's turn context (its own message,
     or a block it appended), its notes, its prompts (``is_row_bot_prompt``) or the page's picture after an
-    action. A tapped answer button is the person's own message, its words the button's."""
+    action. A tapped answer button is the person's own message, its words the button's; so is what the Video
+    panel sends for them, and both count as tapped."""
 
     from row_bot.learning.pictures import is_page_picture
 
@@ -243,7 +274,10 @@ def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool, bo
         data = item.get("data") or {}
         text = _content_text(data.get("content") if isinstance(data, Mapping) else None)
         if text:
-            found.append((index, text, bool(kwargs.get(_MID_TURN_KEY)), isinstance(kwargs.get(_TAPPED_KEY), Mapping)))
+            panel = kwargs.get(_VIDEO_PANEL_KEY)
+            tapped = isinstance(kwargs.get(_TAPPED_KEY), Mapping) or (
+                isinstance(panel, Mapping) and panel.get("action") in _VIDEO_PANEL_ACTIONS)
+            found.append((index, text, bool(kwargs.get(_MID_TURN_KEY)), tapped))
     return found
 
 
@@ -344,7 +378,8 @@ class Book:
         return [text for text, _tapped in self._opening_messages(episode)]
 
     def tapped(self, episode: Episode) -> bool:
-        """Whether the person started ``episode`` by tapping one of the reply's answer buttons (F3)."""
+        """Whether the person started ``episode`` by tapping one of the reply's answer buttons (F3), or through the
+        Video panel (C1)."""
 
         found = self._opening_messages(episode)
         return bool(found) and found[0][1]
@@ -585,8 +620,10 @@ __all__ = [
     "confirm",
     "corrected_decisions",
     "first_call",
+    "follows_voice_front",
     "is_row_bot_note",
     "is_row_bot_prompt",
+    "is_voice_front",
     "judge",
     "opening_texts",
     "person_text",

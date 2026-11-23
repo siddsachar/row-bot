@@ -135,7 +135,9 @@ def test_a_plugins_image_is_published_as_media_and_the_model_reads_its_caption(p
 
     result = _draw_through_the_agent(base64.b64encode(png).decode())
 
-    assert result.content == ("A lighthouse at dusk\n"
+    # The picture it made leads, as every made file does (W4): history masking keeps a result's first line.
+    assert result.content == ('Output "image" v1 (final) · generated-image.png\n'
+                              "A lighthouse at dusk\n"
                               "[Image shown to the person (about 20 KB); its data is not repeated here.]")
     (outcome,) = result.additional_kwargs["platform_media"]
     assert read_attachment(outcome["payload"]["media_ref"])[1] == png

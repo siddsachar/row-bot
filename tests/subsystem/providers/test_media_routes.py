@@ -409,8 +409,9 @@ def test_atlas_cloud_makes_videos_from_text_with_the_models_own_settings(media):
 
     result = media.video_tool._generate_video("waves")
 
-    assert result == ("Video generated successfully. Model: kwaivgi/kling-v2.1-t2v-master | Duration, aspect ratio "
-                      "and resolution: the model's own | Mode: text-to-video | Provider: Atlas Cloud")
+    assert result == ("Video generated successfully. Model: kwaivgi/kling-v2.1-t2v-master | Duration: the model's "
+                      "own | Aspect ratio: the model's own | Resolution: the model's own | Mode: text-to-video | "
+                      "Provider: Atlas Cloud")
     assert media.calls[0].json == {"model": "kwaivgi/kling-v2.1-t2v-master", "prompt": "waves"}
     assert media.video_tool._generate_video_job("waves", 8, "16:9", "720p", b"\x89PNG", provider_id="atlascloud") == (
         "Atlas Cloud video models can only make videos from text here. "

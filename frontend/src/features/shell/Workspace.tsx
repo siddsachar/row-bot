@@ -87,6 +87,7 @@ import CommandPalette, {
   type PaletteCommand,
   type PaletteFile,
 } from './CommandPalette';
+import { outputTitle } from './outputs';
 import {
   SETTINGS_CHANGED,
   saveSwitch,
@@ -103,6 +104,7 @@ import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
+import { WakeWordHost } from '../voice/WakeWord';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import { canAutoOpenDesign } from './design-auto-open';
@@ -1277,7 +1279,7 @@ export default function Workspace() {
   async function loadFiles(signal: AbortSignal): Promise<PaletteFile[]> {
     const [pages, media] = await Promise.all([
       controller.pages(undefined, signal),
-      controller.media({}, signal),
+      controller.outputs({ show: 'made' }, signal),
     ]);
     return [
       ...(pages?.items ?? []).map((page) => ({
@@ -1289,8 +1291,8 @@ export default function Workspace() {
         pageId: page.page_id,
       })),
       ...(media?.items ?? []).map((item) => ({
-        id: `media:${item.ref}`,
-        label: item.name,
+        id: `media:${item.conversation_id}:${item.id}`,
+        label: outputTitle(item),
         kind: item.kind,
         conversationId: item.conversation_id,
         conversationTitle: item.conversation_title ?? '',
@@ -1969,6 +1971,11 @@ export default function Workspace() {
           </a>
         )}
         <div className="context-parking" ref={contextParking} hidden />
+        <WakeWordHost
+          startInNewChat={() =>
+            creation.newChat('', undefined, { voice: 'talk' })
+          }
+        />
         {!desktop && !conversationVisible && !compact && !settingsOpen && (
           // Home and routed views: one 48px bar. A conversation and Settings
           // carry these controls in their own header (B119); a panel sheet

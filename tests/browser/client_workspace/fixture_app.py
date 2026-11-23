@@ -922,6 +922,132 @@ def p4_voice(x_fixture_token: str = Header(default="")) -> dict:
     return dict(_voice_fixture)
 
 
+VOICE_FIXTURE_REQUEST = "What's on my calendar today?"
+# Chats whose voice sessions see images (V6): a synthetic vision model describes what is shared.
+_voice_vision: set[str] = set()
+
+
+@app.post("/__p4_fixture/voice/vision/{conversation_id}")
+def p4_voice_vision(conversation_id: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    _voice_vision.add(conversation_id)
+    return {"seeing": sorted(_voice_vision)}
+
+
+def _install_voice_engine_fixture() -> None:
+    """Row-Bot Voice's real engine and socket, with synthetic hearing and speech.
+
+    Loud audio counts as speech, a pause ends the turn, the transcript is a
+    fixed request and each spoken sentence is a quiet tone as long as its text.
+    """
+    import numpy as np
+
+    from row_bot.voice import client_duplex
+    from row_bot.voice.engine.session import EngineParts
+    from row_bot.voice.streaming_base import SpeechAudio, TranscriptUpdate
+
+    class LoudIsSpeech:
+        window_samples = 512
+
+        def confidence(self, pcm16: bytes) -> float:
+            return 1.0 if np.abs(np.frombuffer(pcm16, dtype="<i2")).max(initial=0) > 3000 else 0.0
+
+    class TurnEnds:
+        async def complete_probability(self, pcm16: bytes) -> float:
+            return 0.95
+
+    class Stream:
+        def __init__(self) -> None:
+            self.size = 0
+
+        def push(self, pcm16: bytes) -> None:
+            self.size += len(pcm16)
+            _voice_fixture["bytes"] += len(pcm16)
+
+        def partial(self):
+            # A streaming model's words so far: a word for every 200 ms of audio.
+            words = VOICE_FIXTURE_REQUEST.rstrip("?").split()
+            return TranscriptUpdate(" ".join(words[: self.size // 6400]), final=False)
+
+        def finish(self):
+            _voice_fixture["transcriptions"] += 1
+            return TranscriptUpdate(VOICE_FIXTURE_REQUEST, final=True)
+
+        def close(self) -> None:
+            pass
+
+    class Listen:
+        provider_id = "fixture_listen"
+        live_partials = True
+
+        def warm(self) -> None:
+            pass
+
+        def open(self, *, language=None):
+            return Stream()
+
+    class Speak:
+        provider_id = "fixture_speak"
+
+        def warm(self) -> None:
+            pass
+
+        def synthesize(self, text: str, *, language=None):
+            _voice_fixture["syntheses"] += 1
+            samples = np.arange(int(24_000 * min(4.0, 0.06 * len(text))))
+            tone = (np.sin(samples * 2 * np.pi * 220 / 24_000) * 1200).astype("<i2")
+            return SpeechAudio(tone.tobytes(), 24_000)
+
+    client_duplex.LocalVoiceEngine.readiness = lambda self: None
+    client_duplex.LocalVoiceEngine.build = lambda self: EngineParts(Listen(), Speak(), LoudIsSpeech(), TurnEnds())
+
+    # A chat the spec named sees images: its spoken turns carry the shared still, described synthetically.
+    from contextlib import contextmanager
+
+    from row_bot import vision_runtime
+    from row_bot.application import attachment_context, client_voice
+
+    class SyntheticVision:
+        enabled = True
+
+        def effective_model(self, chat_model=None):
+            return chat_model or ""
+
+        def analyze(self, data, question, *, chat_model=None):
+            _voice_fixture["stills"] = _voice_fixture.get("stills", 0) + 1
+            return "A synthetic camera picture: a blue card with white words."
+
+    sees = client_voice.ClientVoiceAdmission.sees_images
+    client_voice.ClientVoiceAdmission.sees_images = (
+        lambda self, owner: owner.conversation_id in _voice_vision or sees(self, owner))
+    prepared = attachment_context.prepared_attachments
+
+    @contextmanager
+    def prepared_seeing(conversation_id, files, *, model_ref=None):
+        if conversation_id not in _voice_vision:
+            with prepared(conversation_id, files, model_ref=model_ref) as context:
+                yield context
+            return
+        real = vision_runtime.get_vision_service
+        vision_runtime.get_vision_service = SyntheticVision
+        try:
+            with prepared(conversation_id, files, model_ref=model_ref) as context:
+                yield context
+        finally:
+            vision_runtime.get_vision_service = real
+
+    attachment_context.prepared_attachments = prepared_seeing
+
+    # "Hey Row-Bot" with the loudness stand-in (tests/fixtures/wake_standin.py) in place of the
+    # shipped model: a loud tone says it. The switch is this profile's own, off until a spec turns it on.
+    import tempfile
+
+    from row_bot.voice import wake
+    from tests.fixtures.wake_standin import write_standin
+
+    wake.MODEL_PATH = write_standin(Path(tempfile.mkdtemp(prefix="row-bot-wake-")))
+
+
 class SyntheticRequestDiagnostics:
     """Observe lifecycle only; never read or serialize authentication/content."""
 
@@ -1018,7 +1144,8 @@ def natural_result(conversation_id: str, x_fixture_token: str = Header(default="
         if binding.kind == "workspace":
             workspace = get_workspace(binding.resource_id)
             folder = Path(workspace.path).resolve()
-            if not folder.is_relative_to(predecessor.DATA):
+            # Only the fixture's own disposable folders: its data, and its workspace beside it (drafts).
+            if not (folder.is_relative_to(predecessor.DATA) or folder.is_relative_to(predecessor.WORKSPACE.resolve())):
                 raise HTTPException(status_code=403)
             file = folder / "index.html"
             result["bindings"].append({"kind": "workspace", "id": binding.resource_id,
@@ -1239,9 +1366,20 @@ def _s3_video() -> bytes:
         return (Path(__file__).parents[2] / "fixtures/client_synthetic_video.mp4").read_bytes()
 
 
-def _s3_media(thread: str, data: bytes) -> list[dict]:
-    from row_bot.application.attachments import register_attachment
+def _s3_media(thread: str, data: bytes, prompt: str = "") -> list[dict]:
+    """A picture a tool made; with its *prompt*, kept the way the agent's capture keeps one (named from the
+    prompt's words, a final), its outcome as the capture gives it."""
+    import base64
 
+    from row_bot.agent import _media_label
+    from row_bot.application.attachment_context import AttachmentExecutionCaches
+    from row_bot.application.attachments import register_attachment
+    from row_bot.application.generated_media import capture_generated_media
+
+    if prompt:
+        caches = AttachmentExecutionCaches(thread, pending_image=base64.b64encode(data).decode())
+        return capture_generated_media(thread, caches, label=_media_label({"name": "generate_image",
+                                                                            "args": {"prompt": prompt}}))
     saved = register_attachment(thread, "generated-image.png", data)
     return [{"type": "media.available", "payload": {"media_ref": saved["attachment_ref"],
                                                     "mime_type": saved["mime_type"]}}]
@@ -1506,15 +1644,22 @@ _S4_STEPS = [{"op": "trim", "start": 2, "end": 8}, {"op": "speed", "factor": 2},
              {"op": "captions", "text": "1\n00:00:00,500 --> 00:00:02,000\nCreate your account\n"}]
 
 
+_MEDIA_SEEDED: dict = {}
+
+
 @app.post("/__media_fixture/seed")
 def media_seed(x_fixture_token: str = Header(default="")) -> dict:
-    """Library › Media (5.3.1 B3): a chat holding a recording, two pictures and a voice line."""
+    """Library › Media and the Outputs pane (5.3.1 B3, W3), once per backend: a chat that made a sign-up film in
+    three versions (the second presented, the third a newer draft, with a review sheet), two AI pictures, and on
+    the way a recording and a voice line; and a brief the person added."""
     import io
     import wave
 
     predecessor._authorize(x_fixture_token)
+    if _MEDIA_SEEDED:
+        return _MEDIA_SEEDED
     from row_bot import threads
-    from row_bot.application.attachments import register_attachment
+    from row_bot.application.attachments import register_attachment, set_role
 
     thread = "media-fixture-launch"
     threads._save_thread_meta(thread, "Launch assets", allow_recreate=True)
@@ -1524,10 +1669,104 @@ def media_seed(x_fixture_token: str = Header(default="")) -> dict:
         out.setsampwidth(2)
         out.setframerate(16000)
         out.writeframes(b"\x00\x00" * 8000)
-    for name, data in (("voice-line-01.wav", voice.getvalue()), ("signup-walkthrough.mp4", _s3_video()),
-                       ("pricing-step.png", _s4_steps_picture(2)), ("launch-card.png", _s4_steps_picture(1))):
-        register_attachment(thread, name, data)
-    return {"conversation_id": thread}
+    film = {"role": "draft", "output_id": "vid-fixture01"}
+    register_attachment(thread, "launch-brief.pdf", b"%PDF-1.4\n% Launch brief\n")
+    register_attachment(thread, "generated-recording.mp4", _s3_video(), role="working", output_id="rec-fixture1")
+    register_attachment(thread, "voice-line-01.wav", voice.getvalue(), role="working")
+    register_attachment(thread, "Sign-up walkthrough.mp4", _s3_video(), version=1, **film)
+    presented = register_attachment(thread, "Sign-up walkthrough.mp4", _s3_video(), version=2, **film)
+    register_attachment(thread, "Sign-up walkthrough review.png", _s4_steps_picture(3), role="working",
+                        output_id="vid-fixture01")
+    set_role(presented["attachment_ref"], "final")
+    register_attachment(thread, "Sign-up walkthrough.mp4", _s3_video(), version=3, **film)
+    register_attachment(thread, "pricing-step.png", _s4_steps_picture(2), role="final")
+    register_attachment(thread, "launch-card.png", _s4_steps_picture(1), role="final")
+    from row_bot.threads import append_checkpoint_messages
+
+    append_checkpoint_messages(thread, [
+        HumanMessage(id=fixture_id("media-seed:ask"), content="Make the launch assets."),
+        AIMessage(id=fixture_id("media-seed:answer"),
+                  content="Here are the launch card, the pricing step and the sign-up walkthrough.")])
+    _MEDIA_SEEDED.update(conversation_id=thread)
+    return _MEDIA_SEEDED
+
+
+def _captured(thread: str, run, label: str = ""):
+    """A real tool step as the agent's wrapper runs it: its result, then the media it made or presented."""
+    from row_bot.application.attachment_context import AttachmentExecutionCaches, _current, tool_attachment_scope
+    from row_bot.application.generated_media import capture_generated_media
+
+    token = _current.set(AttachmentExecutionCaches(thread))
+    try:
+        with tool_attachment_scope() as caches:
+            content = _s4_in_thread(thread, run)
+            return content, capture_generated_media(thread, caches, label=label)
+    finally:
+        _current.reset(token)
+
+
+def _finals_steps(thread: str):
+    """Finals first (a birthday montage): the real tools make an AI clip, a recording, an edit and a contact sheet
+    on the way, then present the film. Only the clip and the film show; the rest fold as working files."""
+    from row_bot import recordings
+    from row_bot.application.attachments import register_attachment
+    from row_bot.application.generated_media import save_generated_output
+    from row_bot.tools import video_editing_tool as video_tool, vision_tool
+    from row_bot.tools.present_tool import _present
+    from row_bot.tools.video_gen_tool import _set_pending_video
+
+    _s4_patch(missing=False, seconds=0.6)
+    for index in range(1, 7):
+        register_attachment(thread, f"party-{index:02d}.png", _s4_steps_picture(index))
+    made: dict = {}
+
+    def clip():
+        path = save_generated_output(thread, _s3_video(), prefix="vid", extension="mp4")
+        _set_pending_video({"path": path})
+        return "Generated a 3-second video."
+
+    def record():
+        started = recordings.start(thread, "browser", max_minutes=5, begin=lambda rec, path: _S3Capture(rec, path))
+        recordings.stop(started.recording_id, by="agent")
+        recordings.wait(started, 10)
+        return recordings.summary(recordings.get(started.recording_id)), []
+
+    def cut():
+        from row_bot import video_edits
+
+        content = video_tool._edit_video(inputs=["signup.mp4"], steps=_S4_STEPS, name="Birthday montage")
+        made["edit"] = content.split(":", 1)[0].removeprefix("Video edit ")
+        video_edits.wait(video_edits.get(made["edit"]), 20)  # The film is made before it's presented.
+        return video_edits.summary(video_edits.get(made["edit"])), []
+
+    class _Vision:
+        def cannot_see(self, chat_model=None):
+            return ""
+
+        def analyze(self, image, question):
+            return "Every picture is sharp; picture 4 is the brightest."
+
+    def look():
+        original = vision_tool._get_vision_service
+        vision_tool._get_vision_service = lambda: _Vision()
+        try:
+            return vision_tool._analyze_image("Are the party pictures sharp?", contact_sheet=True,
+                                              files=[f"party-{index:02d}.png" for index in range(1, 7)])
+        finally:
+            vision_tool._get_vision_service = original
+
+    steps = [
+        ("generate_video", {"prompt": "Confetti falling over a birthday cake"},
+         lambda: _captured(thread, clip, label="confetti-falling-over-a-birthday-cake")),
+        ("browser_record", {"action": "start"}, lambda: _s4_in_thread(thread, record)),
+        ("edit_video", {"inputs": ["signup.mp4"], "steps": _S4_STEPS, "name": "Birthday montage"},
+         lambda: _s4_in_thread(thread, cut)),
+        ("analyze_image", {"question": "Are the party pictures sharp?", "contact_sheet": True},
+         lambda: _captured(thread, look)),
+        ("present", {"files": ["Birthday montage.mp4"], "caption": "Sam's birthday, 1 minute"},
+         lambda: _captured(thread, lambda: _present(files=[made["edit"]], caption="Sam's birthday, 1 minute"))),
+    ]
+    return steps, "Here's Sam's birthday montage, with the confetti clip at the start."
 
 
 def _s4_stream(text: str, config: dict):
@@ -1556,7 +1795,6 @@ def _s4_stream(text: str, config: dict):
             for index in range(1, 13):
                 register_attachment(thread, f"step-{index:02d}.png", _s4_steps_picture(index))
             files = [f"step-{index:02d}.png" for index in range(1, 13)]
-            shown: list[str] = []
 
             class _Vision:
                 def cannot_see(self, chat_model=None):
@@ -1579,23 +1817,23 @@ def _s4_stream(text: str, config: dict):
                             "typed 6 characters, while the hint above it says 6 is enough.")
 
             def look():
-                originals = (vision_tool._get_vision_service, vision_tool._show_sheet)
+                original = vision_tool._get_vision_service
                 vision_tool._get_vision_service = lambda: _Vision()
-                vision_tool._show_sheet = lambda sheet: shown.append(sheet) or True
                 try:
-                    content = vision_tool._analyze_image("Which step of the sign-up goes wrong?", files=files,
-                                                          contact_sheet=True)
+                    return vision_tool._analyze_image("Which step of the sign-up goes wrong?", files=files,
+                                                      contact_sheet=True)
                 finally:
-                    vision_tool._get_vision_service, vision_tool._show_sheet = originals
-                return content, (_s3_media(thread, shown[0]) if shown else [])
+                    vision_tool._get_vision_service = original
 
             steps = [("analyze_image", {"question": "Which step of the sign-up goes wrong?", "files": files,
-                                        "contact_sheet": True}, lambda: _s4_in_thread(thread, look))]
+                                        "contact_sheet": True}, lambda: _captured(thread, look))]
             final = ("Step 9 goes wrong: the password field rejects a 6-character password although the hint says "
                      "6 is enough." if "no vision" not in text else
                      "I can't look at these screenshots with this chat's model: it can't see images. Choose a model "
                      "that can see images for Vision in **Settings › Models** (or switch this chat to one), and ask "
                      "me again.")
+        elif "finals" in text:
+            steps, final = _finals_steps(thread)
         else:
             long_edit = "long" in text
             _s4_patch(missing=False, seconds=20.0 if long_edit else 0.6)
@@ -1812,8 +2050,8 @@ def _s5_stream(text: str, config: dict):
                      "send it to your devices instead: use the button below.")
         else:
             args = {"files": ["q3-report.pdf"], "to": "devices"}
-            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop and tap "
-                     "Download; it's there for 7 days.")
+            final = ("Sent: q3-report.pdf is on your devices. Open this chat on your phone or laptop to see it "
+                     "there.")
         steps = [("send_file", args,
                   lambda: (_s4_in_thread(thread, lambda: file_delivery_tool._send_file(**args)), []))]
         yield from _s3_steps(thread, identity, steps)
@@ -2643,6 +2881,175 @@ def _b3_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+# ── C1: the storyboard ─────────────────────────────────────────────────────
+# A new video of several scenes is a storyboard first, with mixed footage (a title card, an AI shot still to make,
+# a picture and a clip). Make asks Row-Bot, which makes the AI shot and the video; a comment on a card changes that
+# scene, and making again draws only it. The renders are scripted (no ffmpeg); the frames are read for real.
+_STORYBOARD_TITLE = "First snow"
+
+
+def _storyboard_picture(size, sky, ground, sun=None, shape=None):
+    """A small picture: a sky over the ground, a sun, and a shape on the ground (a fox, a boat)."""
+    from PIL import Image, ImageDraw
+
+    width, height = size
+    picture = Image.new("RGB", size, sky)
+    draw = ImageDraw.Draw(picture)
+    for row in range(height // 2):  # The sky fades to the horizon.
+        mix = row / max(1, height // 2)
+        draw.line([(0, row), (width, row)], fill=tuple(round(a + (b - a) * mix) for a, b in zip(sky, ground)))
+    draw.rectangle([0, height * 0.62, width, height], fill=ground)
+    if sun:
+        x, y, colour = sun
+        draw.ellipse([x - 26, y - 26, x + 26, y + 26], fill=colour)
+    if shape:
+        x, y, colour = shape
+        draw.ellipse([x - 34, y - 14, x + 34, y + 14], fill=colour)
+        draw.polygon([(x + 30, y - 4), (x + 62, y - 22), (x + 52, y + 6)], fill=colour)
+    return picture
+
+
+def _storyboard_clip(sky, ground, mover, *, seconds=3, rate=12):
+    """A short H.264 clip of that picture with its sun or shape moving across."""
+    from io import BytesIO
+
+    import av
+
+    out = BytesIO()
+    with av.open(out, mode="w", format="mp4") as container:
+        stream = container.add_stream("libx264", rate=rate)
+        stream.width, stream.height, stream.pix_fmt = 640, 360, "yuv420p"
+        for index in range(seconds * rate):
+            x = 120 + index * 400 // (seconds * rate)
+            frame = av.VideoFrame.from_image(_storyboard_picture(
+                (640, 360), sky, ground, **{mover: (x, 120 if mover == "sun" else 250,
+                                                    (255, 214, 120) if mover == "sun" else (214, 96, 40))}))
+            frame.pts = index
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+    return out.getvalue()
+
+
+def _storyboard_png(picture, kind="PNG"):
+    from io import BytesIO
+
+    out = BytesIO()
+    picture.convert("RGB").save(out, format=kind)
+    return out.getvalue()
+
+
+def _storyboard_create(thread: str) -> str:
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(thread, "town-morning.mp4", _storyboard_clip((250, 196, 150), (236, 240, 246), "sun"))
+    register_attachment(thread, "harbour.jpg", _storyboard_png(_storyboard_picture(
+        (960, 540), (120, 150, 190), (40, 70, 110), shape=(520, 380, (236, 240, 246))), "JPEG"))
+    register_attachment(thread, "fox-still.png", _storyboard_png(_storyboard_picture(
+        (960, 540), (170, 190, 220), (240, 244, 250), sun=(760, 140, (255, 220, 170)), shape=(420, 390, (214, 96, 40)))))
+    project = video_projects.create(thread, _STORYBOARD_TITLE, [
+        {"card": "First snow", "line": "Winter came early that year.", "cue": "soft piano"},
+        {"footage": "ai", "shows": "a fox crossing deep snow at dawn, slow push-in", "frame": "fox-still.png",
+         "end": 4, "line": "The fox knew first.", "cue": "strings swell"},
+        {"source": "harbour.jpg", "shows": "the harbour under fresh snow", "end": 3.5,
+         "line": "Then the harbour went quiet."},
+        {"source": "town-morning.mp4", "end": 2.5, "shows": "the town waking up",
+         "line": "And the town woke to white streets.", "cue": "piano returns"},
+    ], note="First version", logline="A fox, a harbour and a small town wake to the first snow of the year.",
+        music="fit")
+    return video_projects.summary(project)
+
+
+def _storyboard_made(thread: str, project, number: int, makes: list[str]) -> None:
+    """The version made, as the renderer would leave it: its video, its marks and checks, and how each scene was
+    made (drawn now, or reused from the last make)."""
+    import time as clock
+
+    from row_bot import video_edits, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    version = video_projects.get(project.project_id).version(number)
+    clip = _storyboard_clip((140, 160, 200), (236, 240, 246), "shape", seconds=4)
+    saved = register_attachment(thread, f"{_STORYBOARD_TITLE}.mp4", clip, role="draft",
+                                output_id=project.project_id, version=number)
+    lengths = [3.0, 4.0, 3.5, 2.5]
+    edit = video_edits.VideoEdit(
+        edit_id="edit-" + fixture_id(f"storyboard:{thread}:{number}")[:8], conversation_id=thread, kind="video",
+        summary="Joined 4 scenes", output_name=str(saved["name"]), started_at=clock.time() - 3, status="saved",
+        expected_seconds=sum(lengths), ended_at=clock.time(), media_ref=str(saved["attachment_ref"]),
+        mime_type="video/mp4", size_bytes=len(clip), marks=[sum(lengths[:index]) for index in range(5)],
+        checks_passed=True, scene_makes=makes,
+        checks=["Length 0:13, 1920×1080.", "Sound: present (average -16.1 dB, peak -1.6 dB).", "Black: none.",
+                "Still: none."])
+    video_edits._ensure_loaded()
+    video_edits._RECORDS[edit.edit_id] = edit
+    video_edits._save(edit)
+    for scene in version.scenes:
+        scene.voice, scene.voiced, scene.voiced_as = f"{scene.scene_id}.wav", scene.line, "given"
+    video_projects._update(project, number, scenes=version.scenes, status="rendering", edit_id=edit.edit_id)
+
+
+def _storyboard_make(thread: str) -> str:
+    """Make the AI shot the storyboard planned, then the video: every scene drawn."""
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(thread, "fox-dawn.mp4", _storyboard_clip((170, 190, 220), (240, 244, 250), "shape"),
+                        role="final")
+    [project] = video_projects.list_projects(thread)
+    scenes = [{"scene_id": scene.scene_id, "source": scene.source, "end": scene.end, "card": scene.card,
+               "line": scene.line} for scene in project.latest.scenes]
+    scenes[1]["source"] = "fox-dawn.mp4"
+    version = video_projects.change(project, by="row-bot", note="The fox's AI shot is made", scenes=scenes)
+    _storyboard_made(thread, project, version.number, ["", "new", "new", "new"])
+    return video_projects.summary(video_projects.get(project.project_id))
+
+
+def _storyboard_moodier(thread: str) -> str:
+    """The comment on scene 2: a moodier shot and cue, made again; only that scene is drawn."""
+    from row_bot import video_projects
+
+    [project] = video_projects.list_projects(thread)
+    scenes = [{"scene_id": scene.scene_id, "source": scene.source, "end": scene.end, "card": scene.card,
+               "line": scene.line} for scene in project.latest.scenes]
+    scenes[1].update(shows="a fox crossing deep snow in a cold blue dusk, slow push-in", cue="low cello",
+                     line="The fox knew first, and kept moving.")
+    version = video_projects.change(project, by="row-bot", note="Scene 2 moodier", scenes=scenes)
+    _storyboard_made(thread, project, version.number, ["", "new", "reused", "reused"])
+    return video_projects.summary(video_projects.get(project.project_id))
+
+
+def _storyboard_stream(text: str, config: dict):
+    call = predecessor._record("submit", config, "storyboard")
+    thread = call["conversation_id"]
+    identity = f"storyboard:{call['generation_id']}"
+    try:
+        if text.strip() == "c1 storyboard fixture":
+            args = {"action": "create", "title": _STORYBOARD_TITLE}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_storyboard_create(thread), []))])
+            final = ("Here's the storyboard for “First snow”: a title card, the fox's AI shot (still to make), the "
+                     "harbour and the town. Approve or comment on any card, then press Make.")
+        elif text.startswith("Make the video"):
+            from row_bot import video_projects
+
+            [project] = video_projects.list_projects(thread)
+            args = {"action": "make", "project": project.project_id}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_storyboard_make(thread), []))])
+            final = "Made “First snow”: I made the fox's shot first. Its checks passed."
+        else:
+            from row_bot import video_projects
+
+            [project] = video_projects.list_projects(thread)
+            args = {"action": "change", "project": project.project_id, "note": "Scene 2 moodier"}
+            yield from _s3_steps(thread, identity, [("video", args, lambda: (_storyboard_moodier(thread), []))])
+            final = "Scene 2 is moodier now: a cold blue dusk and a low cello. Only that scene was made again."
+        yield from _natural_final(call, thread, final, "storyboard")
+    finally:
+        call["quiesced"] = True
+
+
 def _n5_stream(text: str, config: dict):
     call = predecessor._record("submit", config, "n5-page")
     thread = call["conversation_id"]
@@ -2952,6 +3359,11 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # Outlook's own cards (N10): an email to send, or an event that invites people.
         yield from _n10_stream(text, config)
         return
+    if text.strip() == "c1 storyboard fixture" or (text.startswith(("Make the video", "Scene 2 ["))
+                                                    and '"First snow"' in text):
+        # A storyboard first (C1): its cards, Make through Row-Bot, a comment on one card made again alone.
+        yield from _storyboard_stream(text, config)
+        return
     if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.
         yield from _b3_stream(text, config)
@@ -3127,6 +3539,34 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                                 f"{label} charges your API key for each one, so this costs money."),
                 "risk_class": "medium", "args": {"prompt": args["prompt"], "model": model, "provider": label},
                 "price": price_for(provider, label, model, choices={"quality": "medium", "size": "1024x1024"})}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "voice work fixture" in text:
+        # V3: a turn makes a picture, then asks to move a file (or, "delete", to delete one).
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "voice-work")
+        thread = call["conversation_id"]
+        identity = f"voice-work:{call['generation_id']}"
+        delete = "delete" in text.lower()
+        tool = "workspace_file_delete" if delete else "workspace_move_file"
+        args = ({"file_path": "notes/old-draft.md"} if delete
+                else {"source_path": "draft.md", "destination_path": "notes/draft.md"})
+        tool_id = fixture_id(identity + ":approval-tool")
+        try:
+            prompt = "A lighthouse at dawn, watercolour"
+            yield from _s3_steps(thread, identity, [("generate_image", {"prompt": prompt},
+                                                     lambda: ("Made the picture.",
+                                                              _s3_media(thread, _s3_page_picture(640, 400),
+                                                                        prompt)))])
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":approval-call"), content="",
+                tool_calls=[{"id": tool_id, "name": tool, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": tool, "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": tool,
+                                 "label": "Delete file" if delete else "Move / rename file",
+                                 "description": ("Delete file: notes/old-draft.md" if delete
+                                                 else "Move / rename file: draft.md to notes/draft.md"),
+                                 "args": args}]
         finally:
             call["quiesced"] = True
         return
@@ -4064,7 +4504,7 @@ def _p4_registered_folder(resource_id: str, workspace) -> Path:
     from row_bot.developer.review import scoped_workspace_path
     folder = Path(workspace.path).absolute()
     name = folder.name
-    drafts = predecessor.DATA / "attachment-workspace" / "Drafts"
+    drafts = predecessor.WORKSPACE / "Drafts"
     # Drafts are named from the request ("Code folder", "Tiny date app 2"),
     # so a local draft is known by where it lives, not by its name.
     if folder.parent == drafts.absolute():
@@ -5305,6 +5745,138 @@ def e1_local_runtime(state: str, done: float = 0.0, failure: str = "", found: st
     return _e1_view()
 
 
+# ── V1b: Row-Bot Voice's streaming speech models in Settings › Voice ─────────
+# The real catalog and pick with a fixed computer; Download, Stop and Remove change only this state.
+_v1b_state: dict = {"state": "not_installed", "done": 0, "installed": [], "failure": None}
+
+
+def _v1b_view(freed: int | None = None) -> dict:
+    from row_bot.voice import speech_models
+    from row_bot.voice.runtime import load_voice_runtime_settings
+
+    rows = []
+    for model in speech_models.CATALOG:
+        installed = model.id in _v1b_state["installed"]
+        rows.append({"id": model.id, "name": model.name, "engine_id": model.engine_id,
+                     "size_bytes": model.archive_size, "installed_bytes": model.installed_bytes,
+                     "download_bytes": 0 if installed else model.archive_size, "installed": installed,
+                     "language": model.language, "licence": model.licence, "source": model.source,
+                     "runs_best_on": model.runs_best_on})
+    downloading = _v1b_state["state"] == "downloading"
+    pick = speech_models.MOONSHINE_BASE_EN
+    view = {
+        "schema_version": 1, "state": _v1b_state["state"], "computer": "NVIDIA GeForce RTX 4070 (12 GB)",
+        "recommended": pick.id, "reason": "no_gpu_runtime", "models": rows,
+        "download": {"model_id": pick.id, "total_bytes": pick.archive_size, "done_bytes": _v1b_state["done"],
+                     "phase": "downloading"} if downloading else None,
+        "failure": _v1b_state["failure"], "talk_engine": load_voice_runtime_settings().talk_model,
+        "disk_bytes": sum(row["installed_bytes"] for row in rows if row["installed"]),
+    }
+    if freed is not None:
+        view["freed_bytes"] = freed
+    return view
+
+
+def _v1b_install_fakes() -> None:
+    from row_bot.application import client_speech_models as speech
+
+    def install(model_id: str, download_bytes: int) -> dict:
+        _v1b_state.update(state="downloading", done=int(download_bytes * 0.425), failure=None)
+        return _v1b_view()
+
+    def stop() -> dict:
+        _v1b_state.update(state="installed" if _v1b_state["installed"] else "not_installed")
+        return _v1b_view()
+
+    def remove(model_id: str) -> dict:
+        from row_bot.voice import speech_models
+        from row_bot.voice.runtime import load_voice_runtime_settings, save_talk_model
+
+        model = speech_models.get(model_id)
+        _v1b_state["installed"] = [item for item in _v1b_state["installed"] if item != model_id]
+        _v1b_state["state"] = "installed" if _v1b_state["installed"] else "not_installed"
+        if model is not None and load_voice_runtime_settings().talk_model == model.engine_id:
+            save_talk_model("local-whisper")
+        return _v1b_view(freed=model.installed_bytes if model else 0)
+
+    speech.snapshot = _v1b_view
+    speech.install = install
+    speech.stop = stop
+    speech.remove = remove
+
+
+@app.post("/__v1b_fixture/speech-models/{state}")
+def v1b_speech_models(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """fresh: nothing downloaded; downloading: Moonshine Base 42% in; installed: Moonshine Base in use."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.voice.runtime import save_talk_model
+
+    if state == "fresh":
+        _v1b_state.update(state="not_installed", done=0, installed=[], failure=None)
+        save_talk_model("local-whisper")
+    elif state == "downloading":
+        _v1b_state.update(state="downloading", done=int(111_266_225 * 0.425), installed=[], failure=None)
+    elif state == "installed":
+        _v1b_state.update(state="installed", done=0, installed=["moonshine-base-en"], failure=None)
+        save_talk_model("local-moonshine-base-en")
+    else:
+        raise HTTPException(status_code=422, detail="Unknown speech-models state")
+    return _v1b_view()
+
+
+# ── V8: languages ───────────────────────────────────────────────────────────
+@app.post("/__v8_fixture/kokoro/{state}")
+def v8_kokoro(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    """installed: placeholder Kokoro files, so Settings shows the voices for other languages (nothing loads
+    them: the fixture's voice engine is synthetic); fresh: none, and the language back on Detect automatically."""
+    predecessor._authorize(x_fixture_token)
+    import json
+
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.integrations.safe import write_atomic
+
+    root = get_row_bot_data_dir()
+    files = [root / "kokoro" / "kokoro-v1.0.fp16.onnx", root / "kokoro" / "voices-v1.0.bin"]
+    if state == "installed":
+        for path in files:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"placeholder")
+    elif state == "fresh":
+        for path in files:
+            path.unlink(missing_ok=True)
+        for name, key in (("voice_runtime_settings.json", "speech_language"), ("tts_settings.json", "language_voices")):
+            path = root / name
+            saved = json.loads(path.read_text("utf-8")) if path.exists() else {}
+            saved.pop(key, None)
+            write_atomic(path, json.dumps(saved, indent=2))
+    else:
+        raise HTTPException(status_code=422, detail="Unknown Kokoro state")
+    return {"installed": state == "installed"}
+
+
+# ── V5: cloud speech parts ──────────────────────────────────────────────────
+# "keys": synthetic Deepgram and ElevenLabs keys held in this process only (never the keyring, never a
+# provider call); "fresh": no keys, and Talk and Read aloud back on the local parts.
+_V5_KEYS = ("DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY")
+
+
+@app.post("/__v5_fixture/cloud-speech/{state}")
+def v5_cloud_speech(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import api_keys
+    from row_bot.voice.runtime import save_voice_settings
+
+    if state == "keys":
+        api_keys._session_keys.update({name: f"synthetic-{name.lower()}-0000" for name in _V5_KEYS})
+    elif state == "fresh":
+        for name in _V5_KEYS:
+            api_keys._session_keys.pop(name, None)
+        save_voice_settings({"talk_provider": "local", "speech_output_provider": "local"})
+    else:
+        raise HTTPException(status_code=422, detail="Unknown cloud speech state")
+    return {"keys": sorted(name for name in _V5_KEYS if name in api_keys._session_keys)}
+
+
 # ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
 # A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
 # buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's
@@ -5854,9 +6426,6 @@ def main() -> None:
 
     voice = get_voice_service()
     voice.whisper_model_available = lambda: True
-    def deny_host_capture():
-        raise AssertionError("Browser fixture must never start host audio capture")
-    voice.start = deny_host_capture
     from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
     def transcribe_fixture(session_key, audio, mime, *, validate, mode="dictate"):
         validate()
@@ -5883,6 +6452,9 @@ def main() -> None:
                                        # No ffmpeg: Show Row-Bot how's narration says why it can't run.
                                        ffmpeg_command=lambda: None)
     browser_local.get_browser_local_voice_service = lambda: synthetic_speech
+    # The synthetic voice stands in for Kokoro, so Read aloud is ready (the plain "Read aloud" label).
+    from row_bot.application import read_aloud
+    read_aloud.read_aloud_reason = lambda: "available"
     from row_bot.application import client_voice
     def fixture_credentials(**kwargs):
         import time
@@ -5893,7 +6465,44 @@ def main() -> None:
         assert client_secret == 'synthetic-browser-ephemeral'
         _voice_fixture['exchanges'] += 1
         return b'v=0\r\nsynthetic-browser-answer'
-    client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
+    class FixtureRelay:
+        """A relayed front (Gemini Live) that hears the browser's audio and says nothing."""
+
+        def __init__(self):
+            self.done = None
+
+        async def send_audio(self, pcm16):
+            _voice_fixture['relayed_audio'] = _voice_fixture.get('relayed_audio', 0) + len(pcm16)
+
+        async def send_output(self, output):
+            return False
+
+        async def stop_speaking(self):
+            return False
+
+        async def close(self):
+            if self.done is not None:
+                self.done.set()
+
+        async def actions(self):
+            import asyncio
+            self.done = asyncio.Event()
+            await self.done.wait()
+            return
+            yield
+
+    async def fixture_relay(instructions, *, connect=None):
+        return FixtureRelay()
+
+    live_ready = lambda: VoiceProviderStatus('fixture_live', 'Fixture live voice', True)  # noqa: E731
+    client_voice.realtime_provider = lambda option='openai': SimpleNamespace(
+        transport='gemini_live', status=live_ready, open_relay=fixture_relay) if option == 'gemini' else SimpleNamespace(
+        create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange, transport='openai_realtime',
+        status=live_ready)
+    # Live voice: OpenAI's and Google's keys are saved here, xAI's is not (the picker shows both states).
+    from row_bot.voice import provider_base
+    provider_base.provider_api_key = lambda credential: 'synthetic-saved-key' if credential in {'openai', 'google'} else ''
+    _install_voice_engine_fixture()
 
     # The middleware stack is built on the first request. Wrap the completed
     # stack so the middlewares' own exceptions are observed too.
@@ -5977,6 +6586,7 @@ def main() -> None:
     client_platform_service.readiness_factory = lambda _: True
     _p10_install_fakes()
     _e1_install_fakes()
+    _v1b_install_fakes()
     _p17_install_connection_check_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = _n11_resume
@@ -6669,18 +7279,31 @@ def _l3a_forget_drafts() -> None:
     evolution._save_store(store)
 
 
+# The Dream Cycle settings file as it was before "ahead" (None: there was none), put back on "restore".
+_L3A_DREAM_CONFIG: list[bytes | None] = []
+
+
 @app.post("/__l3a_fixture/learning/{action}")
 def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
     """Learning (preview) for the L3a spec: last night's look in each of its states, and the changes it
     drafted. Nothing reaches a model, a GPU or a download: the reports and drafts are written directly."""
     predecessor._authorize(x_fixture_token)
-    from datetime import date
+    from datetime import date, datetime, timedelta
 
+    from row_bot import dream_cycle
     from row_bot.learning import diagnosis
     from row_bot.learning.store import LearningStore
 
     night = date.today().isoformat()
-    if action == "night":
+    if action == "ahead":
+        # The night's window starts one to two hours from now, whatever the hour, so the Overview says "Next look
+        # tonight at …". Inside the window (01:00 to 05:00 by default) it rightly says it looks once Row-Bot is free.
+        if not _L3A_DREAM_CONFIG:
+            path = dream_cycle._CONFIG_FILE
+            _L3A_DREAM_CONFIG.append(path.read_bytes() if path.exists() else None)
+        start = (datetime.now() + timedelta(hours=2)).hour
+        dream_cycle.set_window(start, (start + 1) % 24)
+    elif action == "night":
         diagnosis._save(LearningStore(), diagnosis.NightReport(night, found=3, drafted=2, refused=1,
                                                                needs_examples=1, bugs=1))
         _l3a_drafts()
@@ -6690,6 +7313,12 @@ def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
             diagnosed=1 if action == "stopped" else 0))
     elif action == "restore":
         _l3a_forget_drafts()
+        if _L3A_DREAM_CONFIG:
+            saved, path = _L3A_DREAM_CONFIG.pop(), dream_cycle._CONFIG_FILE
+            if saved is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(saved)
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}

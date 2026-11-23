@@ -295,8 +295,9 @@ test('generated output is retained explicitly and can be handed to Developer wit
     .first()
     .click();
   await page.getByRole('menuitem', { name: 'Save to workspace' }).click();
+  // Kept under its own name in the workspace's Saved outputs folder (W3).
   await expect(
-    context.getByText(/Saved to outputs\/output-[a-f0-9]+\.png/),
+    context.getByText(/^Saved to your workspace as Saved outputs\/[^/]+\.png$/),
   ).toBeVisible();
   expect(
     (await fixtureState(page)).calls.filter(

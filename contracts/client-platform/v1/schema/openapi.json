@@ -6252,6 +6252,84 @@
         }
       }
     },
+    "/api/v1/conversations/{conversation_id}/read-aloud/{message_id}": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./ReadAloudRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 8388608,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/conversations/{conversation_id}/sandbox": {
       "get": {
         "parameters": [
@@ -7674,82 +7752,6 @@
         }
       }
     },
-    "/api/v1/conversations/{conversation_id}/voice/realtime/{lease_id}/event": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "lease_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./RealtimeEventRequest.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./RealtimeEventResult.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
     "/api/v1/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange": {
       "post": {
         "parameters": [
@@ -7850,168 +7852,6 @@
         }
       }
     },
-    "/api/v1/conversations/{conversation_id}/voice/realtime/{lease_id}/heartbeat": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "lease_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./DictationIdentity.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./RealtimeSnapshot.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/voice/realtime/{lease_id}/run": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "lease_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Voice-Session-Id",
-            "required": true,
-            "schema": {
-              "maximum": 9007199254740991,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Server-Epoch",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./VoiceRunView.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
     "/api/v1/conversations/{conversation_id}/voice/realtime/{lease_id}/stop": {
       "post": {
         "parameters": [
@@ -8088,159 +7928,7 @@
         }
       }
     },
-    "/api/v1/conversations/{conversation_id}/voice/talk": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./TalkStart.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./TalkSnapshot.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/voice/talk/{lease_id}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "lease_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Voice-Session-Id",
-            "required": true,
-            "schema": {
-              "maximum": 9007199254740991,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Server-Epoch",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "./TalkSnapshot.schema.json"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/voice/talk/{lease_id}/heartbeat": {
+    "/api/v1/conversations/{conversation_id}/voice/realtime/{lease_id}/ticket": {
       "post": {
         "parameters": [
           {
@@ -8297,7 +7985,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "./TalkSnapshot.schema.json"
+                  "$ref": "./VoiceTicket.schema.json"
                 }
               }
             },
@@ -8316,22 +8004,12 @@
         }
       }
     },
-    "/api/v1/conversations/{conversation_id}/voice/talk/{lease_id}/output": {
+    "/api/v1/conversations/{conversation_id}/voice/talk": {
       "post": {
         "parameters": [
           {
             "in": "path",
             "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "lease_id",
             "required": true,
             "schema": {
               "maxLength": 256,
@@ -8362,7 +8040,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "./TalkOutputRequest.schema.json"
+                "$ref": "./TalkStart.schema.json"
               }
             }
           },
@@ -8371,97 +8049,9 @@
         "responses": {
           "200": {
             "content": {
-              "audio/wav": {
-                "schema": {
-                  "format": "binary",
-                  "maxLength": 8388608,
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Authenticated result"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "./Problem.schema.json"
-                }
-              }
-            },
-            "description": "Safe problem"
-          }
-        }
-      }
-    },
-    "/api/v1/conversations/{conversation_id}/voice/talk/{lease_id}/run": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "lease_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Client-Session",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Voice-Session-Id",
-            "required": true,
-            "schema": {
-              "maximum": 9007199254740991,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Server-Epoch",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "./VoiceRunView.schema.json"
+                  "$ref": "./TalkStarted.schema.json"
                 }
               }
             },
@@ -8556,9 +8146,8 @@
         }
       }
     },
-    "/api/v1/conversations/{conversation_id}/voice/talk/{lease_id}/transcribe": {
+    "/api/v1/conversations/{conversation_id}/voice/talk/{lease_id}/ticket": {
       "post": {
-        "description": "One admitted utterance per lease; receive deadline at most30 seconds and remaining lease lifetime. No audio is persisted. Stop retains admission until actual worker quiescence.",
         "parameters": [
           {
             "in": "path",
@@ -8597,85 +8186,13 @@
               "maxLength": 256,
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "X-Voice-Session-Id",
-            "required": true,
-            "schema": {
-              "maximum": 9007199254740991,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Server-Epoch",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dictation-Utterance",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
           }
         ],
         "requestBody": {
           "content": {
-            "audio/mp4": {
+            "application/json": {
               "schema": {
-                "format": "binary",
-                "maxLength": 8388608,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "audio/mpeg": {
-              "schema": {
-                "format": "binary",
-                "maxLength": 8388608,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "audio/ogg": {
-              "schema": {
-                "format": "binary",
-                "maxLength": 8388608,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "audio/wav": {
-              "schema": {
-                "format": "binary",
-                "maxLength": 8388608,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "audio/webm": {
-              "schema": {
-                "format": "binary",
-                "maxLength": 8388608,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "audio/x-wav": {
-              "schema": {
-                "format": "binary",
-                "maxLength": 8388608,
-                "minLength": 1,
-                "type": "string"
+                "$ref": "./DictationIdentity.schema.json"
               }
             }
           },
@@ -8686,7 +8203,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "./TalkResult.schema.json"
+                  "$ref": "./VoiceTicket.schema.json"
                 }
               }
             },
@@ -19073,6 +18590,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "./NoticePage.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/outputs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./OutputPage.schema.json"
                 }
               }
             },
@@ -29717,6 +29280,72 @@
         }
       }
     },
+    "/api/v1/video-projects/{project_id}/approve": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./VideoSceneApproval.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./VideoProjectView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/video-projects/{project_id}/export": {
       "post": {
         "parameters": [
@@ -29905,6 +29534,74 @@
         }
       }
     },
+    "/api/v1/video-projects/{project_id}/scenes/{scene_id}/frame": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "scene_id",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "maxLength": 26214400,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/views/{render_id}/tools/call": {
       "post": {
         "parameters": [
@@ -29999,6 +29696,256 @@
               "application/json": {
                 "schema": {
                   "$ref": "./DictationCapability.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/voice/speech-models": {
+      "get": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./SpeechModelsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/voice/speech-models/install": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./SpeechModelInstallRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./SpeechModelsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/voice/speech-models/remove": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./SpeechModelRemoveRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./SpeechModelsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/voice/speech-models/stop": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./SpeechModelsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/voice/wake": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./VoiceTicket.schema.json"
                 }
               }
             },
@@ -30231,5 +30178,15 @@
         }
       }
     }
-  }
+  },
+  "x-websockets": [
+    {
+      "path": "/api/v1/voice/stream",
+      "summary": "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down. In its wake mode (desktop only), 16 kHz PCM up and wake events down."
+    },
+    {
+      "path": "/api/v1/voice/live",
+      "summary": "Live voice: the ticket first, then the session's events both ways and a relayed front's audio."
+    }
+  ]
 }

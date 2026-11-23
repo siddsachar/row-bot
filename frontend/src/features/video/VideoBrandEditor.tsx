@@ -24,6 +24,12 @@ const CAMERAS: [VideoBrand['camera'], string][] = [
   ['follow', 'Follows what is done'],
   ['still', 'Stays still'],
 ];
+/** How loud every video's sound is made (LUFS), by where it plays. */
+const LOUDNESS: [number, string][] = [
+  [-14, 'Social and YouTube (−14 LUFS)'],
+  [-16, 'Podcasts (−16 LUFS)'],
+  [-23, 'Broadcast (−23 LUFS)'],
+];
 const SPEEDS: [number, string][] = [
   [0.9, 'Slower'],
   [1, 'Normal'],
@@ -53,7 +59,8 @@ export function useVoiceChoices(): SettingsChoice[] {
  * cards, titles and badges, its caption style sets how lines show, its logo (a
  * picture from Library › Media) sits in a corner, its intro and outro are cards
  * before and after, its footage and camera set how recordings are shown, its
- * voice and speed say the lines, and its music mood is what Row-Bot picks. A
+ * voice and speed say the lines, its music mood is what Row-Bot picks, and its
+ * loudness is how loud every video's sound is made (C6). A
  * version can turn it off; changing the kit applies the next time a video is
  * made.
  */
@@ -268,6 +275,24 @@ export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
                 {mood[0].toUpperCase() + mood.slice(1)}
               </option>
             ))}
+          </Select>
+        </Field>
+        <Field label="Loudness" layout="row">
+          <Select
+            aria-label="Loudness"
+            value={String(brand.loudness ?? -14)}
+            onChange={(event) => set({ loudness: Number(event.target.value) })}
+          >
+            {LOUDNESS.map(([value, label]) => (
+              <option key={value} value={String(value)}>
+                {label}
+              </option>
+            ))}
+            {!LOUDNESS.some(([value]) => value === (brand.loudness ?? -14)) && (
+              <option value={String(brand.loudness)}>
+                {`${brand.loudness} LUFS`}
+              </option>
+            )}
           </Select>
         </Field>
       </div>

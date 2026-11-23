@@ -15,7 +15,7 @@ browser_extract: 273
 browser_navigate: 447
 browser_press: 419
 browser_record: 1091
-browser_screenshot: 317
+browser_screenshot: 334
 browser_scroll: 461
 browser_select: 367
 browser_tabs: 443
@@ -60,7 +60,7 @@ developer_workspace_info: 233
 developer_write_file: 719
 documents: 438
 duckduckgo: 368
-edit_video: 3283
+edit_video: 3333
 explore_connections: 474
 export_to_pdf: 687
 get_current_weather: 418
@@ -73,11 +73,12 @@ list_conversations: 280
 list_memories: 453
 make_music: 657
 media_bring: 305
-media_find: 576
-media_tag: 456
+media_find: 690
+media_tag: 590
 page_create: 788
 page_read: 495
 page_update: 612
+present: 893
 read_terminal: 411
 read_tool_output: 456
 read_url: 528
@@ -92,7 +93,7 @@ row_bot_reject_proposal: 495
 row_bot_review_skill_library: 422
 row_bot_send_feedback: 776
 row_bot_status: 737
-row_bot_update_setting: 1085
+row_bot_update_setting: 1071
 row_bot_verify_proposal: 459
 run_command: 642
 sandbox: 1204
@@ -100,7 +101,7 @@ save_memory: 646
 search_conversations: 768
 search_memory: 506
 send_file: 885
-speak: 875
+speak: 1109
 start_process: 901
 stop_process: 306
 suggest_apps: 691
@@ -115,7 +116,7 @@ tracker_query: 597
 transcribe: 447
 update_memory: 921
 use_code_folder: 413
-video: 5666
+video: 8656
 wait_for: 1944
 wait_stop: 259
 waits: 160
@@ -128,8 +129,8 @@ workspace_copy_file: 395
 workspace_file_delete: 254
 workspace_find: 423
 workspace_move_file: 397
-workspace_read_file: 620
+workspace_read_file: 626
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (134 tools): 87918
+TOTAL (135 tools): 92342

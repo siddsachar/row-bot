@@ -534,3 +534,47 @@ def test_a_linked_channel_shows_its_code_only_to_the_owner_and_resets_on_request
     owners["registry_owner"].channel = SlackChannel()
     with pytest.raises(controls.ChannelControlError, match="action_unavailable"):
         command(environment, "reset")
+
+
+class SwitchChannel(SlackChannel):
+    @property
+    def config_fields(self) -> list[ConfigField]:
+        return [
+            *super().config_fields,
+            ConfigField(key="voice_replies", label="Reply to voice notes with a voice note",
+                        field_type="toggle", storage="config", default=True, help_text="Uses Kokoro."),
+        ]
+
+
+def test_a_switch_shows_its_value_and_takes_only_on_or_off(environment) -> None:
+    from row_bot.api.v1 import schemas as dto
+
+    _channel, owners = environment
+    channel = SwitchChannel()
+    owners["registry_owner"] = RegistryOwner(channel)
+    switched = (channel, owners)
+
+    def fields() -> dict:
+        state = snapshot(switched)
+        dto.ChannelStatus.model_validate(state)  # the outgoing wire record
+        return {field["key"]: field for field in state["fields"]}
+
+    assert fields()["voice_replies"]["value"] is True  # its default until changed
+    assert fields()["voice_replies"]["configured"] is False  # a default is not a saved setting
+    assert "value" not in fields()["bot_token"]  # other fields never show theirs
+    for wrong in ("off", 0, None):
+        with pytest.raises(controls.ChannelControlError, match="invalid_command"):
+            command(switched, "configure", field_key="voice_replies", value=wrong)
+    payload = {**command(switched, "start")[0]["payload"], "operation": "configure",
+               "field_key": "voice_replies", "value": False}
+    assert dto.ChannelActionRequest.model_validate(payload).value is False  # stays a boolean on the wire
+
+    value, review = command(switched, "configure", field_key="voice_replies", value=False)
+    result = asyncio.run(execute(switched, value, review))
+
+    assert result["status"] == "completed"
+    assert owners["config_owner"].writes == [("slack", "voice_replies", False)]
+    assert fields()["voice_replies"]["value"] is False
+    assert fields()["voice_replies"]["configured"] is True
+    assert fields()["voice_replies"]["source"] == "channel config"
+    assert channel.messages == []

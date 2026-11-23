@@ -4,6 +4,10 @@ Real attachment storage in an isolated data folder; nothing leaves the machine.
 """
 from __future__ import annotations
 
+import os
+import time
+from pathlib import Path
+
 import pytest
 
 from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401
@@ -75,3 +79,75 @@ def test_the_agent_finds_tags_and_brings_media_into_its_chat(platform, monkeypat
     assert brought.startswith("launch-card.png is in this chat's files (conversation-b:")
     assert [entry["name"] for entry in list_conversation_files("conversation-b")].count("launch-card.png") == 1
     assert media_tool._media_find("nothing like this") == "Nothing in the media library matches."
+
+
+def _settled(folder: Path, at: float) -> None:
+    """A chat folder and its files as last changed at ``at``, as a library's older chats are."""
+    for path in folder.iterdir():
+        os.utime(path, (at - 1, at - 1))
+    os.utime(folder, (at, at))
+
+
+def _counted_listing(monkeypatch) -> list[str]:
+    """The chats whose folders are read, in order."""
+    from row_bot.application import attachments
+
+    read: list[str] = []
+    listing = attachments.list_conversation_files
+    monkeypatch.setattr(attachments, "list_conversation_files",
+                        lambda chat, **options: read.append(chat) or listing(chat, **options))
+    return read
+
+
+def test_media_reads_a_chat_folder_once_until_it_changes_and_stays_private(platform, monkeypatch):  # noqa: F811
+    from row_bot import media_library, threads
+    from row_bot.application.attachments import register_attachment
+
+    _files(register_attachment)
+    for folder in Path(threads._MEDIA_DIR).iterdir():
+        _settled(folder, time.time() - 60)
+    read = _counted_listing(monkeypatch)
+
+    first = media_library.items()
+    assert sorted(read) == ["conversation-a", "conversation-b"]
+    read.clear()
+    assert media_library.items() == first and read == []
+
+    # A new file changes its folder: that folder alone is read again, and the file is listed.
+    register_attachment("conversation-a", "poster.png", PNG)
+    assert [item["name"] for item in media_library.items()][0] == "poster.png"
+    assert read == ["conversation-a"]
+    # What is private is checked on every listing, never kept.
+    threads.set_thread_incognito("conversation-b", True)
+    assert {item["conversation_id"] for item in media_library.items()} == {"conversation-a"}
+
+
+def test_media_reads_only_the_folders_that_can_hold_the_newest_items(platform, monkeypatch):  # noqa: F811
+    from row_bot import media_library, threads
+    from row_bot.application.attachments import register_attachment
+
+    _files(register_attachment)
+    media = Path(threads._MEDIA_DIR)
+    _settled(media / "conversation-a", time.time() - 60)
+    _settled(media / "conversation-b", time.time() - 600)
+    read = _counted_listing(monkeypatch)
+
+    assert [item["name"] for item in media_library.items(limit=1)] == ["launch-card.png"]
+    assert read == ["conversation-a"]
+    assert {item["name"] for item in media_library.items(limit=3)} == {"launch-card.png", "demo.mp4", "line-01.wav"}
+
+
+def test_the_outputs_list_shares_the_folder_listing_and_never_reads_a_files_bytes(platform, monkeypatch):  # noqa: F811
+    from row_bot import media_library, threads
+    from row_bot.application import attachments
+
+    _files(attachments.register_attachment)
+    for folder in Path(threads._MEDIA_DIR).iterdir():
+        _settled(folder, time.time() - 60)
+    monkeypatch.setattr(attachments, "read_attachment", lambda *_: pytest.fail("a file was read"))
+    read = _counted_listing(monkeypatch)
+
+    first = media_library.outputs(show="uploads")
+    assert sorted(item["file_name"] for item in first["items"]) == ["demo.mp4", "launch-card.png", "notes.pdf"]
+    read.clear()
+    assert media_library.outputs(show="uploads") == first and media_library.items() and read == []

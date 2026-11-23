@@ -190,7 +190,7 @@ def test_whatsapp_media_waits_for_its_album_and_the_album_is_one_turn(store, rea
     texts: list[str] = []
     monkeypatch.setattr(whatsapp, "_media_batches", batches)
     monkeypatch.setattr(whatsapp, "_is_authorised", lambda _chat: True)
-    monkeypatch.setattr(whatsapp, "_run_text_turn", lambda _chat, text, _key: texts.append(text))
+    monkeypatch.setattr(whatsapp, "_run_text_turn", lambda _chat, text, _key, **_kw: texts.append(text))
 
     for data in (b"cat", b"dog"):
         whatsapp._process_inbound({
@@ -302,7 +302,7 @@ def _single(monkeypatch, message: _TelegramMessage) -> tuple[Any, list[str]]:
 
     texts: list[str] = []
 
-    async def run_agent(_update, _context, text: str) -> None:
+    async def run_agent(_update, _context, text: str, **_kwargs: Any) -> None:
         texts.append(text)
 
     async def react(*_args: Any) -> None:

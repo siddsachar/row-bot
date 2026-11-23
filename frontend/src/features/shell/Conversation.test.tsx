@@ -157,6 +157,10 @@ vi.mock('../../runtime', () => {
       approval: mock.approval,
       pendingApprovals: mock.pendingApprovals,
       waits: async () => ({ schema_version: 1, items: [] }),
+      outputs: async () => ({
+        items: [],
+        counts: { made: 0, uploads: 0, working: 0 },
+      }),
       skillOffers: async (conversation: string) => ({
         conversation_id: conversation,
         revision: 'none',
@@ -3970,6 +3974,16 @@ it('says which levels exist when /reasoning names none, and keeps the text', asy
     screen.getByText(/isn't a thinking level for this model. Try Low, High./),
   ).toBeVisible();
   expect(mock.drafts.get('conversation-a')?.text).toBe('/reasoning turbo');
+});
+
+it('shows the thinking level and its choices for a bare /reasoning', async () => {
+  withCommands();
+  await sendText('/reasoning');
+  expect(mock.notify).toHaveBeenCalledWith(
+    'Thinking: Provider default. Choices: Low, High.',
+  );
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(mock.drafts.get('conversation-a')?.text).toBe('');
 });
 
 it('switches the profile with /profile', async () => {

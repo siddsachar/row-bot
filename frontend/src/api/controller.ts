@@ -17,11 +17,13 @@ import { sha256Hex } from '../platform/crypto';
 import type {
   AnswerStateChange,
   ClientState,
+  OutputFilter,
   PageDecisionWrite,
   PageTheme,
   RowBotSandboxCreate,
   VideoBrand,
   VideoProjectChange,
+  VideoSceneApproval,
   VideoProjectExport,
   DictationScope,
   DictationHandle,
@@ -83,6 +85,8 @@ const DELAYS = [1000, 2000, 3000, 5000, 5000, 5000];
  */
 const RECOVERY_DELAYS = [500, 1500, 3000, 5000];
 const SESSION_RECOVERY_ATTEMPTS = 3;
+/** The server's largest conversation page (`GET /conversations?limit=`). */
+const LIBRARY_PAGE = 200;
 /** With no conversation stream open, background notices are read this often. */
 const NOTICE_READ_MS = 30000;
 /**
@@ -329,6 +333,8 @@ export class ClientController {
         realtime_available: false,
         talk_reason: 'host_unavailable',
         realtime_reason: 'host_unavailable',
+        read_aloud_reason: 'host_unavailable',
+        live_providers: [],
       }
     );
   }
@@ -360,13 +366,53 @@ export class ClientController {
       body,
       signal,
     );
-    validateWire('TalkSnapshot', result);
+    validateWire('TalkStarted', result);
     if (
-      result.handle.conversation_id !== scope.conversationId ||
-      result.handle.server_epoch !== scope.serverEpoch
+      result.snapshot.handle.conversation_id !== scope.conversationId ||
+      result.snapshot.handle.server_epoch !== scope.serverEpoch
     )
       throw { code: 'protocol_incompatible' };
     return result;
+  }
+  async stopTalk(
+    scope: DictationScope,
+    handle: DictationHandle,
+    signal?: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle, true);
+    if (!this.transport.stopTalk) throw { code: 'capability_unavailable' };
+    const result = await this.transport.stopTalk(handle, signal);
+    validateWire('TalkSnapshot', result);
+    return result;
+  }
+  async talkTicket(
+    scope: DictationScope,
+    handle: DictationHandle,
+    signal?: AbortSignal,
+  ) {
+    this.voiceHandle(scope, handle);
+    if (!this.transport.talkTicket) throw { code: 'capability_unavailable' };
+    const result = await this.transport.talkTicket(handle, signal);
+    validateWire('VoiceTicket', result);
+    return result;
+  }
+  openVoiceSocket(scope: DictationScope) {
+    if (!this.sameDictationScope(scope) || !this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    return this.transport.openVoiceSocket();
+  }
+  /** "Hey Row-Bot": a ticket for the voice socket's wake mode, and the socket. */
+  async wakeTicket(signal?: AbortSignal) {
+    if (!this.transport.wakeTicket || !this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    const result = await this.transport.wakeTicket(signal);
+    validateWire('VoiceTicket', result);
+    return result;
+  }
+  openWakeSocket() {
+    if (!this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    return this.transport.openVoiceSocket();
   }
   async startRealtime(
     scope: DictationScope,
@@ -388,22 +434,15 @@ export class ClientController {
       throw { code: 'protocol_incompatible' };
     return result;
   }
-  async voiceControl<M extends 'talk' | 'realtime'>(
+  async stopRealtime(
     scope: DictationScope,
-    mode: M,
     handle: DictationHandle,
-    action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
   ) {
-    this.voiceHandle(scope, handle, action === 'stop');
-    if (!this.transport.voiceControl) throw { code: 'capability_unavailable' };
-    const result = await this.transport.voiceControl(
-      mode,
-      handle,
-      action,
-      signal,
-    );
-    validateWire(mode === 'talk' ? 'TalkSnapshot' : 'RealtimeSnapshot', result);
+    this.voiceHandle(scope, handle, true);
+    if (!this.transport.stopRealtime) throw { code: 'capability_unavailable' };
+    const result = await this.transport.stopRealtime(handle, signal);
+    validateWire('RealtimeSnapshot', result);
     if (
       Object.keys(handle).some(
         (key) =>
@@ -414,75 +453,35 @@ export class ClientController {
       throw { code: 'protocol_incompatible' };
     return result;
   }
-  async transcribeTalk(
+  async realtimeTicket(
     scope: DictationScope,
     handle: DictationHandle,
-    utterance: string,
-    audio: Blob,
-    signal: AbortSignal,
+    signal?: AbortSignal,
   ) {
     this.voiceHandle(scope, handle);
-    if (!this.transport.transcribeTalk)
+    if (!this.transport.realtimeTicket)
       throw { code: 'capability_unavailable' };
-    const result = await this.transport.transcribeTalk(
-      handle,
-      utterance,
-      audio,
-      signal,
-    );
-    validateWire('TalkResult', result);
-    if (
-      result.utterance_id !== utterance ||
-      Object.keys(handle).some(
-        (key) =>
-          result.snapshot.handle[key as keyof DictationHandle] !==
-          handle[key as keyof DictationHandle],
-      )
-    )
-      throw { code: 'protocol_incompatible' };
+    const result = await this.transport.realtimeTicket(handle, signal);
+    validateWire('VoiceTicket', result);
     return result;
   }
-  async talkOutput(
-    scope: DictationScope,
-    handle: DictationHandle,
-    run: string,
-    output: string,
-    signal: AbortSignal,
-  ) {
-    this.voiceHandle(scope, handle);
-    if (!this.transport.talkOutput) throw { code: 'capability_unavailable' };
-    const result = await this.transport.talkOutput(handle, run, output, signal);
-    this.voiceHandle(scope, handle);
-    return result;
+  openLiveSocket(scope: DictationScope) {
+    if (!this.sameDictationScope(scope) || !this.transport.openLiveSocket)
+      throw { code: 'capability_unavailable' };
+    return this.transport.openLiveSocket();
   }
   async speechTest(signal: AbortSignal) {
     if (!this.transport.speechTest) throw { code: 'capability_unavailable' };
     return this.transport.speechTest(signal);
   }
-  async realtimeEvent(
-    scope: DictationScope,
-    handle: DictationHandle,
-    event: import('./voice_realtime').RealtimeEvent,
+  async readAloud(
+    conversationId: string,
+    messageId: string,
+    part: number,
     signal: AbortSignal,
   ) {
-    this.voiceHandle(scope, handle);
-    if (!this.transport.realtimeEvent) throw { code: 'capability_unavailable' };
-    const input = validateWire<import('./types').RealtimeEvent>(
-      'RealtimeEvent',
-      event,
-    );
-    const result = await this.transport.realtimeEvent(handle, input, signal);
-    validateWire('RealtimeEventResult', result);
-    if (
-      result.event_id !== event.event_id ||
-      Object.keys(handle).some(
-        (key) =>
-          result.snapshot.handle[key as keyof DictationHandle] !==
-          handle[key as keyof DictationHandle],
-      )
-    )
-      throw { code: 'protocol_incompatible' };
-    return result;
+    if (!this.transport.readAloud) throw { code: 'capability_unavailable' };
+    return this.transport.readAloud(conversationId, messageId, part, signal);
   }
   async realtimeExchange(
     scope: DictationScope,
@@ -495,27 +494,6 @@ export class ClientController {
       throw { code: 'capability_unavailable' };
     const result = await this.transport.realtimeExchange(handle, sdp, signal);
     this.voiceHandle(scope, handle);
-    return result;
-  }
-  async voiceRun(
-    scope: DictationScope,
-    mode: 'talk' | 'realtime',
-    handle: DictationHandle,
-    signal: AbortSignal,
-  ) {
-    this.voiceHandle(scope, handle);
-    if (!this.transport.voiceRun) throw { code: 'capability_unavailable' };
-    const result = await this.transport.voiceRun(mode, handle, signal);
-    this.voiceHandle(scope, handle);
-    validateWire('VoiceRunView', result);
-    if (
-      Object.keys(handle).some(
-        (key) =>
-          result.handle[key as keyof DictationHandle] !==
-          handle[key as keyof DictationHandle],
-      )
-    )
-      throw { code: 'protocol_incompatible' };
     return result;
   }
   async startDictation(
@@ -1179,7 +1157,11 @@ export class ClientController {
       typedConversations: typed && { ...typed, rows: typed.rows.map(replace) },
     });
   }
-  /** An explicit library review reads every page without the sidebar's 1,000-row cache cap. */
+  /**
+   * An explicit library review reads every page without the sidebar's
+   * 1,000-row cache cap, in the server's largest pages: each read waits its
+   * turn in the paced query lane, so 426 chats are three reads, not nine.
+   */
   async readConversationLibrary(
     signal?: AbortSignal,
   ): Promise<import('./types').ConversationView[]> {
@@ -1198,7 +1180,12 @@ export class ClientController {
       signal?.throwIfAborted();
       const page = validateWire<import('./types').ConversationPage>(
         'ConversationPage',
-        await this.transport.listConversations(cursor, signal, 'all'),
+        await this.transport.listConversations(
+          cursor,
+          signal,
+          'all',
+          LIBRARY_PAGE,
+        ),
       );
       if (
         this.disposed ||
@@ -2439,6 +2426,15 @@ export class ClientController {
     this.query(() =>
       this.transport.listConversations(undefined, signal, 'all'),
     );
+  /** The newest conversations of one listing group, one page of `limit`. */
+  conversationsOfGroup = (
+    group: import('./types').ConversationListGroup,
+    limit: number,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.listConversations(undefined, signal, group, limit),
+    );
   library = (
     kind: 'artifact' | 'workspace',
     cursor?: string,
@@ -2999,6 +2995,9 @@ export class ClientController {
     this.query(() => this.transport.media?.(filter, signal));
   setMediaTags = (ref: string, tags: string[]) =>
     this.query(() => this.transport.setMediaTags?.(ref, tags));
+  /** The outputs list (W3): a chat's Outputs pane, Library › Media, the phone's Files. */
+  outputs = (filter: OutputFilter, signal?: AbortSignal) =>
+    this.query(() => this.transport.outputs?.(filter, signal));
   /** A video project (5.3.1 B3): read, change, go back, make again. */
   videoProject = (projectId: string, version?: number, signal?: AbortSignal) =>
     this.query(() => this.transport.videoProject?.(projectId, version, signal));
@@ -3008,6 +3007,17 @@ export class ClientController {
     this.query(() => this.transport.restoreVideoProject?.(projectId, number));
   makeVideoProject = (projectId: string) =>
     this.query(() => this.transport.makeVideoProject?.(projectId));
+  approveVideoScenes = (projectId: string, approval: VideoSceneApproval) =>
+    this.query(() => this.transport.approveVideoScenes?.(projectId, approval));
+  videoSceneFrame = (
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.videoSceneFrame?.(projectId, sceneId, version, signal),
+    );
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits = (signal?: AbortSignal) =>
     this.query(() => this.transport.waits?.(signal));
@@ -3257,6 +3267,33 @@ export class ClientController {
       if (!this.transport.repairLocalModelRuntime)
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.repairLocalModelRuntime(signal);
+    });
+  /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
+  speechModels = (signal?: AbortSignal) =>
+    this.query(() => this.transport.speechModels?.(signal));
+  /** The person pressed Download; `downloadBytes` is the size the button showed. */
+  installSpeechModel = (modelId: string, downloadBytes: number) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.installSpeechModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.installSpeechModel(
+        { model_id: modelId, download_bytes: downloadBytes },
+        signal,
+      );
+    });
+  /** Stop a speech-model download (it resumes on the next Download). */
+  stopSpeechModelDownload = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.stopSpeechModelDownload)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.stopSpeechModelDownload(signal);
+    });
+  /** Delete a downloaded speech model (Talk goes back to Whisper if it used it). */
+  removeSpeechModel = (modelId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.removeSpeechModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.removeSpeechModel({ model_id: modelId }, signal);
     });
   /** One short message to the model just chosen; the result is in words. */
   testChosenModel = () =>
