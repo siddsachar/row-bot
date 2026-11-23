@@ -316,7 +316,8 @@ def test_a_real_caption_is_as_large_as_its_frame_is_tall(studio, tmp_path):
     edits = studio["edits"]
 
     def caption_rows(shape: str, size: str) -> tuple[int, int]:
-        """How many rows of the made video's middle column are the caption's dark box, and its last row."""
+        """How tall the caption's dark box is down the made video's middle column (its top to its bottom, so
+        white letters crossing the column don't count against it), and its last row."""
         name = f"plain-{shape.replace(':', 'x')}.mp4"
         clip = tmp_path / name
         subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
@@ -334,7 +335,7 @@ def test_a_real_caption_is_as_large_as_its_frame_is_tall(studio, tmp_path):
         with av.open(str(made)) as reader:
             frame = next(frame.to_image() for frame in reader.decode(video=0) if frame.time >= 1.0)
         dark = [y for y in range(frame.height) if max(frame.getpixel((frame.width // 2, y))) < 90]
-        return len(dark), max(dark)
+        return max(dark) - min(dark) + 1, max(dark)
 
     wide, (tall, bottom) = caption_rows("16:9", "640x360")[0], caption_rows("9:16", "360x640")
     assert tall > 1.4 * wide, (wide, tall)
