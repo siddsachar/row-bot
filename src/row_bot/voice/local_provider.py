@@ -239,6 +239,10 @@ class LocalFunASRProvider:
 
         if not audio_bytes:
             return Heard("", language)
+        # Too short to tell (SenseVoice gives no confidence): the last language heard clearly, if it knows it.
+        detecting = language is None and not languages.too_short(audio_bytes)
+        if language is None and not detecting:
+            language = languages.kept_language()
         asked = language if language in languages.SENSEVOICE_LANGUAGES else "auto"
         model = self.ensure_model()
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
@@ -261,7 +265,7 @@ class LocalFunASRProvider:
             # SenseVoice tags what it heard: "<|fr|><|NEUTRAL|><|Speech|>…".
             tag = _LANGUAGE_TAG.match(raw)
             heard = language if asked != "auto" else (tag.group(1) if tag else None)
-            if asked == "auto" and text:
+            if detecting and text:
                 languages.note_heard(heard)
             return Heard(text, heard)
         finally:

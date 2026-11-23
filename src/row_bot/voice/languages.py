@@ -191,19 +191,38 @@ def text_language(text: str) -> str | None:
 
 
 # ── What the person was heard speaking ──────────────────────────────────────
-# The languages detected in the person's last turns (Dictate, Talk, voice notes), kept in memory only, so
-# Settings can say when an English-only engine keeps hearing another language.
+# The languages confidently detected in the person's last turns (Dictate, Talk, voice notes), kept in memory
+# only: Settings says when an English-only engine keeps hearing another language, and detection that can't
+# tell keeps the last one.
 _HEARD: deque[str] = deque(maxlen=10)
 _HEARD_LOCK = threading.Lock()
 # Of the last ten detections, this many in another language is "often".
 HEARD_OFTEN = 3
+# Detection is trusted only this sure of itself, and only on this much audio; else it keeps a language.
+SURE_PROBABILITY = 0.5
+SURE_SECONDS = 1.5
+#: Row-Bot's interface language. The client has no translations, so it is English.
+UI_LANGUAGE = "en"
 
 
 def note_heard(language: str | None) -> None:
+    """A language confidently detected in what the person said."""
     code = str(language or "").split("-")[0].lower()
     if code in LANGUAGES:
         with _HEARD_LOCK:
             _HEARD.append(code)
+
+
+def kept_language() -> str:
+    """What detection falls back to when it can't tell: the last language confidently heard, else the
+    interface's."""
+    with _HEARD_LOCK:
+        return _HEARD[-1] if _HEARD else UI_LANGUAGE
+
+
+def too_short(pcm16: bytes) -> bool:
+    """16 kHz mono 16-bit audio too short to tell its language from."""
+    return len(pcm16) < SURE_SECONDS * 16_000 * 2
 
 
 def heard_often(understood: frozenset[str]) -> str | None:

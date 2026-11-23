@@ -1992,7 +1992,7 @@ function VoiceLanguageGroup({
         label="Language"
         hint={
           chosen === 'auto'
-            ? 'Row-Bot hears which language you speak. Choose one if it guesses wrong.'
+            ? 'Row-Bot hears which language you speak. When it can’t tell, it keeps the last language it heard. Choose one if it guesses wrong.'
             : 'Row-Bot listens for this language only.'
         }
         value={chosen}

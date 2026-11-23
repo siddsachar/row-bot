@@ -159,32 +159,84 @@ def _sensevoice(tmp_path, model: _FunASR):
 def test_sensevoice_is_asked_for_a_language_it_knows_and_reports_what_it_heard(tmp_path, chosen, asked, reported):
     model = _FunASR("<|en|><|NEUTRAL|><|Speech|><|withitn|>Hello there.")
     provider = _sensevoice(tmp_path, model)
-    heard = provider.transcribe_heard(b"\x01\x00" * 1600, language=chosen)
+    heard = provider.transcribe_heard(b"\x01\x00" * 32_000, language=chosen)
     assert model.languages == [asked]
     assert heard.text == "Hello there."
     assert heard.language == reported
 
 
-def test_whisper_detection_is_kept_so_settings_can_tell_an_english_only_engine_hears_another_language(
-        monkeypatch):
+# 16 kHz mono 16-bit audio: two seconds (long enough to tell its language) and one second (too short).
+LONG = b"\x01\x00" * 32_000
+SHORT = b"\x01\x00" * 16_000
+
+
+class _WhisperModel:
+    """faster-whisper's model: detects *detected* with *probability* when asked for no language."""
+
+    def __init__(self, detected: str, probability: float) -> None:
+        self.detected, self.probability = detected, probability
+        self.asked: list[str | None] = []
+
+    def transcribe(self, audio, *, beam_size, language, vad_filter):
+        self.asked.append(language)
+        info = SimpleNamespace(language=language or self.detected,
+                               language_probability=1.0 if language else self.probability)
+        return iter([SimpleNamespace(text=" mm-hmm")]), info
+
+
+def _whisper(monkeypatch, detected: str, probability: float):
     from row_bot.voice import VoiceService
 
-    class Model:
-        def transcribe(self, audio, *, beam_size, language, vad_filter):
-            return iter([SimpleNamespace(text=" Hola, ¿qué tal?")]), SimpleNamespace(language="es")
-
     service = VoiceService()
-    monkeypatch.setattr(service, "_ensure_whisper", lambda **_: Model())
+    model = _WhisperModel(detected, probability)
+    monkeypatch.setattr(service, "_ensure_whisper", lambda **_: model)
+    return service, model
+
+
+def test_the_first_unsure_utterance_is_heard_in_the_interface_language(monkeypatch):
+    service, model = _whisper(monkeypatch, "cy", 0.3)
+    assert service.transcribe_pcm16_heard(SHORT, language=None) == ("mm-hmm", "en")
+    # Too short to tell: no detection at all, one pass in the interface's language.
+    assert model.asked == ["en"]
+    monkeypatch.setattr(languages, "UI_LANGUAGE", "fr")
+    assert service.transcribe_pcm16_heard(LONG, language=None)[1] == "fr"
+    # Unsure on longer audio: the guess is dropped before decoding and the audio read in the kept language.
+    assert model.asked == ["en", None, "fr"]
+
+
+def test_a_confident_french_clip_switches_and_a_later_unsure_one_keeps_french(monkeypatch):
+    service, model = _whisper(monkeypatch, "fr", 0.92)
+    assert service.transcribe_pcm16_heard(LONG, language=None)[1] == "fr"
+    assert model.asked == [None]
+    model.detected, model.probability = "nl", 0.31
+    assert service.transcribe_pcm16_heard(LONG, language=None)[1] == "fr"
+    assert service.transcribe_pcm16_heard(SHORT, language=None)[1] == "fr"
+    assert model.asked == [None, None, "fr", "fr"]
+    # A chosen language is used as it is.
+    assert service.transcribe_pcm16_heard(SHORT, language="de")[1] == "de"
+
+
+def test_confident_detections_tell_settings_an_english_only_engine_hears_another_language(monkeypatch):
+    service, _model = _whisper(monkeypatch, "es", 0.9)
     for _ in range(languages.HEARD_OFTEN - 1):
-        assert service.transcribe_pcm16_heard(b"\0\0" * 160, language=None) == ("Hola, ¿qué tal?", "es")
+        service.transcribe_pcm16(LONG, language=None)
     assert languages.heard_often(frozenset({"en"})) is None
-    service.transcribe_pcm16(b"\0\0" * 160, language=None)
+    service.transcribe_pcm16(LONG, language=None)
     assert languages.heard_often(frozenset({"en"})) == "es"
-    # A chosen language is not a detection.
+    # Chosen languages and unsure guesses are not detections.
     languages.forget_heard()
     for _ in range(languages.HEARD_OFTEN):
-        service.transcribe_pcm16(b"\0\0" * 160, language="es")
+        service.transcribe_pcm16(LONG, language="es")
+        service.transcribe_pcm16(SHORT, language=None)
     assert languages.heard_often(frozenset({"en"})) is None
+
+
+def test_a_short_sensevoice_clip_keeps_the_last_language_heard(tmp_path):
+    languages.note_heard("ja")
+    model = _FunASR("<|ja|><|NEUTRAL|><|Speech|><|withitn|>はい。")
+    provider = _sensevoice(tmp_path, model)
+    assert provider.transcribe_heard(SHORT, language=None).language == "ja"
+    assert model.languages == ["ja"]
 
 
 def test_an_english_only_talk_model_keeps_listening_when_another_language_is_chosen():

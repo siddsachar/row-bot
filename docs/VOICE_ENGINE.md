@@ -307,7 +307,13 @@ utterance with it through `StreamingSpeechToText.open(language=...)`. No path
 hard-codes English any more.
 
 - **Whisper** takes the language or detects it (one extra decoder step on the
-  first 30 s window; the encoder output is reused). **SenseVoice** is asked for
+  first 30 s window; the encoder output is reused). Detection is trusted only
+  at a language probability of 0.5 or more on 1.5 s of audio or more; a
+  shorter clip skips detection and an unsure one is read again (detection
+  comes before any decoding, so only the features and encoder repeat) in the
+  last language heard clearly, else the interface's (English: the client has
+  no translations). Same engine, only the language is chosen.
+  SenseVoice gives no confidence, so only the short-clip rule applies to it. **SenseVoice** is asked for
   Chinese, English, Japanese or Korean when that is the setting, else `auto`,
   and reports the language tag it heard. **Moonshine Base** and **Nemotron**
   are English only and report `en`.

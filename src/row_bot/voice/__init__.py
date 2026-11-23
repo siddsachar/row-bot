@@ -189,21 +189,29 @@ class VoiceService:
         allow_download: bool = False,
         language: str | None,
     ) -> tuple[str, str | None]:
-        """The words in 16 kHz mono signed-16 PCM and the language they are in (*language*, or the one
-        Whisper detected when it is None)."""
+        """The words in 16 kHz mono signed-16 PCM and the language they are in: *language*, or with None
+        the one Whisper detects. When detection can't tell (under half sure, or under 1.5 s of audio) it
+        keeps the last language it heard clearly (else the interface's), on the same model."""
+        from row_bot.voice import languages
+
         # Keep this call's model: a saved size change may drop the shared one.
         model = self._ensure_whisper(allow_download=allow_download)
         f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        segs, info = model.transcribe(
-            f32, beam_size=5, language=language, vad_filter=True,
-        )
+        sure = False
+        if language is None and languages.too_short(audio_bytes):
+            language = languages.kept_language()
+        segs, info = model.transcribe(f32, beam_size=5, language=language, vad_filter=True)
+        if language is None:
+            # Detection happens before any decoding: an unsure guess is dropped and the audio read again.
+            heard = str(getattr(info, "language", "") or "")
+            sure = bool(heard) and float(getattr(info, "language_probability", 0.0)) >= languages.SURE_PROBABILITY
+            language = heard if sure else languages.kept_language()
+            if not sure:
+                segs, info = model.transcribe(f32, beam_size=5, language=language, vad_filter=True)
         text = " ".join(s.text.strip() for s in segs).strip()
-        heard = language or (str(getattr(info, "language", "") or "") or None)
-        if language is None and text:
-            from row_bot.voice import languages
-
-            languages.note_heard(heard)
-        return text, heard
+        if sure and text:
+            languages.note_heard(language)
+        return text, language
 
 
     def transcribe_words(self, audio_bytes: bytes) -> tuple[list, str]:
