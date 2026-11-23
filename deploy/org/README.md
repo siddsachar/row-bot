@@ -147,3 +147,16 @@ connected Row-Bots call models through it, so the endpoints' keys never reach a 
   `/api/gateway/openai/v1/embeddings` and `/api/gateway/anthropic/v1/messages`. The gateway picks the model:
   requests naming others (`models`, `route`, `fallbacks`, `context_window_fallbacks`, `provider`), Anthropic
   server tools, `mcp_servers` and beta flags other than Row-Bot's own are refused.
+
+## Policy
+
+Admins keep one company policy and optional overrides per group (`/api/admin/policy`); each signed-in
+Row-Bot fetches its person's merged policy from `/api/policy/effective`. The settings, their defaults and
+the merge rules are in `contracts/policy/v1/`. An override can only widen the company policy: restrictions
+go in the company policy.
+
+**An override follows the group's name, so name only groups nobody can give themselves.** Set `group_map`
+in `ROW_BOT_ORG_IDP` from the provider's immutable group ids (Entra object ids) or admin-managed group
+names to the names the overrides use; never write an override for a display name people can create or rename
+themselves (self-service groups). `row-bot-org check-config` warns when overrides exist without a
+`group_map`.

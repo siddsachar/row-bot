@@ -123,6 +123,12 @@ export type MonitorSnapshot = {
     entries: MonitorLogEntry[];
     full_available: boolean;
   };
+  /** Row-Bot Voice's recent replies, once it has spoken one. */
+  voice?: {
+    turns: number;
+    first_audio_p50_ms: number;
+    first_audio_p90_ms: number;
+  } | null;
 };
 
 /** Failed workflow runs are fixed on the Workflows tab. */
@@ -1465,6 +1471,8 @@ export default function MonitorHome({
                   : !snapshot.dream.enabled
                     ? 'Dream Cycle is off (Settings › Preferences).'
                     : `Dream Cycle ${snapshot.dream.window} · ${snapshot.dream.last_run ? `ran ${relativeTime(snapshot.dream.last_run, now)}` : 'not run yet'}`}
+                {snapshot.voice &&
+                  ` · Voice replies start in ${(snapshot.voice.first_audio_p50_ms / 1000).toFixed(1)} s (9 in 10 within ${(snapshot.voice.first_audio_p90_ms / 1000).toFixed(1)} s)`}
               </p>
             </header>
             {metrics.length ? (

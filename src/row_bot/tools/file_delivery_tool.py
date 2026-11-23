@@ -235,9 +235,9 @@ class SendFileTool(BaseTool):
                 func=_send_file,
                 name="send_file",
                 description=(
-                    "Send files to the person: to=devices puts them in this chat as downloads on every device "
-                    "they're signed in on, with a notice (never asks); a chat app sends them there (may ask "
-                    "first). Up to 10 files."
+                    "Send files to the person: to=devices shows them in this chat (a video or picture plays "
+                    "there) on every device they're signed in on, with a notice (never asks); a chat app sends "
+                    "them there (may ask first). Up to 50 files."
                 ),
                 args_schema=_SendInput,
             )

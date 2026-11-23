@@ -100,7 +100,7 @@ jobs:
       - name: Install Linux runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0
 
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
@@ -159,10 +159,6 @@ jobs:
           version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
-      - name: Install macOS runtime libraries
-        if: runner.os == 'macOS'
-        run: brew install portaudio
-
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
 
@@ -197,7 +193,7 @@ jobs:
       - name: Install Linux runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0
 
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test

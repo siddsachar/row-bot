@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Row-Bot company policy",
+  "description": "The company's policy for every connected Row-Bot. A setting it leaves out takes its default. Unknown keys are refused.\n\n| Setting | Default | In a group override | Lockdown |\n| --- | --- | --- | --- |\n| `models.allowed` | * | every entry the company or any of the person's groups allows | [] |\n| `models.personal_api_keys` | false | on if the company or any of the person's groups turns it on | false |\n| `models.consumer_sign_ins` | false | on if the company or any of the person's groups turns it on | false |\n| `models.local_models` | true | on if the company or any of the person's groups turns it on | true |\n| `tools.disabled_groups` | [] | `tools.enabled_groups`: the company's list, less every entry any of the person's groups gives back | agents, arxiv, browser, calendar, computer_use, conversation_setup, custom_tool_builder, designer, developer, duckduckgo, file_delivery, gmail, image_gen, linked_conversations, mcp, outlook_calendar, outlook_mail, shell, sound, system_info, task, url_reader, video_editing, video_gen, vision, waits, weather, web_search, wiki, wikipedia, wolfram_alpha, x, youtube |\n| `tools.disabled_tools` | [] | `tools.enabled_tools`: the company's list, less every entry any of the person's groups gives back | [] |\n| `approvals.max_level` | auto | the most permissive of the company's and the groups' values | block |\n| `apps.plugins` | none | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_plugins` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.mcp_servers` | none | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_mcp_servers` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.skills_hub` | any | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_skills` | [] | every entry the company or any of the person's groups allows | [] |\n| `apps.channels` | allow-list | the most permissive of the company's and the groups' values | none |\n| `apps.allowed_channels` | discord, slack, sms, telegram | every entry the company or any of the person's groups allows | [] |\n| `data.chat_export` | true | on if the company or any of the person's groups turns it on | false |\n| `data.share_to_company` | true | on if the company or any of the person's groups turns it on | false |\n| `offline.max_days` | 7 | the most permissive of the company's and the groups' values | 0 |",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "title": "Version",
+      "description": "The server's version of this document. Required on a write: the version it replaces (0 for the first), refused when that is no longer the newest.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "models": {
+      "title": "Models",
+      "description": "Which models people may use, and how they reach them.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "title": "Allowed catalog models",
+          "description": "Company catalog model ids people may use; * is every model in the catalog. Default: *.",
+          "default": [
+            "*"
+          ],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:\\*|[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199})$"
+          }
+        },
+        "personal_api_keys": {
+          "title": "Allow personal API keys",
+          "description": "Whether people may add their own API keys and custom endpoints. Default: false.",
+          "default": false,
+          "type": "boolean"
+        },
+        "consumer_sign_ins": {
+          "title": "Allow consumer sign-ins",
+          "description": "Whether people may sign in with a consumer subscription (Claude plan, ChatGPT/Codex, xAI Grok, OpenCode Go). Default: false.",
+          "default": false,
+          "type": "boolean"
+        },
+        "local_models": {
+          "title": "Allow local models",
+          "description": "Whether people may run models on their own computer (Ollama, llama.cpp). Default: true.",
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    },
+    "tools": {
+      "title": "Tools",
+      "description": "Which of Row-Bot's tools are switched off.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disabled_groups": {
+          "title": "Disabled tool groups",
+          "description": "Registry tools switched off, with every tool they offer (for example shell, browser, computer_use, developer). Default: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z0-9][a-z0-9_]{0,63})$"
+          }
+        },
+        "disabled_tools": {
+          "title": "Disabled tools",
+          "description": "Single model-facing tools switched off (for example run_command). Default: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.:-]{0,127})$"
+          }
+        }
+      }
+    },
+    "approvals": {
+      "title": "Approvals",
+      "description": "How far people may let Row-Bot act without asking.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_level": {
+          "title": "Highest approval level",
+          "description": "The highest approval level anyone may choose: block, approve (Ask), auto or full (Hands-off). Default: auto.",
+          "default": "auto",
+          "type": "string",
+          "enum": [
+            "block",
+            "approve",
+            "auto",
+            "full"
+          ]
+        }
+      }
+    },
+    "apps": {
+      "title": "Apps",
+      "description": "Which plugins, MCP servers, Skills Hub skills and channels people may use.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plugins": {
+          "title": "Plugins",
+          "description": "none, allow-list (only allowed_plugins) or any. Default: none.",
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_plugins": {
+          "title": "Allowed plugins",
+          "description": "Plugin ids, used when plugins is allow-list. Default: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199})$"
+          }
+        },
+        "mcp_servers": {
+          "title": "MCP servers",
+          "description": "none, allow-list (only allowed_mcp_servers) or any. Default: none.",
+          "default": "none",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_mcp_servers": {
+          "title": "Allowed MCP servers",
+          "description": "MCP server names, used when mcp_servers is allow-list. Default: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199})$"
+          }
+        },
+        "skills_hub": {
+          "title": "Skills Hub",
+          "description": "none, allow-list (only allowed_skills) or any. Default: any.",
+          "default": "any",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_skills": {
+          "title": "Allowed skills",
+          "description": "Skills Hub skill ids, used when skills_hub is allow-list. Default: [].",
+          "default": [],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199})$"
+          }
+        },
+        "channels": {
+          "title": "Channels",
+          "description": "none, allow-list (only allowed_channels) or any. Default: allow-list.",
+          "default": "allow-list",
+          "type": "string",
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ]
+        },
+        "allowed_channels": {
+          "title": "Allowed channels",
+          "description": "Channel ids, used when channels is allow-list. The WhatsApp bridge (whatsapp) is unofficial, so it is allowed only when named. Default: discord, slack, sms, telegram.",
+          "default": [
+            "discord",
+            "slack",
+            "sms",
+            "telegram"
+          ],
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z0-9][a-z0-9_-]{0,63})$"
+          }
+        }
+      }
+    },
+    "data": {
+      "title": "Data",
+      "description": "What people may take out of Row-Bot or offer to the company.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chat_export": {
+          "title": "Allow chat export",
+          "description": "Whether people may export their chats and data. Default: true.",
+          "default": true,
+          "type": "boolean"
+        },
+        "share_to_company": {
+          "title": "Allow Share to company",
+          "description": "Whether people may offer a document, fact or answer to the company (a space owner still approves it). Default: true.",
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    },
+    "offline": {
+      "title": "Offline",
+      "description": "How long a Row-Bot may keep working on its cached policy without reaching the server.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_days": {
+          "title": "Offline days",
+          "description": "Days a Row-Bot may run on its cached policy; after that it locks down to chat with local models only. 0 locks down as soon as the server can't be reached. Default: 7.",
+          "default": 7,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365
+        }
+      }
+    }
+  }
+}

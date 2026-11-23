@@ -1,0 +1,33 @@
+name: Row-Bot CodeQL
+
+queries:
+  - uses: security-extended
+
+# Only Row-Bot's own code is analysed. None of these paths is committed except
+# the built docs site; the rest are left out in case a step ever creates them.
+paths-ignore:
+  # Vendored packages.
+  - "**/node_modules"
+  - src/row_bot/channels/whatsapp_bridge/node_modules
+  # Built assets: the client bundle and its packaged copy, Python and installer
+  # builds, and the docs-site build.
+  - frontend/dist
+  - src/row_bot/static/client-v2
+  - dist
+  - build
+  - installer/build
+  - docs-site/build
+  - docs-site/.docusaurus
+  # The built docs site in docs/, synced in at release. The hand-written
+  # landing page beside it (docs/*.html, docs/*.js, docs/railway) is analysed.
+  - docs/docs
+  - docs/assets
+  - docs/pagefind
+  - docs/search
+  # Tests carry deliberately unsafe inputs (injection strings, sandbox escape
+  # attempts, fake tokens in tests/fixtures) and never ship.
+  - tests
+  - frontend/tests
+  - services/*/test
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.test.tsx"

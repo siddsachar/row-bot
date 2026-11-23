@@ -57,39 +57,17 @@ async function release(page: Page) {
   });
 }
 
-/** A microphone and recorder that capture nothing, as voice.spec.ts uses. */
+/** A silent microphone: a real audio stream that never speaks, for Row-Bot Voice's capture. */
 async function syntheticMicrophone(page: Page) {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
       value: {
-        getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+        getUserMedia: async () => {
+          const context = new AudioContext();
+          return context.createMediaStreamDestination().stream;
+        },
       },
-    });
-    class SyntheticRecorder {
-      static isTypeSupported() {
-        return true;
-      }
-      state = 'inactive';
-      ondataavailable?: (event: { data: Blob }) => void;
-      onstop?: () => void;
-      start() {
-        this.state = 'recording';
-      }
-      stop() {
-        if (this.state !== 'recording') return;
-        this.state = 'inactive';
-        this.ondataavailable?.({ data: new Blob(['audio']) });
-        this.onstop?.();
-      }
-    }
-    Object.defineProperty(window, 'MediaRecorder', {
-      configurable: true,
-      value: SyntheticRecorder,
-    });
-    Object.defineProperty(window, 'AudioContext', {
-      configurable: true,
-      value: undefined,
     });
   });
 }
@@ -243,11 +221,11 @@ for (const phone of PHONES)
       ).toBeEnabled();
       expect(await tapPath(page, ['Talk'])).toBe(1);
       await expect(page).toHaveURL(/\/conversations\/[^/?]+$/);
-      const stop = page.getByRole('button', { name: 'Stop Talk' });
-      await expect(stop).toBeVisible();
+      const bar = page.getByRole('region', { name: 'Voice conversation' });
+      await expect(bar).toHaveAttribute('data-state', 'listening');
       await screenshot(page, info, `phone-home-talk-${width}`);
-      await stop.tap();
-      await expect(stop).toBeHidden();
+      await bar.getByRole('button', { name: 'End voice' }).tap();
+      await expect(bar).toBeHidden();
     });
 
     test('the notifications card comes once something has waited, and Not now hides it', async ({

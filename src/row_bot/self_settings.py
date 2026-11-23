@@ -479,12 +479,6 @@ def _prepare_run_dream(setting: Setting, value: str) -> Change:
                    cancelled="Dream cycle run cancelled.")
 
 
-def _read_aloud_ready(on: bool) -> None:
-    if on and not bool(_field_now("voice", "tts", "installed")):
-        raise SettingRefused("Read aloud needs its voice downloaded first, which only you can start: "
-                             "[Read aloud](/settings/voice#read-aloud).")
-
-
 def _log_now() -> Value:
     level = str(_field_now("system", "logging", "level")).upper()
     return Value(level.lower(), level.capitalize())
@@ -886,10 +880,6 @@ SETTINGS: tuple[Setting, ...] = (
             "'START-END' hours, 0–23 (e.g. '1-5')", _prepare_dream_window, _dream_window_now),
     Setting("run_dream_cycle", "Dream Cycle", "preferences", "Preferences", "dream-cycle", "repair",
             "'now' runs it once", _prepare_run_dream),
-    Setting("read_aloud", "Read aloud", "voice", "Voice", "read-aloud", "preference", "'on' or 'off'",
-            _switch_setting("voice", "tts.enabled", ("tts", "enabled"),
-                            lambda on: f"Read aloud is {'on' if on else 'off'}.", check=_read_aloud_ready),
-            _switch_now("voice", "tts", "enabled")),
     Setting("live_captions", "Live captions", "voice", "Voice", "runtime.captions_enabled", "preference",
             "'on' or 'off'",
             _switch_setting("voice", "runtime.captions_enabled", ("runtime", "captions_enabled"),

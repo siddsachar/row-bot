@@ -70,8 +70,9 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
     at shutdown, and ``/readyz`` checks the database: reachable, and no migration pending. With a pool
-    and ``settings.idp`` it serves sign-in (``row_bot_org.identity``), and with ``settings.gateway_key`` too
-    the model catalog and gateway (``row_bot_org.gateway``). Every other path needs a server
+    and ``settings.idp`` it serves sign-in (``row_bot_org.identity``) and the policy routes
+    (``row_bot_org.policy``), and with ``settings.gateway_key`` too the model catalog and gateway
+    (``row_bot_org.gateway``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
 
     ``X-Forwarded-For`` and ``X-Forwarded-Proto`` count only from ``settings.trusted_proxies`` (uvicorn's
@@ -121,9 +122,10 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     routers = [health_router(app.state.readiness)]
     if service is not None:
         from row_bot_org.identity.web import identity_router
+        from row_bot_org.policy.web import policy_router
 
         app.state.identity = service
-        routers.append(identity_router(service))
+        routers += [identity_router(service), policy_router()]
     if gateway is not None:
         from row_bot_org.gateway.web import gateway_router
 
