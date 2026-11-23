@@ -157,6 +157,10 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
   );
 }
 
+/** Row-Bot for Teams (C1b): what Settings › Company asks of this Row-Bot. */
+export type CompanyAction =
+  'status' | 'join' | 'sign_in_again' | 'cancel' | 'check' | 'leave';
+
 /** The sole network boundary. Fixtures implement this same interface. */
 export interface ClientTransport {
   integrationSources?(
@@ -1386,6 +1390,12 @@ export interface ClientTransport {
   repairLocalModelRuntime?(
     signal?: AbortSignal,
   ): Promise<Wire.LocalModelRuntimeView>;
+  /** Row-Bot for Teams (C1b): this Row-Bot's company, read or changed; `body` is Join's. */
+  company?(
+    action: CompanyAction,
+    body?: Wire.CompanyJoinRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyView>;
   speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
   installSpeechModel?(
     body: Wire.SpeechModelInstallRequest,

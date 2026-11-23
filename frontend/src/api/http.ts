@@ -1,6 +1,7 @@
 import * as wire from '../../../contracts/client-platform/v1/typescript/client';
 import type {
   ClientTransport,
+  CompanyAction,
   OutputFilter,
   RowBotSandboxCreate,
   VideoBrand,
@@ -935,6 +936,25 @@ export class HttpTransport implements ClientTransport {
   }
   repairLocalModelRuntime(signal?: AbortSignal) {
     return wire.repairLocalModelRuntime(this.base, this.session(), signal);
+  }
+  company(
+    action: CompanyAction,
+    body?: wire.CompanyJoinRequest,
+    signal?: AbortSignal,
+  ) {
+    const proof = this.session();
+    if (action === 'join') {
+      if (!body) throw new Error('invalid_command');
+      return wire.joinCompany(this.base, proof, body, signal);
+    }
+    const send = {
+      status: wire.getCompany,
+      sign_in_again: wire.signInToCompanyAgain,
+      cancel: wire.cancelCompanyJoin,
+      check: wire.checkCompany,
+      leave: wire.leaveCompany,
+    }[action];
+    return send(this.base, proof, signal);
   }
   speechModels(signal?: AbortSignal) {
     return wire.getSpeechModels(this.base, this.session(), signal);

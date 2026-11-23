@@ -24,6 +24,7 @@ const settingsRoutes = [
   ['tools', 'Tools'],
   ['skills', 'Skills'],
   ['apps', 'Apps'],
+  ['company', 'Company'],
   ['system', 'System'],
   ['activity', 'Activity'],
   ['access', 'Devices & remote access'],

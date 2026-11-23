@@ -33,6 +33,8 @@ import type {
   ClientTransport,
   Command,
   CommandReceipt,
+  CompanyAction,
+  CompanyJoinRequest,
   EventRecord,
   Snapshot,
   SubscriptionView,
@@ -3255,6 +3257,18 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.repairLocalModelRuntime(signal);
     });
+  /**
+   * Row-Bot for Teams (C1b): this Row-Bot's company. Reading it contacts
+   * nothing; every other action is the person's (Join, Leave, Retry…).
+   */
+  company = (action: CompanyAction, body?: CompanyJoinRequest) =>
+    action === 'status'
+      ? this.query(() => this.transport.company?.(action))
+      : this.authenticatedResult((signal) => {
+          if (!this.transport.company)
+            throw clientError({ code: 'capability_unavailable' });
+          return this.transport.company(action, body, signal);
+        });
   /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
   speechModels = (signal?: AbortSignal) =>
     this.query(() => this.transport.speechModels?.(signal));
