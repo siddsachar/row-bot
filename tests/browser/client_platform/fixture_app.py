@@ -22,6 +22,9 @@ from tests.helpers.client_platform_fakes import fixture_id
 
 
 DATA = Path(os.environ["ROW_BOT_DATA_DIR"]).resolve()
+# The fixture's workspace: beside the data folder, as a person's is (Row-Bot never writes its files inside its own
+# private data folder, ``data_paths.is_private_data_path``), and disposable with it.
+WORKSPACE = DATA.parent / "attachment-workspace"
 TOKEN = os.environ["P1_BROWSER_CONTROL_TOKEN"]
 if os.environ.get("ROW_BOT_TEST_MODE") != "1" or not TOKEN or not DATA.name.startswith("data"):
     raise RuntimeError("Browser fixture requires a disposable runner environment")
@@ -48,7 +51,7 @@ def seed() -> None:
     from row_bot.tools.registry import set_tool_config
     # The workspace sits beside the data folder, as a person's does: Row-Bot never writes its files inside its
     # own private data folder (``data_paths.is_private_data_path``), so one there refuses Save to workspace.
-    set_tool_config("filesystem", "workspace_root", str(DATA.parent / "attachment-workspace"))
+    set_tool_config("filesystem", "workspace_root", str(WORKSPACE))
     state = default_docs_capture_demo_state()
     state["messages"] = []
     state["threads"] = []

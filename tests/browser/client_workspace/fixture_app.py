@@ -1135,7 +1135,8 @@ def natural_result(conversation_id: str, x_fixture_token: str = Header(default="
         if binding.kind == "workspace":
             workspace = get_workspace(binding.resource_id)
             folder = Path(workspace.path).resolve()
-            if not folder.is_relative_to(predecessor.DATA):
+            # Only the fixture's own disposable folders: its data, and its workspace beside it (drafts).
+            if not (folder.is_relative_to(predecessor.DATA) or folder.is_relative_to(predecessor.WORKSPACE.resolve())):
                 raise HTTPException(status_code=403)
             file = folder / "index.html"
             result["bindings"].append({"kind": "workspace", "id": binding.resource_id,
@@ -4493,7 +4494,7 @@ def _p4_registered_folder(resource_id: str, workspace) -> Path:
     from row_bot.developer.review import scoped_workspace_path
     folder = Path(workspace.path).absolute()
     name = folder.name
-    drafts = predecessor.DATA.parent / "attachment-workspace" / "Drafts"
+    drafts = predecessor.WORKSPACE / "Drafts"
     # Drafts are named from the request ("Code folder", "Tiny date app 2"),
     # so a local draft is known by where it lives, not by its name.
     if folder.parent == drafts.absolute():
