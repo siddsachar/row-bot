@@ -96,7 +96,7 @@ def test_learnings_models_get_nothing_and_the_built_in_runtime_gets_its_values(m
     built_in = _sent("qwen3.5-9b", provider_id="custom_openai_llamacpp", managed="local")
 
     assert _sampling(learning) == _sampling(learning_arm) == _sampling(personal_name) == {}
-    assert _sampling(built_in) == QWEN35_THINKING
+    assert _sampling(built_in) == QWEN35_NON_THINKING
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────
