@@ -407,13 +407,22 @@ body {
     flex-basis: 100%;
     overflow-x: auto;
   }
+  /* A tab bar: five equal tabs, the label under its icon, so all fit at 390 px. */
   .console-nav ul {
     display: flex;
     gap: var(--space-1);
   }
+  .console-nav li {
+    flex: 1 1 0;
+    min-width: 0;
+  }
   .console-nav-link {
-    padding: 6px var(--space-2);
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 2px;
+    font-size: 12px;
     white-space: nowrap;
+    justify-content: center;
   }
   .console-page {
     padding: var(--space-4) 16px var(--space-12);
