@@ -373,6 +373,31 @@ button.video-scene-frame {
   min-height: 24px;
 }
 /* Each character's voice, under the storyboard's controls. */
+.video-caption-style {
+  width: auto;
+}
+.video-chapters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.video-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-chapters span {
+  display: inline-block;
+  min-width: 3.5em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
 .video-look {
   display: flex;
   flex-wrap: wrap;

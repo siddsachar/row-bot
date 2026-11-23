@@ -666,6 +666,41 @@ it('the look is set beside the storyboard, and only the choices changed are sent
   expect(change).not.toHaveProperty('letterbox');
 });
 
+it('captions get their style beside the toggle, and a made video’s chapters copy in one tap', async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+  const { controller } = setup(
+    view({
+      number: 8,
+      latest: 8,
+      versions: [{ number: 8, at: AT, by: 'row-bot', note: 'Captioned' }],
+      captions: true,
+      caption_style: 'word',
+      chapters: [
+        { at: 0, title: 'Ten tips' },
+        { at: 40, title: 'Pricing' },
+        { at: 65, title: 'Wrap up' },
+      ],
+    }),
+  );
+  const style = await screen.findByLabelText('Caption style');
+  expect(style).toHaveValue('word');
+  const chapters = screen.getByRole('list', { name: 'Chapters' });
+  expect(within(chapters).getAllByRole('listitem')).toHaveLength(3);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Copy the chapters' }),
+  );
+  expect(writeText).toHaveBeenCalledWith(
+    '0:00 Ten tips\n0:40 Pricing\n1:05 Wrap up',
+  );
+  await userEvent.selectOptions(style, 'Clean');
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  expect(
+    vi.mocked(controller.changeVideoProject).mock.calls[0][1],
+  ).toMatchObject({ caption_style: 'clean' });
+  vi.unstubAllGlobals();
+});
+
 it('a new character given a line joins the voices, picked for them until chosen', async () => {
   setup(view());
   expect(

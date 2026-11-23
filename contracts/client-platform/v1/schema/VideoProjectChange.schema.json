@@ -208,6 +208,25 @@
       "default": null,
       "title": "Brand"
     },
+    "caption_style": {
+      "anyOf": [
+        {
+          "enum": [
+            "box",
+            "clean",
+            "bold",
+            "title",
+            "word"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Caption Style"
+    },
     "captions": {
       "anyOf": [
         {

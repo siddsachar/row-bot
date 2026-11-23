@@ -23,8 +23,8 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-CaptionStyle = Literal["box", "bold", "title"]
-CAPTION_STYLES: tuple[str, ...] = ("box", "bold", "title")
+CaptionStyle = Literal["box", "clean", "bold", "title", "word"]
+CAPTION_STYLES: tuple[str, ...] = ("box", "clean", "bold", "title", "word")
 MOODS: tuple[str, ...] = ("calm", "upbeat", "focused", "warm")
 CORNERS: tuple[str, ...] = ("top-left", "top-right", "bottom-left", "bottom-right")
 FRAMINGS: tuple[str, ...] = ("framed", "full")

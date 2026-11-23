@@ -90,6 +90,21 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await grain.click();
   await expect(grain).toHaveAttribute('aria-pressed', 'false');
 
+  // Its captions (C7): turned on, their style chosen beside the toggle, then put back.
+  const captions = panel.getByRole('switch', { name: 'Captions' });
+  await captions.check();
+  // The first one: the brand kit, still open below, has its own.
+  const captionStyle = panel
+    .getByRole('combobox', { name: 'Caption style' })
+    .first();
+  await captionStyle.selectOption('word');
+  await views(page, info, 'c7-captions', captionStyle);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c7-captions-phone', captionStyle);
+  await page.setViewportSize(DESKTOP);
+  await captions.uncheck();
+  await expect(captions).not.toBeChecked();
+
   // Its sound (C6): a line given to a character, who joins the voices, and an effect added to the scene.
   await panel.getByLabel('Scene 2: who says its line').fill('Maya');
   const cast = panel.getByRole('group', { name: 'Voices' });

@@ -58,7 +58,8 @@ tags: []
   when the person chose it). Effects and ambience go on a scene.
   A montage cuts on the music's beat with on_beat. A change to the sound
   alone mixes it again; the picture isn't drawn again.
-- Captions only when the person asks for them: a narrated video needs none.
+- Captions only when the person asks for them (a short has them): a
+  narrated video needs none. They follow what's said, word by word.
 - After make, read the checks: they list what to fix by scene and time, and
   already include one look at the review sheet, so don't look again with
   analyze_image. Fix what they list (soft: a sharper clip or less zoom;

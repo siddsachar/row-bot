@@ -3,12 +3,12 @@ import { clientError } from '../../api/errors';
 import type { MediaItem, SettingsChoice, VideoBrand } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, Field, Select, Skeleton } from '../../ui/primitives';
+import { CAPTION_STYLES } from './video-words';
 
-const CAPTIONS: [VideoBrand['captions'], string][] = [
-  ['box', 'In a box'],
-  ['bold', 'Bold, outlined'],
-  ['title', 'Large, centred'],
-];
+const CAPTIONS = Object.entries(CAPTION_STYLES) as [
+  VideoBrand['captions'],
+  string,
+][];
 const CORNERS: [VideoBrand['logo_corner'], string][] = [
   ['top-left', 'Top left'],
   ['top-right', 'Top right'],

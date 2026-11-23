@@ -347,3 +347,14 @@ def test_a_video_has_sound_only_when_there_is_something_to_hear(tmp_path, sound,
     assert has_sound(video(tmp_path / "clip.mp4", sound=sound, codec="mpeg4")) is heard
     (tmp_path / "broken.mp4").write_bytes(b"not a video")
     assert has_sound(tmp_path / "broken.mp4") is None, "unreadable is never called silent"
+
+
+def test_only_the_part_of_a_clip_a_scene_uses_is_read_for_its_speech(tmp_path):
+    """C7: a scene's caption hears only its part of a long clip, not the whole file from the start."""
+    pytest.importorskip("av")
+    from row_bot.sound import decoded_speech
+    from tests.helpers.media_files import video
+
+    clip = video(tmp_path / "talk.mp4", sound=True, codec="mpeg4", seconds=3)
+    assert len(decoded_speech(clip)) / 32000 == pytest.approx(3.0, abs=0.1)
+    assert len(decoded_speech(clip, 1.0, 2.5)) / 32000 == pytest.approx(1.5, abs=0.05)
