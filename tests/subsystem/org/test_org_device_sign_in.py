@@ -388,6 +388,7 @@ def test_a_device_joins_again_as_itself_and_its_old_tokens_end(org_database, idp
 def test_joining_again_needs_ones_own_live_device(org_database, idp) -> None:
     with org_server(org_database, idp) as server:
         ada, bob = person(server, idp, "ada"), person(server, idp, "bob")
+        it = person(server, idp, "it", ["IT Admins"])
         app = row_bot(server)
         bobs = join(server, bob)["device_id"]
         left = join(server, ada)
@@ -400,7 +401,8 @@ def test_joining_again_needs_ones_own_live_device(org_database, idp) -> None:
         # Revoked between the page and Connect: refused, and nothing is made.
         live = join(server, ada)["device_id"]
         token = form_token(ada.get(device_query(device_id=live)))
-        owner_sql(org_database, "UPDATE row_bot_org.devices SET revoked_at = now() WHERE id = %s", live)
+        # An admin revokes it (the owner may only read devices under row-level security).
+        assert it.post(f"/api/admin/devices/{live}/revoke").status_code == 200
         assert confirm(ada, token).status_code == 400
     assert owner_sql(org_database, "SELECT count(*) FROM row_bot_org.devices") == [(3,)]
     assert owner_sql(org_database, "SELECT name FROM row_bot_org.devices WHERE id = %s", bobs) == [("Ada's laptop",)]
