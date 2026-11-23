@@ -107,7 +107,8 @@ def test_the_link_expires_with_its_copy(service, sent, monkeypatch):
         expired = _offer(client, headers, delivery.delivery_id, 0)
         assert expired.status_code == 410 and expired.json()["code"] == "sent_file_expired"
         view = client.get(f"/api/v1/deliveries/{delivery.delivery_id}", headers=headers).json()
-        assert view["status"] == "expired" and not view["files"][0]["downloadable"]
+        # Only the link ended: report.pdf is the chat's own file, so the card still shows it.
+        assert view["status"] == "sent" and not view["files"][0]["downloadable"] and view["files"][0]["media_ref"]
 
 
 def test_the_desktop_window_saves_into_exports_while_it_reconnects(service, sent):

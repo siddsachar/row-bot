@@ -12,8 +12,10 @@ import { MediaPreview, fileKind, formatBytes } from './MediaPreview';
 import { saveProblem, useSaveFile } from './save-file';
 import {
   DeliveryIoContext,
+  daysLeft,
   deliveryAdvice,
   deliveryExpired,
+  deliveryInChat,
   deliveryPlace,
   deliveryStatus,
   deliveryTitle,
@@ -24,7 +26,8 @@ import {
  * Files a step sent (F7), in the conversation. Sent to the person's devices:
  * each file is the chat's own and plays here (a picture, a video, a sound),
  * on every device they're signed in on, for as long as the chat keeps it;
- * only a file too large for a chat is a download that ends after a week.
+ * only a file too large for a chat is a download that ends after a week
+ * (beside files that play, its own row says how long it has left).
  * Sent to a chat app: where it went. One that didn't go says why in plain
  * words, with one way out: send it to your devices instead.
  */
@@ -132,6 +135,7 @@ export function DeliveryCard({
   const place = deliveryPlace(view, now);
   const advice = deliveryAdvice(view, now);
   const expired = deliveryExpired(view, now);
+  const inChat = deliveryInChat(view);
   const anySent = view.files.some((file) => file.sent);
   const Icon = view.target === 'devices' ? MonitorSmartphone : Send;
   const state = expired
@@ -187,6 +191,11 @@ export function DeliveryCard({
                   {formatBytes(file.size_bytes)} ·{' '}
                   {fileKind(file.mime_type, file.name)}
                   {!file.sent && anySent ? ' · Not sent' : ''}
+                  {file.sent && inChat
+                    ? file.downloadable
+                      ? ` · ${daysLeft(view, now)}`
+                      : ' · Download ended'
+                    : ''}
                 </small>
               </span>
               {file.downloadable && !expired && (

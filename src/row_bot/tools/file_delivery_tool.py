@@ -222,14 +222,16 @@ class SendFileTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return ("Send files from a chat to your own devices (as a download, with a notice) or to a chat app "
-                "(Telegram, Discord, Slack, WhatsApp). Sending to a chat app asks first.")
+        return ("Send files from a chat to your own devices (they show in the chat on each one, with a notice) "
+                "or to a chat app (Telegram, Discord, Slack, WhatsApp). Sending to a chat app asks first.")
 
     @property
     def enabled_by_default(self) -> bool:
         return True
 
     def as_langchain_tools(self) -> list:
+        from row_bot.file_deliveries import MAX_FILES
+
         return [
             StructuredTool.from_function(
                 func=_send_file,
@@ -237,7 +239,7 @@ class SendFileTool(BaseTool):
                 description=(
                     "Send files to the person: to=devices shows them in this chat (a video or picture plays "
                     "there) on every device they're signed in on, with a notice (never asks); a chat app sends "
-                    "them there (may ask first). Up to 50 files."
+                    f"them there (may ask first). Up to {MAX_FILES} files."
                 ),
                 args_schema=_SendInput,
             )

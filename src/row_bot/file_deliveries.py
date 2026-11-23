@@ -331,7 +331,12 @@ class Delivery:
     sent_instead: str = ""
 
     def expired(self, now: float | None = None) -> bool:
+        """Its download link has ended (devices only). A file it sent as the chat's own still plays there."""
         return self.target == "devices" and self.expires_at is not None and (now or _now()) >= self.expires_at
+
+    def in_chat(self) -> bool:
+        """A file it sent to the devices is the chat's own, kept with the chat, whatever its link's age."""
+        return self.target == "devices" and any(item.sent and item.media_ref for item in self.files)
 
 
 def deliveries_root() -> Path:
@@ -808,7 +813,8 @@ def can_send_instead(delivery: Delivery) -> bool:
 
 
 def view(delivery: Delivery) -> dict[str, Any]:
-    """The client's view of one delivery: names and words, never a path."""
+    """The client's view of one delivery: names and words, never a path. Its link's end makes each file's
+    download unavailable; the delivery reads as expired only when none of its files stays in the chat."""
 
     expired = delivery.expired()
     available = delivery.target == "devices" and not expired
@@ -820,7 +826,8 @@ def view(delivery: Delivery) -> dict[str, Any]:
         "channel_label": delivery.channel_label,
         "place": delivery.place,
         "shared": delivery.shared,
-        "status": "expired" if expired and delivery.status != "failed" else delivery.status,
+        "status": "expired" if expired and not delivery.in_chat() and delivery.status != "failed"
+        else delivery.status,
         "problem": delivery.problem,
         "detail": delivery.detail[:600],
         "limit_bytes": delivery.limit_bytes or None,
