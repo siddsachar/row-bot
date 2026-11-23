@@ -281,3 +281,25 @@ it('keeps the language heard, and shows an answer the voice can’t speak at onc
     unspoken: null,
   });
 });
+
+it('hears which chosen cloud speech parts run locally for now, and a cloud failure in words (V5)', async () => {
+  const { session, sockets } = setup();
+  await session.start();
+  const socket = sockets[0];
+  socket.open();
+  socket.emit({
+    type: 'ready',
+    output_sample_rate: 24000,
+    fallbacks: [
+      { part: 'listen', id: 'deepgram', company: 'Deepgram' },
+      { part: 'nonsense', company: 'Nobody' },
+    ],
+  });
+  expect(session.getSnapshot().fallbacks).toEqual([
+    { part: 'listen', company: 'Deepgram' },
+  ]);
+  socket.emit({ type: 'error', code: 'cloud_voice_failed' });
+  expect(session.getSnapshot().error).toMatch(
+    /voice service didn’t answer, so that stays on screen/,
+  );
+});

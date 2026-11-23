@@ -4,9 +4,10 @@ import type { Tone } from '../../ui/primitives';
 
 /**
  * Files Row-Bot sent from a conversation (F7): to the person's own devices,
- * where every signed-in device downloads them from the conversation for a
- * week, or to a chat app. The card reads one delivery when it shows; nothing
- * about it changes on its own except its download running out.
+ * where each is the conversation's own file, shown on every signed-in device
+ * for as long as the chat keeps it (one too large for a chat is a download
+ * that ends after a week), or to a chat app. The card reads one delivery when
+ * it shows; nothing about it changes on its own except a download running out.
  */
 export type DeliveryIo = {
   load: (deliveryId: string, signal: AbortSignal) => Promise<DeliveryView>;
@@ -19,19 +20,21 @@ export const DeliveryIoContext = createContext<DeliveryIo | null>(null);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Sent to the devices as the chat's own files: they play in the card for as
- * long as the chat keeps them; only a phone's download link ends.
+ * Sent to the devices, and a file of it is the chat's own: it plays in the
+ * card for as long as the chat keeps it; only a phone's download link ends.
  */
 export function deliveryInChat(view: DeliveryView) {
-  const sent = view.files.filter((file) => file.sent);
   return (
     view.target === 'devices' &&
-    sent.length > 0 &&
-    sent.every((file) => file.media_ref)
+    view.files.some((file) => file.sent && file.media_ref)
   );
 }
 
-/** Sent to the devices, and its downloads have run out (by the server or this device's clock). */
+/**
+ * Sent to the devices only as downloads, and they have run out (by the
+ * server or this device's clock). A delivery with a file in the chat never
+ * expires: its downloads end file by file.
+ */
 export function deliveryExpired(view: DeliveryView, now = Date.now()) {
   if (deliveryInChat(view)) return false;
   if (view.status === 'expired') return true;

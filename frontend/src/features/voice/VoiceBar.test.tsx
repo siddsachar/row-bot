@@ -43,6 +43,7 @@ function fakeSession(initial: Partial<VoiceSnapshot> = {}) {
     unspoken: null,
     share: null,
     canShare: 'no',
+    fallbacks: [],
     ...initial,
   };
   const listeners = new Set<() => void>();
@@ -383,4 +384,21 @@ it('a chat whose model can’t see images says so plainly, with the way to one t
   expect(
     screen.getByRole('link', { name: 'choose a vision model' }),
   ).toHaveAttribute('href', '/settings/models#vision-model');
+});
+
+it('says when a chosen cloud speech service is standing in for, and where to add its key (V5)', () => {
+  const { session } = fakeSession({
+    fallbacks: [
+      { part: 'listen', company: 'Deepgram' },
+      { part: 'speak', company: 'ElevenLabs' },
+    ],
+  });
+  bar(session);
+  const notice = screen.getByText(/your Deepgram key is missing/).closest('p');
+  expect(notice).toHaveTextContent(
+    'Listening with Row-Bot’s own speech model: your Deepgram key is missing. Speaking with Kokoro: your ElevenLabs key is missing.',
+  );
+  expect(
+    screen.getByRole('link', { name: 'Add it in Settings › Voice' }),
+  ).toHaveAttribute('href', '/settings/voice');
 });

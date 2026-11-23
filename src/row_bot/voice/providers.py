@@ -3,12 +3,16 @@
 Resolution happens for each request at the admitted worker boundary, so a
 changed Voice setting applies to the next utterance or reply. Every provider
 here works on bytes: none opens a host microphone or speaker, and none
-downloads a model (installation is an explicit Settings action).
+downloads a model (installation is an explicit Settings action). A cloud
+speech part (``cloud_speech``) is used only when the person chose it and its
+key is saved; without the key the local part runs instead, never another
+company's.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from row_bot.voice import cloud_speech
 from row_bot.voice.provider_base import (
     Heard,
     SpeechOutputProvider,
@@ -108,6 +112,12 @@ def speech_to_text_provider(
             # Browser Talk is then Realtime's local fallback, which listens with
             # Whisper; talk_model names the realtime model, not a local one.
             provider_id, model = LOCAL_PROVIDER, ""
+        cloud = cloud_speech.option(provider_id, "listen")
+        if cloud is not None:
+            if cloud_speech.key_saved(cloud):
+                return cloud_speech.listen_provider(cloud, language=language)
+            # Its key is missing: Talk listens locally, and says so (``cloud_speech.fallbacks``).
+            provider_id = LOCAL_PROVIDER
     if provider_id != LOCAL_PROVIDER:
         raise VoiceProviderError("voice_provider_unavailable")
     from row_bot.voice import speech_models
@@ -130,6 +140,10 @@ def speech_output_provider(
 ) -> SpeechOutputProvider:
     """The speech output provider selected for spoken replies."""
     settings = settings or load_voice_runtime_settings()
-    if settings.speech_output_provider != LOCAL_PROVIDER:
+    cloud = cloud_speech.option(settings.speech_output_provider, "speak")
+    if cloud is not None and cloud_speech.key_saved(cloud):
+        return cloud_speech.speak_provider(cloud, settings)
+    # A cloud voice whose key is missing speaks with Kokoro, and says so (``cloud_speech.fallbacks``).
+    if cloud is None and settings.speech_output_provider != LOCAL_PROVIDER:
         raise VoiceProviderError("voice_provider_unavailable")
     return LocalKokoroOutput(tts_service)

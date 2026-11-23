@@ -5844,6 +5844,29 @@ def v8_kokoro(state: str, x_fixture_token: str = Header(default="")) -> dict:
     return {"installed": state == "installed"}
 
 
+# ── V5: cloud speech parts ──────────────────────────────────────────────────
+# "keys": synthetic Deepgram and ElevenLabs keys held in this process only (never the keyring, never a
+# provider call); "fresh": no keys, and Talk and Read aloud back on the local parts.
+_V5_KEYS = ("DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY")
+
+
+@app.post("/__v5_fixture/cloud-speech/{state}")
+def v5_cloud_speech(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import api_keys
+    from row_bot.voice.runtime import save_voice_settings
+
+    if state == "keys":
+        api_keys._session_keys.update({name: f"synthetic-{name.lower()}-0000" for name in _V5_KEYS})
+    elif state == "fresh":
+        for name in _V5_KEYS:
+            api_keys._session_keys.pop(name, None)
+        save_voice_settings({"talk_provider": "local", "speech_output_provider": "local"})
+    else:
+        raise HTTPException(status_code=422, detail="Unknown cloud speech state")
+    return {"keys": sorted(name for name in _V5_KEYS if name in api_keys._session_keys)}
+
+
 # ── A6 (U3, U4, U10): a hosted Row-Bot ──────────────────────────────────────
 # A known host runs this Row-Bot (ROW_BOT_HOSTED_BY=pikapods): the first run's two big
 # buttons, the hosted Setup Center and the phone card. "off" puts it back; the first run's

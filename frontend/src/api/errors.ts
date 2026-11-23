@@ -1968,7 +1968,7 @@ const CATALOG: Record<string, Entry> = {
   ],
   sent_file_unavailable: ['That file is no longer here to download.', 'none'],
   sent_file_expired: [
-    'This download has ended: sent files stay for 7 days. Ask Row-Bot to send it again.',
+    'This download has ended: sent files can be downloaded for 7 days. Ask Row-Bot to send it again.',
     'none',
   ],
   sent_files_gone: [
@@ -3306,6 +3306,21 @@ const CATALOG: Record<string, Entry> = {
     'The Live voice provider refused the call: its quota or rate limit was reached.',
     'review',
     PROVIDERS,
+  ],
+  cloud_key_missing: [
+    'That speech service needs your API key. Add it in Voice settings.',
+    'review',
+    VOICE,
+  ],
+  cloud_voice_failed: [
+    "The voice service didn't answer. Check your key in Voice settings, or try again.",
+    'retry',
+    VOICE,
+  ],
+  cloud_speech_failed: [
+    "The speech service didn't answer. Check your key in Voice settings, or try again.",
+    'retry',
+    VOICE,
   ],
   speech_model_missing: [
     (place) =>
