@@ -122,6 +122,21 @@ def test_the_outputs_list_refuses_an_unknown_chat_or_filter(service, chats):
         _, headers = bootstrap(client)
         assert client.get("/api/v1/outputs", params={"conversation_id": "no-such-chat"},
                           headers=headers).status_code == 404
-        for params in ({"show": "everything"}, {"kind": "spreadsheet"}):
+        for params in ({"show": "everything"}, {"kind": "spreadsheet"}, {"before": "not-a-page"}):
             assert client.get("/api/v1/outputs", params=params, headers=headers).status_code == 422
         assert client.get("/api/v1/outputs").status_code in {401, 403}
+
+
+def test_library_media_reads_a_page_at_a_time_and_the_next_page_follows_on(service, chats, monkeypatch):
+    from row_bot import media_library
+
+    monkeypatch.setattr(media_library, "PAGE", 2)
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        first = _outputs(client, headers)
+        assert [item["name"] for item in first["items"]] == ["logo-on-white", "Birthday montage"]
+        second = _outputs(client, headers, before=first["next"])
+        assert [item["name"] for item in second["items"]] == ["cake-on-a-table", "video"]
+        assert second["next"] is None
+        # One chat's pane comes whole.
+        assert len(_outputs(client, headers, conversation_id=chats["film"])["items"]) == 3

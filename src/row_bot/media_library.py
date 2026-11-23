@@ -208,6 +208,8 @@ Show = Literal["made", "uploads", "working"]
 SHOWS: tuple[Show, ...] = ("made", "uploads", "working")
 OutputKind = Literal["video", "image", "audio", "document", "file"]
 OUTPUT_KINDS: tuple[OutputKind, ...] = ("video", "image", "audio", "document", "file")
+# Outputs in one page across chats (Library › Media, the phone's Files); ``next`` reads the one after.
+PAGE = 100
 # The newest versions an output lists (``version_count`` says how many it has).
 MAX_VERSIONS = 50
 # Files kept before roles (W1) carry none: what each one is is told by the name its tool gave it.
@@ -284,21 +286,33 @@ def _group(chat: str, listed: list[tuple[float, dict[str, Any]]]) -> list[tuple[
     return [(at, output) for _output_id, at, output in outputs]
 
 
+CURSOR = re.compile(r"(\d{1,12}\.\d{6}):([0-9a-f]{24})")
+
+
 def outputs(*, conversation_id: str = "", show: Show = "made", query: str = "", kind: str = "",
-            limit: int = 200) -> dict[str, Any]:
+            limit: int = 200, before: str = "") -> dict[str, Any]:
     """The outputs list (W3): one chat's (its Outputs pane) or every chat's but an incognito one's (Library ›
     Media, the phone's Files), newest first, read from the files' stored records.
 
     *show*: what Row-Bot made (finals, else the latest draft; AI-made media is final), the files the person
-    added, or the working files made on the way. One chat's page also counts each.
+    added, or the working files made on the way. One chat's page also counts each. A page holds *limit*
+    outputs: chats are read newest first and the reading stops once the page is full, and ``next`` (pass it as
+    *before*) reads the page after it.
     """
+    cursor = CURSOR.fullmatch(before)
+    if before and not cursor:
+        raise MediaError("That page of outputs can't be found.")
+    after = (float(cursor.group(1)), cursor.group(2)) if cursor else None
     folders, titles = _folders(conversation_id)
     tagged = _tags()
     words = [word for word in query.casefold().split() if word]
     counts = dict.fromkeys(SHOWS, 0)
     found: list[tuple[float, dict[str, Any]]] = []
     for changed, folder in folders:
-        if len(found) >= limit and changed / 1e9 < sorted(at for at, _ in found)[-limit]:
+        # One more than a page tells whether another page follows; a folder older than that many outputs
+        # holds nothing newer, and neither does any after it.
+        if (not conversation_id and len(found) > limit
+                and changed / 1e9 < sorted(at for at, _ in found)[-limit - 1]):
             break
         chat = folder.name
         if chat not in titles:
@@ -315,12 +329,15 @@ def outputs(*, conversation_id: str = "", show: Show = "made", query: str = "", 
             tags = tagged.get(output["ref"], [])
             text = " ".join([output["name"], output["file_name"], titles[chat], *tags]).casefold()
             if (output["role"] not in _SHOWN[show] or (kind and output["kind"] != kind)
-                    or (words and not all(word in text for word in words))):
+                    or (words and not all(word in text for word in words))
+                    or (after and (round(at, 6), output["id"]) >= after)):
                 continue
-            found.append((at, {**output, "conversation_title": titles[chat] or "Untitled conversation",
-                               "tags": tags}))
-    found.sort(key=lambda pair: pair[0], reverse=True)
-    return {"items": [item for _, item in found[:limit]], "counts": counts if conversation_id else None}
+            found.append((round(at, 6), {**output, "conversation_title": titles[chat] or "Untitled conversation",
+                                         "tags": tags}))
+    found.sort(key=lambda pair: (pair[0], pair[1]["id"]), reverse=True)
+    last = found[limit - 1] if len(found) > limit else None
+    return {"items": [item for _, item in found[:limit]], "counts": counts if conversation_id else None,
+            "next": f"{last[0]:.6f}:{last[1]['id']}" if last else None}
 
 
 def _known(ref: str) -> None:

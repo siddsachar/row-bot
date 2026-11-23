@@ -7145,6 +7145,8 @@ class OutputPage(WireModel):
     """A chat's outputs, or every chat's (Library › Media, the phone's Files): newest first."""
     items: list[OutputView] = Field(max_length=500)
     counts: OutputCounts | None = None
+    # The page after this one (pass it as ``before``); None on the last page.
+    next: str | None = Field(default=None, max_length=64)
 
 
 class PageTheme(WireModel):

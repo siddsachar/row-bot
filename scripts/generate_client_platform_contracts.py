@@ -1075,7 +1075,7 @@ export const getMedia = (base: string, proof: SessionProof, filter: {query?: str
 export const setMediaTags = (base: string, proof: SessionProof, body: MediaTagsWrite, signal?: AbortSignal): Promise<MediaTags> =>
   jsonRequest(base, '/media/tags', 'MediaTags', proof, 'PUT', validateWire('MediaTagsWrite', body), undefined, signal);
 /** The outputs list (W3): one chat's (its Outputs pane) or every chat's (Library › Media, the phone's Files), newest first. */
-export const getOutputs = (base: string, proof: SessionProof, filter: {conversation_id?: string; show?: 'made' | 'uploads' | 'working'; query?: string; kind?: string} = {}, signal?: AbortSignal): Promise<OutputPage> =>
+export const getOutputs = (base: string, proof: SessionProof, filter: {conversation_id?: string; show?: 'made' | 'uploads' | 'working'; query?: string; kind?: string; before?: string} = {}, signal?: AbortSignal): Promise<OutputPage> =>
   jsonRequest(base, '/outputs' + query(filter), 'OutputPage', proof, 'GET', undefined, undefined, signal);
 /** Pages the agent made (N5), or one conversation's: most recently changed first. */
 export const getPages = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<PagePage> =>
