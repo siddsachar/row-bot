@@ -6,6 +6,8 @@ selected speech-to-text engine writes it down; the transcript goes through
 the conversation's normal admission (same tools, memory and approvals); the
 answer's tokens are spoken sentence by sentence as they stream; and talking
 over Row-Bot ducks its voice at once and stops it on a confirmed barge-in.
+While the person shares their camera or screen, the end of each spoken turn
+asks the browser for one fresh still, which goes with that turn only.
 
 Turn taking runs on audio time and latency marks on an injected clock, so the
 whole engine is deterministic under test. Model calls (speech-to-text,
@@ -35,6 +37,7 @@ from row_bot.voice.engine.spoken import (
     status_line,
 )
 from row_bot.voice.engine.speech import MAX_UTTERANCE_SECONDS
+from row_bot.voice.engine.stills import SHARE_SOURCES, ShareSource, Still, checked_still
 from row_bot.voice.engine.turns import EndOfTurn, SpeechTracker, TurnSettings, VoiceActivity
 from row_bot.voice.streaming_base import (
     INPUT_SAMPLE_RATE,
@@ -93,8 +96,13 @@ class TurnOutcome:
 class VoiceHost(Protocol):
     """The conversation side: admission, the echo filter and the lease."""
 
-    def take_turn(self, text: str, utterance_id: str) -> TurnOutcome:
-        """Admit the person's words: a new turn, or input to the running one. Blocking."""
+    def take_turn(self, text: str, utterance_id: str, still: Still | None = None) -> TurnOutcome:
+        """Admit the person's words: a new turn (with the shared still, if any), or input to the running
+        one. Blocking."""
+        ...
+
+    def sees_images(self) -> bool:
+        """False when the chat's model is known not to see images: nothing shared is sent. Blocking."""
         ...
 
     def drops(self, text: str) -> bool:
@@ -139,6 +147,8 @@ class SessionSettings:
     push_to_talk: bool = False
     # The saved captions setting: the voice bar's starting choice.
     captions: bool = True
+    # How long a turn's end waits for a fresh still while the person shares (alongside speech-to-text).
+    still_wait_seconds: float = 1.5
 
 
 def words_of(text: str) -> list[str]:
@@ -248,6 +258,12 @@ class DuplexSession:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._speaker: asyncio.Task | None = None
         self.out_sample_rate = 24_000
+        # Sharing the camera or screen: independent of mute; a still is held only until its turn.
+        self.sees_images = True
+        self.sharing: ShareSource | None = None
+        self._still: Still | None = None
+        self._still_expected = 0
+        self._still_arrived: asyncio.Event | None = None
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -255,12 +271,14 @@ class DuplexSession:
         self._loop = asyncio.get_running_loop()
         await self.link.send_event({"type": "state", "state": "connecting"})
         await asyncio.gather(asyncio.to_thread(self.parts.stt.warm), asyncio.to_thread(self.parts.tts.warm))
+        self.sees_images = bool(await asyncio.to_thread(self.host.sees_images))
         self._speaker = asyncio.create_task(self._speak_loop(), name="row-bot-voice-speaker")
         self._idle_from_ms = self.tracker.now_ms
         await self.link.send_event({"type": "ready", "input_sample_rate": INPUT_SAMPLE_RATE,
                                     "output_sample_rate": self.out_sample_rate,
                                     "push_to_talk": self.settings.push_to_talk,
-                                    "captions": self.settings.captions})
+                                    "captions": self.settings.captions,
+                                    "sees_images": self.sees_images})
         await self._publish_state()
 
     async def close(self) -> None:
@@ -268,6 +286,7 @@ class DuplexSession:
             return
         self.closed = True
         self._speech_epoch += 1
+        self.sharing, self._still = None, None
         if self._utterance is not None:
             self._utterance.close()
             self._utterance = None
@@ -526,15 +545,34 @@ class DuplexSession:
         self._thinking = True
         await self._publish_state()
         await self.link.send_event({"type": "caption", "role": "user", "text": "", "final": False})
-        self._spawn(self._take_turn(stream, utterance_id, marks, heard_at, over_voice))
+        looking = None
+        if self.sharing is not None:
+            # A fresh still of what the person shows, while their words are written down.
+            looking = self._still_arrived = asyncio.Event()
+            await self.link.send_event({"type": "look"})
+        self._spawn(self._take_turn(stream, utterance_id, marks, heard_at, over_voice, looking))
 
     async def _take_turn(self, stream: SpeechToTextStream, utterance_id: str, marks: TurnMarks,
-                         heard_at: float = 0.0, over_voice: bool = False) -> None:
-        try:
-            heard = await asyncio.to_thread(stream.finish)
-        finally:
-            stream.close()
-        marks.mark("transcript_final", self.clock())
+                         heard_at: float = 0.0, over_voice: bool = False,
+                         looking: asyncio.Event | None = None) -> None:
+        async def fresh_still() -> None:
+            if looking is not None:
+                try:
+                    await asyncio.wait_for(looking.wait(), timeout=self.settings.still_wait_seconds)
+                except TimeoutError:
+                    pass
+
+        async def transcript() -> Any:
+            try:
+                heard = await asyncio.to_thread(stream.finish)
+            finally:
+                stream.close()
+            marks.mark("transcript_final", self.clock())
+            return heard
+
+        heard, _ = await asyncio.gather(transcript(), fresh_still())
+        # The newest still goes with this turn only; the next turn asks for its own.
+        still, self._still = (self._still if self.sharing is not None else None), None
         text = " ".join(heard.text.split())
         pending = self._approval
         # A yes or no while an approval waits is its answer (its summary's own words are no echo here).
@@ -550,7 +588,7 @@ class DuplexSession:
             return
         self._marks = marks
         self._marks_segment = 0
-        outcome = await asyncio.to_thread(self.host.take_turn, text, utterance_id)
+        outcome = await asyncio.to_thread(self.host.take_turn, text, utterance_id, still)
         marks.mark("agent_admitted", self.clock())
         if outcome.kind != "rejected":
             self._heard_since_silence = True
@@ -821,8 +859,48 @@ class DuplexSession:
             if (approval is not None and message.get("approval_id") == approval.approval_id
                     and isinstance(title, str) and len(title) <= 400):
                 await self._title_approval(approval, title)
+        elif kind == "share":
+            await self._share(message.get("source"))
+        elif kind == "still":
+            size = message.get("bytes")
+            # The still itself is the next binary message (checked when it arrives).
+            self._still_expected = size if isinstance(size, int) and not isinstance(size, bool) and size > 0 else 0
+            if not self._still_expected:
+                raise ValueError("voice_still_invalid")
         await self._publish_state()
         return True
+
+    async def binary(self, data: bytes) -> None:
+        """A binary message: the still a ``still`` message announced, else microphone audio."""
+        expected, self._still_expected = self._still_expected, 0
+        if expected:
+            await self.still(data, expected)
+        else:
+            await self.audio(data)
+
+    async def _share(self, source: Any) -> None:
+        """Start (``camera`` or ``screen``) or stop sharing; never while the model can't see images."""
+        wanted = source if source in SHARE_SOURCES and self.sees_images and not self.paused else None
+        if source and wanted is None:
+            await self.link.send_event({"type": "error", "code": "voice_share_unavailable"})
+        if wanted != self.sharing:
+            self.sharing = wanted
+            self._still = None
+            await self.link.send_event({"type": "sharing", "source": wanted})
+
+    async def still(self, data: bytes, expected: int | None = None) -> None:
+        """Hold the newest still while sharing; an invalid one is refused and dropped."""
+        if self.closed or self.sharing is None:
+            return
+        try:
+            if expected is not None and len(data) != expected:
+                raise ValueError("voice_still_invalid")
+            self._still = checked_still(data, self.sharing)
+        except ValueError:
+            await self.link.send_event({"type": "error", "code": "voice_still_refused"})
+            return
+        if self._still_arrived is not None:
+            self._still_arrived.set()
 
     async def _playback(self, message: dict[str, Any]) -> None:
         state = message.get("state")
@@ -856,6 +934,7 @@ class DuplexSession:
         self.paused = True
         self._paused_at = self.clock()
         self._drop_utterance()
+        await self._share(None)  # A paused session shares nothing.
         await self._publish_state()
 
     async def tick(self) -> bool:

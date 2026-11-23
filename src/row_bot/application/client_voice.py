@@ -105,7 +105,16 @@ class ClientVoiceAdmission:
             target=owner.conversation_id, validate=validate,
             **({"frozen_context": frozen_context} if frozen_context is not None else {}))
 
-    def submit(self, owner: DictationOwner, text: str, event_id: str, validate: Callable[[], None]) -> str:
+    def sees_images(self, owner: DictationOwner) -> bool:
+        """False when the voice session's model is known not to see images (unknown counts as yes, as
+        the composer's note does)."""
+        from row_bot.application.workspace_setup import sees_images
+        return sees_images(str(self._context(owner)["model_selection"]["model_ref"])) is not False
+
+    def submit(self, owner: DictationOwner, text: str, event_id: str, validate: Callable[[], None],
+               *, still: Any = None) -> str:
+        """A spoken turn; *still* (what the person shares on camera or screen) goes with it as an image
+        attachment, saved and shown like one they attached."""
         with _COMMAND_LOCK:
             context = self._context(owner)
             self.validate_context(owner, context, validate, refresh_resources=True)
@@ -116,13 +125,24 @@ class ClientVoiceAdmission:
             ids = {target["binding_id"] for target in context["write_targets"]}
             bindings = tuple(binding for binding in list_bindings(owner.conversation_id).bindings if binding.binding_id in ids)
             # A spoken turn: the agent answers for listening (voice_mode; the turn context's "voice" line).
-            frozen = freeze_context({"configurable": {**context["_policy"], "voice_mode": True}}, bindings,
+            # A turn carrying a live still is marked on its saved message (``voice_still``: camera or screen),
+            # never shown to the model; Learning leaves such stills out of what it keeps.
+            marked = {"voice_still": still.source} if still is not None else {}
+            frozen = freeze_context({"configurable": {**context["_policy"], "voice_mode": True, **marked}}, bindings,
                                     context["write_targets"])
             def authority() -> None:
                 self.validate_context(owner, context, validate)
             authority()
+            refs = []
+            if still is not None:
+                identity = str(uuid5(UUID(event_id), owner.client_session_id + ":" + owner.conversation_id + ":still"))
+                saved = self.service.register_attachment(
+                    owner_id=self.service.instance_id, idempotency_key=identity, command_id=identity,
+                    client_session_id=owner.client_session_id, conversation_id=owner.conversation_id,
+                    name=still.name, data=still.data, mime_type=still.mime_type, validate=authority)
+                refs.append(saved["attachment_ref"])
             result = self._command(owner, event_id, "conversation.submit", {
-                "submission_id": event_id, "text": text, "attachment_refs": [],
+                "submission_id": event_id, "text": text, "attachment_refs": refs,
                 "model_selection": context["model_selection"], "write_targets": context["write_targets"]},
                 context["conversation_revision"], authority, frozen_context=frozen)
             generation = str(result.get("generation_id") or "")

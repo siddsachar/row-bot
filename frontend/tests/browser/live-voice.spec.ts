@@ -124,7 +124,7 @@ for (const [size, width, height] of [
         .getByRole('menuitem', { name: 'Live voice · Gemini Live' })
         .click();
       await expect(panel).toContainText(
-        'Your voice, this chat’s recent messages, the agent profile’s name and a few related memories go to Google while you talk.',
+        'Your voice, this chat’s recent messages, the agent profile’s name, a few related memories and what you share on camera or screen go to Google while you talk.',
       );
       await assertNoOverflow(page);
       await screenshot(page, info, `live-voice-disclosure-${size}-${scheme}`);

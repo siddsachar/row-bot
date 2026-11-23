@@ -4,6 +4,35 @@ import type {
   PlaybackCallbacks,
   VoiceAudio,
 } from './voice-audio';
+import type { ShareCapture, ShareSource } from './share';
+
+/** A camera and screen with no devices: what was started, a still to hand back, the browser's own stop. */
+export class FakeShare implements ShareCapture {
+  started: ShareSource[] = [];
+  ended: (() => void) | null = null;
+  bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  failure: Error | null = null;
+  stream = { id: 'synthetic-stream' } as unknown as MediaStream;
+  start = vi.fn(async (source: ShareSource) => {
+    if (this.failure) throw this.failure;
+    this.started.push(source);
+    return {
+      stream: this.stream,
+      facingUser: source === 'camera',
+      canSwitch: source === 'camera',
+    };
+  });
+  switchCamera = vi.fn(async () => ({
+    stream: this.stream,
+    facingUser: false,
+    canSwitch: true,
+  }));
+  still = vi.fn(async () => new Blob([this.bytes], { type: 'image/jpeg' }));
+  onEnded(ended: () => void) {
+    this.ended = ended;
+  }
+  stop = vi.fn();
+}
 
 /** The voice socket's server end, driven by a test. */
 export class FakeSocket {

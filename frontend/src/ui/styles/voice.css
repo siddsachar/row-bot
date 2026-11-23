@@ -334,6 +334,63 @@
   align-items: center;
   gap: 2px;
 }
+/* Sharing the camera or screen: always in view while it lasts, with a live
+   preview, so the person sees exactly what Row-Bot is shown. */
+.voice-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 2px 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+  line-height: var(--type-line-metadata);
+}
+.voice-share-preview {
+  flex: none;
+  width: 56px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  object-fit: cover;
+}
+.voice-share-preview[data-mirrored] {
+  transform: scaleX(-1);
+}
+/* A shared screen is shown whole, never cropped. */
+.voice-share-preview[data-source='screen'] {
+  object-fit: contain;
+}
+.voice-share-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-danger-border);
+  animation: voice-breathe 2s ease-in-out infinite;
+}
+.voice-share-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-bar-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-bar-notice svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
 .voice-hold.button {
   margin-inline-end: 4px;
   border-radius: 999px;
@@ -396,6 +453,22 @@
 .voice-bar[data-focus] .voice-caption-text {
   white-space: normal;
 }
+.voice-bar[data-focus] .voice-share {
+  flex-direction: column;
+  gap: 6px;
+}
+/* Full screen: the whole frame at its own shape (portrait or landscape), never cropped. */
+.voice-bar[data-focus] .voice-share-preview {
+  width: auto;
+  height: auto;
+  max-width: min(72vw, 320px);
+  max-height: 30vh;
+  border-radius: 16px;
+  object-fit: contain;
+}
+.voice-bar[data-focus] .voice-share-dot {
+  display: none;
+}
 .voice-bar[data-focus] .voice-bar-actions {
   grid-column: 1;
   justify-content: center;
@@ -437,7 +510,8 @@
 @media (prefers-reduced-motion: reduce) {
   .voice-bar,
   .voice-orb-core,
-  .voice-orb-ring {
+  .voice-orb-ring,
+  .voice-share-dot {
     animation: none !important;
   }
 }

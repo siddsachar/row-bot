@@ -4,10 +4,12 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Captions,
   CaptionsOff,
   Gauge,
+  ImageOff,
   Keyboard,
   LocateFixed,
   Maximize2,
@@ -15,10 +17,15 @@ import {
   MicOff,
   Minimize2,
   PhoneOff,
+  ScreenShareOff,
+  SwitchCamera,
+  Video,
+  VideoOff,
   ShieldCheck,
 } from 'lucide-react';
-import { Button, IconButton } from '../../ui/primitives';
+import { Button, IconButton, Menu } from '../../ui/primitives';
 import type { VoiceOrb, VoiceSession, VoiceSnapshot } from './voice-session';
+import { shareSupport, type ShareSource, type ShareState } from './share';
 
 export type VoiceBarSession = Pick<
   VoiceSession,
@@ -29,6 +36,9 @@ export type VoiceBarSession = Pick<
   | 'stopSpeaking'
   | 'resume'
   | 'end'
+  | 'startShare'
+  | 'stopShare'
+  | 'switchCamera'
 >;
 
 const STATE_LABEL: Record<VoiceOrb, string> = {
@@ -84,6 +94,98 @@ function LevelMeter({ level, active }: { level: number; active: boolean }) {
   );
 }
 
+const SHARE_LABEL: Record<ShareSource, string> = {
+  camera: 'Camera on',
+  screen: 'Sharing your screen',
+};
+
+/** The live preview of what is shared: mirrored for a camera that faces the person. */
+function SharePreview({ share }: { share: ShareState }) {
+  return (
+    <video
+      className="voice-share-preview"
+      data-source={share.source}
+      data-mirrored={share.facingUser || undefined}
+      aria-hidden
+      autoPlay
+      muted
+      playsInline
+      ref={(element) => {
+        if (element && element.srcObject !== share.stream)
+          element.srcObject = share.stream;
+      }}
+    />
+  );
+}
+
+/** Start sharing (a camera, or a screen or window where the browser can), or stop with one tap. */
+function ShareControl(props: {
+  session: VoiceBarSession;
+  share: ShareState | null;
+  disabled: boolean;
+  onBlind(): void;
+  blind: boolean;
+}) {
+  const support = shareSupport();
+  if (props.share)
+    return (
+      <IconButton
+        size="sm"
+        label="Stop sharing"
+        pressed
+        onClick={() => props.session.stopShare()}
+      >
+        {props.share.source === 'screen' ? (
+          <ScreenShareOff size={16} aria-hidden />
+        ) : (
+          <VideoOff size={16} aria-hidden />
+        )}
+      </IconButton>
+    );
+  const label = support.screen ? 'Share camera or screen' : 'Share camera';
+  const glyph = <Video size={16} aria-hidden />;
+  if (props.blind || !support.screen)
+    return (
+      <IconButton
+        size="sm"
+        label={label}
+        disabled={props.disabled || !support.camera}
+        onClick={() =>
+          props.blind
+            ? props.onBlind()
+            : void props.session.startShare('camera')
+        }
+      >
+        {glyph}
+      </IconButton>
+    );
+  return (
+    <Menu
+      label={label}
+      iconOnly
+      variant="ghost"
+      hint={label}
+      disabled={props.disabled}
+      className="voice-share-menu"
+      actions={[
+        {
+          label: 'Camera',
+          description: 'What your camera sees goes with each thing you say',
+          disabled: !support.camera,
+          onSelect: () => void props.session.startShare('camera'),
+        },
+        {
+          label: 'Screen or window',
+          description: 'What you choose to share goes with each thing you say',
+          onSelect: () => void props.session.startShare('screen'),
+        },
+      ]}
+    >
+      {glyph}
+    </Menu>
+  );
+}
+
 export default function VoiceBar(props: {
   session: VoiceBarSession;
   typing: boolean;
@@ -105,7 +207,11 @@ export default function VoiceBar(props: {
   const [captions, setCaptions] = useState<boolean | null>(null);
   const [details, setDetails] = useState(false);
   const [focus, setFocus] = useState(false);
+  // This chat's model can't see images: tapping share says so instead.
+  const [blindNotice, setBlindNotice] = useState(false);
   const showCaptions = captions ?? state.captionsDefault;
+  const share = state.share;
+  const canShare = state.canShare;
   const orb = state.orb;
   const orbAction =
     orb === 'speaking'
@@ -156,6 +262,27 @@ export default function VoiceBar(props: {
           </span>
           <LevelMeter level={state.inputLevel} active={orb === 'listening'} />
         </p>
+        {share && (
+          <div className="voice-share" role="status">
+            <SharePreview share={share} />
+            <span className="voice-share-dot" aria-hidden />
+            <span className="voice-share-label">
+              {SHARE_LABEL[share.source]}
+            </span>
+            {share.canSwitch && (
+              <IconButton
+                size="sm"
+                label="Switch camera"
+                onClick={() => void props.session.switchCamera()}
+              >
+                <SwitchCamera size={16} aria-hidden />
+              </IconButton>
+            )}
+          </div>
+        )}
+        {blindNotice && canShare === 'blind' && !share && (
+          <BlindNotice onClose={() => setBlindNotice(false)} />
+        )}
         {showCaptions && (state.you || state.rowBot) && (
           <div className="voice-captions">
             {state.you && (
@@ -263,6 +390,15 @@ export default function VoiceBar(props: {
             Hold to talk
           </Button>
         )}
+        {(canShare !== 'no' || share) && orb !== 'ended' && (
+          <ShareControl
+            session={props.session}
+            share={share}
+            blind={canShare === 'blind'}
+            disabled={orb === 'connecting'}
+            onBlind={() => setBlindNotice(!blindNotice)}
+          />
+        )}
         <IconButton
           size="sm"
           label={showCaptions ? 'Hide captions' : 'Show captions'}
@@ -330,5 +466,22 @@ export default function VoiceBar(props: {
         </IconButton>
       </div>
     </section>
+  );
+}
+
+/** Why nothing can be shared here, and the way to a model that can see. */
+function BlindNotice(props: { onClose(): void }): ReactNode {
+  return (
+    <p className="voice-bar-notice" role="status">
+      <ImageOff size={16} aria-hidden />
+      <span>
+        This chat’s model can’t see images, so the camera and screen can’t be
+        shared. Switch to a model that can, or{' '}
+        <Link to="/settings/models#vision-model" onClick={props.onClose}>
+          choose a vision model
+        </Link>
+        .
+      </span>
+    </p>
   );
 }
