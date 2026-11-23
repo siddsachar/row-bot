@@ -2,10 +2,11 @@
 
 **One server, its models by name.** ``llama-server`` runs in its router mode: one process on one
 loopback port, the downloaded models by their catalog id from a presets file Row-Bot writes (the
-model file and the context it serves at), loaded when a request names one, one at a time
-(``--models-max 1``). Row-Bot's endpoint for it is an ordinary local llama.cpp endpoint
-(``custom_openai_llamacpp``, marked ``managed``), so the transport asks :func:`endpoint_connection`
-for the address and key at each request and the server starts then (``providers/custom.py``).
+model file and the window it serves at, sized to this computer at each start: ``models.context_for``),
+loaded when a request names one, one at a time (``--models-max 1``). Row-Bot's endpoint for it is an
+ordinary local llama.cpp endpoint (``custom_openai_llamacpp``, marked ``managed``), so the transport
+asks :func:`endpoint_connection` for the address and key at each request and the server starts then
+(``providers/custom.py``).
 
 **Loopback, offline, a key of its own.** It listens only on 127.0.0.1, on a free port the system
 picks, ``--offline``, with no web page (``--no-webui``), ``--cors-origins localhost``, and none of its
@@ -19,10 +20,11 @@ group, plus a record (``owned_processes``) so the next start, or the next Row-Bo
 left behind. A health check runs every few seconds; a server that stopped answering is ended and
 starts again on the next request.
 
-**Idle, then gone.** After :data:`IDLE_SECONDS` (5 minutes, Ollama's own keep-alive) without a request
-and with nothing being answered, the server stops, so the graphics card's memory goes back. Five
-minutes covers a person reading an answer and replying without reloading the model (seconds to half a
-minute for a large one); training doesn't wait for it: :func:`release_gpu` stops it at once.
+**Idle, then gone.** After :data:`IDLE_SECONDS` (30 minutes, the ``keep_alive`` Row-Bot sends Ollama) without
+a request and with nothing being answered, the server stops, so the graphics card's memory goes back. The
+prompt cache lives in the server, so a reply after a shorter pause would read the whole conversation again
+(two and a half minutes for a 32K prompt on a 16 GB Mac); training doesn't wait for it: :func:`release_gpu`
+stops it at once.
 
 **Sharing the card with Learning.** :func:`release_gpu` is for Learning's training: it stops the server
 now unless a request is being answered (the person's chat comes first; Learning's lease pauses
@@ -48,11 +50,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from row_bot.local_runtime import install
+from row_bot.local_runtime import hardware, install, models
 
 logger = logging.getLogger(__name__)
 
-IDLE_SECONDS = 300.0
+# Row-Bot's own idle stop, not llama.cpp's ``--sleep-idle-seconds`` (b12359 ``tools/server/README.md``, "Sleeping
+# on Idle"): sleeping unloads the model but keeps the process, its port and its key, while stopping gives back
+# all of it, and Learning's ``release_gpu`` and the "running" state need the process gone.
+IDLE_SECONDS = 1800.0
 CHECK_EVERY_SECONDS = 5.0
 # Loading the router takes a second; a model loads on its first request (the transport waits for it).
 START_SECONDS = 60.0
@@ -62,6 +67,9 @@ RUN_FOLDER = "run"
 PRESETS_FILE = "models.ini"
 STATE_FILE = "server.json"
 LEDGER_FILE = "local-runtime-server.json"
+# The prompt cache each loaded model keeps in the computer's memory (MiB), as Learning's server keeps it;
+# llama.cpp's default is 8192 (``--cache-ram``, b12359 ``common/arg.cpp:1687``, ``common/common.h:657``).
+PROMPT_CACHE_MIB = 2048
 # Learning's lease, read only when Learning already loaded it.
 LEASE_MODULE = "row_bot.learning.lease"
 
@@ -121,20 +129,28 @@ def reserved_port(port: int) -> bool:
     return port in (8080, 8099) or 8121 <= port <= 8139 or 8151 <= port <= 8159
 
 
-def presets_text(entries: Sequence[tuple[str, Path, int, str]]) -> str:
-    """The presets file: shared settings (the model's own chat template, one request at a time), then
-    one section per model: its catalog id, file, context and context-cache type (8-bit for the 27B
-    builds, which halves its memory)."""
+def presets_text(entries: Sequence[tuple[str, Path, int]]) -> str:
+    """The presets file (keys are llama-server's own arguments, b12359 ``tools/server/README.md``, "Model
+    presets"): shared settings, then one section per model: its catalog id, file and window.
 
-    lines = ["version = 1", "", "[*]", "jinja = true", "parallel = 1", ""]
-    for name, path, context, cache_type in sorted(entries):
+    Shared: the model's own chat template; one request at a time; flash attention on (``-fa``,
+    ``common/arg.cpp:1726``), which an 8-bit cache needs (``src/llama-context.cpp:4541``); the context cache in
+    8-bit for every model (``-ctk``/``-ctv``, ``common/arg.cpp:2409,2422``), half of llama.cpp's 16-bit default
+    (``models.py`` counts it so); the prompt cache in the computer's memory capped at :data:`PROMPT_CACHE_MIB`.
+
+    Left to llama.cpp's defaults: ``--fit on`` with ``-ngl auto`` (``common/common.h:494,497``) already puts as
+    many layers on the card as fit and the rest on the processor, which an explicit ``-ngl`` would stop
+    (``common/fit.cpp:550``); prompt caching is on (``common/common.h:652``). ``--cache-reuse`` is not passed:
+    it shifts the cache, which these models' multi-section positions (Qwen3.5's architecture) can't, so the
+    server turns it off for them (``tools/server/server-context.cpp:1420``, ``src/llama-kv-cache.cpp:1245``)."""
+
+    lines = ["version = 1", "", "[*]", "jinja = true", "parallel = 1", "flash-attn = on", "cache-type-k = q8_0",
+             "cache-type-v = q8_0", f"cache-ram = {PROMPT_CACHE_MIB}", ""]
+    for name, path, context in sorted(entries):
         text = str(Path(path).resolve())
         if any(ch in text for ch in "\r\n;#[]="):
             raise ServerError("start_failed")
-        lines += [f"[{name}]", f"model = {text}", f"ctx-size = {int(context)}"]
-        if cache_type and cache_type != "f16":
-            lines += [f"cache-type-k = {cache_type}", f"cache-type-v = {cache_type}"]
-        lines.append("")
+        lines += [f"[{name}]", f"model = {text}", f"ctx-size = {int(context)}", ""]
     return "\n".join(lines)
 
 
@@ -287,8 +303,9 @@ class LocalServer:
     def ledger(self) -> Path:
         return install.data_dir(self.root) / "runtime" / LEDGER_FILE
 
-    def _entries(self) -> list[tuple[str, Path, int, str]]:
-        return [(model.id, install.model_path(model, self.root), model.context, model.kv_cache_type)
+    def _entries(self) -> list[tuple[str, Path, int]]:
+        found = hardware.peek()
+        return [(model.id, install.model_path(model, self.root), models.context_for(model, found))
                 for model in install.installed_models(self.root)]
 
     # ── Running ─────────────────────────────────────────────────────────
@@ -554,7 +571,8 @@ def _status_of(name: str, listed: Any) -> str:
 
 def save_endpoint(root: Path | None = None, *, port: int | None = None) -> None:
     """The runtime's endpoint: an ordinary local llama.cpp endpoint marked managed, listing the
-    installed models with their context. Removed when no model is installed."""
+    installed models, each with the window its presets serve it at (``models.context_for``; no
+    endpoint-wide window, which would win over each model's). Removed when no model is installed."""
 
     from row_bot import local_runtime
     from row_bot.providers import custom
@@ -568,19 +586,20 @@ def save_endpoint(root: Path | None = None, *, port: int | None = None) -> None:
     # Its address is asked for at each request; the saved one only says it is on this computer.
     base_url = f"http://127.0.0.1:{int(port)}/v1" if port else str((current or {}).get("base_url") or
                                                                      "http://127.0.0.1/v1")
-    context = max(model.context for model in installed)
+    found = hardware.peek()
+    served = sorted((model.id, model.label, models.context_for(model, found)) for model in installed)
     wanted = {
         "id": local_runtime.ENDPOINT_ID, "name": local_runtime.DISPLAY_NAME, "base_url": base_url,
         "profile": "llama_cpp", "execution_location": "local", "auth_required": False,
-        "managed": local_runtime.OWNER, "manual_capabilities": {"context_window": int(context)},
+        "managed": local_runtime.OWNER, "manual_capabilities": {},
     }
-    listed = [str(item.get("id") or item.get("model_id") or "") for item in (current or {}).get("models") or ()]
+    listed = sorted((str(item.get("model_id") or item.get("id") or ""), int(item.get("context_window") or 0))
+                    for item in (current or {}).get("models") or () if isinstance(item, dict))
     if current is not None and all(current.get(key) == value for key, value in wanted.items()) and \
-            sorted(listed) == sorted(model.id for model in installed):
+            listed == [(model_id, context) for model_id, _, context in served]:
         return
     custom.save_custom_endpoint(wanted, manage_secret=False)
-    custom.store_managed_endpoint_models(local_runtime.ENDPOINT_ID, [
-        (model.id, model.label, model.context) for model in installed])
+    custom.store_managed_endpoint_models(local_runtime.ENDPOINT_ID, served)
 
 
 # ── The app's server ────────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ import math
 import re
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Literal
 
 _LOG = logging.getLogger(__name__)
@@ -66,6 +66,10 @@ CARRY_ON_PROMPT = (
     "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
     "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
     "done, say so in a line.")
+# The same for a headless run (``row-bot run``), which has nobody to ask (Learning reviewed, 23 Nov).
+HEADLESS_CARRY_ON_PROMPT = (
+    "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
+    "nothing ran. Carry on with it now. If the work is done, say so in a line.")
 # A word rule finds a likely stop; the chat's own model then decides (S1, 18 Nov): "I'll reshoot …", "the film
 # isn't finished yet" and "I should have kept going" ended turns the narrower rule missed, 7 of 7 since 5.3.3.
 _NEXT_STEP = re.compile(
@@ -239,6 +243,20 @@ def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecke
     except Exception as exc:
         _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
         return unchecked
+
+
+def followup_after(conversation_id: str, reply: str, model_ref: str, *, headless: bool = False) -> Followup | None:
+    """The one follow-up the app would start after a completed turn that ended with *reply*, decided now (the
+    stop check included), or None. For a caller that runs its own turns (``row-bot run``, *headless*: its
+    carry-on doesn't send the model to a person); never after a follow-up, as in the app."""
+    _carry_on(conversation_id, status="completed", assistant_text=reply, followup_kind="")
+    followup = take(conversation_id)
+    if followup is None or (followup.check_reply and not _still_working(
+            conversation_id, followup.check_reply, model_ref, unchecked=followup.unchecked)):
+        return None
+    if headless and followup.prompt == CARRY_ON_PROMPT:
+        return replace(followup, prompt=HEADLESS_CARRY_ON_PROMPT)
+    return followup
 
 
 _PENDING: dict[str, Followup] = {}

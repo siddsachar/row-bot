@@ -36,6 +36,16 @@ def model_label(model_id: str) -> str | None:
     return found.label if found is not None else None
 
 
+def model_context(model_id: str) -> int | None:
+    """The window a pinned model is served at on this computer (``models.context_for``), or None for an id
+    that isn't one."""
+
+    from row_bot.local_runtime import hardware, models
+
+    found = models.get(model_id)
+    return models.context_for(found, hardware.peek()) if found is not None else None
+
+
 def is_local_runtime_provider(provider_id: str | None) -> bool:
     return str(provider_id or "") == PROVIDER_ID
 
@@ -70,6 +80,7 @@ __all__ = [
     "PROVIDER_ID",
     "catalog_view",
     "is_local_runtime_provider",
+    "model_context",
     "model_label",
     "model_ref",
 ]

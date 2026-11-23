@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Ear, EarOff } from 'lucide-react';
+import { usePlace } from '../../api/place';
 import { useOptionalRuntime, useRuntime } from '../../runtime';
 import { useBackgroundReady } from '../../shell-settled';
 import { usePhone } from '../../ui/on-your-computer';
@@ -16,12 +17,13 @@ import {
 
 /**
  * Whether "Hey Row-Bot" can listen in this window: the host says `available`
- * only to the app on the computer Row-Bot runs on (with its model). A phone
- * never shows it.
+ * only to the app on the computer Row-Bot runs on (with its model). A phone,
+ * or a browser the handshake places on a hosted or other server, never shows it.
  */
 export function useWakeWordAvailable(): boolean | null {
   const controller = useOptionalRuntime()?.controller;
   const phone = usePhone();
+  const here = usePlace().kind === 'this_computer';
   const [reason, setReason] = useState<string | null>(null);
   useEffect(() => {
     if (!controller) return;
@@ -40,7 +42,7 @@ export function useWakeWordAvailable(): boolean | null {
       });
     return () => abort.abort();
   }, [controller]);
-  if (phone || !controller) return false;
+  if (phone || !here || !controller) return false;
   return reason === null ? null : reason === 'available';
 }
 

@@ -4104,6 +4104,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     from row_bot.access.cli import add_remote_access_subcommands
 
     add_remote_access_subcommands(subparsers)
+    from row_bot.headless.cli import add_run_subcommand
+
+    add_run_subcommand(subparsers)
     plugins_parser = subparsers.add_parser("plugins", help="Plugin developer utilities")
     plugin_sub = plugins_parser.add_subparsers(dest="plugins_command", required=True)
     validate_parser = plugin_sub.add_parser(
@@ -4282,6 +4285,13 @@ def _request_update_apply(port: int, server: "_RowBotProcess") -> str:
 
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY, _EARLY_SPLASH_PROC
+    args = _build_arg_parser().parse_args(argv)
+    if getattr(args, "command", "") == "run":
+        # Headless (``row-bot run``): before anything below touches a data folder, writes launcher.log or
+        # becomes another user. It picks its own data folder and starts no server, tray or window.
+        from row_bot.headless.cli import dispatch_run_command
+
+        raise SystemExit(dispatch_run_command(args))
     # A host that starts the container as root (Railway): the data folder becomes the image user's, and
     # Row-Bot becomes that user for good, before it writes anything, reads a secret or starts a program.
     from row_bot.container_user import ContainerUserError, run_as_container_user
@@ -4299,7 +4309,6 @@ def main(argv: list[str] | None = None) -> None:
         cwd=os.getcwd(),
         frozen=getattr(sys, "frozen", False),
     )
-    args = _build_arg_parser().parse_args(argv)
     if getattr(args, "command", "") == "access":
         from row_bot.access.cli import dispatch_access_command
 
