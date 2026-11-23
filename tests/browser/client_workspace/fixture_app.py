@@ -1353,9 +1353,20 @@ def _s3_video() -> bytes:
         return (Path(__file__).parents[2] / "fixtures/client_synthetic_video.mp4").read_bytes()
 
 
-def _s3_media(thread: str, data: bytes) -> list[dict]:
-    from row_bot.application.attachments import register_attachment
+def _s3_media(thread: str, data: bytes, prompt: str = "") -> list[dict]:
+    """A picture a tool made; with its *prompt*, kept the way the agent's capture keeps one (named from the
+    prompt's words, a final), its outcome as the capture gives it."""
+    import base64
 
+    from row_bot.agent import _media_label
+    from row_bot.application.attachment_context import AttachmentExecutionCaches
+    from row_bot.application.attachments import register_attachment
+    from row_bot.application.generated_media import capture_generated_media
+
+    if prompt:
+        caches = AttachmentExecutionCaches(thread, pending_image=base64.b64encode(data).decode())
+        return capture_generated_media(thread, caches, label=_media_label({"name": "generate_image",
+                                                                            "args": {"prompt": prompt}}))
     saved = register_attachment(thread, "generated-image.png", data)
     return [{"type": "media.available", "payload": {"media_ref": saved["attachment_ref"],
                                                     "mime_type": saved["mime_type"]}}]
@@ -3356,9 +3367,11 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                 else {"source_path": "draft.md", "destination_path": "notes/draft.md"})
         tool_id = fixture_id(identity + ":approval-tool")
         try:
-            yield from _s3_steps(thread, identity, [("generate_image", {"prompt": "A lighthouse at dawn, watercolour"},
+            prompt = "A lighthouse at dawn, watercolour"
+            yield from _s3_steps(thread, identity, [("generate_image", {"prompt": prompt},
                                                      lambda: ("Made the picture.",
-                                                              _s3_media(thread, _s3_page_picture(640, 400))))])
+                                                              _s3_media(thread, _s3_page_picture(640, 400),
+                                                                        prompt)))])
             append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":approval-call"), content="",
                 tool_calls=[{"id": tool_id, "name": tool, "args": args}])])
             yield "tool_call", {"tool_call_id": tool_id, "name": tool, "args": args}

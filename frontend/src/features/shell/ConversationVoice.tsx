@@ -28,23 +28,33 @@ import { OutputThumb } from './ContextOutputs';
 import { openMediaViewer } from './MediaPreview';
 import { outputTitle } from './outputs';
 
-/** The chat's outputs when voice began (W3); null until the chat's list was read. */
-const outputRefs = (outputs?: OutputView[]) =>
-  outputs ? new Set(outputs.map((output) => output.ref)) : null;
+/**
+ * What the chat had when voice began (W3): its outputs, or, while the chat's
+ * list wasn't read yet (a chat voice opened), the time voice began.
+ */
+type OutputsBefore = { refs: ReadonlySet<string> | null; since: number };
+
+/** Server times have whole seconds and may run a moment apart from this device's clock. */
+const CLOCK_SLACK_MS = 2000;
+
+const outputsBefore = (outputs?: OutputView[]): OutputsBefore => ({
+  refs: outputs ? new Set(outputs.map((output) => output.ref)) : null,
+  since: Date.now() - CLOCK_SLACK_MS,
+});
 
 /** The newest picture or video made since voice began, as the phone's focus mode shows it. */
 function newestResult(
   outputs: OutputView[],
-  before: ReadonlySet<string> | null,
+  before: OutputsBefore,
   open: (output: OutputView, name: string) => void,
 ): VoiceResult | null {
-  const output = before
-    ? outputs.find(
-        (item) =>
-          (item.kind === 'image' || item.kind === 'video') &&
-          !before.has(item.ref),
-      )
-    : undefined;
+  const output = outputs.find(
+    (item) =>
+      (item.kind === 'image' || item.kind === 'video') &&
+      (before.refs
+        ? !before.refs.has(item.ref)
+        : Date.parse(item.created_at) >= before.since),
+  );
   if (!output) return null;
   const name = outputTitle(output);
   return {
@@ -89,8 +99,8 @@ export default function ConversationVoice(props: {
     handle: DictationHandle;
     targets: string[];
     label?: string;
-    /** What the chat already had when voice began (null until its list was read). */
-    outputsBefore: ReadonlySet<string> | null;
+    /** What the chat already had when voice began. */
+    outputsBefore: OutputsBefore;
   } | null>(null);
   const overlay = useOptionalOverlay();
   const [starting, setStarting] = useState(false);
@@ -109,15 +119,6 @@ export default function ConversationVoice(props: {
   const controller = props.controller;
   const current = useRef(voice);
   current.current = voice;
-  const loaded = props.outputs;
-  useEffect(() => {
-    if (loaded)
-      setVoice((active) =>
-        active && !active.outputsBefore
-          ? { ...active, outputsBefore: outputRefs(loaded) }
-          : active,
-      );
-  }, [loaded]);
   // The bar is the composer's first row, whatever holds the Talk button.
   const root = useRef<HTMLDivElement>(null);
   const [barHost, setBarHost] = useState<HTMLElement | null>(null);
@@ -155,7 +156,7 @@ export default function ConversationVoice(props: {
         session,
         handle,
         targets: [...latest.current.targets],
-        outputsBefore: outputRefs(latest.current.outputs),
+        outputsBefore: outputsBefore(latest.current.outputs),
       });
       setTyping(false);
       await session.start();
@@ -205,7 +206,7 @@ export default function ConversationVoice(props: {
         handle,
         targets: [...latest.current.targets],
         label: provider.label,
-        outputsBefore: outputRefs(latest.current.outputs),
+        outputsBefore: outputsBefore(latest.current.outputs),
       });
       setTyping(false);
       await session.start();
