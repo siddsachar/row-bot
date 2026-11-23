@@ -57,15 +57,20 @@ class StreamingSpeechToText(Protocol):
         ...
 
     def open(self, *, language: str | None = None) -> SpeechToTextStream:
+        """One utterance in *language* (Settings › Voice › Language; None detects it)."""
         ...
 
 
 @dataclass(frozen=True)
 class SpeechAudio:
-    """Synthesised speech for one sentence or clause: mono s16le PCM."""
+    """Synthesised speech for one sentence or clause: mono s16le PCM.
+
+    No audio with ``unspoken`` set: the text is in a language the voice cannot speak (its code).
+    """
 
     pcm16: bytes
     sample_rate: int
+    unspoken: str | None = None
 
 
 class SentenceSpeech(Protocol):
@@ -76,6 +81,7 @@ class SentenceSpeech(Protocol):
     def warm(self) -> None:
         ...
 
-    def synthesize(self, text: str) -> SpeechAudio:
-        """Speech for ``text``; empty PCM when there is nothing to say."""
+    def synthesize(self, text: str, *, language: str | None = None) -> SpeechAudio:
+        """Speech for ``text``; empty PCM when there is nothing to say. *language* is a hint: the
+        language the person was heard speaking."""
         ...

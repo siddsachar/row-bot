@@ -432,6 +432,58 @@ def _live_providers() -> list[dict[str, Any]]:
         return live_voice_rows({})
 
 
+def _voice_language(runtime: Mapping[str, Any], local: Mapping[str, Any], chosen: str) -> dict[str, Any]:
+    """Settings › Voice › Language: the choices, Kokoro's voices for other languages, and a plain notice
+    for each engine in use that can't understand the language chosen (or the one it keeps hearing)."""
+    from row_bot.voice import languages
+
+    engines = {
+        languages.WHISPER_ENGINE: "Whisper",
+        languages.SENSEVOICE_ENGINE: "SenseVoice",
+    }
+    notices = []
+    uses = [("dictation", "runtime.dictation_model", _text(runtime.get("dictation_model") or "local-whisper", 128))]
+    if (runtime.get("talk_provider") or "local") == "local":
+        uses.insert(0, ("talk", "runtime.talk_model", _text(runtime.get("talk_model") or "local-whisper", 128)))
+    for use, field, engine in uses:
+        understood = languages.engine_languages(engine)
+        if understood is None:
+            continue
+        heard = chosen == languages.AUTO
+        language = languages.heard_often(understood) if heard else chosen
+        if language is None or language in understood:
+            continue
+        from row_bot.voice import speech_models
+
+        model = speech_models.by_engine(engine)
+        others = ["Whisper"]
+        if (engine != languages.SENSEVOICE_ENGINE and _text(local.get("sensevoice_model_path"))
+                and language in languages.SENSEVOICE_LANGUAGES):
+            others.append("SenseVoice")
+        notices.append({
+            "use": use,
+            "engine": model.name if model is not None else engines.get(engine, engine),
+            "understands": [languages.name(code) for code in sorted(understood)],
+            "language": language,
+            "language_label": languages.name(language),
+            "heard": heard,
+            "alternatives": others,
+            "switch_field": field,
+            "switch_value": languages.WHISPER_ENGINE,
+        })
+    return {
+        "options": [{"value": languages.AUTO, "label": "Detect automatically"},
+                    *sorted(({"value": code, "label": label} for code, label in languages.LANGUAGES.items()),
+                            key=lambda row: row["label"])],
+        "spoken": sorted(languages.KOKORO_LANGUAGES),
+        "voice_options": [
+            {"language": language, "label": languages.name(language), "options": _choice_rows(voices)}
+            for language, voices in languages.KOKORO_VOICES.items()
+        ],
+        "notices": notices,
+    }
+
+
 def _voice(root: Path) -> dict[str, Any]:
     runtime = _mapping(_read_json(root / "voice_runtime_settings.json", default={}))
     local = _mapping(_read_json(root / "voice_settings.json", default={}))
@@ -449,6 +501,14 @@ def _voice(root: Path) -> dict[str, Any]:
         speed = max(0.5, min(2.0, float(tts.get("speed", 1.0))))
     except (TypeError, ValueError):
         speed = 1.0
+    from row_bot.voice import languages
+
+    speech_language = languages.setting(runtime.get("speech_language"))
+    picked = _mapping(tts.get("language_voices"))
+    language_voices = {
+        language: picked.get(language) if picked.get(language) in voices else languages.KOKORO_PRESETS[language]
+        for language, voices in languages.KOKORO_VOICES.items()
+    }
     return {
         "availability": "available",
         "runtime": {
@@ -472,6 +532,7 @@ def _voice(root: Path) -> dict[str, Any]:
             if runtime.get("turn_eagerness") in {"relaxed", "normal", "eager"}
             else "normal",
             "push_to_talk": runtime.get("push_to_talk") is True,
+            "speech_language": speech_language,
         },
         "local": {
             "whisper_model": whisper,
@@ -486,7 +547,9 @@ def _voice(root: Path) -> dict[str, Any]:
             and (root / "kokoro" / "voices-v1.0.bin").is_file(),
             "voice": tts_voice,
             "speed": speed,
+            "language_voices": language_voices,
         },
+        "language": _voice_language(runtime, local, speech_language),
         "live_providers": _live_providers(),
         "talk_providers": _choice_rows(
             {"local": "Local", "openai_realtime": "OpenAI Realtime"}
@@ -1738,9 +1801,15 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "runtime.captions_enabled": True,
         "runtime.turn_eagerness": "normal",
         "runtime.push_to_talk": False,
+        "runtime.speech_language": "auto",
         "local.whisper_model": "small",
         "tts.voice": "af_heart",
         "tts.speed": 1.0,
+        "tts.language_voices.es": "ef_dora",
+        "tts.language_voices.fr": "ff_siwis",
+        "tts.language_voices.hi": "hf_alpha",
+        "tts.language_voices.it": "if_sara",
+        "tts.language_voices.pt": "pf_dora",
     },
     "system": {
         "remote_access.listen_mode": "local_only",

@@ -290,11 +290,13 @@ def session_settings() -> Any:
     """The saved Row-Bot Voice settings for a session starting now."""
     from row_bot.voice.engine.session import SessionSettings
     from row_bot.voice.engine.turns import TurnSettings
+    from row_bot.voice import languages
     from row_bot.voice.runtime import load_voice_runtime_settings
 
     saved = load_voice_runtime_settings()
     return SessionSettings(turns=TurnSettings.for_eagerness(saved.turn_eagerness),
-                           push_to_talk=saved.push_to_talk, captions=saved.captions_enabled)
+                           push_to_talk=saved.push_to_talk, captions=saved.captions_enabled,
+                           language=languages.requested(saved.speech_language))
 
 
 async def run_socket_session(transport: DuplexTalkTransport, redeemed: RedeemedTicket, *,

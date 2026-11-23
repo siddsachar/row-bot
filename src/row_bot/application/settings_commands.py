@@ -362,6 +362,15 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         # None: no limit (Learning's spending still shows); 0: no Learning model calls.
         if value is not None and (type(value) is not int or not 0 <= value <= learning.MAX_MONTHLY_TOKEN_LIMIT):
             raise SettingsCommandError("invalid_settings_command")
+    elif page == "voice" and (field == "runtime.speech_language" or field.startswith("tts.language_voices.")):
+        from row_bot.voice import languages
+
+        if field == "runtime.speech_language":
+            allowed = {languages.AUTO, *languages.LANGUAGES}
+        else:
+            allowed = set(languages.KOKORO_VOICES.get(field.removeprefix("tts.language_voices."), ()))
+        if type(value) is not str or value not in allowed:
+            raise SettingsCommandError("invalid_settings_command")
     elif page == "tools" and field.endswith(".enabled"):
         tool_id = field.removesuffix(".enabled")
         if tool_id not in _TOOL_IDS or type(value) is not bool:
@@ -608,7 +617,8 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
     elif page == "voice" and field == "local.whisper_model":
         path, keys = root / "voice_settings.json", ("whisper_model",)
     elif page == "voice" and field.startswith("tts."):
-        path, keys = root / "tts_settings.json", (field.split(".", 1)[1],)
+        # tts.voice, tts.speed; tts.language_voices.fr is "language_voices" › "fr".
+        path, keys = root / "tts_settings.json", tuple(field.split(".")[1:])
     elif page == "documents" and field.startswith("embedding."):
         path, keys = root / "embedding_config.json", (field.split(".", 1)[1],)
     elif page == "documents" and field == "processing_model":

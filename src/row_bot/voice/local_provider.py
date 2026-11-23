@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import platform
+import re
 import tempfile
 import wave
 from collections.abc import Callable
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.voice.provider_base import VoiceProviderStatus
+from row_bot.voice.provider_base import Heard, VoiceProviderStatus
 
 
 DEFAULT_FUNASR_MODEL = "iic/SenseVoiceSmall"
@@ -195,6 +196,8 @@ class LocalFunASRProvider:
         self._model_factory = model_factory
         self._postprocessor = postprocessor
         self._model = None
+        # The saved language for whole recordings (None detects it).
+        self.language: str | None = None
 
     def runtime_status(self) -> SenseVoiceRuntimeStatus:
         return sensevoice_runtime_status(self.model_path, cache_dir=self.cache_dir)
@@ -228,8 +231,15 @@ class LocalFunASRProvider:
         return self._model
 
     def transcribe_bytes(self, audio_bytes: bytes) -> str:
+        return self.transcribe_heard(audio_bytes, language=self.language).text
+
+    def transcribe_heard(self, audio_bytes: bytes, *, language: str | None) -> Heard:
+        """SenseVoice in *language* when it knows it, else detecting it; with the language it heard."""
+        from row_bot.voice import languages
+
         if not audio_bytes:
-            return ""
+            return Heard("", language)
+        asked = language if language in languages.SENSEVOICE_LANGUAGES else "auto"
         model = self.ensure_model()
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
             audio_path = Path(handle.name)
@@ -240,18 +250,28 @@ class LocalFunASRProvider:
                 wav.setframerate(self.sample_rate)
                 wav.writeframes(audio_bytes)
             result = model.generate(
-                input=str(audio_path), language="auto", use_itn=True
+                input=str(audio_path), language=asked, use_itn=True
             )
             if self._postprocessor is None:
                 from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
                 self._postprocessor = rich_transcription_postprocess
-            return self._postprocessor(_extract_funasr_text(result))
+            raw = _extract_funasr_text(result)
+            text = self._postprocessor(raw)
+            # SenseVoice tags what it heard: "<|fr|><|NEUTRAL|><|Speech|>…".
+            tag = _LANGUAGE_TAG.match(raw)
+            heard = language if asked != "auto" else (tag.group(1) if tag else None)
+            if asked == "auto" and text:
+                languages.note_heard(heard)
+            return Heard(text, heard)
         finally:
             try:
                 audio_path.unlink()
             except FileNotFoundError:
                 pass
+
+
+_LANGUAGE_TAG = re.compile(r"<\|([a-z]{2,3})\|>")
 
 
 def _extract_funasr_text(result: Any) -> str:

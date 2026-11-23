@@ -18,10 +18,23 @@ class VoiceProviderStatus:
 
 @dataclass(frozen=True)
 class SynthesizedSpeech:
-    """Encoded audio for the requesting browser to play."""
+    """Encoded audio for the requesting browser to play.
+
+    No audio with ``unspoken`` set: the text is in a language this voice cannot speak (its code), so it
+    stays on screen only.
+    """
 
     audio: bytes
     content_type: str
+    unspoken: str | None = None
+
+
+@dataclass(frozen=True)
+class Heard:
+    """A transcript and its language (a code; None when unknown)."""
+
+    text: str
+    language: str | None = None
 
 
 class VoiceProviderError(RuntimeError):
@@ -40,8 +53,25 @@ class SpeechToTextProvider(Protocol):
         ...
 
     def transcribe_bytes(self, audio_bytes: bytes) -> str:
-        """Transcribe 16 kHz mono signed 16-bit little-endian PCM."""
+        """Transcribe 16 kHz mono signed 16-bit little-endian PCM in the language it was made for."""
         ...
+
+
+class LanguageSpeechToText(SpeechToTextProvider, Protocol):
+    """A provider that takes a language for each recording and reports the one it heard (every local
+    engine). A provider without it is asked through ``transcribe_bytes`` and reports no language."""
+
+    def transcribe_heard(self, audio_bytes: bytes, *, language: str | None) -> Heard:
+        """*language* None detects it."""
+        ...
+
+
+def transcribe_heard(provider: SpeechToTextProvider, audio_bytes: bytes, *, language: str | None) -> Heard:
+    """*audio_bytes* written down in *language* (None detects it), with the language heard."""
+    heard = getattr(provider, "transcribe_heard", None)
+    if heard is None:
+        return Heard(provider.transcribe_bytes(audio_bytes))
+    return heard(audio_bytes, language=language)
 
 
 class SpeechOutputProvider(Protocol):
@@ -51,8 +81,12 @@ class SpeechOutputProvider(Protocol):
     def status(self) -> VoiceProviderStatus:
         ...
 
-    def synthesize(self, text: str) -> SynthesizedSpeech:
-        """Return audio for the browser to play; never use host audio devices."""
+    def synthesize(self, text: str, *, language: str | None = None) -> SynthesizedSpeech:
+        """Return audio for the browser to play; never use host audio devices.
+
+        *language* is a hint (what the person was heard speaking): the text's own language decides when it
+        is clear.
+        """
         ...
 
 

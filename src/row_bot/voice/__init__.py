@@ -156,10 +156,12 @@ class VoiceService:
                 self._sensevoice_model_path = path
                 self._funasr_provider = None
 
-    def sensevoice_provider(self):
-        """The SenseVoice provider for the saved model path."""
+    def sensevoice_provider(self, *, language: str | None):
+        """The SenseVoice provider for the saved model path, in *language* (None detects it)."""
         with self._models_lock:
-            return self._get_funasr_provider()
+            provider = self._get_funasr_provider()
+            provider.language = language
+            return provider
 
     def _get_funasr_provider(self):
         if self._funasr_provider is None:
@@ -175,16 +177,33 @@ class VoiceService:
         audio_bytes: bytes,
         *,
         allow_download: bool = False,
-        language: str | None = "en",
+        language: str | None,
     ) -> str:
-        """Transcribe 16 kHz mono signed-16 PCM; *language* None detects it."""
+        """Transcribe 16 kHz mono signed-16 PCM in *language*; None detects it."""
+        return self.transcribe_pcm16_heard(audio_bytes, allow_download=allow_download, language=language)[0]
+
+    def transcribe_pcm16_heard(
+        self,
+        audio_bytes: bytes,
+        *,
+        allow_download: bool = False,
+        language: str | None,
+    ) -> tuple[str, str | None]:
+        """The words in 16 kHz mono signed-16 PCM and the language they are in (*language*, or the one
+        Whisper detected when it is None)."""
         # Keep this call's model: a saved size change may drop the shared one.
         model = self._ensure_whisper(allow_download=allow_download)
         f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        segs, _ = model.transcribe(
+        segs, info = model.transcribe(
             f32, beam_size=5, language=language, vad_filter=True,
         )
-        return " ".join(s.text.strip() for s in segs).strip()
+        text = " ".join(s.text.strip() for s in segs).strip()
+        heard = language or (str(getattr(info, "language", "") or "") or None)
+        if language is None and text:
+            from row_bot.voice import languages
+
+            languages.note_heard(heard)
+        return text, heard
 
 
     def transcribe_words(self, audio_bytes: bytes) -> tuple[list, str]:

@@ -992,7 +992,7 @@ def _install_voice_engine_fixture() -> None:
         def warm(self) -> None:
             pass
 
-        def synthesize(self, text: str):
+        def synthesize(self, text: str, *, language=None):
             _voice_fixture["syntheses"] += 1
             samples = np.arange(int(24_000 * min(4.0, 0.06 * len(text))))
             tone = (np.sin(samples * 2 * np.pi * 220 / 24_000) * 1200).astype("<i2")

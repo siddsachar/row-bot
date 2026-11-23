@@ -3404,6 +3404,10 @@ const CATALOG: Record<string, Entry> = {
     'This reply is code or a table, with nothing to read aloud.',
     'none',
   ],
+  voice_language_unspoken: [
+    'Row-Bot’s voice can’t speak this reply’s language yet, so it stays on screen.',
+    'none',
+  ],
   voice_rate_limited: [
     'Voice has been used a lot in the last minute. Wait a moment, then try again.',
     'retry',
