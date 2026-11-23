@@ -448,7 +448,8 @@ def test_a_real_noisy_voice_is_cleaned(studio, tmp_path):
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
 def test_a_real_clips_moments_start_where_its_shot_changes(studio, tmp_path):
-    """C4 for real: ffmpeg's scene score finds the cut between two shots, and a frame of each moment is saved."""
+    """C4 for real: ffmpeg's scene score finds the cut between two shots (a dark one, then a light one: the score
+    reads mostly the light in a picture), and a frame of each moment is saved."""
     from row_bot import ffmpeg_runtime
     from row_bot.tools import video_editing_tool as video_tool
 
@@ -456,8 +457,8 @@ def test_a_real_clips_moments_start_where_its_shot_changes(studio, tmp_path):
     real = ffmpeg_runtime.find()
     clip = tmp_path / "two shots.mp4"
     subprocess.run([real.executable, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                    "color=c=0xc83c28:size=320x180:rate=30:duration=3", "-f", "lavfi", "-i",
-                    "color=c=0x285ac8:size=320x180:rate=30:duration=3", "-filter_complex",
+                    "color=c=0x801010:size=320x180:rate=30:duration=3", "-f", "lavfi", "-i",
+                    "color=c=0x80c8ff:size=320x180:rate=30:duration=3", "-filter_complex",
                     "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                     str(clip)], check=True)
     studio["register"](studio["chat"], "two shots.mp4", clip.read_bytes())
