@@ -14,7 +14,7 @@ const STILL_QUALITY = 0.8;
 
 export type ShareStarted = {
   stream: MediaStream;
-  /** The camera faces the person (its preview is mirrored). */
+  /** The camera faces the person: its preview is mirrored (see mirrorPreview). */
   facingUser: boolean;
   /** More than one camera to switch between. */
   canSwitch: boolean;
@@ -63,6 +63,16 @@ export function shareError(error: unknown, source: ShareSource) {
   if (name === 'NotFoundError' || name === 'OverconstrainedError')
     return 'No camera was found.';
   return 'The camera couldn’t start. Try again.';
+}
+
+/**
+ * Whether the preview is mirrored, like a selfie view: only a camera facing
+ * the person (a phone's front camera, or a computer's webcam, which reports no
+ * facing). Never the back camera or a shared screen. Only the preview is
+ * mirrored: a still is always drawn as the camera sees it.
+ */
+export function mirrorPreview(source: ShareSource, facingMode?: string) {
+  return source === 'camera' && facingMode !== 'environment';
 }
 
 /** The size of a still: the frame scaled down to fit STILL_SIDE, never up. */
@@ -163,10 +173,9 @@ export class BrowserShare implements ShareCapture {
         canSwitch = false;
       }
     }
-    const facing = track?.getSettings?.().facingMode;
     return {
       stream,
-      facingUser: this.source === 'camera' && facing !== 'environment',
+      facingUser: mirrorPreview(this.source, track?.getSettings?.().facingMode),
       canSwitch,
     };
   }

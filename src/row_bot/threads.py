@@ -2474,7 +2474,7 @@ def admitted_human_metadata(thread_id: str, message_id: str) -> dict:
         if getattr(message, "id", None) == message_id and getattr(message, "type", "") == "human":
             extra = getattr(message, "additional_kwargs", None) or {}
             kept = {key: copy.deepcopy(extra[key])
-                    for key in ("platform_public_content", "platform_attachments", "platform_note")
+                    for key in ("platform_public_content", "platform_attachments", "platform_note", "voice_still")
                     if key in extra}
             # A message from another conversation keeps where it came from (5.3.1 C); a run's line, the
             # messages other conversations left for that run.

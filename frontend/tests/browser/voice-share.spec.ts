@@ -16,7 +16,7 @@ test.beforeEach(async ({ context, page }) => {
   await blockFixtureServiceWorkers(context);
   await page.addInitScript(() => {
     const devices = { level: 0, video: 0, videoStopped: 0, screen: 0 };
-    function painted(label: string, hue: number) {
+    function painted(label: string, hue: number, facing?: string) {
       const canvas = document.createElement('canvas');
       canvas.width = 640;
       canvas.height = 480;
@@ -34,6 +34,12 @@ test.beforeEach(async ({ context, page }) => {
       const timer = setInterval(paint, 100);
       const stream = canvas.captureStream(10);
       for (const track of stream.getTracks()) {
+        // A phone's camera says which way it faces; a screen says nothing.
+        const settings = track.getSettings.bind(track);
+        track.getSettings = () => ({
+          ...settings(),
+          ...(facing && { facingMode: facing }),
+        });
         const stop = track.stop.bind(track);
         track.stop = () => {
           devices.videoStopped++;
@@ -71,7 +77,11 @@ test.beforeEach(async ({ context, page }) => {
         getUserMedia: async (constraints: MediaStreamConstraints) => {
           if (constraints.video) {
             devices.video++;
-            return painted('Synthetic camera', 205);
+            const facing =
+              (constraints.video as MediaTrackConstraints).facingMode ?? 'user';
+            return facing === 'environment'
+              ? painted('Back camera', 160, 'environment')
+              : painted('Front camera', 205, 'user');
           }
           return microphone();
         },
@@ -212,9 +222,15 @@ for (const viewport of [
         bar.getByRole('button', { name: 'Switch camera' }),
       ).toBeVisible();
       expect(told).toContainEqual({ type: 'share', source: 'camera' });
+      // The front camera is previewed as a mirror, like a selfie view.
+      const preview = bar.locator('video.voice-share-preview');
+      await expect(preview).toHaveAttribute('data-mirrored', 'true');
       await screenshot(page, info, name('camera'));
       await accessibility(page, info, name('camera'));
       if (viewport.label === 'phone') {
+        // The back camera is never mirrored.
+        await bar.getByRole('button', { name: 'Switch camera' }).click();
+        await expect(preview).not.toHaveAttribute('data-mirrored');
         await bar.getByRole('button', { name: 'Full screen' }).click();
         await expect(bar).toHaveAttribute('data-focus', 'true');
         await expect(bar.locator('video.voice-share-preview')).toBeVisible();
@@ -227,6 +243,9 @@ for (const viewport of [
       if (viewport.label === 'desktop') {
         await share(page, 'Screen or window');
         await expect(bar.getByText('Sharing your screen')).toBeVisible();
+        await expect(
+          bar.locator('video.voice-share-preview'),
+        ).not.toHaveAttribute('data-mirrored');
         await screenshot(page, info, name('screen'));
         await bar.getByRole('button', { name: 'Stop sharing' }).click();
       }

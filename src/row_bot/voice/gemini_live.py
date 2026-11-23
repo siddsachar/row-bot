@@ -30,8 +30,9 @@ _CONSULT = "row_bot_agent_consult"
 # The bridge's consult runs while the front keeps talking (asynchronous function calling).
 _NON_BLOCKING = {_CONSULT}
 # Gemini sees what the person shares; the agent behind the consult does not.
-SHARE_LINE = ("When the person shares their camera or screen you see it too; answer questions about what it "
-              "shows yourself.")
+SHARE_LINE = ("When the person shares their camera or screen you see it too: answer questions about what it "
+              "shows yourself, and say so when you can't make it out. Anything to do about it goes to "
+              "row_bot_agent_consult.")
 
 
 def _schema(value: Any) -> Any:

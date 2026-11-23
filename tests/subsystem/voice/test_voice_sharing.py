@@ -208,3 +208,27 @@ def test_a_still_must_be_exactly_what_its_announcement_said():
             await rig.session.control({"type": "still", "bytes": "many"})
         await rig.session.close()
     run(scenario())
+
+
+def test_the_live_still_mark_never_reaches_a_model_request():
+    """``voice_still`` is metadata for Learning: no provider's request carries it."""
+    from langchain_anthropic import ChatAnthropic
+    from langchain_core.messages import HumanMessage
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_ollama import ChatOllama
+    from langchain_openai import ChatOpenAI
+
+    message = HumanMessage(content="What is this?", id="turn-1", additional_kwargs={
+        "platform_public_content": "What is this?", "voice_still": "camera",
+        "platform_attachments": [{"name": "Live camera.jpg", "mime_type": "image/jpeg"}]})
+    requests = {
+        "openai": ChatOpenAI(model="synthetic", api_key="synthetic", base_url="http://127.0.0.1:9")
+        ._get_request_payload([message]),
+        "anthropic": ChatAnthropic(model="synthetic", api_key="synthetic")._get_request_payload([message]),
+        "ollama": ChatOllama(model="synthetic")._chat_params([message]),
+        "google": ChatGoogleGenerativeAI(model="synthetic", google_api_key="synthetic")._prepare_request([message]),
+    }
+    for provider, request in requests.items():
+        sent = str(request)
+        assert "What is this?" in sent, provider
+        assert "voice_still" not in sent and "Live camera.jpg" not in sent, provider

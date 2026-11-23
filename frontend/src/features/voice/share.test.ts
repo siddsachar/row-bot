@@ -1,7 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { VoiceSocket } from '../../api/types';
 import { LIVE_STILL_MS, LiveVoiceSession } from './live-voice-session';
-import { shareError, stillSize, STILL_SIDE } from './share';
+import {
+  BrowserShare,
+  mirrorPreview,
+  shareError,
+  stillSize,
+  STILL_SIDE,
+} from './share';
 import { VoiceSession } from './voice-session';
 import { FakeAudio, FakeShare, FakeSocket } from './voice-test-fakes';
 
@@ -189,4 +195,81 @@ it('a Live voice front that takes no images offers no sharing', async () => {
   expect(session.getSnapshot().canShare).toBe('no');
   await session.startShare('camera');
   expect(share.start).not.toHaveBeenCalled();
+});
+
+it('only a camera facing the person is previewed mirrored; the back camera and a screen never are', () => {
+  expect(mirrorPreview('camera', 'user')).toBe(true);
+  // A computer's webcam reports no facing: a selfie view too.
+  expect(mirrorPreview('camera', undefined)).toBe(true);
+  expect(mirrorPreview('camera', 'environment')).toBe(false);
+  expect(mirrorPreview('screen', undefined)).toBe(false);
+  expect(mirrorPreview('screen', 'user')).toBe(false);
+});
+
+it('the still sent to Row-Bot is the frame as the camera sees it, never mirrored', async () => {
+  const drawn: unknown[][] = [];
+  const context = {
+    drawImage: vi.fn((...args: unknown[]) => drawn.push(args)),
+    scale: vi.fn(),
+    translate: vi.fn(),
+    setTransform: vi.fn(),
+    transform: vi.fn(),
+  };
+  const track = {
+    getSettings: () => ({ facingMode: 'user' }),
+    addEventListener: vi.fn(),
+    stop: vi.fn(),
+  };
+  const stream = {
+    getVideoTracks: () => [track],
+    getTracks: () => [track],
+  } as unknown as MediaStream;
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    mediaDevices: {
+      getUserMedia: vi.fn(async () => stream),
+      enumerateDevices: vi.fn(async () => []),
+    },
+  });
+  const spies = [
+    vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockImplementation(async () => undefined),
+    vi
+      .spyOn(HTMLMediaElement.prototype, 'readyState', 'get')
+      .mockReturnValue(4),
+    vi
+      .spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get')
+      .mockReturnValue(1280),
+    vi
+      .spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get')
+      .mockReturnValue(720),
+    vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as unknown as CanvasRenderingContext2D),
+    vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((done) => done(new Blob(['jpeg']))),
+  ];
+  try {
+    const share = new BrowserShare();
+    // The front camera's preview is mirrored...
+    expect((await share.start('camera')).facingUser).toBe(true);
+    // ...but its still is drawn straight, scaled to fit 768 px.
+    expect(await share.still()).toBeInstanceOf(Blob);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].slice(1)).toEqual([0, 0, STILL_SIDE, 432]);
+    for (const flip of [
+      'scale',
+      'translate',
+      'setTransform',
+      'transform',
+    ] as const)
+      expect(context[flip]).not.toHaveBeenCalled();
+    share.stop();
+    expect(track.stop).toHaveBeenCalled();
+  } finally {
+    spies.forEach((spy) => spy.mockRestore());
+    vi.unstubAllGlobals();
+  }
 });

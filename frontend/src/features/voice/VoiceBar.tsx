@@ -104,6 +104,7 @@ function SharePreview({ share }: { share: ShareState }) {
   return (
     <video
       className="voice-share-preview"
+      data-source={share.source}
       data-mirrored={share.facingUser || undefined}
       aria-hidden
       autoPlay

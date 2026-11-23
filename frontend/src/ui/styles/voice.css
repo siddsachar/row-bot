@@ -359,6 +359,10 @@
 .voice-share-preview[data-mirrored] {
   transform: scaleX(-1);
 }
+/* A shared screen is shown whole, never cropped. */
+.voice-share-preview[data-source='screen'] {
+  object-fit: contain;
+}
 .voice-share-dot {
   flex: none;
   width: 8px;
@@ -453,10 +457,14 @@
   flex-direction: column;
   gap: 6px;
 }
+/* Full screen: the whole frame at its own shape (portrait or landscape), never cropped. */
 .voice-bar[data-focus] .voice-share-preview {
-  width: min(44vw, 180px);
-  height: min(58vw, 240px);
+  width: auto;
+  height: auto;
+  max-width: min(72vw, 320px);
+  max-height: 30vh;
   border-radius: 16px;
+  object-fit: contain;
 }
 .voice-bar[data-focus] .voice-share-dot {
   display: none;

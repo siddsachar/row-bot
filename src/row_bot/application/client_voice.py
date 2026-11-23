@@ -125,7 +125,10 @@ class ClientVoiceAdmission:
             ids = {target["binding_id"] for target in context["write_targets"]}
             bindings = tuple(binding for binding in list_bindings(owner.conversation_id).bindings if binding.binding_id in ids)
             # A spoken turn: the agent answers for listening (voice_mode; the turn context's "voice" line).
-            frozen = freeze_context({"configurable": {**context["_policy"], "voice_mode": True}}, bindings,
+            # A turn carrying a live still is marked on its saved message (``voice_still``: camera or screen),
+            # never shown to the model; Learning leaves such stills out of what it keeps.
+            marked = {"voice_still": still.source} if still is not None else {}
+            frozen = freeze_context({"configurable": {**context["_policy"], "voice_mode": True, **marked}}, bindings,
                                     context["write_targets"])
             def authority() -> None:
                 self.validate_context(owner, context, validate)
