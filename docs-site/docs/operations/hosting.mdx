@@ -175,7 +175,7 @@ Row-Bot reads the container's memory limit (cgroup `memory.max`) and keeps, in `
 If Row-Bot restarts because the server ran out of memory, Home and System Monitor say so, with the server's size, until the owner dismisses it. To fix it, do one of these:
 
 - **Give the server 4 GB.** Resize it where your host manages it: on PikaPods, that's your pod in **My Pods**; on Railway, the service's memory limit in **Settings › Deploy**. Row-Bot keeps its data and sign-ins, and the notice goes once the server is bigger.
-- **Use cloud speech-to-text.** In **Settings › Voice**, choose **OpenAI Realtime** under **Listen with**. Local speech-to-text is what doesn't fit beside the rest in 2 GB.
+- **Use cloud speech-to-text.** In **Settings › Voice**, choose a cloud speech service under **Listen with** (**Deepgram Nova-3**, **AssemblyAI Realtime**, **OpenAI Live Transcribe** or **Gemini Transcribe Live**) and add its key, or talk with Live voice. Local speech-to-text is what doesn't fit beside the rest in 2 GB. Dictate and chat-app voice notes still use local speech-to-text.
 
 ## Updates
 

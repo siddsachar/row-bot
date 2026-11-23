@@ -17,9 +17,13 @@ Open **Settings**, then choose **Voice** in the **Models** group, or search for 
 
 ## Controls
 
-- **Talk** chooses what listens to you (**Listen with**): Whisper on the computer running Row-Bot (the default), OpenAI Realtime, or a cloud speech service with your own key: **Deepgram Nova-3**, **AssemblyAI Realtime**, **OpenAI Live Transcribe** or **Gemini Transcribe Live**. Each cloud choice shows its approximate price a minute, says your voice goes to that company while you talk, and says **needs your key** until its key is saved. Deepgram and AssemblyAI keys are added right there (**Add**); OpenAI and Google use the key in **Settings › Models › Providers**. **Live captions** shows your words while you speak.
+- **Talk** chooses what listens to you (**Listen with**): Whisper on the computer running Row-Bot (the default), or a cloud speech service with your own key: **Deepgram Nova-3**, **AssemblyAI Realtime**, **OpenAI Live Transcribe** or **Gemini Transcribe Live**. Each cloud choice shows its approximate price a minute, says your voice goes to that company while you talk, and says **needs key** until its key is saved. Deepgram and AssemblyAI keys are added right there (**Add**); OpenAI and Google use the key in **Settings › Models › Providers**. The list's **OpenAI Realtime · online** only shows the **Realtime voice** and **Realtime model** that Live voice's OpenAI Realtime uses; Row-Bot Voice then listens with Whisper. **Live captions** shows your words while you speak.
+- **When you pause** sets how soon Row-Bot answers after you stop speaking: **Give me time to think**, **Balanced** (the default) or **Answer quickly**.
+- **Push to talk** makes Row-Bot listen only while you hold **Hold to talk** in the voice bar, or hold **Space** while you aren't typing in Row-Bot's window. With it on, the Windows app adds **Hold a key to talk** (**Off**, the default, **Ctrl + Alt + Space**, **Ctrl + Shift + Space** or **F13**): that key works while voice is open, even when another app is in front. It is kept on this computer. The Mac app doesn't offer it yet.
+- **On a phone** says when a phone stops listening (see [Phones](/docs/voice-and-buddy/#home-and-phones)).
 - **Faster speech models** (under **Talk**) lists the speech models Row-Bot can download for Talk, with the one recommended for this computer first and why: **Moonshine Base** (111 MB, English) on a processor or a Mac, **Nemotron Speech Streaming** (464 MB, English) on an NVIDIA graphics card the speech runtime can use. A faster speech model writes your words down as you speak, so your side of the captions appears live and Row-Bot answers sooner after you stop. Nothing downloads until you press **Download**; the button names the size, the row shows progress, **Stop** keeps what arrived and the next **Download** resumes it. A finished download becomes what Talk listens with. **Remove** deletes a model (Talk goes back to Whisper if it was using it). **Talk listens with** chooses between Whisper and the models you downloaded. Whisper stays available, and Dictate keeps using Whisper.
-- **Dictation** chooses what turns your speech into composer text, and the Whisper **Speech model** size. Voice notes you send Row-Bot on a chat app are transcribed with the same choice, in the language set under **Language**.
+- **Microphone and speaker** chooses the **Microphone** Talk and Dictate listen with and, where the browser can play to a chosen device (Chrome, Edge and the Windows app), the **Speaker** Row-Bot's voice plays through. The choice is kept in this browser only. Until Row-Bot may use the microphone, the browser doesn't name your devices: **Show my devices** asks for it.
+- **Dictation** (**Dictate with**) turns your speech into composer text on the computer running Row-Bot, with the Whisper **Speech model** size you choose. Voice notes you send Row-Bot on a chat app are transcribed with the same choice, in the language set under **Language**.
 - **Language** says what you speak in Talk, Dictate and chat-app voice notes. **Detect automatically** (the default) hears which language you speak. When it can't tell (a short phrase such as "yes", or when it isn't sure), it keeps the last language it heard clearly, English until then. Choose a language if it still guesses wrong. Whisper understands every language in the list; SenseVoice understands Chinese, English, Japanese and Korean; Moonshine Base and Nemotron Speech Streaming understand English only. When the engine Talk or Dictate listens with can't understand your language (the one you chose, or one Row-Bot keeps hearing you speak), the group says so and offers **Use Whisper**; Row-Bot never switches engines on its own.
 - **Voices for other languages** (under **Language**, once Kokoro is installed): an answer in Spanish, French, Hindi, Italian or Brazilian Portuguese is spoken with a voice for that language, and you can pick which one; English answers keep the voice chosen under **Read aloud**. Kokoro can't speak other languages (German, Japanese, Chinese or Arabic, for example) yet: those answers stay on screen, and the voice bar says so.
 - **Read aloud** sets the voice Row-Bot speaks with (**Speak with**): Kokoro, on the computer running Row-Bot (the default), or a cloud voice with your own key: **ElevenLabs Flash**, **Cartesia Sonic** or **Gemini Flash TTS**. The choice speaks Read aloud on a reply, Talk's spoken answers and voice-note replies on chat apps, so with a cloud voice their text goes to that company; the group says so, with the approximate price. A cloud voice speaks the languages its company lists (ElevenLabs 32, Cartesia 44, Gemini over 130), so **Language** says which ones it can't. **Voice** picks one of the voice's ready-made voices, and **Speech speed** applies to Kokoro. Until Kokoro is installed, the group says so and offers **Install** (a one-time download of the model and voices from GitHub).
@@ -32,21 +36,19 @@ Open **Settings**, then choose **Voice** in the **Models** group, or search for 
 - **Voice models** lists each speech model and whether it is installed.
 - **Diagnostics** says what Settings knows without checking: opening Settings never probes a microphone or a provider.
 
-Row-Bot listens through the microphone your browser uses; choose a different one in the browser or your operating system's sound settings.
-
-Talk and Dictate controls live in the full chat composer, not the compact Buddy desktop overlay. If Buddy is undocked, use **Open full thread** before starting a microphone session; Buddy will continue to reflect the selected thread's response and approval state.
+Talk and Dictate start from a chat's composer or Home's Ask box, not the compact Buddy desktop overlay. If Buddy is undocked, use **Open full thread** before starting a microphone session; Buddy will continue to reflect the selected thread's response and approval state.
 
 ## Common Workflow
 
 1. Use Dictate first if you want to review text before sending.
-2. Use Talk when you want hands-light conversation and are comfortable with immediate submission.
-3. Choose local Whisper for the default local path, or install and select SenseVoice Small when you want the optional FunASR engine.
+2. Use Talk for a spoken conversation: Row-Bot answers when you pause, and you can talk over it to interrupt. If it answers before you have finished, set **When you pause** to **Give me time to think**, or turn on **Push to talk**.
+3. For Talk, download the faster speech model recommended for this computer; Whisper stays the default until you do. Install and select SenseVoice Small when you want the optional FunASR engine.
 4. Treat the SenseVoice install as a deliberate approximately 940 MB ModelScope download. After verification, normal transcription stays local and cache-only.
 5. Choose Live voice from a chat's Talk menu when you want the most natural conversation and accept that audio goes to that provider, at its price.
 
 ## Read Aloud
 
-**Read aloud** is a button on each Row-Bot reply (on a phone, press and hold the reply). It speaks the reply with Kokoro in the voice and speed chosen here, and plays it in the browser you are using. Code blocks, tables and web addresses are left out. The first sentence starts quickly and the rest follows in order; press **Stop reading** to stop. Buddy's mouth moves while it reads. Row-Bot reads the reply from the saved conversation, so it only ever speaks what the reply says.
+**Read aloud** is a button on each Row-Bot reply (on a phone, press and hold the reply). It speaks the reply with the voice chosen here (Kokoro, in its voice and speed, or the cloud voice under **Speak with**), and plays it in the browser you are using. Code blocks, tables and web addresses are left out. The first sentence starts quickly and the rest follows in order; press **Stop reading** to stop. Buddy's mouth moves while it reads. Row-Bot reads the reply from the saved conversation, so it only ever speaks what the reply says.
 
 Talk and Read aloud say the words you've taught Row-Bot to pronounce; the chat and captions keep the written words. If Kokoro isn't installed, Read aloud says so and offers **Open Voice settings**; it never falls back to your device's own voice.
 
@@ -60,6 +62,8 @@ If a chosen service's key is missing (or you remove it), Row-Bot uses its own pa
 
 Voice preferences are global. Transcribed text belongs to the active thread once submitted. The verified SenseVoice snapshot is stored under the active Row-Bot data directory. Faster speech models are kept in the data folder's `models/speech/`, one folder per model. Provider-backed voice can send audio or transcript data to the selected provider.
 
+A few choices are kept in the browser, not in Row-Bot: the microphone and speaker, the key to hold to talk, that you have read a Live voice provider's disclosure, and that you have seen the phone notice. Another browser or device asks again.
+
 ## Privacy And Safety
 
 Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere. The explicit SenseVoice install contacts ModelScope for the model download; it does not send audio, prompts, or usage data, and ordinary inference does not check for updates. A faster speech model’s **Download** fetches one archive from the sherpa-onnx project's GitHub releases and checks it against its pinned fingerprint before using it; listening with it never contacts anything.
@@ -70,7 +74,7 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If the microphone is silent, check that the browser may use the microphone, and which microphone the browser or your operating system uses.
+- If the microphone is silent, check that the browser may use the microphone, and which one is chosen under **Microphone and speaker** (or from the headphones button in the voice bar).
 - If **Read aloud** says "Read aloud needs the Kokoro voice", install Kokoro under **Read aloud** in Voice settings.
 - If the voice bar says "The speech service didn't answer" or "The voice service didn't answer", check the key for the service you chose in Voice settings (or in Providers, for OpenAI and Google), and that the service is reachable.
 - "SenseVoice isn't ready on this computer." means the engine chosen for Talk or Dictation needs installing: install it in Voice settings, or choose Whisper.
@@ -79,4 +83,4 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 - If SenseVoice is missing or invalid, use its install or reinstall action in Voice settings. Source installs also require the `voice` extra.
 - SenseVoice is unavailable on Intel macOS because the required CPU PyTorch and Torchaudio wheels are not published for that runtime; use local Whisper there.
 - If a Live voice provider is unavailable, add its API key in Providers.
-- If Talk submits too quickly, use Dictate mode instead.
+- If Talk answers before you have finished, set **When you pause** to **Give me time to think**, turn on **Push to talk**, or use Dictate.

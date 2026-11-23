@@ -73,8 +73,58 @@ person-facing docs are in `docs-site/docs/voice-and-buddy/`.
 
 Latency marks per turn (end of speech, turn end, transcript, admission, first
 token, first sentence, first audio sent, first audio played) are kept as
-durations only; the bar's timing line and `row_bot.voice.engine.latency`
-show them.
+durations only; the bar's details (**Show details**) and
+`row_bot.voice.engine.latency` show them.
+
+## Live voice (V4)
+
+A chat's Talk menu also lists the Live voice fronts (`voice/live_voice.py`):
+OpenAI Realtime, Gemini Live and Grok Voice, each with the person's own key from
+Providers. Before a provider's first use in a browser the client shows what goes
+to it (the same list as Settings: voice, recent messages, the agent profile's
+name, a few memories unless incognito, and for Gemini Live what is shared).
+`POST /api/v1/conversations/{id}/voice/realtime` takes the lease and returns a
+ticket for `WS /api/v1/voice/live`, which carries the session's events.
+
+- **Gemini Live and Grok Voice are relayed by the host**: the provider socket is
+  opened from Row-Bot with the key, and the audio rides the page's socket
+  (16 kHz up, 24 kHz down) through the same capture and playback as Row-Bot
+  Voice. No provider token reaches the browser; the page's CSP keeps
+  `connect-src 'self'`.
+- **OpenAI Realtime keeps its WebRTC call for the media.** The host mints the
+  short-lived client secret and exchanges the SDP
+  (`.../voice/realtime/{lease}/exchange`); the browser's `RTCPeerConnection`
+  then carries audio directly to and from OpenAI, and the call's events go up
+  the socket.
+- **The front talks; Row-Bot works.** The front's instructions
+  (`voice/live_front.py`) and a bounded context block (12 recent messages,
+  5 memories) go to the provider; anything beyond small talk calls
+  `row_bot_agent_consult`, which runs the chat's own agent with its model,
+  tools and approvals. Progress lines ("Working on: …") and the answer go back
+  to the front to say. The front's own replies are saved as assistant messages
+  with `additional_kwargs={"voice_front": True}` (Learning keys on it: never
+  rename it).
+- Live voice is always hands-free (no push to talk); only Gemini Live takes
+  shared stills.
+
+## Voice-note replies in chat apps (V9)
+
+On Telegram and WhatsApp, a voice note in is transcribed with Dictation's
+local engine in the saved language (`speech_to_text_provider("voice_note")`).
+With the channel's **Reply to voice notes with a voice note** on (the default)
+and a voice that can speak, the turn runs with `voice_mode` for that turn only
+and the answer goes back as text, then as an OGG/Opus voice note made by the
+chosen speech output (`channels/voice_replies.py`; Kokoro, or the cloud voice
+with its key). Code, tables and links are left out of the note; an answer over
+the platform's size limit, or in a language the voice can't speak, goes as text
+alone.
+
+## Not shipped
+
+- **Wake word** (V10): not merged; there is no always-listening mode.
+- **Japanese and Mandarin speech** need misaki, which Row-Bot does not ship.
+- **The macOS push-to-talk hotkey** and **OpenAI Realtime sharing** are
+  follow-ups.
 
 ## Sharing the camera or screen
 
@@ -471,4 +521,7 @@ WKWebView, iPhone Safari and Android Chrome; Bluetooth headsets (the HFP
 profile switch drops the headset to call quality and a lower sample rate when
 its microphone opens); the phone's lock screen (an installed iPhone web app
 stops listening when locked) and Media Session controls; Android with the
-screen off.
+screen off; the Windows push-to-talk hotkey on a real keyboard with another
+app in front; Live voice and the cloud speech parts with real keys (first
+audio, captions, barge-in), and OpenAI Realtime's direct WebRTC call from a
+phone over the remote-access tunnel.
