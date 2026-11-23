@@ -90,7 +90,9 @@ def _served(routes: Sequence[BaseRoute], prefix: str = "") -> Iterator[tuple[str
                 raise Unclassified(f"{path} accepts every method; name the methods it serves")
             yield "http", path, frozenset(context.methods)
         elif isinstance(route, WebSocketRoute):
-            yield "websocket", path, frozenset({"WEBSOCKET"})
+            # FastAPI leaves an included WebSocket's context path empty; the route it serves has the full one.
+            served = getattr(context, "starlette_route", route)
+            yield "websocket", prefix + served.path, frozenset({"WEBSOCKET"})
         elif isinstance(route, Mount) and isinstance(route.app, StaticFiles):
             yield "http", path + "/{path:path}", _FILE_METHODS
         elif isinstance(route, Mount) and isinstance(route.app, Router):
