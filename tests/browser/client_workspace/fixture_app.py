@@ -7006,18 +7006,31 @@ def _l3a_forget_drafts() -> None:
     evolution._save_store(store)
 
 
+# The Dream Cycle settings file as it was before "ahead" (None: there was none), put back on "restore".
+_L3A_DREAM_CONFIG: list[bytes | None] = []
+
+
 @app.post("/__l3a_fixture/learning/{action}")
 def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
     """Learning (preview) for the L3a spec: last night's look in each of its states, and the changes it
     drafted. Nothing reaches a model, a GPU or a download: the reports and drafts are written directly."""
     predecessor._authorize(x_fixture_token)
-    from datetime import date
+    from datetime import date, datetime, timedelta
 
+    from row_bot import dream_cycle
     from row_bot.learning import diagnosis
     from row_bot.learning.store import LearningStore
 
     night = date.today().isoformat()
-    if action == "night":
+    if action == "ahead":
+        # The night's window starts one to two hours from now, whatever the hour, so the Overview says "Next look
+        # tonight at …". Inside the window (01:00 to 05:00 by default) it rightly says it looks once Row-Bot is free.
+        if not _L3A_DREAM_CONFIG:
+            path = dream_cycle._CONFIG_FILE
+            _L3A_DREAM_CONFIG.append(path.read_bytes() if path.exists() else None)
+        start = (datetime.now() + timedelta(hours=2)).hour
+        dream_cycle.set_window(start, (start + 1) % 24)
+    elif action == "night":
         diagnosis._save(LearningStore(), diagnosis.NightReport(night, found=3, drafted=2, refused=1,
                                                                needs_examples=1, bugs=1))
         _l3a_drafts()
@@ -7027,6 +7040,12 @@ def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
             diagnosed=1 if action == "stopped" else 0))
     elif action == "restore":
         _l3a_forget_drafts()
+        if _L3A_DREAM_CONFIG:
+            saved, path = _L3A_DREAM_CONFIG.pop(), dream_cycle._CONFIG_FILE
+            if saved is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(saved)
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}
