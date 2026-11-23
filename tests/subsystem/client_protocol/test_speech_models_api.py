@@ -50,6 +50,10 @@ def computer(tmp_path, monkeypatch):
     small = replace(speech_models.MOONSHINE_BASE_EN, archive="small.tar.bz2", archive_size=len(archive),
                     archive_sha256=hashlib.sha256(archive).hexdigest(), top="small",
                     files=tuple((name, len(data)) for name, data in FILES.items()))
+    # The speech runtime (sherpa-onnx, in the voice extra) is installed and processor-only, whatever this
+    # checkout has: whether it imports here must not decide the result.
+    monkeypatch.setattr(speech_models, "runtime_available", lambda: True)
+    monkeypatch.setattr(speech_models, "cuda_runtime", lambda: False)
     monkeypatch.setattr(speech_models, "CATALOG", (small, speech_models.NEMOTRON_STREAMING_EN))
     monkeypatch.setattr(speech_models, "_BY_ID", {model.id: model for model in speech_models.CATALOG})
     monkeypatch.setattr(client_speech_models, "_failure", None)
@@ -89,6 +93,19 @@ def test_the_state_names_the_pick_for_this_computer_and_asks_for_nothing(compute
     pick = next(row for row in view["models"] if row["id"] == "moonshine-base-en")
     assert pick["download_bytes"] == len(computer["archive"]) and not pick["installed"]
     assert view["talk_engine"] == "local-whisper" and view["download"] is None
+    assert computer["asked"] == [] and not speech_models.models_root().exists()
+
+
+def test_without_the_speech_runtime_the_state_says_so_and_nothing_downloads(computer, monkeypatch):
+    monkeypatch.setattr(speech_models, "runtime_available", lambda: False)
+    small = computer["small"]
+
+    view = client_speech_models.snapshot()
+    assert view["state"] == "unavailable"
+    # The pick and sizes still show; only Download is refused, with a reason the card puts in words.
+    assert view["recommended"] == small.id and view["download"] is None
+    refused = client_speech_models.install(small.id, len(computer["archive"]))
+    assert refused["state"] == "unavailable" and refused["failure"] == {"reason": "unavailable"}
     assert computer["asked"] == [] and not speech_models.models_root().exists()
 
 
