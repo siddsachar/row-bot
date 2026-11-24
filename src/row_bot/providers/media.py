@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
+from row_bot.providers.minimax import API_ORIGIN as MINIMAX_API_ORIGIN, H3_IMAGE_MODELS
 
 # Who makes images and videos, and how: each provider's route is the shape of its
 # API ("openai" is POST /images/generations and /images/edits at base_url), so a
@@ -29,7 +30,7 @@ IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
     "requesty": {"key": "REQUESTY_API_KEY", "label": "Requesty", "emoji": "🛰️", "route": "openai",
                  "base_url": "https://router.requesty.ai/v1"},
     "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
-                "base_url": "https://api.minimax.io/v1"},
+                "base_url": f"{MINIMAX_API_ORIGIN}/v1"},
     "zai": {"key": "ZAI_API_KEY", "label": "Z.AI", "emoji": "Z", "route": "zai",
             "base_url": "https://api.z.ai/api/paas/v4"},
     "dashscope": {"key": "DASHSCOPE_API_KEY", "label": "Qwen (Alibaba Cloud)", "emoji": "QW", "route": "dashscope",
@@ -47,7 +48,7 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
     "together": {"key": "TOGETHER_API_KEY", "label": "Together AI", "emoji": "TG", "route": "together",
                  "base_url": "https://api.together.xyz/v2"},
     "minimax": {"key": "MINIMAX_API_KEY", "label": "MiniMax", "emoji": "M", "route": "minimax",
-                "base_url": "https://api.minimax.io/v2"},
+                "base_url": f"{MINIMAX_API_ORIGIN}/v2"},
     "zai": {"key": "ZAI_API_KEY", "label": "Z.AI", "emoji": "Z", "route": "zai",
             "base_url": "https://api.z.ai/api/paas/v4"},
     "dashscope": {"key": "DASHSCOPE_API_KEY", "label": "Qwen (Alibaba Cloud)", "emoji": "QW", "route": "dashscope",
@@ -63,7 +64,7 @@ VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
 # from its own list.
 UNLISTED_MEDIA_MODELS: dict[str, dict[str, dict[str, str]]] = {
     "image": {
-        "minimax": {"image-01": "Image-01"},
+        "minimax": {"image-01": "Image-01", **H3_IMAGE_MODELS},
         "zai": {"glm-image": "GLM-Image"},
         "codex": {"gpt-image-2": "GPT Image 2"},
     },

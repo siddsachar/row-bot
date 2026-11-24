@@ -11,6 +11,7 @@ from typing import Any, TYPE_CHECKING
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
 from row_bot.providers.catalog import get_provider_definition
+from row_bot.providers.minimax import ANTHROPIC_BASE_URL as MINIMAX_ANTHROPIC_BASE_URL
 from row_bot.providers.presets import PRESETS, get_preset, preset_endpoint
 from row_bot.providers.custom import (
     custom_endpoint_auth_missing_message,
@@ -1113,7 +1114,7 @@ def _create_chat_model(
         if not api_key:
             raise ValueError("MiniMax API key not configured. Set it in Settings › Models.")
         definition = get_provider_definition("minimax")
-        api_url = definition.base_url if definition and definition.base_url else "https://api.minimax.io/anthropic"
+        api_url = definition.base_url if definition and definition.base_url else MINIMAX_ANTHROPIC_BASE_URL
         return CancellableChatAnthropic(
             model=model_name,
             api_key=api_key,

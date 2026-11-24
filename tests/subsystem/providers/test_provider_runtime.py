@@ -1027,8 +1027,8 @@ def test_minimax_model_facade_fetches_live_catalog_and_capabilities(monkeypatch)
         }
         count = models.fetch_cloud_models("minimax")
 
-        # Its three listed models, and the image and video models its docs name beside them (I24).
-        assert count == 8
+        # Its three listed models, three image models and four video models.
+        assert count == 10
         assert calls[0]["url"] == "https://api.minimax.io/anthropic/v1/models"
         assert calls[0]["params"] == {"limit": 100}
         assert calls[1]["params"] == {"limit": 100, "after_id": "MiniMax-M2.7"}
@@ -1118,7 +1118,7 @@ def test_minimax_live_catalog_does_not_rewrite_current_default(monkeypatch):
 
         count = models.fetch_cloud_models("minimax")
 
-        assert count == 6  # MiniMax-M3 and the five media models its docs name
+        assert count == 8  # One listed model plus the documented image and video models
         assert "MiniMax-M2.7" not in models._cloud_model_cache
         assert models._current_model == "model:minimax:MiniMax-M2.7"
     finally:

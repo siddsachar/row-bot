@@ -6,6 +6,7 @@ from typing import Any
 from row_bot.providers.capabilities import endpoint_values
 from row_bot.providers.models import (
     AuthMethod, ModelInfo, ModelModality, ModelTask, ProviderDefinition, TransportMode, gpt_generation)
+from row_bot.providers.minimax import ANTHROPIC_BASE_URL as MINIMAX_ANTHROPIC_BASE_URL
 from row_bot.providers.presets import PRESETS, preset_definition
 
 PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
@@ -137,7 +138,7 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         display_name="MiniMax API",
         auth_methods=(AuthMethod.API_KEY,),
         default_transport=TransportMode.ANTHROPIC_MESSAGES,
-        base_url="https://api.minimax.io/anthropic",
+        base_url=MINIMAX_ANTHROPIC_BASE_URL,
         icon="M",
     ),
     **{preset.id: preset_definition(preset) for preset in PRESETS.values()},
