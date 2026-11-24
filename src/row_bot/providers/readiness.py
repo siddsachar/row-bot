@@ -129,6 +129,10 @@ class ModelRuntimeReadiness:
 
 
 def _provider_status_snapshot(provider_id: str, *, refresh_tokens: bool = True) -> dict[str, Any]:
+    if provider_id == "company":
+        from row_bot.company.provider import provider_status as company_status
+
+        return company_status()  # Row-Bot for Teams: joined, or disconnected (its call says what to do).
     try:
         return dict(provider_status(provider_id, refresh_tokens=refresh_tokens) or {})
     except TypeError:

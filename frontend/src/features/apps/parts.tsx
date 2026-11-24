@@ -200,6 +200,9 @@ const readiness: Record<string, [Tone, string]> = {
 
 /** One plain status for an installed item, or null when it is only listed. */
 export function statusOf(entry: IntegrationEntry): [Tone, string] | null {
+  // The person's company doesn't allow it (C3b): one quiet line, listed or installed.
+  if (entry.blockers.some((blocker) => blocker.code === 'company_policy'))
+    return ['neutral', 'Set by your company'];
   if (entry.lifecycle === 'available') return null;
   if (entry.lifecycle === 'data_retained') return ['neutral', 'Removed'];
   if (entry.lifecycle === 'off' && entry.readiness === 'ready')

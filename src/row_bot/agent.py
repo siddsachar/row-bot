@@ -5781,9 +5781,11 @@ _safety_mode_var = _approval_mode_var
 
 
 def get_approval_mode() -> str:
-    """Return the active shared approval mode for the current execution context."""
+    """Return the active shared approval mode for the current execution context: at most the person's
+    company's ceiling (C3b), whatever level the chat, workflow or agent was given."""
+    from row_bot.company.enforce import cap
 
-    return normalize_approval_mode(_approval_mode_var.get(DEFAULT_APPROVAL_MODE), DEFAULT_APPROVAL_MODE)
+    return cap(normalize_approval_mode(_approval_mode_var.get(DEFAULT_APPROVAL_MODE), DEFAULT_APPROVAL_MODE))
 
 
 def get_safety_mode() -> str:
@@ -5930,7 +5932,9 @@ def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
         if decision == "block":
             # Noted as Block's decision, for the activity log.
             resolve_approval_line({"tool": tool.name, "label": label, "args": kwargs}, approval_mode=mode)
-            return (f"BLOCKED: '{label}' is unavailable while this "
+            from row_bot.company.enforce import blocked_words
+
+            return blocked_words(label) or (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
                     "and move on."), ""
@@ -6295,7 +6299,11 @@ def _collect_agent_tool_candidates(
             from row_bot.channels.tool_factory import create_channel_tools as _create_ch_tools
             from row_bot.channels.tool_factory import destructive_channel_tool_names as _channel_destructive_names
 
+            from row_bot.company.enforce import allows_app as _company_allows_app
+
             for channel in _running_channels():
+                if not _company_allows_app("channels", str(channel.name)):
+                    continue  # A channel the person's company doesn't allow (C3b) brings no tools.
                 try:
                     channel_tools = _create_ch_tools(channel)
                     for lc_tool in channel_tools:
@@ -6659,6 +6667,12 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
 
     def refusal(function, args, kwargs):
         try:
+            # A tool the person's company switched off (C3b), should a call to it get this far.
+            from row_bot.company.enforce import tool_refusal
+
+            switched_off = tool_refusal(tool.name, parent=parent)
+            if switched_off is not None:
+                return switched_off
             # This turn's scope first: a call it leaves out never reaches an approval.
             out_of_turn = _turn_scope_refusal(tool.name, source=source, parent=parent)
             if out_of_turn is not None:
@@ -6912,10 +6926,22 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     if "presentation" in enabled_tool_names and _current_runtime_surface_var.get("") == "channel":
         # present shows a final in a Row-Bot chat; a chat app's turn delivers files with send_file.
         enabled_tool_names = [name for name in enabled_tool_names if name != "presentation"]
+    from row_bot.company import enforce as company_enforce
+
+    # What the person's company switched off (C3b) is never offered: a registry tool with everything it brings,
+    # or one model-facing tool, whichever source it comes from. A call that names one anyway is refused.
+    company_policy = company_enforce.current()
+    enabled_tool_names = company_enforce.keep_tools(enabled_tool_names, company_policy)
     eager_core_entries, external_entries, destructive_names = _collect_agent_tool_candidates(
         enabled_tool_names,
         allow_set,
     )
+    if company_policy is not None:
+        eager_core_entries, external_entries = (
+            [entry for entry in entries
+             if not company_enforce.tool_off(str(getattr(entry["tool"], "name", "") or ""),
+                                             parent=str(entry["parent"]), policy=company_policy)]
+            for entries in (eager_core_entries, external_entries))
     # Only apps switched off in this chat leave the tool list; what one turn leaves out is refused
     # when called (_turn_scope_refusal), so the tool list is the same on every turn (WP A5).
     app_scope = _current_app_scope_var.get(None) or {}

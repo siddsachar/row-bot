@@ -2290,6 +2290,23 @@ it('uses NiceGUI friendly research-tool labels and owner order', () => {
   expect(screen.queryByText('web_search')).not.toBeInTheDocument();
 });
 
+it('shows a tool its company switched off as Set by your company, with no switch (C3b)', () => {
+  mutation.page = 'tools';
+  render(
+    <ToolConfigurationSnapshot
+      snapshot={snapshot.tools}
+      mutation={mutation}
+      companyOff={['web_search']}
+    />,
+  );
+  expect(screen.getByText('Tavily web search')).toBeVisible();
+  expect(
+    screen.queryByLabelText('Enable Tavily web search'),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText('Set by your company')).toBeVisible();
+  expect(mutation.review).not.toHaveBeenCalled();
+});
+
 it('installs the chosen Whisper size from Voice settings (B140)', () => {
   mutation.page = 'voice';
   const { rerender } = render(

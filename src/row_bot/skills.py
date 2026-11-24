@@ -525,6 +525,17 @@ def get_default_active_skill_names(surface: str = "chat") -> list[str]:
     return names
 
 
+def _company_kept(found: list[Skill]) -> list[Skill]:
+    """*found* less the Skills Hub skills the person's company doesn't allow (C3b): kept on disk, never used.
+    Every list a run reads its skills from goes through here."""
+    from row_bot.company.enforce import current, skill_held
+
+    policy = current()
+    if policy is None or policy.apps.skills_hub == "any":
+        return found
+    return [skill for skill in found if not skill_held(skill.name, policy)]
+
+
 def get_enabled_skills() -> list[Skill]:
     """Return manually-enabled skills + auto-activated tool guides."""
     result = []
@@ -535,7 +546,7 @@ def get_enabled_skills() -> list[Skill]:
         else:
             if _enabled.get(s.name, False):
                 result.append(s)
-    return result
+    return _company_kept(result)
 
 
 def get_manual_skills() -> list[Skill]:
@@ -558,16 +569,16 @@ def get_manual_skill_statuses() -> list[tuple[Skill, bool]]:
 
 def get_enabled_manual_skills() -> list[Skill]:
     """Return only enabled non-tool-guide skills."""
-    return [skill for skill, enabled in get_manual_skill_statuses() if enabled]
+    return _company_kept([skill for skill, enabled in get_manual_skill_statuses() if enabled])
 
 
 def get_enabled_manual_skills_snapshot() -> list[Skill]:
     """Return enabled manual skills from the current cache without discovery."""
-    return [
+    return _company_kept([
         skill
         for skill in get_manual_skills()
         if _enabled.get(skill.name, False)
-    ]
+    ])
 
 
 def get_skills_prompt(
@@ -632,16 +643,16 @@ def get_skills_prompt(
 
 def active_tool_guides(active_tool_names: Iterable[str] | None = None) -> list[Skill]:
     """The tool guides injected for these tools (never the on-demand tool skills)."""
-    return [
+    return _company_kept([
         s for s in get_all_skills()
         if is_tool_guide(s) and not s.on_demand and _is_tool_guide_active(s, active_tool_names)
-    ]
+    ])
 
 
 def get_on_demand_tool_skills(active_tool_names: Iterable[str]) -> list[Skill]:
     """Tool-linked skills that are off by default, for tools that are bound: loaded with skill_load."""
     active = set(active_tool_names or ())
-    return [s for s in get_all_skills() if s.on_demand and any(t in active for t in s.tools)]
+    return _company_kept([s for s in get_all_skills() if s.on_demand and any(t in active for t in s.tools)])
 
 
 def get_tool_guide_index(

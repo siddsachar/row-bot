@@ -53,6 +53,8 @@ class TaskSettingsSnapshot:
     # The saved folder's name, kept when the folder is removed, and whether it is still a code folder.
     workspace_name: str | None = None
     workspace_available: bool = True
+    # The highest level the person's company allows (C3b): the workflow runs at most at it; None with no company.
+    company_max_level: str | None = None
 
 
 _MAX_ALWAYS_ASK = 16
@@ -135,7 +137,14 @@ def _snapshot(task_id: str, task: dict, revision: str, profile: dict | None,
         _full_autonomy_confirmed(),
         folder_name,
         folder_available,
+        _company_max_level(),
     )
+
+
+def _company_max_level() -> str | None:
+    from row_bot.company.enforce import ceiling
+
+    return ceiling()
 
 
 def _full_autonomy_confirmed() -> bool:
@@ -224,6 +233,11 @@ def update_saved_task_settings(
     if revision != expected_revision:
         raise TaskSettingsError("task_revision_conflict", task_id=task_id)
     values = _proposed(task, fields)
+    from row_bot.company.enforce import above_ceiling
+
+    if "safety_mode" in values and above_ceiling(values["safety_mode"]):
+        # Above the person's company's ceiling (C3b): the picker doesn't offer it. A level saved before stays.
+        raise TaskSettingsError("company_policy", task_id=task_id)
     if values.get("safety_mode") == "full":
         from row_bot.full_autonomy import FullAutonomyError, require_choice
 

@@ -404,7 +404,7 @@ def set_global_enabled(enabled: bool) -> None:
         save_config(cfg)
     try:
         from row_bot.tools import registry
-        if registry.get_tool("mcp") is not None and registry.is_enabled("mcp") != enabled:
+        if registry.get_tool("mcp") is not None and registry.is_switched_on("mcp") != enabled:
             registry.set_enabled("mcp", enabled)
     except Exception:
         pass

@@ -851,8 +851,15 @@ def _create_chat_model(
     )
     provider = resolved.provider_id
     model_name = resolved.runtime_model
+    from row_bot.company.policy import refuse as company_refuse
+
+    company_refuse(provider, model_name)  # Row-Bot for Teams: a model the company's policy turns off, in words.
     reasoning_plan = _validated_runtime_reasoning_plan(reasoning_plan, resolved.selection_ref)
     ensure_chat_model_compatible(model_name, provider)
+    if provider == "company":
+        from row_bot.company.gateway import chat_model as company_chat_model
+
+        return company_chat_model(model_name)  # Row-Bot for Teams: through the company's gateway.
     if provider == "ollama":
         from row_bot.models import _ollama_base_url, _ollama_runtime_model_name, get_context_size
         from row_bot.providers.ollama import is_ollama_reasoning_model

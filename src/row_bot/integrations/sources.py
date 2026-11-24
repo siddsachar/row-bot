@@ -99,6 +99,9 @@ class Found:
     hidden: int = 0
 
     def add(self, row: dict, reference: dict) -> None:
+        held = facts.company_listed(row, reference) if row["lifecycle"] == "available" else ""
+        if held:  # The person's company doesn't allow it (C3b): listed, marked, not offered.
+            row["blockers"] = [facts.blocker("company_policy", held)]
         self.rows.append(facts.finish(row))
         self.references[row["id"]] = reference
 
@@ -705,7 +708,12 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     elif kind == "plugin":
         example = SOURCES["examples"].lookup(reference)
         found = SOURCES["examples"].row(*example) if example else SOURCES["native"].lookup(reference)
-    return (facts.finish(found[0]), found[1]) if found else None
+    if not found:
+        return None
+    held = facts.company_listed(found[0], found[1]) if found[0]["lifecycle"] == "available" else ""
+    if held:  # The person's company doesn't allow it (C3b).
+        found[0]["blockers"] = [facts.blocker("company_policy", held)]
+    return facts.finish(found[0]), found[1]
 
 
 # Search ranking. The weights are named so that tuning them is a reviewed change: the golden queries in

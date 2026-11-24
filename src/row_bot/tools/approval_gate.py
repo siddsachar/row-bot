@@ -58,6 +58,8 @@ APPROVAL_DENIED = "Approval: asked; denied by you — did not run"
 APPROVAL_FULL_AUTONOMY = "Approval: allowed by Hands-off"
 APPROVAL_CHANGED = "Approval: asked; what you approved has changed since — did not run"
 APPROVAL_ALLOWED_IN_CHAT = "Approval: allowed by you for this chat"
+# The person's company allows no action that needs an approval (its ceiling is Block, C3b).
+APPROVAL_COMPANY_BLOCKED = "Approval: needed; your company's rules don't allow it — did not run"
 _APPROVAL_PREFIX = "Approval: "
 # Why a person-only card asks: the person's own rule, set on purpose.
 PERSON_RULE_REASON = "You asked to approve this yourself."
@@ -234,6 +236,29 @@ def _note_for_activity(payload: dict[str, Any], mode: object, outcome: str, *, b
     who, reason, rule_id = _decider_var.get()
     _activity_note("decided", payload, mode, outcome=str(outcome), by=by or who or "person", reason=reason,
                    **({"rule_id": rule_id} if rule_id else {}))
+
+
+def _level(mode: object) -> str:
+    """A level as it runs: normalised, and at most the person's company's ceiling (C3b)."""
+
+    from row_bot.company.enforce import cap
+
+    return cap(normalize_approval_mode(mode))
+
+
+def _capped(mode: object) -> object:
+    """``mode`` as given, unless the person's company's ceiling lowers it (C3b): then the ceiling."""
+
+    level = _level(mode)
+    return mode if level == normalize_approval_mode(mode) else level
+
+
+def _standing_allowed() -> bool:
+    """Whether the person's own allowances may approve for them: not below a company ceiling of Auto (C3b)."""
+
+    from row_bot.company.enforce import allows_standing_approvals
+
+    return allows_standing_approvals()
 
 
 def current_approval_mode() -> str:
@@ -494,6 +519,8 @@ def _allowance(payload: dict[str, Any], mode: str, risks: tuple[str, ...]) -> st
     if mode not in {"approve", "auto"} or payload.get("person_only") or any(risk in _PERSON_ONLY_RISKS
                                                                              for risk in risks):
         return ""
+    if not _standing_allowed():
+        return ""  # Below a company ceiling of Auto every action is asked (C3b).
     scope = _scope_var.get()
     if scope is not None:
         from row_bot import approval_rules
@@ -530,9 +557,16 @@ def _decide(
     the person may answer (their own rule); no level answers it for them.
     """
 
-    mode = normalize_approval_mode(approval_mode)
+    mode = _level(approval_mode)
     _decided_by("")
     _scope_var.set(None)
+    if mode == "block":
+        from row_bot.company.enforce import ceiling_blocks
+
+        if ceiling_blocks():
+            # The company's ceiling is Block: nobody approves it, not even the person (C3b).
+            _decided_by("block")
+            return False, APPROVAL_COMPANY_BLOCKED
     if not person_only and _approved_call_var.get():
         _decided_by("person")
         return True, APPROVAL_GIVEN  # Inside a call the person approved with its exact details.
@@ -540,7 +574,7 @@ def _decide(
         _decided_by("hands_off")
         return True, APPROVAL_FULL_AUTONOMY
     risks = tuple(risks)
-    if mode in {"approve", "auto"}:
+    if mode in {"approve", "auto"} and _standing_allowed():
         _scope_var.set(_rule_scope(payload, risks, person_only))
     ask = approval_callback or _interrupt
     ledger = _ledger()
@@ -673,7 +707,7 @@ def request_approval(
     for the reviewer.
     """
 
-    mode = current_approval_mode() if approval_mode is None else approval_mode
+    mode = current_approval_mode() if approval_mode is None else _capped(approval_mode)
     response, line = _decide(payload, approval_mode=mode, risks=risks, approval_callback=approval_callback)
     _record(line)
     _note_for_learning(payload, mode, response, line)
@@ -718,6 +752,7 @@ def resolve_approval_line(
 ) -> tuple[GateOutcome, str]:
     """Resolve one action through the shared levels: its outcome and approval line."""
 
+    approval_mode = _capped(approval_mode)
     decision = decision_for_action(normalize_approval_mode(approval_mode), read_only=read_only)
     if decision == "allow":
         return "allow", APPROVAL_NOT_NEEDED_READ_ONLY
@@ -787,7 +822,9 @@ def approval_check(
         return None, line
     label = str(payload.get("label") or payload.get("tool") or "Action")
     if decision == "block":
-        return blocked_message or (
+        from row_bot.company.enforce import blocked_words
+
+        return blocked_words(label) or blocked_message or (
             f"BLOCKED: {label} is unavailable while this thread is in Block approval mode."
         ), ""
     return with_approval(line, cancelled_message), line

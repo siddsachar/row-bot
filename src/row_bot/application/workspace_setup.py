@@ -496,6 +496,7 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     model = model_choice_value(row.get("model_override") or get_current_model())
     parsed = parse_model_ref(model)
     from row_bot import full_autonomy
+    from row_bot.company.enforce import ceiling as company_ceiling
     shared = full_autonomy.is_shared_conversation(identity)
     controls = {"model_selection": {"provider_id": parsed[0], "model_ref": model} if parsed else None,
                 "runtime_mode": row.get("client_runtime_mode") or "agent", "profile_id": row.get("agent_profile_id") or "",
@@ -531,7 +532,9 @@ def conversation_workspace(service: Any, identity: str) -> dict:
             ),
             "profiles": _people_facing_profiles(str(row.get("agent_profile_id") or "")),
             "approval": {"full_autonomy_confirmed": full_autonomy.is_confirmed(),
-                         "full_autonomy_available": not shared},
+                         "full_autonomy_available": not shared,
+                         # The highest level the person's company allows (C3b); None with no company.
+                         "company_max_level": company_ceiling()},
             "resources": resources, "actions": [
                 {"action": action, "ready": ready, "code": None if ready else "model_configuration_required"}
                 for action in ("send", "generate")] + [
@@ -625,6 +628,13 @@ def model_status(service: Any, controls: dict, conversation_id: str = "") -> dic
     provider_id = str(selection.get("provider_id") or "")
     from row_bot.providers.catalog import provider_billing
 
+    from row_bot.company.policy import turned_off
+    from row_bot.providers.selection import parse_model_ref
+
+    company_off = turned_off(provider_id, (parse_model_ref(model_ref) or ("", ""))[1])
+    if company_off:  # Row-Bot for Teams: the company's policy turns this model off; never shown as ready.
+        return {"state": "unavailable", "reason": company_off, "fix": "choose",
+                "local": provider_billing(provider_id) == "local", "sees_images": None, "backup_name": ""}
     base = {"local": provider_billing(provider_id) == "local", "sees_images": sees_images(model_ref),
             "backup_name": ""}
     if service.readiness_factory is not None:
