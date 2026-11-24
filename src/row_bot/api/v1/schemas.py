@@ -3055,6 +3055,39 @@ class CompanyEntityView(WireModel):
     mention_count: int = Field(ge=0, le=9007199254740991)
 
 
+class CompanyDocument(WireModel):
+    """One of a company space's documents (B3): its status and why it waits or failed (B1a), and how far its
+    knowledge got (B7). The reasons are the server's plain words."""
+
+    id: OpaqueId
+    title: str = Field(max_length=300)
+    file_name: str = Field(max_length=255)
+    byte_count: int = Field(ge=0, le=9007199254740991)
+    status: Literal["queued", "processing", "ready", "failed"]
+    status_reason: str | None = Field(max_length=500)
+    graph_status: Literal["pending", "extracting", "done", "waiting", "failed"] | None
+    graph_reason: str | None = Field(max_length=500)
+    version: int = Field(ge=1, le=9007199254740991)
+    uploaded_at: str = Field(max_length=64)
+
+
+class CompanyDocumentsView(WireModel):
+    """Settings › Documents' company documents (B3): the spaces the person owns, one space's documents, the
+    upload limits, and how the last upload, replace or delete went (``outcome``, None for a read)."""
+
+    schema_version: Literal[1]
+    state: Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable"]
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    spaces: list[CompanyGraphSpace] = Field(max_length=512)
+    space_id: OpaqueId | None
+    documents: list[CompanyDocument] = Field(max_length=500)
+    max_upload_bytes: int = Field(ge=1, le=9007199254740991)
+    supported_types: list[Annotated[str, StringConstraints(max_length=16)]] = Field(max_length=16)
+    outcome: Literal["uploaded", "replaced", "removed", "too_large", "unsupported_type", "invalid_file",
+                     "not_owner", "not_found"] | None
+
+
 SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
 
 

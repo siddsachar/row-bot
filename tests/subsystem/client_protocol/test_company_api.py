@@ -46,6 +46,11 @@ def test_with_no_company_the_app_makes_no_company_call_and_loads_nothing_that_op
         # Knowledge home's Company scope (B8) asks nothing either.
         graph = app.get(f"/api/v1/company/graph?spaces={SALES_SPACE}&q=atlas", headers=headers)
         entity = app.get(f"/api/v1/company/entities/{ATLAS}", headers=headers)
+        # Nor do the company documents (B3).
+        listed = app.get(f"/api/v1/company/documents?space={SALES_SPACE}", headers=headers)
+        uploaded = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/documents", content=b"Notes",
+                            headers={**headers, "Content-Type": "application/octet-stream", "X-File-Name": "a.txt"})
+        removed = app.delete(f"/api/v1/company/documents/{ATLAS}", headers=headers)
 
     assert view.status_code == 200, view.text
     assert view.json()["state"] == "not_joined" and view.json()["on_this_computer"] is True
@@ -56,6 +61,9 @@ def test_with_no_company_the_app_makes_no_company_call_and_loads_nothing_that_op
     assert graph.status_code == entity.status_code == 200, graph.text + entity.text
     assert (graph.json()["state"], graph.json()["nodes"], graph.json()["spaces"]) == ("not_joined", [], [])
     assert (entity.json()["state"], entity.json()["entity"]) == ("not_joined", None)
+    for answer in (listed, uploaded, removed):
+        assert answer.status_code == 200, answer.text
+        assert (answer.json()["state"], answer.json()["documents"], answer.json()["outcome"]) == ("not_joined", [], None)
     assert not (tmp_path / "company.json").exists()
 
 
@@ -156,4 +164,40 @@ def test_the_company_graph_and_an_entity_through_the_api_with_no_token_in_them(c
                                           "excerpt": "Orion Foods renewed for two years."}]
     assert (unknown.status_code, unknown.json()["state"]) == (200, "not_found")
     for answer in (every, sales, entity, unknown):
+        assert not any(token in answer.text for token in company_server.issued)
+
+
+def test_company_documents_through_the_api_with_no_token_in_them(company_server, monkeypatch):  # noqa: F811
+    from row_bot.company import documents
+
+    company_server.join_here()
+    monkeypatch.setattr(documents, "MAX_UPLOAD_BYTES", 64)
+    app, _, _ = client_app()
+    with app:
+        _, headers = bootstrap(app)
+        file = {**headers, "Content-Type": "application/octet-stream"}
+        listed = app.get("/api/v1/company/documents", headers=headers)
+        added = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/documents", content=b"Holiday policy: 25 days.",
+                         headers={**file, "X-File-Name": "holiday%20notes.txt"})
+        new = added.json()["documents"][0]["id"]
+        replaced = app.put(f"/api/v1/company/documents/{new}", content=b"Holiday policy: 26 days.",
+                           headers={**file, "X-File-Name": "holiday.md"})
+        removed = app.delete(f"/api/v1/company/documents/{new}", headers=headers)
+        # Larger than the limit, or not a file: refused before the company's server is asked.
+        sent = len(company_server.uploads)
+        large = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/documents", content=b"x" * 65,
+                         headers={**file, "X-File-Name": "big.txt"})
+        json_body = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/documents", json={"file": "x"}, headers=headers)
+
+    assert listed.status_code == 200, listed.text
+    assert (listed.json()["space_id"], len(listed.json()["documents"])) == (SALES_SPACE, 2)
+    assert added.status_code == 200, added.text
+    assert added.json()["outcome"] == "uploaded"
+    assert company_server.uploads[0]["fields"]["file"] == ("holiday notes.txt", b"Holiday policy: 25 days.")
+    assert (replaced.json()["outcome"], replaced.json()["documents"][0]["version"]) == ("replaced", 2)
+    assert removed.json()["outcome"] == "removed"
+    assert (large.status_code, large.json()["code"]) == (413, "payload_too_large")
+    assert (json_body.status_code, json_body.json()["code"]) == (422, "invalid_command")
+    assert len(company_server.uploads) == sent
+    for answer in (listed, added, replaced, removed):
         assert not any(token in answer.text for token in company_server.issued)

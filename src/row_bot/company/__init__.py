@@ -13,6 +13,9 @@
   kept in a bounded outbox and sent in batches (C4).
 - ``managed``: the company server this computer's IT department set (a registry, managed-preferences or
   root-owned file setting, C5): Join goes only there and Leave isn't offered.
+- ``brain``: the company's knowledge graph, read in Knowledge home (B8).
+- ``recall`` and ``brain_tool``: the company brain in a chat, the ``company_brain_search`` tool and the company's
+  hits in a turn's recall (B3); ``documents``: a space owner's company documents (B3).
 
 With no company joined nothing here runs: reading the state looks for the record file and imports neither
 ``client`` nor ``sign_in``, so no socket is opened and no thread is started.

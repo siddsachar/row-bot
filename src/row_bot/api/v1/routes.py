@@ -7381,6 +7381,58 @@ def create_router(
         view = await call(brain.entity, entity_id)
         return await respond(request, dto.CompanyEntityView, view or brain.empty_entity("not_joined"))
 
+    # Row-Bot for Teams (B3): a space owner's company documents, in Settings › Documents. A file goes on to the
+    # company's server with the device's bearer, its name, type and size checked first; with no company joined
+    # nothing is asked.
+    async def company_file(request: Request) -> tuple[str, bytes]:
+        from urllib.parse import unquote
+
+        from row_bot.company.documents import MAX_UPLOAD_BYTES
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/octet-stream":
+            raise ProtocolError("invalid_command", 422)
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_UPLOAD_BYTES:
+                raise ProtocolError("payload_too_large", 413)
+            data.extend(chunk)
+        return unquote(request.headers.get("x-file-name", ""))[:256], bytes(data)
+
+    async def company_documents_view(request: Request, method: Callable, *args: Any) -> JSONResponse:
+        from row_bot.company import documents
+
+        view = await call(method, *args)
+        return await respond(request, dto.CompanyDocumentsView, view or documents.empty("not_joined"))
+
+    @router.get("/company/documents")
+    async def company_documents(request: Request, space: str = "") -> JSONResponse:
+        await session(request)
+        from row_bot.company import documents
+
+        return await company_documents_view(request, documents.overview, space or None)
+
+    @router.post("/company/spaces/{space_id}/documents")
+    async def company_document_upload(request: Request, space_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        name, data = await company_file(request)
+        from row_bot.company import documents
+
+        return await company_documents_view(request, documents.upload, space_id, name, data)
+
+    @router.put("/company/documents/{document_id}")
+    async def company_document_replace(request: Request, document_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        name, data = await company_file(request)
+        from row_bot.company import documents
+
+        return await company_documents_view(request, documents.replace, document_id, name, data)
+
+    @router.delete("/company/documents/{document_id}")
+    async def company_document_remove(request: Request, document_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.company import documents
+
+        return await company_documents_view(request, documents.remove, document_id)
+
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
         # One short message to the model the person just chose (its provider is

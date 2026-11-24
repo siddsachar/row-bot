@@ -173,6 +173,15 @@ def register(tool: "BaseTool") -> None:
         _apply_saved_config(tool, saved)
 
 
+def unregister(name: str) -> None:
+    """Take a registered tool out: one offered only while something holds (a joined company's, B3)."""
+    with _CONFIG_LOCK:
+        _tools.pop(name, None)
+        _enabled.pop(name, None)
+        _tool_configs.pop(name, None)
+        _stand_in_configs.discard(name)
+
+
 def get_all_tools() -> list["BaseTool"]:
     """Return all registered tools (enabled + disabled), sorted by name."""
     _ensure_config_scope()

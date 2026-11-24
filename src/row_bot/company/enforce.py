@@ -37,9 +37,12 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Literal
 
 from row_bot.company import policy as company_policy
-from row_bot.policy.model import APPROVAL_LEVELS, Policy
+from row_bot.policy.model import APPROVAL_LEVELS, Policy, lockdown_policy
 
 logger = logging.getLogger(__name__)
+
+# The company brain's registry tool (B3, ``company.brain_tool``).
+COMPANY_BRAIN = "company_brain"
 
 AppKind = Literal["plugins", "mcp_servers", "skills_hub", "channels"]
 _ALLOWED = {"plugins": "allowed_plugins", "mcp_servers": "allowed_mcp_servers", "skills_hub": "allowed_skills",
@@ -69,9 +72,14 @@ def current() -> Policy | None:
 # -- tools --------------------------------------------------------------------------------------------
 
 def keep_tools(names: Iterable[str], policy: Policy | None = None) -> list[str]:
-    """The registry tool names the company leaves on (all of them with no company)."""
+    """The registry tool names the company leaves on (all of them with no company, but the company brain's).
+
+    The company brain's tool (B3) reaches the company's server: it isn't on with no company joined, nor while
+    locked down to this computer."""
     policy = policy or current()
     names = list(names)
+    if COMPANY_BRAIN in names and (policy is None or policy is lockdown_policy()):
+        names = [name for name in names if name != COMPANY_BRAIN]
     if policy is None or not policy.tools.disabled_groups:
         return names
     return [name for name in names if name not in policy.tools.disabled_groups]

@@ -2280,7 +2280,12 @@ def _turn_recall(messages: list, max_tokens: int) -> tuple[list[dict], Any]:
         from row_bot import learning
 
         learning.note_lessons_recalled([str(memory.get("id") or "") for memory in selected])
-    return (selected, recall_block) if block_chars else ([], None)
+    memories, block = (selected, recall_block) if block_chars else ([], None)
+    # The company brain's hits, labelled apart from the person's own notes (Row-Bot for Teams, B3). With no
+    # company joined nothing is asked and the recall is as it was.
+    from row_bot.company import recall as company_recall
+
+    return company_recall.merge(human_texts[0], decision.reason, memories, block)
 
 
 def _gather_turn_context_values(messages: list, *, shown_skill_ids: frozenset[str]) -> Any:

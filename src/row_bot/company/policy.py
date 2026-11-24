@@ -255,6 +255,9 @@ def _changed() -> None:
     ways = sys.modules.get("row_bot.integrations.builtin")
     if ways is not None:
         ways.changed()  # Apps shows a channel the company now holds (or lets go) as it is (C3b).
+    brain_tool = sys.modules.get("row_bot.company.brain_tool")
+    if brain_tool is not None:
+        brain_tool.sync()  # The company brain's tool, offered while joined (B3): a join's first policy, or Leave.
     # What the company now holds stops (C3b): its running channels and MCP servers (the servers in the
     # background: each stop waits for its program). Only where they run: a module not imported runs nothing.
     channels, mcp = sys.modules.get("row_bot.channels.registry"), sys.modules.get("row_bot.mcp_client.runtime")

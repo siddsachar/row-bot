@@ -14,6 +14,7 @@ import hashlib
 import itertools
 import json
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -71,6 +72,38 @@ BRAIN_EDGES = [
     {"id": "f0000000-0000-4000-8000-000000000002", "space_id": SALES_SPACE, "source_id": ORION, "target_id": ATLAS,
      "relation_type": "uses", "status": "active", "origin": "manual", "updated_at": "2026-11-21T09:00:00+00:00"},
 ]
+# B1a's recall and documents, as the server answers the fixture person (they own Sales).
+HANDBOOK, ACCOUNTS = "d0000000-0000-4000-8000-000000000001", "d0000000-0000-4000-8000-000000000002"
+RENEWAL_FACT = "c0000000-0000-4000-8000-000000000001"
+_DOCUMENT = {"media_type": "text/markdown", "sha256": "0" * 64, "status_reason": None, "version": 1,
+             "uploaded_by": PERSON["id"], "uploaded_at": "2026-11-20T09:00:00+00:00",
+             "processed_at": "2026-11-20T09:01:00+00:00", "chunk_count": 3, "graph_status": "done",
+             "graph_reason": None}
+BRAIN_DOCUMENTS = [
+    {**_DOCUMENT, "id": ACCOUNTS, "space_id": SALES_SPACE, "title": "Accounts 2026", "file_name": "accounts.md",
+     "byte_count": 2048, "status": "ready"},
+    {**_DOCUMENT, "id": "d0000000-0000-4000-8000-000000000003", "space_id": SALES_SPACE, "title": "Old prices",
+     "file_name": "prices.docx", "byte_count": 4096, "status": "failed",
+     "status_reason": "This Word document can't be read.", "chunk_count": 0, "graph_status": "pending"},
+    {**_DOCUMENT, "id": HANDBOOK, "space_id": COMPANY_SPACE, "title": "Staff handbook", "file_name": "handbook.docx",
+     "byte_count": 8192, "status": "ready"},
+]
+_SCORE = {"score": 0.9, "layer": "company", "owner": "organisation"}
+BRAIN_HITS = [
+    {"hit": {**_SCORE, "label": "From Company"}, "citation": {
+        "type": "document", "space": {"id": COMPANY_SPACE, "name": "Company"},
+        "document": {"id": HANDBOOK, "title": "Staff handbook", "file_name": "handbook.docx"}, "chunk": 2,
+        "excerpt": "Everyone gets 25 days of holiday a year, plus public holidays."}},
+    {"hit": {**_SCORE, "layer": "team", "label": "From Sales"}, "citation": {
+        "type": "fact", "space": {"id": SALES_SPACE, "name": "Sales"},
+        "fact": {"id": RENEWAL_FACT, "text": "Orion Foods renews its contract every March."},
+        "document": {"id": ACCOUNTS, "title": "Accounts 2026", "file_name": "accounts.md"}}},
+    {"hit": {**_SCORE, "layer": "team", "label": "From Sales"}, "citation": {
+        "type": "document", "space": {"id": SALES_SPACE, "name": "Sales"},
+        "document": {"id": ACCOUNTS, "title": "Accounts 2026", "file_name": "accounts.md"}, "chunk": 0,
+        "excerpt": "Orion Foods is our largest customer in the north."}},
+]
+BRAIN_TYPES = [".docx", ".markdown", ".md", ".txt"]
 # S5's ingest: what a Row-Bot may report, and how much at once.
 DEVICE_ACTIONS = frozenset({"tool.called", "data.exported", "device.locked_down"})
 MAX_AUDIT_BATCH = 100
@@ -137,6 +170,20 @@ def gateway_error(wire: str, status: int, code: str, message: str) -> httpx.Resp
 _REDIRECT = re.compile(r"^http://127\.0\.0\.1:[1-9][0-9]{0,4}/[A-Za-z0-9._~/-]*$")
 
 
+def _form(request: httpx.Request) -> dict[str, tuple[str | None, bytes]]:
+    """A ``multipart/form-data`` body's fields, as httpx writes one: name to (file name or None, bytes)."""
+    boundary = request.headers["content-type"].split("boundary=", 1)[1].strip('"').encode("latin-1")
+    fields: dict[str, tuple[str | None, bytes]] = {}
+    for part in request.read().split(b"--" + boundary)[1:-1]:
+        head, _, value = part[2:].partition(b"\r\n\r\n")
+        disposition = head.split(b"\r\n")[0].decode("utf-8")
+        name = re.search(r'\bname="([^"]*)"', disposition)
+        file_name = re.search(r'\bfilename="([^"]*)"', disposition)
+        if name:
+            fields[name.group(1)] = (file_name.group(1) if file_name else None, value[:-2])
+    return fields
+
+
 @dataclass(frozen=True)
 class LoopbackAnswer:
     status: int
@@ -185,6 +232,18 @@ class FakeCompanyServer:
         self.brain_nodes: list[dict] = [dict(node) for node in BRAIN_NODES]
         self.brain_edges: list[dict] = [dict(edge) for edge in BRAIN_EDGES]
         self.brain_entities: dict[str, dict] = {}
+        # B1a's recall: its hits (each with its citation), whether it searched by words only, each body asked,
+        # and an event a recall waits for (a slow server) while set.
+        self.brain_hits: list[dict] = [json.loads(json.dumps(hit)) for hit in BRAIN_HITS]
+        self.recall_search = "hybrid"
+        self.recall_bodies: list[dict] = []
+        self.recall_hold: threading.Event | None = None
+        # B1a's documents (newest first), each upload or replace as it came ({"method", "path", "fields"}: field
+        # name to (file name, bytes)), the upload limit, and answers to give a write instead: (method, response).
+        self.brain_documents: list[dict] = [dict(document) for document in BRAIN_DOCUMENTS]
+        self.uploads: list[dict] = []
+        self.max_upload_bytes = 25 * 1024 * 1024
+        self.brain_answers: list[tuple[str, httpx.Response]] = []
         self._numbers = itertools.count(1)
         self._lock = threading.Lock()
         self.transport = httpx.MockTransport(self.handle)
@@ -311,16 +370,29 @@ class FakeCompanyServer:
             return self._gateway(request)
         if (request.method, path) == ("POST", AUDIT_INGEST):
             return self._ingest(request)
-        if request.method == "GET" and path.startswith("/api/brain/") and self.brain_spaces is not None:
+        if path.startswith("/api/brain/") and self.brain_spaces is not None:
             if self._bearer(request) is None:
                 return httpx.Response(401, json={"error": "invalid_token"})
+            answer = next((found for found in self.brain_answers if found[0] == request.method), None)
+            if answer is not None:
+                self.brain_answers.remove(answer)
+                return answer[1]
             return self._brain(request)
         return httpx.Response(404, json={"error": "not_found"})
 
     def _brain(self, request: httpx.Request) -> httpx.Response:
-        """B1a's ``GET /api/brain/spaces`` and B7's ``GET /api/brain/graph`` and ``/api/brain/entities/{id}``."""
+        """B1a's spaces, recall and documents, and B7's ``GET /api/brain/graph`` and ``/api/brain/entities/{id}``."""
         path, params = request.url.path, request.url.params
         readable = {space["id"]: space for space in self.brain_spaces or []}
+        if (request.method, path) == ("POST", "/api/brain/recall"):
+            return self._recall(request, readable)
+        parts = path.split("/")
+        if len(parts) == 6 and path.startswith("/api/brain/spaces/") and parts[5] == "documents":
+            return self._space_documents(request, readable, parts[4])
+        if len(parts) == 5 and path.startswith("/api/brain/documents/"):
+            return self._document(request, readable, parts[4])
+        if request.method != "GET":
+            return httpx.Response(404, json={"error": "not_found"})
         if path == "/api/brain/spaces":
             return httpx.Response(200, json={"spaces": list(readable.values())})
         if path == "/api/brain/graph":
@@ -353,6 +425,73 @@ class FakeCompanyServer:
                 return httpx.Response(404, json={"error": "entity_not_found"})
             return httpx.Response(200, json=answer)
         return httpx.Response(404, json={"error": "not_found"})
+
+    def _recall(self, request: httpx.Request, readable: dict[str, dict]) -> httpx.Response:
+        """B1a's ``POST /api/brain/recall``: the hits in the spaces asked for (none: every readable one), ``k`` at
+        most."""
+        body = json.loads(request.content or b"{}")
+        self.recall_bodies.append(body)
+        if self.recall_hold is not None:
+            self.recall_hold.wait(5)
+        query, spaces, k = body.get("query"), body.get("spaces"), body.get("k", 8)
+        if not isinstance(query, str) or not 1 <= len(query.strip()) <= 1000 or not 1 <= k <= 50:
+            return httpx.Response(422, json={"error": "invalid_query"})
+        if spaces is not None and any(space not in readable for space in spaces):
+            return httpx.Response(404, json={"error": "space_not_found"})
+        hits = [hit for hit in self.brain_hits if hit["citation"]["space"]["id"] in (spaces or readable)]
+        return httpx.Response(200, json={"search": self.recall_search, "hits": hits[:k]})
+
+    def _space_documents(self, request: httpx.Request, readable: dict[str, dict], space_id: str) -> httpx.Response:
+        """B1a's ``GET`` and ``POST /api/brain/spaces/{id}/documents`` (readers list them, owners upload)."""
+        space = readable.get(space_id)
+        if space is None:
+            return httpx.Response(404, json={"error": "space_not_found"})
+        if request.method == "GET":
+            return httpx.Response(200, json={"documents": [
+                document for document in self.brain_documents if document["space_id"] == space_id]})
+        if request.method != "POST":
+            return httpx.Response(405, json={"detail": "Method Not Allowed"})
+        if not space["is_owner"]:
+            return httpx.Response(403, json={"error": "space_owner_required"})
+        return self._upload(request, space_id, None)
+
+    def _document(self, request: httpx.Request, readable: dict[str, dict], document_id: str) -> httpx.Response:
+        """B1a's ``GET``, ``PUT`` and ``DELETE /api/brain/documents/{id}`` (readers read it, owners change it)."""
+        document = next((found for found in self.brain_documents
+                         if found["id"] == document_id and found["space_id"] in readable), None)
+        if document is None:
+            return httpx.Response(404, json={"error": "document_not_found"})
+        if request.method == "GET":
+            return httpx.Response(200, json=document)
+        if not readable[document["space_id"]]["is_owner"]:
+            return httpx.Response(403, json={"error": "space_owner_required"})
+        if request.method == "DELETE":
+            self.brain_documents.remove(document)
+            return httpx.Response(204)
+        if request.method != "PUT":
+            return httpx.Response(405, json={"detail": "Method Not Allowed"})
+        return self._upload(request, document["space_id"], document)
+
+    def _upload(self, request: httpx.Request, space_id: str, document: dict | None) -> httpx.Response:
+        """An upload, or a replace of ``document``: B1a's checks, then the document, queued."""
+        fields = _form(request)
+        self.uploads.append({"method": request.method, "path": request.url.path, "fields": fields})
+        name, content = fields.get("file", (None, b""))
+        if not name:
+            return httpx.Response(400, json={"error": "file_required"})
+        if "." + name.rpartition(".")[2].lower() not in BRAIN_TYPES:
+            return httpx.Response(415, json={"error": "unsupported_type", "supported": BRAIN_TYPES})
+        if len(content) > self.max_upload_bytes:
+            return httpx.Response(413, json={"error": "file_too_large", "max_bytes": self.max_upload_bytes})
+        written = {**_DOCUMENT, "space_id": space_id, "file_name": name, "byte_count": len(content),
+                   "sha256": hashlib.sha256(content).hexdigest(), "status": "queued", "processed_at": None,
+                   "chunk_count": 0, "graph_status": "pending", "uploaded_at": "2026-11-24T09:00:00+00:00"}
+        if document is not None:
+            document.update(written, version=document["version"] + 1)
+            return httpx.Response(200, json=document)
+        created = {**written, "id": str(uuid.uuid4()), "title": name.rpartition(".")[0]}
+        self.brain_documents.insert(0, created)
+        return httpx.Response(201, json=created)
 
     def _ingest(self, request: httpx.Request) -> httpx.Response:
         """S5's ``POST /api/audit/events`` for a device's bearer: the contract checked event by event, all or
@@ -543,3 +682,6 @@ def company_server(tmp_path, monkeypatch, keychain, company_state) -> Iterator[F
     provider.settle()  # A background catalog read ends here, while the fake server still answers it.
     policy.settle()  # And a background policy refresh.
     audit.stop()  # And an audit send.
+    registry = sys.modules.get("row_bot.tools.registry")
+    if registry is not None:
+        registry.unregister("company_brain")  # The company brain's tool (B3) goes with the test's company.
