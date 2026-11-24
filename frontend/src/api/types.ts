@@ -741,6 +741,8 @@ export interface ClientTransport {
   ): Promise<Wire.VoiceTicket>;
   /** The Row-Bot Voice socket on this server's own origin. */
   openVoiceSocket?(): WebSocket;
+  /** A single-use ticket for the voice socket's wake mode (desktop only). */
+  wakeTicket?(signal?: AbortSignal): Promise<Wire.VoiceTicket>;
   startRealtime?(
     conversation: string,
     body: Wire.TalkStart,
@@ -1932,6 +1934,18 @@ export interface ClientTransport {
     body: Wire.ModelContextMutation,
     signal?: AbortSignal,
   ): Promise<Wire.ModelsSettingsState>;
+  localModelSettings?(
+    modelRef: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
+  saveLocalModelSettings?(
+    body: Wire.LocalModelSettingsMutation,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
+  reloadLocalModelInLmStudio?(
+    body: Wire.LocalModelReloadRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
   updateModelVisibility?(
     body: Wire.ModelVisibilityMutation,
     signal?: AbortSignal,

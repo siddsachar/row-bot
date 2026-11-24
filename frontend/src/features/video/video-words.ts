@@ -1,5 +1,6 @@
 import type {
   VideoProjectView,
+  VideoPublishKit,
   VideoScene,
   VideoSceneWrite,
   VideoVersionView,
@@ -10,7 +11,13 @@ import { shortTime } from '../shell/conversation-groups';
 export const SHAPES = [
   { shape: '16:9', label: 'Wide 16:9', fits: 'X, YouTube', limit: 140 },
   { shape: '9:16', label: 'Tall 9:16', fits: 'Shorts, Reels', limit: 60 },
-  { shape: '1:1', label: 'Square 1:1', fits: 'X, Instagram', limit: 140 },
+  { shape: '1:1', label: 'Square 1:1', fits: 'X, LinkedIn', limit: 140 },
+  {
+    shape: '4:5',
+    label: 'Portrait 4:5',
+    fits: 'Instagram, Facebook',
+    limit: 0,
+  },
   { shape: 'gif', label: 'GIF', fits: 'Anywhere, without sound', limit: 0 },
 ] as const;
 
@@ -114,6 +121,64 @@ export function musicSections(scenes: { cue?: string | null }[]): number[] {
   return at;
 }
 
+/** A video's grades (C5), as the panel names them. */
+export const GRADES = {
+  natural: 'Natural',
+  warm: 'Warm',
+  cinematic: 'Cinematic',
+  vivid: 'Vivid',
+  bw: 'Black and white',
+} as const;
+export type Grade = keyof typeof GRADES;
+
+/** How captions look (C7), as the panel and the brand kit name them. */
+export const CAPTION_STYLES = {
+  box: 'In a box',
+  clean: 'Clean',
+  bold: 'Bold, outlined',
+  title: 'Large, centred',
+  word: 'Big words (shorts)',
+} as const;
+export type CaptionStyle = keyof typeof CAPTION_STYLES;
+
+/** A video's look as it's made (C5): its grade, grain, letterbox and transitions, and its captions' style (C7). */
+export type VideoLook = {
+  grade: Grade;
+  grain: boolean;
+  letterbox: boolean;
+  transitions: 'cut' | 'crossfade';
+  caption_style: CaptionStyle;
+};
+
+/** Where a video can go (C10), as the panel names each place. */
+export const PLATFORMS = {
+  youtube: 'YouTube',
+  shorts: 'YouTube Shorts',
+  tiktok: 'TikTok',
+  reels: 'Instagram Reels',
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  x: 'X',
+  linkedin: 'LinkedIn',
+} as const;
+export type Platform = keyof typeof PLATFORMS;
+
+/** A publish kit's description as it's pasted: its words, then a YouTube video's chapters. */
+export function publishDescription(kit: VideoPublishKit): string {
+  return [kit.description, chapterLines(kit.chapters ?? [])]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** "0:00 Intro\n1:05 Pricing": a made video's chapters, as a YouTube description lists them. */
+export function chapterLines(
+  chapters: { at: number; title: string }[],
+): string {
+  return chapters
+    .map((item) => `${clockWords(item.at)} ${item.title}`)
+    .join('\n');
+}
+
 export type VideoDraft = {
   scenes: VideoSceneWrite[];
   captions: boolean;
@@ -121,13 +186,39 @@ export type VideoDraft = {
   voice: string;
   /** Each character's voice: name -> voice. */
   cast: Record<string, string>;
+  look: VideoLook;
 };
+
+/** A version's look, as the panel shows it. */
+export function lookOf(view: VideoProjectView): VideoLook {
+  return {
+    grade: view.grade ?? 'natural',
+    grain: view.grain ?? false,
+    letterbox: view.letterbox ?? false,
+    transitions: view.transitions ?? 'cut',
+    caption_style: view.caption_style ?? 'box',
+  };
+}
+
+/** Only the look's choices the person changed: the rest stay the version's own, or its recipe's. */
+export function lookChanges(
+  view: VideoProjectView,
+  look: VideoLook,
+): Partial<VideoLook> {
+  const before = lookOf(view);
+  return Object.fromEntries(
+    Object.entries(look).filter(
+      ([key, value]) => before[key as keyof VideoLook] !== value,
+    ),
+  );
+}
 
 /** The scenes as the panel edits them, from a version. */
 export function draftOf(view: VideoProjectView): VideoDraft {
   return {
     captions: view.captions,
     brand: view.brand,
+    look: lookOf(view),
     voice: view.voice ?? '',
     cast: Object.fromEntries(
       (view.cast ?? []).map((member) => [member.name, member.voice]),

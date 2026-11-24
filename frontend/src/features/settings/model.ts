@@ -488,8 +488,8 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'models',
     anchor: 'reading-limit',
-    label: 'Reading limit',
-    keywords: 'context window tokens advanced',
+    label: 'Cloud reading limit',
+    keywords: 'context window tokens cloud advanced',
   },
   {
     leaf: 'models',

@@ -2582,6 +2582,11 @@
           ],
           "title": "Turn Eagerness",
           "type": "string"
+        },
+        "wake_word": {
+          "default": false,
+          "title": "Wake Word",
+          "type": "boolean"
         }
       },
       "required": [

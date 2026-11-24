@@ -562,6 +562,7 @@ def _voice(root: Path) -> dict[str, Any]:
             else "normal",
             "push_to_talk": runtime.get("push_to_talk") is True,
             "speech_language": speech_language,
+            "wake_word": runtime.get("wake_word") is True,
         },
         "local": {
             "whisper_model": whisper,
@@ -1833,6 +1834,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "runtime.turn_eagerness": "normal",
         "runtime.push_to_talk": False,
         "runtime.speech_language": "auto",
+        "runtime.wake_word": False,
         "local.whisper_model": "small",
         "tts.voice": "af_heart",
         "tts.speed": 1.0,

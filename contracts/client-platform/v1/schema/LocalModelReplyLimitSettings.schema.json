@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "automatic": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Automatic"
+    },
+    "choices": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 16,
+      "title": "Choices",
+      "type": "array"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "maximum": 262144,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    }
+  },
+  "required": [
+    "choices"
+  ],
+  "title": "LocalModelReplyLimitSettings",
+  "type": "object"
+}

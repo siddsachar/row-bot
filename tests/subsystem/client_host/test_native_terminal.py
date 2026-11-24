@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 from dataclasses import replace
 
 import pytest
@@ -309,3 +312,20 @@ def test_windows_interrupt_stops_the_shells_running_command_but_not_the_shell(mo
     assert written == ["\x03"]
     assert command.terminated and grandchild.terminated
     assert not console.terminated and not shell.terminated
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell's registry entry")
+def test_windows_powershells_version_is_read_without_starting_it(monkeypatch) -> None:
+    """The prompt's platform line names Windows PowerShell's version as PowerShell itself would, and no
+    PowerShell starts to say it."""
+    from row_bot import terminal_pty
+
+    path = shutil.which("powershell")
+    asked = subprocess.run([path, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+                           capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+    started = []
+    monkeypatch.setattr(terminal_pty, "detect_shell", lambda: (path, "powershell"))
+    monkeypatch.setattr(terminal_pty.subprocess, "run", lambda *args, **kwargs: started.append(args))
+
+    assert terminal_pty.detect_platform()["shell_version"] == asked
+    assert asked.startswith("5.") and started == []

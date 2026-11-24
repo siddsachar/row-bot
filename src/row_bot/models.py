@@ -387,7 +387,7 @@ _DATA_DIR = get_row_bot_data_dir()
 _SETTINGS_PATH = _DATA_DIR / "model_settings.json"
 _CLOUD_CACHE_PATH = _DATA_DIR / "cloud_models_cache.json"
 _CONTEXT_CATALOG_PATH = _DATA_DIR / "context_catalog_cache.json"
-_CONTEXT_POLICY_VERSION = 3
+_CONTEXT_POLICY_VERSION = 4
 
 
 def _valid_context_value(value, *, default: int) -> int:
@@ -425,6 +425,17 @@ def _migrate_context_settings(settings: dict | None) -> tuple[dict, bool]:
         local_mode = "auto" if old_local == DEFAULT_CONTEXT_SIZE else "fixed"
     migrated["local_context_mode"] = local_mode
     migrated["context_size"] = LOCAL_AUTO_TARGET_CONTEXT if local_mode == "auto" else old_local
+    if version < 4 and local_mode == "fixed":
+        # Version 4 (U2): each local model has its own window. A fixed global one becomes the setting of the
+        # Ollama model in use, once; it stays the default of every other Ollama model without its own.
+        parsed = _parse_provider_model_ref(migrated.get("model"))
+        if parsed and parsed[0] == "ollama":
+            tag = parsed[1] if ":" in parsed[1] else f"{parsed[1]}:latest"
+            saved = migrated.get("local_model_settings")
+            saved = dict(saved) if isinstance(saved, dict) else {}
+            if tag not in saved:
+                saved[tag] = {"context": old_local}
+                migrated["local_model_settings"] = saved
 
     override = migrated.get("cloud_context_override")
     if version < 2 or "cloud_context_override" not in migrated:
@@ -752,8 +763,10 @@ def _chat_ollama(model: str, **kwargs):
         except ImportError as exc:
             raise RuntimeError("langchain-ollama is not installed") from exc
         ChatOllama = _ChatOllama
-    if "reasoning" not in kwargs and local_model_settings(model).get("reasoning") == "off":
-        kwargs["reasoning"] = False  # a non-thinking model (O24): Ollama is asked not to think
+    saved_thinking = local_model_settings(model).get("reasoning")
+    if "reasoning" not in kwargs and saved_thinking in _LOCAL_REASONING:
+        # The model's saved Thinking: the person's, or Learning's off for a non-thinking model (O24).
+        kwargs["reasoning"] = saved_thinking == "on"
     if "reasoning" not in kwargs:
         try:
             from row_bot.providers.reasoning import resolve_reasoning_capabilities
@@ -763,10 +776,11 @@ def _chat_ollama(model: str, **kwargs):
                 kwargs["reasoning"] = True
         except Exception:
             logger.debug("Could not resolve thinking for Ollama model %s", model, exc_info=True)
+    from row_bot.providers.runtime import with_reply_limit
     from row_bot.providers.usage_ledger import attach_usage_ledger
 
     return attach_usage_ledger(
-        ChatOllama(model=model, base_url=_ollama_base_url(), **kwargs),
+        with_reply_limit(ChatOllama(model=model, base_url=_ollama_base_url(), **kwargs)),
         provider_id="ollama",
         model_name=model,
     )
@@ -1064,12 +1078,18 @@ def get_context_policy(model_name: str | None = None, *, allow_probe: bool = Tru
         endpoint.get("context_override"),
         0,
     )
+    # The Cloud reading limit (U2) is for cloud models only: a server on this computer reads what it loaded.
+    cloud_limit = (
+        _cloud_context_override
+        if remote_policy and not (custom_endpoint_policy and is_local_custom_endpoint(name))
+        else None
+    )
     if remote_policy:
         requested_limit = (
             explicit_endpoint_override
             if explicit_endpoint_override > 0
-            else int(_cloud_context_override)
-            if _cloud_context_override is not None
+            else int(cloud_limit)
+            if cloud_limit is not None
             else None
         )
     else:
@@ -1113,7 +1133,7 @@ def get_context_policy(model_name: str | None = None, *, allow_probe: bool = Tru
         # Row-Bot's assumption, not the server's: readiness says so, and a request over it isn't refused.
         capacity_source = "profile_default"
     elif requested_limit is not None and (
-        explicit_endpoint_override > 0 or (remote_policy and _cloud_context_override is not None)
+        explicit_endpoint_override > 0 or cloud_limit is not None
     ):
         capacity_source = "advanced_override"
     elif observed_limit is not None and effective_limit == observed_limit:
@@ -1290,13 +1310,54 @@ def set_context_size_auto() -> None:
     _save_settings(_context_settings_payload())
 
 
-# ── Per-model serving settings for local models ─────────────────────────────
-# A model registered by Row-Bot itself (a personal model, L2c) is served the way it was trained:
-# at its own context (O30: Row-Bot otherwise uses its local auto target, 64K, which a model trained
-# at 16K and served at 32K loses itself in) and, for a non-thinking model, with thinking off (O24).
-# Kept in ``model_settings.json`` beside the context settings; read once at start-up.
+# ── Per-model settings for local models ─────────────────────────────────────
+# One store for every local model (U1), whatever runs it, in ``model_settings.json`` beside the context
+# settings: an Ollama model by its tag ("qwen3:8b", as it always was), any other engine by its model reference
+# ("model:custom_openai_llamacpp:qwen3.5-9b"; an Ollama tag never holds two colons after "model"). Each entry
+# holds only what was chosen; a field left out is Automatic:
+#   ``context``      the window in tokens (Ollama's ``num_ctx``; the built-in runtime's served ``ctx-size``);
+#   ``reasoning``    "on" or "off", the model's own Thinking unless a chat chooses (the sheet's Thinking);
+#   ``reply_limit``  the most tokens a reply may take;
+#   ``sampling``     "engine" (the engine's own sampling) or the person's own values (``SAMPLING_FIELDS``), in
+#                    place of the model card's preset (``providers.sampling_presets``, D2).
+# Learning saves entries for its personal models (L2c), served the way they were trained: at their own context
+# (O30) and, for a non-thinking model, with thinking off (O24). Those carry ``owner: "learning"``; one saved
+# before the marker existed is known by its reserved name (``row-bot-personal``). The person's settings never
+# show or change Learning's entries, and only Learning's make a model never think.
 LOCAL_MODEL_SETTINGS_KEY = "local_model_settings"
-_LOCAL_REASONING = frozenset({"off"})
+LEARNING_OWNER = "learning"
+_LOCAL_REASONING = frozenset({"on", "off"})
+MIN_REPLY_LIMIT = 1_024
+MAX_REPLY_LIMIT = 262_144
+# The sampling values a person may set for a local model, with their ranges (OpenAI's and Ollama's names).
+SAMPLING_FIELDS: dict[str, tuple[float, float]] = {
+    "temperature": (0.0, 2.0), "top_p": (0.0, 1.0), "top_k": (0, 1000), "min_p": (0.0, 1.0),
+    "presence_penalty": (-2.0, 2.0),
+}
+ENGINE_SAMPLING = "engine"
+
+
+def _size_field(value: object, low: int, high: int) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and low <= value <= high else None
+
+
+def _clean_sampling(value: object) -> str | dict[str, float | int] | None:
+    """A saved sampling choice: ``"engine"``, the person's values (those in range), or None for Automatic."""
+    if value == ENGINE_SAMPLING:
+        return ENGINE_SAMPLING
+    if not isinstance(value, dict):
+        return None
+    found: dict[str, float | int] = {}
+    for name, (low, high) in SAMPLING_FIELDS.items():
+        number = value.get(name)
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not low <= number <= high:
+            continue
+        if name == "top_k":
+            if int(number) == number:
+                found[name] = int(number)
+        else:
+            found[name] = float(number)
+    return found or None
 
 
 def _clean_local_model_settings(raw: object) -> dict[str, dict]:
@@ -1304,14 +1365,22 @@ def _clean_local_model_settings(raw: object) -> dict[str, dict]:
     if not isinstance(raw, dict):
         return found
     for name, value in list(raw.items())[:256]:
-        if not isinstance(name, str) or not name or len(name) > 256 or not isinstance(value, dict):
+        if not isinstance(name, str) or not name or len(name) > 512 or not isinstance(value, dict):
             continue
         entry: dict = {}
-        context = value.get("context")
-        if isinstance(context, int) and not isinstance(context, bool) and MIN_CONTEXT_SIZE <= context <= MAX_CONTEXT_SIZE:
+        context = _size_field(value.get("context"), MIN_CONTEXT_SIZE, MAX_CONTEXT_SIZE)
+        if context is not None:
             entry["context"] = context
         if value.get("reasoning") in _LOCAL_REASONING:
             entry["reasoning"] = value["reasoning"]
+        reply_limit = _size_field(value.get("reply_limit"), MIN_REPLY_LIMIT, MAX_REPLY_LIMIT)
+        if reply_limit is not None:
+            entry["reply_limit"] = reply_limit
+        sampling = _clean_sampling(value.get("sampling"))
+        if sampling is not None:
+            entry["sampling"] = sampling
+        if entry and value.get("owner") == LEARNING_OWNER:
+            entry["owner"] = LEARNING_OWNER
         if entry:
             found[name] = entry
     return found
@@ -1320,64 +1389,170 @@ def _clean_local_model_settings(raw: object) -> dict[str, dict]:
 _local_model_settings: dict[str, dict] = _clean_local_model_settings(_saved.get(LOCAL_MODEL_SETTINGS_KEY))
 
 
-def local_model_settings(model_name: str | None) -> dict:
-    """The saved serving settings of a local model (``context``, ``reasoning``), or ``{}``."""
+def local_settings_key(provider_id: str | None, model_id: str | None) -> str:
+    """Where a local model's settings are kept: its Ollama tag, or ``model:<provider>:<model>``."""
+    provider = str(provider_id or "").strip()
+    if provider in {"", "ollama", "local"}:
+        return _ollama_tag(model_id)
+    model = str(model_id or "").strip()
+    return f"model:{provider}:{model}" if model else ""
+
+
+def is_learning_local_entry(key: str, entry: dict | None) -> bool:
+    """Whether a saved entry is Learning's: marked so, or (saved before the marker) for a personal model."""
+    from row_bot.providers.model_visibility import WITHHELD_NAME
+
+    if not entry:
+        return False
+    owner = entry.get("owner")
+    return owner == LEARNING_OWNER or (owner is None and WITHHELD_NAME in str(key or "").lower())
+
+
+def local_model_settings(model_name: str | None, provider_id: str = "ollama") -> dict:
+    """The saved settings of a local model (``context``, ``reasoning``, ``reply_limit``, and Learning's
+    ``owner``), whoever saved them, or ``{}``. ``model_name`` is an Ollama tag unless ``provider_id`` names
+    another engine."""
     if not model_name:
         return {}
-    return dict(_local_model_settings.get(_ollama_tag(model_name)) or {})
+    return dict(_local_model_settings.get(local_settings_key(provider_id, _runtime_model_name(model_name))) or {})
+
+
+def person_local_model_settings(provider_id: str, model_id: str) -> dict:
+    """The person's own settings of a local model; ``{}`` for one Learning serves (its entries are its own)."""
+    key = local_settings_key(provider_id, model_id)
+    entry = _local_model_settings.get(key)
+    return {} if not entry or is_learning_local_entry(key, entry) else dict(entry)
 
 
 def local_model_never_thinks(model_name: str | None) -> bool:
     """Whether a local model is served with thinking off whatever a chat chooses: one of Learning's personal
-    models (its reserved name), or a model saved as non-thinking (O24: a personal model or an evaluation arm's).
-    They are served as they were trained (Learning's L4 constraint)."""
+    models (its reserved name), or one Learning saved as non-thinking (O24). They are served as they were
+    trained (Learning's L4 constraint). The person's own Off is only the model's default: a chat may still
+    turn thinking on."""
     from row_bot.providers.model_visibility import withheld
 
-    return bool(model_name) and (withheld("ollama", model_name) or
-                                 local_model_settings(model_name).get("reasoning") == "off")
+    if not model_name:
+        return False
+    if withheld("ollama", model_name):
+        return True
+    key = _ollama_tag(model_name)
+    entry = _local_model_settings.get(key)
+    return is_learning_local_entry(key, entry) and (entry or {}).get("reasoning") == "off"
 
 
-def set_local_model_settings(model_name: str, *, context: int | None = None, reasoning: str | None = None) -> None:
-    """Serve this local model at ``context`` tokens and/or with thinking ``"off"`` (saved)."""
+def _write_local_model_entry(key: str, entry: dict) -> None:
     from row_bot.providers.saved_model_settings import update_saved_model_settings
 
+    def merge(existing: dict) -> dict:
+        settings = _clean_local_model_settings(existing.get(LOCAL_MODEL_SETTINGS_KEY))
+        if entry:
+            settings[key] = entry
+        else:
+            settings.pop(key, None)
+        merged = {name: value for name, value in existing.items() if name != LOCAL_MODEL_SETTINGS_KEY}
+        if settings:
+            merged[LOCAL_MODEL_SETTINGS_KEY] = settings
+        return merged
+
+    update_saved_model_settings(merge, path=_SETTINGS_PATH)
+    if entry:
+        _local_model_settings[key] = entry
+    else:
+        _local_model_settings.pop(key, None)
+    _override_llm_cache.clear()
+
+
+def set_local_model_settings(model_name: str, *, context: int | None = None, reasoning: str | None = None,
+                             owner: str | None = None) -> None:
+    """Serve this Ollama model at ``context`` tokens and/or with thinking ``"on"``/``"off"`` (saved, replacing
+    its entry). Learning passes ``owner="learning"`` for the models it serves."""
     tag = _ollama_tag(model_name)
     entry: dict = {}
     if context is not None:
         entry["context"] = validate_context_size(context)
     if reasoning is not None:
         if reasoning not in _LOCAL_REASONING:
-            raise ValueError("Only thinking off can be saved for a local model.")
+            raise ValueError("Thinking can be saved as on or off for a local model.")
         entry["reasoning"] = reasoning
+    if owner not in (None, LEARNING_OWNER):
+        raise ValueError("Unknown owner for a local model's settings.")
     if not tag or not entry:
         raise ValueError("Name a local model and a setting.")
+    if owner:
+        entry["owner"] = owner
+    _write_local_model_entry(tag, entry)
 
-    def merge(existing: dict) -> dict:
-        settings = _clean_local_model_settings(existing.get(LOCAL_MODEL_SETTINGS_KEY))
-        settings[tag] = entry
-        return {**existing, LOCAL_MODEL_SETTINGS_KEY: settings}
 
-    update_saved_model_settings(merge, path=_SETTINGS_PATH)
-    _local_model_settings[tag] = entry
-    _override_llm_cache.clear()
+def save_person_local_model_settings(provider_id: str, model_id: str, *, context: int | None = None,
+                                     reasoning: str | None = None, reply_limit: int | None = None,
+                                     sampling: str | dict | None = None) -> dict:
+    """Save the person's settings of a local model (None is Automatic; all None removes its entry). ``sampling``
+    is ``"engine"`` or the person's own values (``SAMPLING_FIELDS``). Refuses a model Learning serves. Returns
+    the saved entry."""
+    global _llm_instance
+    from row_bot.providers.model_visibility import withheld
+
+    key = local_settings_key(provider_id, model_id)
+    if not key:
+        raise ValueError("Name a local model.")
+    if withheld(provider_id, model_id) or is_learning_local_entry(key, _local_model_settings.get(key)):
+        raise ValueError("learning_model")
+    entry: dict = {}
+    if context is not None:
+        entry["context"] = validate_context_size(context)
+    if reasoning is not None:
+        if reasoning not in _LOCAL_REASONING:
+            raise ValueError("Thinking is on, off or automatic.")
+        entry["reasoning"] = reasoning
+    if reply_limit is not None:
+        if _size_field(reply_limit, MIN_REPLY_LIMIT, MAX_REPLY_LIMIT) is None:
+            raise ValueError(f"A reply limit is between {MIN_REPLY_LIMIT:,} and {MAX_REPLY_LIMIT:,} tokens.")
+        entry["reply_limit"] = reply_limit
+    if sampling is not None:
+        cleaned = _clean_sampling(sampling)
+        given = sampling if isinstance(sampling, dict) else {}
+        if cleaned is None or (isinstance(cleaned, dict) and set(cleaned) != set(given)):
+            raise ValueError("Sampling is automatic, the engine's own, or values within their ranges.")
+        entry["sampling"] = cleaned
+    _write_local_model_entry(key, entry)
+    _llm_instance = None  # made again on its next use, with the new settings
+    if str(provider_id or "") in {"", "ollama", "local"}:
+        # What Ollama loaded before no longer caps the window: the next request asks for the new one.
+        _observed_local_context.pop(_ollama_runtime_model_name(model_id, allow_probe=False), None)
+    return dict(entry)
+
+
+def save_person_local_model_context(provider_id: str, model_id: str, context: int | None) -> dict:
+    """Set only the window of a local model's settings (``row-bot run --context-window``), keeping the person's
+    Thinking, reply limit and sampling. Refuses a model Learning serves, as the sheet does."""
+    saved = person_local_model_settings(provider_id, model_id)
+    return save_person_local_model_settings(provider_id, model_id, context=context, reasoning=saved.get("reasoning"),
+                                            reply_limit=saved.get("reply_limit"), sampling=saved.get("sampling"))
+
+
+def local_reply_limit(provider_id: str, model_id: str) -> int | None:
+    """The person's reply limit for a local model, or None for Automatic."""
+    value = person_local_model_settings(provider_id, model_id).get("reply_limit")
+    return int(value) if value else None
+
+
+def local_thinking(provider_id: str, model_id: str) -> bool | None:
+    """The person's Thinking for a local model (True on, False off), or None for Automatic."""
+    value = person_local_model_settings(provider_id, model_id).get("reasoning")
+    return None if value is None else value == "on"
+
+
+def local_sampling(provider_id: str, model_id: str) -> dict[str, float | int] | None:
+    """The person's sampling for a local model: their own values, ``{}`` for the engine's own, or None for
+    Automatic (the model card's preset)."""
+    value = person_local_model_settings(provider_id, model_id).get("sampling")
+    if value is None:
+        return None
+    return {} if value == ENGINE_SAMPLING else dict(value)
 
 
 def clear_local_model_settings(model_name: str) -> None:
-    from row_bot.providers.saved_model_settings import update_saved_model_settings
-
-    tag = _ollama_tag(model_name)
-
-    def merge(existing: dict) -> dict:
-        settings = _clean_local_model_settings(existing.get(LOCAL_MODEL_SETTINGS_KEY))
-        settings.pop(tag, None)
-        merged = {key: value for key, value in existing.items() if key != LOCAL_MODEL_SETTINGS_KEY}
-        if settings:
-            merged[LOCAL_MODEL_SETTINGS_KEY] = settings
-        return merged
-
-    update_saved_model_settings(merge, path=_SETTINGS_PATH)
-    _local_model_settings.pop(tag, None)
-    _override_llm_cache.clear()
+    _write_local_model_entry(_ollama_tag(model_name), {})
 
 
 def record_observed_local_context(model_name: str, context_length: int | None) -> None:

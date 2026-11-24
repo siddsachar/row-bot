@@ -89,8 +89,8 @@ def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = N
 def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict:
     """Read actual defaults and pinned choices; never refresh or probe a provider."""
     validate()
-    from row_bot.models import (get_cloud_context_override, get_context_policy,
-                                get_current_model, get_local_context_mode, get_user_context_size)
+    from row_bot.models import (get_cloud_context_override, get_context_policy, get_current_model,
+                                is_local_custom_endpoint)
     from row_bot.tools import registry
     from row_bot.tools.image_gen_tool import get_available_image_models
     from row_bot.tools.video_gen_tool import get_available_video_models
@@ -112,8 +112,10 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     from row_bot.providers import backup
     backup_setting = backup.read_setting()
     policy = get_context_policy(brain_ref or None, allow_probe=False)
-    cap = (get_cloud_context_override() if policy.policy_kind == "provider" else
-           None if get_local_context_mode() == "auto" else get_user_context_size())
+    # The Cloud reading limit (U2): how much Row-Bot sends a cloud model at most. A local model's window is set
+    # in its own settings (client_local_model_settings).
+    cap = get_cloud_context_override()
+    main_local = policy.policy_kind == "local" or is_local_custom_endpoint(brain_ref)
     result = {
         "schema_version": 1,
         "brain": _picker("chat", brain_ref, rows, visibility=shown),
@@ -128,7 +130,7 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
         "video": _picker("video", video_ref, rows, enabled=registry.is_enabled("video_gen") if video_tool else False,
                          media_options=get_available_video_models(), visibility=shown),
         "camera_index": max(0, min(64, int(vision.camera_index))),
-        "context": {"policy_kind": policy.policy_kind, "selected_cap": cap,
+        "context": {"policy_kind": "local" if main_local else "provider", "selected_cap": cap,
                     "native_max": policy.native_max, "effective_cap": policy.effective_context or None,
                     "warning": policy.warning[:512]},
         "freshness": cache.freshness, "generated_at": cache.generated_at,
@@ -192,18 +194,13 @@ def update_model_surface(surface: str, action: str, *, selection_ref: str | None
     return read_models_settings(validate=validate)
 
 
-def update_model_context(policy_kind: str, cap: int | None, *, validate: Callable[[], None]) -> dict:
+def update_model_context(cap: int | None, *, validate: Callable[[], None]) -> dict:
+    """Save the Cloud reading limit (None: as much as each cloud model reads). Cloud models only."""
     validate()
     from row_bot import models
-    state = read_models_settings(validate=validate)
-    if state["context"]["policy_kind"] != policy_kind:
-        raise ValueError("context_policy_changed")
     if cap is not None:
         models.validate_context_size(cap)
-    if policy_kind == "provider":
-        models.clear_cloud_context_override() if cap is None else models.set_cloud_context_size(cap)
-    else:
-        models.set_context_size_auto() if cap is None else models.set_context_size(cap)
+    models.clear_cloud_context_override() if cap is None else models.set_cloud_context_size(cap)
     validate()
     return read_models_settings(validate=validate)
 

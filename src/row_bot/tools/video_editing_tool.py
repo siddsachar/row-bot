@@ -2,13 +2,16 @@
 
 An edit (trim, join, speed with an optional "2×" label, text badges and titles, zoom,
 crop, burned-in captions, or stills) is one H.264 MP4 encode that runs in the background:
+real footage (C4) is cut or kept by what's said, its pauses and fillers cut in one step, its
+voice cleaned and b-roll laid over it, and ``moments`` finds a clip's shots and stretches of
+speech, with a frame of each, so Row-Bot can cut to "the funny bits".
 the tool waits a little, then the chat's card shows its progress with Stop and, once it is
 saved, the video with a player. Results go to the conversation's files (new files, so nothing
 is replaced and nothing asks); ``save`` copies a finished one into the workspace folder, where
 replacing a file asks first.
 
-Approvals (one at most per call): downloading ffmpeg the first time (a network download, by
-the approval level) and replacing a workspace file. Reading the chat's files and the
+Approvals: downloading ffmpeg the first time (a network download, by the approval level), the
+local speech model the first time an edit hears what's said, and replacing a workspace file. Reading the chat's files and the
 workspace, and running ffmpeg on them, needs none.
 """
 
@@ -92,6 +95,20 @@ def _sounds(steps) -> dict:
     return found
 
 
+def _covers(steps) -> dict:
+    """The clips and pictures the cover steps lay (C4), by name, found as every tool finds files."""
+    from row_bot.media_sources import SourceError, resolve
+
+    found = {}
+    for step in steps:
+        if step.op == "cover" and step.source not in found:
+            media = resolve(step.source, _conversation())
+            if len(media) != 1:
+                raise SourceError(f"{step.source} is several pictures: name one of them.")
+            found[step.source] = media[0]
+    return found
+
+
 def _check(inputs: list[str]) -> str:
     """The finished check of any video: its loudness, black and still stretches, and one look at a review sheet of
     frames across it by the person's vision model."""
@@ -153,17 +170,18 @@ def _start(action: str, inputs: list[str], steps: list, name: str, count: int, t
     from row_bot import video_edits
     from row_bot.media_sources import SourceError
     from row_bot.tools.approval_gate import with_approval
-    from row_bot.video_editing import MAX_FRAMES, MAX_INPUTS, EditError, parse_steps
+    from row_bot.video_editing import MAX_FRAMES, MAX_INPUTS, EditError, needs_words, parse_steps
 
     conversation = _conversation()
     if not conversation:
         return "Video editing needs a conversation."
     if not inputs:
         return "Name the video to edit in inputs: a recording (rec-…), an earlier edit (edit-…), a file in this chat or a workspace path."
+    stills = action in {"frames", "moments"}
     try:
-        if action == "frames":
+        if stills:
             if len(inputs) != 1:
-                return "Frames come from one video at a time."
+                return f"{action.capitalize()} come from one video at a time."
             if count and not 1 <= count <= MAX_FRAMES:
                 return f"Take from 1 to {MAX_FRAMES} frames."
             parsed = []
@@ -173,22 +191,33 @@ def _start(action: str, inputs: list[str], steps: list, name: str, count: int, t
             parsed = parse_steps(steps)
         sources = _resolve_videos(inputs, conversation)
         sounds = _sounds(parsed)
+        covers = _covers(parsed)
     except (EditError, SourceError) as exc:
         return str(exc)
-    refusal, line, download = ffmpeg_consent("frames" if action == "frames" else "edit", "edit_video")
+    refusal, line, download = ffmpeg_consent("frames" if stills else "edit", "edit_video")
     if refusal:
         return refusal
-    default = "frame" if action == "frames" else (Path(sources[0].label).stem or "video") + "-edited"
+    if action == "moments" or needs_words(parsed):  # What's said is heard on this computer (C4).
+        from row_bot.tools.sound_tool import speech_model_consent
+
+        refusal, heard = speech_model_consent("edit_video")
+        if refusal:
+            return refusal
+        line = "\n".join(part for part in (line, heard) if part)
+    stem = Path(sources[0].label).stem or "video"
+    default = {"frames": "frame", "moments": f"{stem}-moments"}.get(action, f"{stem}-edited")
     request = video_edits.Request(
         conversation_id=conversation,
-        kind="frames" if action == "frames" else "video",
+        kind="frames" if stills else "video",
         sources=sources,
         steps=parsed,
-        output_name=output_name(name, default=default, suffix="" if action == "frames" else ".mp4"),
+        output_name=output_name(name, default=default, suffix="" if stills else ".mp4"),
         count=count or (0 if times else DEFAULT_FRAMES),
         times=[float(value) for value in times or []],
         download=download,
         sounds=sounds,
+        covers=covers,
+        moments=action == "moments",
     )
     edit = video_edits.start(request)
     _wait(edit, INLINE_SECONDS)
@@ -326,23 +355,27 @@ def _save(edit_id: str, path: str) -> str:
 
 
 class _Step(BaseModel):
-    op: Literal["trim", "speed", "text", "zoom", "crop", "captions", "sound"]
+    op: Literal["trim", "cut", "tidy", "speed", "text", "zoom", "crop", "captions", "sound", "cover"]
     start: float | None = Field(default=None, description="Seconds.")
     end: float | None = Field(default=None, description="Seconds.")
     factor: float | None = Field(default=None, description="speed: 2 = twice as fast, 0.5 = half.")
     label: bool = Field(default=True, description="speed: show the speed, e.g. 2×.")
-    text: str = Field(default="", description="text: the words. captions: SRT.")
+    text: str = Field(default="", description="text: the words. captions: SRT. trim, cut, cover: the words said "
+                                              "there ('a … b' from a to b; start, end: where to look).")
     position: Literal["top-left", "top", "top-right", "center", "bottom-left", "bottom", "bottom-right"] | None = None
     style: Literal["badge", "title", "caption"] | None = None
     region: list[float] | None = Field(default=None, description="zoom, crop: [x, y, width, height], 0-1.")
-    source: str = Field(default="", description="sound: a voice or music file by name (speak, make_music).")
+    source: str = Field(default="", description="sound: a voice or music file by name (speak, make_music). cover: "
+                                                "a clip or picture shown over it (its sound goes on).")
     role: Literal["voice", "music", "original"] | None = Field(
         default=None, description="sound: voice at start; music under it (ducked); original = the video's own.")
     volume: float | None = Field(default=None, description="sound: 1 as it is, 0.3 music default, 0 silent.")
+    clean: bool = Field(default=False, description="sound, role original: clean the voice (less noise and echo, "
+                                                   "even level).")
 
 
 class _EditInput(BaseModel):
-    action: Literal["edit", "frames", "check", "status", "stop", "save"] = "edit"
+    action: Literal["edit", "frames", "moments", "check", "status", "stop", "save"] = "edit"
     inputs: list[str] = Field(default_factory=list, description=(
         "Videos, in order (several are joined): rec-…, edit-…, a file in this chat by name, or a workspace path."))
     steps: list[_Step] = Field(default_factory=list, description=(
@@ -359,7 +392,7 @@ def _edit_video(action: str = "edit", inputs: list[str] | None = None, steps: li
                 name: str = "", edit_id: str = "", path: str = "", count: int = 0,
                 times: list[float] | None = None) -> str:
     action = str(action or "edit").strip().casefold()
-    if action in {"edit", "frames"}:
+    if action in {"edit", "frames", "moments"}:
         return _start(action, list(inputs or []), list(steps or []), name, int(count or 0), list(times or []))
     if action == "check":
         return _check(list(inputs or []))
@@ -369,7 +402,7 @@ def _edit_video(action: str = "edit", inputs: list[str] | None = None, steps: li
         return _stop(edit_id)
     if action == "save":
         return _save(edit_id, path)
-    return "Use action edit, frames, check, status, stop or save."
+    return "Use action edit, frames, moments, check, status, stop or save."
 
 
 class VideoEditingTool(BaseTool):
@@ -404,8 +437,9 @@ class VideoEditingTool(BaseTool):
                 description=(
                     "Edit videos with ffmpeg into one H.264 MP4 saved to this chat (shown with a player): trim, "
                     "join, speed (with a 2× label), text badges or titles, zoom (punch-in), crop, captions (SRT), "
-                    "sound (voice lines at times, music ducked under them, one loudness). action=frames saves "
-                    "stills; check gives a finished video the finished check (loudness, black and still stretches, "
+                    "sound (voice lines at times, music ducked under them, one loudness); cut or trim by the words "
+                    "said, tidy (pauses and fillers), clean voice, cover (b-roll). action=moments lists a clip's "
+                    "shots and what's said, a frame of each. action=frames saves stills; check gives a finished video the finished check (loudness, black and still stretches, "
                     "one look at its frames): check a video before you present it as a final. status/stop follow an "
                     "edit in the background; save copies it into "
                     "the workspace. The first use may ask to download ffmpeg."

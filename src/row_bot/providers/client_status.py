@@ -79,6 +79,9 @@ class CachedModelRow:
     offered: bool = False
     # A star's place, on a catalog page only: starred models are what every picker lists.
     favourite_rank: int | None = None
+    # It runs on this computer and has its own settings sheet (U1): Ollama, Run on this computer or a server
+    # the person runs; never Learning's personal models.
+    local_settings: bool = False
 
 
 @dataclass(frozen=True)
@@ -308,9 +311,24 @@ def _build(include_readiness: bool) -> _Built:
         counts[row.provider_id] = counts.get(row.provider_id, 0) + 1
         labels.setdefault(row.provider_id, withheld_names.get(row.provider_id, row.provider_display_name or row.provider_id))
     local_install = {item["model_id"]: _boolean(item.get("installed")) for item in saved.ollama_rows if isinstance(item.get("model_id"), str)}
+    from row_bot import local_runtime
+    from row_bot.providers.model_visibility import is_personal_model_endpoint
+
+    def has_sheet(row: CatalogModelRow) -> bool:
+        if withheld(row.provider_id, row.model_id):
+            return False
+        if row.provider_id == "ollama":
+            return True
+        endpoint = endpoints.get(row.provider_id)
+        return bool(endpoint and endpoint.get("execution_location") == "local"
+                    and not is_personal_model_endpoint(endpoint)
+                    and endpoint.get("managed") in (None, "", local_runtime.OWNER))
+
     models = tuple(sorted((
-        _public_model(row, provider_label=labels[row.provider_id], include_readiness=include_readiness,
-                      installed=local_install.get(row.model_id) if row.provider_id == "ollama" else True if include_readiness else None)
+        replace(_public_model(row, provider_label=labels[row.provider_id], include_readiness=include_readiness,
+                              installed=local_install.get(row.model_id) if row.provider_id == "ollama"
+                              else True if include_readiness else None),
+                local_settings=has_sheet(row))
         for row in rows
     ), key=lambda row: (row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id)))
     providers = []

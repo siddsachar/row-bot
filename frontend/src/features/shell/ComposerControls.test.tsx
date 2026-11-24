@@ -37,7 +37,10 @@ vi.mock('../../runtime', () => ({
   // The picker's company suggestion (Row-Bot for Teams) needs no runtime here.
   useOptionalRuntime: () => null,
 }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => mock.navigate }));
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mock.navigate,
+  useInRouterContext: () => false,
+}));
 beforeEach(() => {
   vi.resetAllMocks();
   mock.version = 1;

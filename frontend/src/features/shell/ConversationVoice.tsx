@@ -41,6 +41,7 @@ const outputsBefore = (outputs?: OutputView[]): OutputsBefore => ({
   refs: outputs ? new Set(outputs.map((output) => output.ref)) : null,
   since: Date.now() - CLOCK_SLACK_MS,
 });
+import { holdWakeWord, setWakeTarget } from '../voice/wake-word';
 
 /** The newest picture or video made since voice began, as the phone's focus mode shows it. */
 function newestResult(
@@ -223,6 +224,21 @@ export default function ConversationVoice(props: {
       void startLive(provider);
     else setDisclosing(provider);
   }
+
+  // "Hey Row-Bot" starts Row-Bot Voice here while this chat shows, and waits
+  // while voice runs (no wake word microphone or frames meanwhile).
+  const startRef = useRef(startVoice);
+  startRef.current = startVoice;
+  useEffect(
+    () => setWakeTarget({ conversationId, start: () => startRef.current() }),
+    [conversationId],
+  );
+  const holding = starting || voice !== null;
+  useEffect(() => {
+    if (!holding) return;
+    holdWakeWord(true);
+    return () => holdWakeWord(false);
+  }, [holding]);
 
   // Leaving the chat ends its voice session.
   useEffect(
