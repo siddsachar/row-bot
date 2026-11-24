@@ -1244,6 +1244,8 @@ _STATUS.update({"views_off": 403, "view_tool_refused": 403, "view_tool_denied": 
                 "view_busy": 409, "view_unavailable": 409, "view_tool_failed": 502})
 # Row-Bot for Teams (C3b): the person's company doesn't allow it (an app, an approval level, chat export).
 _STATUS["company_policy"] = 403
+# Row-Bot for Teams (C5): this computer's IT department set its company server (no other, and no Leave).
+_STATUS["company_pinned"] = 409
 
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).

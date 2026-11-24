@@ -295,6 +295,24 @@
       ],
       "title": "Origin"
     },
+    "pin_invalid": {
+      "default": false,
+      "title": "Pin Invalid",
+      "type": "boolean"
+    },
+    "pinned_server": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pinned Server"
+    },
     "policy_reason": {
       "anyOf": [
         {

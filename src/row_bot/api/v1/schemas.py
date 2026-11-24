@@ -2960,6 +2960,11 @@ class CompanyView(WireModel):
     locked: list[CompanyLock] = Field(default_factory=list, max_length=64)
     rules: list[CompanyRule] = Field(default_factory=list, max_length=128)
     limits: CompanyLimits | None = None
+    # The company server this computer's IT department set (C5), as an origin: Join goes only there and Leave
+    # isn't offered, unless the Row-Bot is joined to another server (IT moved it). And whether IT set an
+    # address that isn't valid (it is ignored).
+    pinned_server: str | None = Field(default=None, max_length=512)
+    pin_invalid: bool = False
 
 
 class CompanyJoinRequest(WireModel):

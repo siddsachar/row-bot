@@ -393,3 +393,71 @@ and tokens.
 `/auth/device` counts every request; `/api/device/token` counts only refused ones, so an office of Row-Bots
 refreshing behind one address is never held up, while an address that keeps presenting bad codes or tokens waits
 out the minute.
+
+## Managed Row-Bots
+
+IT can fix the company server a computer's Row-Bot uses with one managed setting, `CompanyServer`, pushed
+by device management. With it set:
+- Settings › Company shows that company and **Join**, with no address to type;
+- Join goes only there (the app refuses any other address);
+- **Leave isn't offered**, and the app refuses it while joined to that server;
+- Sign in again (after a disconnect or the monthly sign-in) works as usual.
+
+Row-Bot never joins by itself: the person still signs in with the company account in their browser. The
+setting only fixes where. Without it, nothing changes. The value is an address as a person would type it
+(`https://rowbot.example.com`, or a bare host, which means https); plain `http://` is accepted only for
+`127.0.0.1` or `localhost`. Row-Bot reads it each time Settings › Company opens, so no restart is needed.
+
+| OS | Where Row-Bot reads it | Never read |
+|---|---|---|
+| Windows | `HKLM\SOFTWARE\Policies\Row-Bot`, value `CompanyServer` (REG_SZ) | `HKCU` (a person can write it) |
+| macOS | the managed preferences of `ai.row-bot.assistant` (Row-Bot's bundle id), key `CompanyServer`: `/Library/Managed Preferences/ai.row-bot.assistant.plist` | the person's own defaults, and user-level profiles |
+| Linux | `/etc/row-bot/company.json`: `{"server": "https://rowbot.example.com"}` | the file unless it's owned by root and not writable by others (it's ignored, with a log line) |
+
+**Windows with Intune.** Intune's custom OMA-URI settings can't write an arbitrary registry value without an
+ADMX file, so use a platform script (Devices › Scripts and remediations › Platform scripts), set to run as
+the system (not the signed-in user) in 64-bit PowerShell:
+
+```powershell
+$key = 'HKLM:\SOFTWARE\Policies\Row-Bot'
+New-Item -Path $key -Force | Out-Null
+New-ItemProperty -Path $key -Name 'CompanyServer' -PropertyType String -Value 'https://rowbot.example.com' -Force | Out-Null
+```
+
+Group Policy Preferences (a Registry item) or `reg add "HKLM\SOFTWARE\Policies\Row-Bot" /v CompanyServer /t
+REG_SZ /d https://rowbot.example.com /f` from an elevated prompt do the same.
+
+**macOS with Jamf Pro.** Make a computer-level configuration profile with an Application & Custom Settings
+payload: preference domain `ai.row-bot.assistant`, and this property list. Scope it to computers, not users:
+a user-level profile lands in the person's own managed preferences, which Row-Bot doesn't read.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CompanyServer</key>
+    <string>https://rowbot.example.com</string>
+</dict>
+</plist>
+```
+
+**Linux.** As root:
+
+```sh
+install -d -m 755 /etc/row-bot
+printf '{"server": "https://rowbot.example.com"}\n' > /etc/row-bot/company.json
+chmod 644 /etc/row-bot/company.json
+```
+
+**What the person sees.**
+- Not joined yet: the company's name, "Your IT department set up this Row-Bot for <company>", and Join.
+- Joined there: as usual, without Leave.
+- Already joined to another server (the setting arrived later or was changed): "Your IT department moved
+  Row-Bot to <company>" and **Sign in to <company>**, which leaves the old company first. Leaving the old one
+  is allowed then, and only then.
+- A value that isn't a valid address: Row-Bot ignores it, logs it once, and Settings › Company says "Your IT
+  department set a company server address that isn't valid". The person can join by typing an address, as
+  without the setting.
+
+Removing the setting gives the person Leave and the address field back.

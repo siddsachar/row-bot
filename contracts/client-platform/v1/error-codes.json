@@ -106,6 +106,7 @@
     "cloud_speech_failed": 503,
     "cloud_voice_failed": 503,
     "command_metadata_unavailable": 503,
+    "company_pinned": 409,
     "company_policy": 403,
     "computer_use_local_only": 403,
     "computer_use_outcome_uncertain": 409,

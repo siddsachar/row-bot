@@ -334,3 +334,96 @@ it('joined: one quiet line on what Row-Bot tells the company, with each field in
     ),
   ).toBeVisible();
 });
+
+const PINNED = 'https://rowbot.example.test';
+
+it('set by IT, not joined: the company and Join, with no address to type', async () => {
+  const company = show({
+    status: view({ pinned_server: PINNED }),
+    join: view({ state: 'waiting', company: COMPANY }),
+  });
+
+  expect(await screen.findByText(COMPANY)).toBeVisible();
+  expect(
+    screen.getByText(
+      /^Your IT department set up this Row-Bot for rowbot\.example\.test\./,
+    ),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('textbox', { name: 'Your company’s Row-Bot server' }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+
+  expect(
+    await screen.findByText('Finish signing in in your browser'),
+  ).toBeVisible();
+  expect(company).toHaveBeenCalledWith('join', {
+    address: PINNED,
+    device_name: 'Fixture laptop',
+  });
+});
+
+it('set by IT and joined there: no Leave, also when disconnected', async () => {
+  show({
+    status: joined({ pinned_server: PINNED }),
+    check: joined({ pinned_server: PINNED }),
+  });
+
+  expect(
+    await screen.findByText('Ada Lovelace · ada@example.test'),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: `Leave ${COMPANY}` })).toBeNull();
+});
+
+it('set by IT and disconnected: Sign in again, and no Leave', async () => {
+  show({ status: joined({ state: 'disconnected', pinned_server: PINNED }) });
+
+  expect(
+    await screen.findByRole('button', { name: 'Sign in again' }),
+  ).toBeEnabled();
+  expect(screen.queryByRole('button', { name: `Leave ${COMPANY}` })).toBeNull();
+});
+
+it('moved by IT: says where to, signs in there, and may leave the old company', async () => {
+  const moved = joined({
+    company: 'old.example.test',
+    origin: 'https://old.example.test',
+    pinned_server: PINNED,
+  });
+  const company = show({
+    status: moved,
+    check: moved,
+    join: view({ state: 'waiting', company: COMPANY }),
+  });
+
+  expect(
+    await screen.findByText(`Your IT department moved Row-Bot to ${COMPANY}`),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Leave old.example.test' }),
+  ).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: `Sign in to ${COMPANY}` }),
+  );
+
+  expect(
+    await screen.findByText('Finish signing in in your browser'),
+  ).toBeVisible();
+  expect(company).toHaveBeenCalledWith('join', {
+    address: PINNED,
+    device_name: 'Fixture laptop',
+  });
+});
+
+it('an address IT set that isn’t valid: says so, and the address can be typed as usual', async () => {
+  show({ status: view({ pin_invalid: true }) });
+
+  expect(
+    await screen.findByText(
+      'Your IT department set a company server address that isn’t valid',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('textbox', { name: 'Your company’s Row-Bot server' }),
+  ).toBeEnabled();
+});

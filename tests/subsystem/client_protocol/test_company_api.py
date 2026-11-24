@@ -10,6 +10,7 @@ import pytest
 
 import row_bot.company
 from row_bot.application import client_company
+from row_bot.company import managed
 from tests.fixtures.company_server import ORIGIN, company_server, company_state, keychain  # noqa: F401 - the fixtures
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
 
@@ -38,6 +39,7 @@ def test_with_no_company_the_app_makes_no_company_call_and_loads_nothing_that_op
     assert view.json()["state"] == "not_joined" and view.json()["on_this_computer"] is True
     assert view.json()["failure"] is None and view.json()["company"] is None
     assert (view.json()["policy_state"], view.json()["rules"], view.json()["locked"]) == ("not_joined", [], [])
+    assert (view.json()["pinned_server"], view.json()["pin_invalid"]) == (None, False)
     assert checked.json()["state"] == left.json()["state"] == "not_joined"
     assert not (tmp_path / "company.json").exists()
 
@@ -84,3 +86,22 @@ def test_a_company_joined_through_the_api_is_shown_without_any_token(company_ser
     assert (left.json()["state"], left.json()["notice"]) == ("not_joined", "left")
     for answer in (started, view, checked, left):
         assert not any(token in answer.text for token in company_server.issued)
+
+
+def test_a_company_server_set_by_it_refuses_another_address_and_leave(company_server, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(managed, "_read", lambda: ORIGIN)  # IT's setting (C5), the OS source faked.
+    app, _, _ = client_app()
+    with app:
+        _, headers = bootstrap(app)
+        view = app.get("/api/v1/company", headers=headers)
+        elsewhere = app.post("/api/v1/company/join", headers=headers, json={"address": "elsewhere.example.test"})
+        started = app.post("/api/v1/company/join", headers=headers, json={"address": ORIGIN})
+        client_company.wait()
+        left = app.post("/api/v1/company/leave", headers=headers)
+        after = app.get("/api/v1/company", headers=headers)
+
+    assert view.status_code == 200 and view.json()["pinned_server"] == ORIGIN
+    assert elsewhere.status_code == 409 and elsewhere.json()["code"] == "company_pinned"
+    assert started.status_code == 200, started.text
+    assert left.status_code == 409 and left.json()["code"] == "company_pinned"
+    assert (after.json()["state"], after.json()["origin"]) == ("joined", ORIGIN)

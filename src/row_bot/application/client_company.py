@@ -10,6 +10,8 @@ company, sign in again, leave.
   policy, then ``/api/me`` and its models, refreshing the credential if it is about to end.
 - Leave tells the server, then forgets the credential and the record; if the server can't be reached it still
   forgets them here and says so.
+- A company server set by this computer's IT department (C5, ``company.managed``): Join goes only there, and
+  Leave and Sign in again are refused (409 ``company_pinned``) except to leave a server IT moved it away from.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from row_bot.company import store
+from row_bot.company import managed, store
 
 logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()
@@ -69,6 +71,16 @@ def _company(origin: str) -> str:
     return urlsplit(origin).hostname or origin
 
 
+def _origin(address: str) -> str | None:
+    """The origin of a typed address, or None when it isn't one."""
+    from row_bot.company import client
+
+    try:
+        return client.normalise_origin(address)
+    except client.InvalidAddress:
+        return None
+
+
 def status() -> dict[str, Any]:
     """The state, from the record and this process only."""
     with _LOCK:
@@ -89,6 +101,7 @@ def status() -> dict[str, Any]:
 
         suggested = provider.suggestion(record)
         rules = policy.state()
+        pin = managed.pin()
         return {
             "schema_version": 1,
             "state": state,
@@ -116,6 +129,11 @@ def status() -> dict[str, Any]:
             # What the client shows as "Set by your company" beyond models (C3b): tools switched off, the
             # approval ceiling, chat export and which apps may be added; None with no company.
             "limits": enforce.limits(rules.policy),
+            # The company server this computer's IT department set (C5): Join goes only there and Leave isn't
+            # offered, unless the Row-Bot is joined somewhere else (IT moved it). And whether IT set one that
+            # isn't a valid address (ignored).
+            "pinned_server": pin.server,
+            "pin_invalid": pin.invalid,
         }
 
 
@@ -130,6 +148,15 @@ def _failed(reason: str) -> dict[str, Any]:
 def join(address: str, device_name: str = "") -> dict[str, Any]:
     """Join the company at ``address``: check it, then open the browser at its sign-in."""
     record = store.read_record()
+    pinned = managed.pinned_server()
+    if pinned is not None:
+        if _origin(address) != pinned:
+            raise managed.CompanyPinned()
+        if record is not None and record.origin != pinned:
+            # IT moved this Row-Bot: it leaves the company it was in, then signs in to the one IT set.
+            device_name = device_name or record.device_name
+            leave()
+            record = None
     if record is not None and not record.disconnected:
         return status()  # Joined already: Leave first.
     return _start(address, device_name, device_id=None)
@@ -140,6 +167,9 @@ def sign_in_again() -> dict[str, Any]:
     record = store.read_record()
     if record is None:
         return status()
+    pinned = managed.pinned_server()
+    if pinned is not None and record.origin != pinned:
+        raise managed.CompanyPinned()  # IT moved it: sign in to the server IT set instead.
     with _LOCK:
         fresh = _fresh_next
     return _start(record.origin, record.device_name, device_id=None if fresh else record.device_id)
@@ -315,6 +345,8 @@ def leave() -> dict[str, Any]:
     record = store.read_record()
     if record is None:
         return status()
+    if record.origin == managed.pinned_server():
+        raise managed.CompanyPinned()  # IT set this company for this computer.
     from row_bot.company import audit
 
     audit.leave()  # One last send of what's waiting for the company, then the audit outbox goes (C4).

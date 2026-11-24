@@ -753,6 +753,11 @@ const CATALOG: Record<string, Entry> = {
     'Your company’s rules don’t allow this. Settings › Company lists them.',
     'none',
   ],
+  // Row-Bot for Teams (C5): this computer's IT department set its company server.
+  company_pinned: [
+    'Your IT department set this computer’s company server, so it can’t be changed here.',
+    'none',
+  ],
 
   // Conversations, sending and waiting messages
   checkpoint_unavailable: [

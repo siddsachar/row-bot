@@ -4,6 +4,29 @@ import type { CompanyView } from '../../api/types';
 export const JOIN_LINE =
   'Joining lets Row-Bot use your company’s models and rules. Your own chats and memory stay on this computer.';
 
+/** A company server's host, as Row-Bot names a company (`https://rowbot.acme.com` → `rowbot.acme.com`). */
+export function hostOf(origin: string): string {
+  try {
+    return new URL(origin).hostname || origin;
+  } catch {
+    return origin;
+  }
+}
+
+/** Settings › Company when IT set the company server (C5), not joined yet. */
+export function pinnedWords(company: string): string {
+  return `Your IT department set up this Row-Bot for ${company}. ${JOIN_LINE}`;
+}
+
+/** IT set a company server, but Row-Bot is joined to another one (C5). */
+export function movedWords(pinned: string, company: string): string {
+  return `Sign in to ${pinned} to keep using your company’s models and rules. Row-Bot leaves ${company} first. Your own chats and memory stay on this computer.`;
+}
+
+/** IT set a company server address Row-Bot can't use (C5); it is ignored. */
+export const PIN_INVALID =
+  'Your IT department set a company server address that isn’t valid';
+
 /** Why the last Join or Sign in again didn't join, in plain words. */
 export function failureWords(
   failure: NonNullable<CompanyView['failure']>,

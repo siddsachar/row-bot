@@ -27,16 +27,20 @@ import {
 import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
 import {
   JOIN_LINE,
+  PIN_INVALID,
   auditFields,
   auditWords,
   elsewhereWords,
   failureWords,
+  hostOf,
   joinedWords,
   leaveWords,
   lockdownWords,
   modelsWords,
+  movedWords,
   noticeWords,
   personWords,
+  pinnedWords,
 } from './words';
 
 /** How often the state is read while the browser sign-in is open. */
@@ -127,6 +131,18 @@ export default function CompanySettings({
   const here = view.on_this_computer;
   const problem =
     error ?? (view.failure && failureWords(view.failure, company));
+  // The company server this computer's IT department set (C5): Join goes
+  // only there and Leave isn't offered, unless Row-Bot is joined to another
+  // server (IT moved it), which it may then leave.
+  const pinned = view.pinned_server ?? null;
+  const moved =
+    pinned !== null &&
+    view.origin !== null &&
+    view.origin !== pinned &&
+    (view.state === 'joined' ||
+      view.state === 'unreachable' ||
+      view.state === 'disconnected');
+  const canLeave = pinned === null || moved;
 
   function confirmLeave() {
     overlay.open({
@@ -174,7 +190,7 @@ export default function CompanySettings({
     </Disclosure>
   );
 
-  const leaveButton = (
+  const leaveButton = canLeave ? (
     <IconButton
       label={`Leave ${company}`}
       disabled={busy}
@@ -182,7 +198,7 @@ export default function CompanySettings({
     >
       <LogOut size={16} aria-hidden />
     </IconButton>
-  );
+  ) : null;
 
   if (view.state === 'waiting')
     return (
@@ -210,6 +226,45 @@ export default function CompanySettings({
         />
       </SettingsGroup>
     );
+
+  if (moved && pinned !== null) {
+    const target = hostOf(pinned);
+    return (
+      <SettingsGroup label="Company">
+        <SettingsItem
+          label={`Your IT department moved Row-Bot to ${target}`}
+          help={movedWords(target, company)}
+          icon={<Building2 size={16} aria-hidden />}
+          tone="accent"
+          bind={false}
+          status={
+            problem ? (
+              <StatusLine tone="danger">{problem}</StatusLine>
+            ) : !here ? (
+              <StatusLine>{elsewhereWords(view.computer_name)}</StatusLine>
+            ) : undefined
+          }
+          control={
+            <>
+              <Button
+                variant="primary"
+                disabled={busy || !here}
+                onClick={() =>
+                  void act('join', {
+                    address: pinned,
+                    device_name: view.computer_name,
+                  })
+                }
+              >
+                Sign in to {target}
+              </Button>
+              {leaveButton}
+            </>
+          }
+        />
+      </SettingsGroup>
+    );
+  }
 
   if (view.state === 'joined' || view.state === 'unreachable')
     return (
@@ -311,9 +366,10 @@ export default function CompanySettings({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!address.trim() || !here) return;
+    const target = pinned ?? address.trim();
+    if (!target || !here) return;
     void act('join', {
-      address: address.trim(),
+      address: target,
       device_name: (deviceName ?? view.computer_name).trim(),
     });
   };
@@ -321,9 +377,51 @@ export default function CompanySettings({
     <StatusLine tone="danger">{problem}</StatusLine>
   ) : view.notice ? (
     <StatusLine>{noticeWords(view.notice, company)}</StatusLine>
+  ) : view.pin_invalid ? (
+    <StatusLine tone="warning">{PIN_INVALID}</StatusLine>
   ) : !here ? (
     <StatusLine>{elsewhereWords(view.computer_name)}</StatusLine>
   ) : undefined;
+  const computer = here && (
+    <Disclosure
+      summary="This computer’s name"
+      meta={deviceName ?? view.computer_name}
+    >
+      <Field
+        label="Name your company sees"
+        hint="Shown to your company’s admins next to this Row-Bot."
+      >
+        <Input
+          value={deviceName ?? view.computer_name}
+          maxLength={200}
+          onChange={(event) => setDeviceName(event.target.value)}
+        />
+      </Field>
+    </Disclosure>
+  );
+  // IT set the company server: its name and Join, with no address to type.
+  if (pinned !== null)
+    return (
+      <form onSubmit={submit} noValidate>
+        <SettingsGroup label="Company">
+          <SettingsItem
+            label={hostOf(pinned)}
+            help={pinnedWords(hostOf(pinned))}
+            icon={<Building2 size={16} aria-hidden />}
+            tone="accent"
+            bind={false}
+            status={note}
+            control={
+              <Button type="submit" variant="primary" disabled={busy || !here}>
+                Join
+              </Button>
+            }
+          >
+            {computer}
+          </SettingsItem>
+        </SettingsGroup>
+      </form>
+    );
   return (
     <form onSubmit={submit} noValidate>
       <SettingsGroup label="Company">
@@ -353,23 +451,7 @@ export default function CompanySettings({
             </Button>
           }
         >
-          {here && (
-            <Disclosure
-              summary="This computer’s name"
-              meta={deviceName ?? view.computer_name}
-            >
-              <Field
-                label="Name your company sees"
-                hint="Shown to your company’s admins next to this Row-Bot."
-              >
-                <Input
-                  value={deviceName ?? view.computer_name}
-                  maxLength={200}
-                  onChange={(event) => setDeviceName(event.target.value)}
-                />
-              </Field>
-            </Disclosure>
-          )}
+          {computer}
         </SettingsItem>
       </SettingsGroup>
     </form>

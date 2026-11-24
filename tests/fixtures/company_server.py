@@ -28,7 +28,7 @@ import pytest
 from row_bot import secret_store
 from row_bot.application import client_company
 from row_bot.audit import InvalidAuditEvent, from_dict, to_dict
-from row_bot.company import audit, client, policy, provider, sign_in, store
+from row_bot.company import audit, client, managed, policy, provider, sign_in, store
 from row_bot.policy import DEFAULT_POLICY, canonical_json, policy_to_dict
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
@@ -453,6 +453,9 @@ def company_state(monkeypatch) -> list[HeldTimer]:
     for name, value in {"_memo": None, "_timer": None, "_last_attempt": None, "_retry_at": 0.0, "_failures": 0,
                         "_dropped": 0}.items():
         monkeypatch.setattr(audit, name, value)
+    # No company server set by IT (C5): this computer's registry, managed preferences and /etc are never read.
+    monkeypatch.setattr(managed, "_read", lambda: None)
+    monkeypatch.setattr(managed, "_logged", set())
     timers: list[HeldTimer] = []
     monkeypatch.setattr(audit, "Timer", lambda interval, function: HeldTimer(interval, function, timers))
     return timers
