@@ -57,6 +57,11 @@
         "plugins": {
           "$ref": "#/$defs/CompanyAppLimit"
         },
+        "share_to_company": {
+          "default": true,
+          "title": "Share To Company",
+          "type": "boolean"
+        },
         "skills_hub": {
           "$ref": "#/$defs/CompanyAppLimit"
         },

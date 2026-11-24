@@ -7,7 +7,8 @@
   and the new pair is saved in the keychain before it is used (the old refresh token stops working at once).
 - A refresh refused with ``invalid_grant`` means the company disconnected this Row-Bot: revoked, suspended or a
   month since the last sign-in. The record says so and the credential is removed.
-- 429 means wait: nothing is sent until ``Retry-After`` has passed, and the credential is kept.
+- 429 means wait: nothing is sent until ``Retry-After`` has passed, and the credential is kept. A person's own
+  limit (``PERSON_LIMITS``) is an answer instead.
 
 Nothing here logs a token, a code or a response body.
 """
@@ -33,6 +34,9 @@ TOKEN_PATH = "/api/device/token"
 EARLY = 60
 DEFAULT_RETRY_AFTER = 60
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
+# A 429 with one of these is the person's own limit (B4a: shares waiting for review, shares today): an answer
+# for the caller, so nothing else backs off.
+PERSON_LIMITS = frozenset({"too_many_pending", "too_many_shares_today"})
 
 _REFRESH = threading.Lock()
 _backoff_until = 0.0
@@ -134,6 +138,8 @@ def _request(origin: str, method: str, path: str, *, bearer: str | None = None,
     except httpx.HTTPError as error:
         logger.info("The company server couldn't be reached (%s)", type(error).__name__)
         raise Unreachable(type(error).__name__) from None
+    if response.status_code == 429 and _answer(response).get("error") in PERSON_LIMITS:
+        return response  # The person's own limit (B4a's shares), not the server asking everyone to wait.
     if response.status_code == 429:
         try:
             retry_after = min(max(int(response.headers.get("Retry-After", "")), 1), 600)

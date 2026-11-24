@@ -28,6 +28,7 @@ down, or None when no company is joined, and then nothing here changes anything.
   A forbidden app can't be added and an installed one doesn't run; it is never removed, and its settings are
   kept (``APP_HELD``).
 - **Export** (``data.chat_export``): a chat's export, and the full data backup, which holds every chat.
+- **Share to company** (``data.share_to_company``, B4b): sending part of a chat to a company space for review.
 """
 
 from __future__ import annotations
@@ -330,6 +331,12 @@ def allows_chat_export(policy: Policy | None = None) -> bool:
     return policy is None or policy.data.chat_export
 
 
+def allows_share_to_company(policy: Policy | None = None) -> bool:
+    """Whether the person may share to their company's spaces (never with no company joined, or locked down)."""
+    policy = policy or current()
+    return policy is not None and policy.data.share_to_company
+
+
 # -- for the client -----------------------------------------------------------------------------------
 
 def limits(policy: Policy | None) -> dict[str, Any] | None:
@@ -343,13 +350,14 @@ def limits(policy: Policy | None) -> dict[str, Any] | None:
     # Registry tools and single model-facing tools alike: Settings shows either as locked.
     return {"tools_off": sorted(policy.tools.disabled_groups | policy.tools.disabled_tools),
             "max_level": policy.approvals.max_level,
-            "chat_export": policy.data.chat_export, "plugins": app("plugins"), "mcp_servers": app("mcp_servers"),
+            "chat_export": policy.data.chat_export, "share_to_company": policy.data.share_to_company,
+            "plugins": app("plugins"), "mcp_servers": app("mcp_servers"),
             "skills_hub": app("skills_hub"), "channels": app("channels")}
 
 
 __all__ = [
     "APP_HELD", "BLOCKED", "CUSTOM_TOOL_PREFIX", "SET_BY_COMPANY", "TOOL_REFUSED", "above_ceiling",
-    "allows_app", "allows_chat_export", "allows_plugin", "is_custom_tool", "mcp_catalog_names", "mcp_launch",
+    "allows_app", "allows_chat_export", "allows_plugin", "allows_share_to_company", "is_custom_tool", "mcp_catalog_names", "mcp_launch",
     "mcp_provenance", "MCP_CATALOG_NAMES", "MCP_LAUNCH", "allows_standing_approvals", "app_refusal", "blocked_words", "cap", "ceiling",
     "ceiling_blocks", "current", "keep_tools", "limits", "mcp_refusal", "mcp_server_names", "skill_held",
     "skill_names", "tool_off", "tool_refusal",

@@ -7433,6 +7433,36 @@ def create_router(
 
         return await company_documents_view(request, documents.remove, document_id)
 
+    # Row-Bot for Teams (B4b): Share to company. A share goes to a company space's review queue with the
+    # device's bearer; Settings › Company lists the person's shares. With no company joined nothing is asked.
+    async def company_shares_view(request: Request, method: Callable, *args: Any) -> JSONResponse:
+        from row_bot.company import shares
+
+        view = await call(method, *args)
+        return await respond(request, dto.CompanySharesView, view or shares.empty("not_joined"))
+
+    @router.get("/company/shares")
+    async def company_shares(request: Request, status: str = "all") -> JSONResponse:
+        await session(request)
+        from row_bot.company import shares
+
+        return await company_shares_view(request, shares.mine, status)
+
+    @router.post("/company/spaces/{space_id}/shares")
+    async def company_share_submit(request: Request, space_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.CompanyShareRequest, 65536)
+        from row_bot.company import shares
+
+        return await company_shares_view(request, shares.submit, space_id, body.title, body.text, body.source_note)
+
+    @router.post("/company/shares/{share_id}/withdraw")
+    async def company_share_withdraw(request: Request, share_id: str) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.company import shares
+
+        return await company_shares_view(request, shares.withdraw, share_id)
+
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
         # One short message to the model the person just chose (its provider is

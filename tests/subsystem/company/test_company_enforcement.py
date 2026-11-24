@@ -702,7 +702,7 @@ def test_settings_lists_c3bs_settings_in_plain_words(company):
 
     assert enforce.limits(restrictive) == {
         "tools_off": ["run_command", "shell"], "max_level": "approve", "chat_export": False,
-        "plugins": {"mode": "none", "allowed": []}, "mcp_servers": {"mode": "any", "allowed": []},
+        "share_to_company": False, "plugins": {"mode": "none", "allowed": []}, "mcp_servers": {"mode": "any", "allowed": []},
         "skills_hub": {"mode": "any", "allowed": []}, "channels": {"mode": "any", "allowed": [
             "discord", "slack", "sms", "telegram"]}}
     json.dumps(enforce.limits(restrictive))  # As the view sends it.

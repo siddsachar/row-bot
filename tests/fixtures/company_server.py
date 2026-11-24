@@ -1,5 +1,6 @@
 """A fake Row-Bot company server (C1a's device routes, S3's effective policy, S4's catalog and gateway, S5's audit
-ingest) and a fake browser, for the app's company tests.
+ingest, the company brain's routes and B4a's review queue for its member) and a fake browser, for the app's company
+tests.
 
 The server is an ``httpx.MockTransport``: nothing leaves the process. The browser follows the app's sign-in
 address the way a person pressing Connect would, then visits Row-Bot's loopback address for real (loopback
@@ -244,6 +245,11 @@ class FakeCompanyServer:
         self.uploads: list[dict] = []
         self.max_upload_bytes = 25 * 1024 * 1024
         self.brain_answers: list[tuple[str, httpx.Response]] = []
+        # B4a's review queue: the person's shares (newest first, B4a's Submission shape), each share's body as
+        # sent, and how many they shared today (B4a's daily count: withdrawn ones count too).
+        self.submissions: list[dict] = []
+        self.submission_bodies: list[dict] = []
+        self.shares_today = 0
         self._numbers = itertools.count(1)
         self._lock = threading.Lock()
         self.transport = httpx.MockTransport(self.handle)
@@ -391,6 +397,17 @@ class FakeCompanyServer:
             return self._space_documents(request, readable, parts[4])
         if len(parts) == 5 and path.startswith("/api/brain/documents/"):
             return self._document(request, readable, parts[4])
+        if len(parts) == 6 and path.startswith("/api/brain/spaces/") and parts[5] == "submissions":
+            return self._submit(request, readable, parts[4])
+        if (request.method, len(parts), parts[3], parts[-1]) == ("POST", 6, "submissions", "withdraw"):
+            return self._withdraw(parts[4])
+        if (request.method, path) == ("GET", "/api/brain/submissions"):
+            if params.get("mine") != "1" or params.get("status", "all") not in ("all", "pending", "approved",
+                                                                                 "rejected"):
+                return httpx.Response(422, json={"detail": [{"loc": ["query"], "msg": "invalid"}]})
+            status = params.get("status", "all")
+            found = [share for share in self.submissions if status in ("all", share["status"])]
+            return httpx.Response(200, json={"submissions": found[:200], "truncated": len(found) > 200})
         if request.method != "GET":
             return httpx.Response(404, json={"error": "not_found"})
         if path == "/api/brain/spaces":
@@ -492,6 +509,45 @@ class FakeCompanyServer:
         created = {**written, "id": str(uuid.uuid4()), "title": name.rpartition(".")[0]}
         self.brain_documents.insert(0, created)
         return httpx.Response(201, json=created)
+
+    def _submit(self, request: httpx.Request, readable: dict[str, dict], space_id: str) -> httpx.Response:
+        """B4a's ``POST /api/brain/spaces/{id}/submissions``: the body checked first (FastAPI's 422), then the
+        space, the policy, the person's waiting shares and today's."""
+        if request.method != "POST":
+            return httpx.Response(405, json={"detail": "Method Not Allowed"})
+        body = json.loads(request.content or b"{}")
+        self.submission_bodies.append(body)
+        title, text, note = body.get("title"), body.get("text"), body.get("source_note")
+        if (set(body) - {"title", "text", "source_note"} or not isinstance(title, str) or not 1 <= len(title) <= 200
+                or "\n" in title or not isinstance(text, str) or not 1 <= len(text) <= 8000
+                or not (note is None or (isinstance(note, str) and len(note) <= 500 and "\n" not in note))):
+            return httpx.Response(422, json={"detail": [{"loc": ["body"], "msg": "invalid"}]})
+        space = readable.get(space_id)
+        if space is None:
+            return httpx.Response(404, json={"error": "space_not_found"})
+        if self.policy["data"]["share_to_company"] is not True:
+            return httpx.Response(403, json={"error": "share_to_company_off"})
+        if sum(1 for share in self.submissions if share["status"] == "pending") >= 20:
+            return httpx.Response(429, json={"error": "too_many_pending", "max_pending": 20})
+        if self.shares_today >= 50:
+            return httpx.Response(429, json={"error": "too_many_shares_today", "max_per_day": 50})
+        self.shares_today += 1
+        created = {"id": str(uuid.uuid4()), "kind": "share", "space_id": space_id, "space_name": space["name"],
+                   "sent_space_id": space_id, "title": title, "text": text, "source_note": note or None,
+                   "submitted_by": PERSON["id"], "submitted_at": "2026-11-24T10:00:00+00:00", "status": "pending",
+                   "reviewed_by": None, "decided_at": None, "reason": None, "fact_id": None}
+        self.submissions.insert(0, created)
+        return httpx.Response(201, json=created)
+
+    def _withdraw(self, share_id: str) -> httpx.Response:
+        """B4a's ``POST /api/brain/submissions/{id}/withdraw``: one's own waiting share is deleted (204)."""
+        share = next((found for found in self.submissions if found["id"] == share_id), None)
+        if share is None:
+            return httpx.Response(404, json={"error": "submission_not_found"})
+        if share["status"] != "pending":
+            return httpx.Response(409, json={"error": "submission_decided", "status": share["status"]})
+        self.submissions.remove(share)
+        return httpx.Response(204)
 
     def _ingest(self, request: httpx.Request) -> httpx.Response:
         """S5's ``POST /api/audit/events`` for a device's bearer: the contract checked event by event, all or

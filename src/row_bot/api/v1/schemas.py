@@ -2920,6 +2920,8 @@ class CompanyLimits(WireModel):
     # The highest approval level anyone may choose.
     max_level: ApprovalLevel
     chat_export: bool
+    # Share to company (B4b): its message action shows only while this is on.
+    share_to_company: bool = True
     plugins: CompanyAppLimit
     mcp_servers: CompanyAppLimit
     skills_hub: CompanyAppLimit
@@ -3086,6 +3088,51 @@ class CompanyDocumentsView(WireModel):
     supported_types: list[Annotated[str, StringConstraints(max_length=16)]] = Field(max_length=16)
     outcome: Literal["uploaded", "replaced", "removed", "too_large", "unsupported_type", "invalid_file",
                      "not_owner", "not_found"] | None
+
+
+class CompanyShare(WireModel):
+    """One of the person's shares to a company space (B4b; B4a's review queue): waiting, approved (a fact in
+    ``space_name`` now) or rejected with the reviewer's reason. ``moved``: a reviewer approved it into another
+    space than the one it was sent to, ``space_id``/``space_name`` (None when the person no longer reads it)."""
+
+    id: OpaqueId
+    title: str = Field(max_length=200)
+    text: str = Field(max_length=8000)
+    source_note: str | None = Field(max_length=500)
+    space_id: OpaqueId
+    space_name: str | None = Field(max_length=160)
+    moved: bool
+    status: Literal["pending", "approved", "rejected"]
+    submitted_at: str = Field(max_length=64)
+    decided_at: str | None = Field(max_length=64)
+    reason: str | None = Field(max_length=500)
+    fact_id: OpaqueId | None
+
+
+class CompanySharesView(WireModel):
+    """Share to company (B4b): the spaces the person may share to, their shares, whether the company lets them
+    share (``allowed``), and how the last share or withdraw went (``outcome``, with plain ``words`` for a
+    refusal; None for a read)."""
+
+    schema_version: Literal[1]
+    state: Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable"]
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    allowed: bool
+    spaces: list[CompanyGraphSpace] = Field(max_length=512)
+    shares: list[CompanyShare] = Field(max_length=200)
+    truncated: bool
+    outcome: Literal["sent", "withdrawn", "share_to_company_off", "too_many_pending", "too_many_shares_today",
+                     "space_not_found", "not_found", "decided", "invalid"] | None
+    words: str | None = Field(max_length=512)
+
+
+class CompanyShareRequest(WireModel):
+    """A share for a company space's review queue (B4a's limits): a one-line title, the text, an optional note."""
+
+    title: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=8000)
+    source_note: str = Field(default="", max_length=500)
 
 
 SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]

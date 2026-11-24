@@ -1,0 +1,289 @@
+{
+  "$defs": {
+    "CompanyGraphSpace": {
+      "additionalProperties": false,
+      "description": "A company knowledge space the person may read (B8), and whether they own it (owners curate it in the\nadmin console).",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_owner": {
+          "title": "Is Owner",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "company",
+            "group"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 160,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "is_owner"
+      ],
+      "title": "CompanyGraphSpace",
+      "type": "object"
+    },
+    "CompanyShare": {
+      "additionalProperties": false,
+      "description": "One of the person's shares to a company space (B4b; B4a's review queue): waiting, approved (a fact in\n``space_name`` now) or rejected with the reviewer's reason. ``moved``: a reviewer approved it into another\nspace than the one it was sent to, ``space_id``/``space_name`` (None when the person no longer reads it).",
+      "properties": {
+        "decided_at": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Decided At"
+        },
+        "fact_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fact Id"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "moved": {
+          "title": "Moved",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "source_note": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Note"
+        },
+        "space_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Space Id",
+          "type": "string"
+        },
+        "space_name": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Space Name"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "submitted_at": {
+          "maxLength": 64,
+          "title": "Submitted At",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 8000,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "text",
+        "source_note",
+        "space_id",
+        "space_name",
+        "moved",
+        "status",
+        "submitted_at",
+        "decided_at",
+        "reason",
+        "fact_id"
+      ],
+      "title": "CompanyShare",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Share to company (B4b): the spaces the person may share to, their shares, whether the company lets them\nshare (``allowed``), and how the last share or withdraw went (``outcome``, with plain ``words`` for a\nrefusal; None for a read).",
+  "properties": {
+    "allowed": {
+      "title": "Allowed",
+      "type": "boolean"
+    },
+    "company": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "sent",
+            "withdrawn",
+            "share_to_company_off",
+            "too_many_pending",
+            "too_many_shares_today",
+            "space_not_found",
+            "not_found",
+            "decided",
+            "invalid"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Outcome"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "lease_expired",
+            "not_confirmed",
+            "busy",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "shares": {
+      "items": {
+        "$ref": "#/$defs/CompanyShare"
+      },
+      "maxItems": 200,
+      "title": "Shares",
+      "type": "array"
+    },
+    "spaces": {
+      "items": {
+        "$ref": "#/$defs/CompanyGraphSpace"
+      },
+      "maxItems": 512,
+      "title": "Spaces",
+      "type": "array"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "not_joined",
+        "disconnected",
+        "locked_down",
+        "unreachable"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    },
+    "words": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Words"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "company",
+    "reason",
+    "allowed",
+    "spaces",
+    "shares",
+    "truncated",
+    "outcome",
+    "words"
+  ],
+  "title": "CompanySharesView",
+  "type": "object"
+}

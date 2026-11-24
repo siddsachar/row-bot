@@ -51,6 +51,11 @@ def test_with_no_company_the_app_makes_no_company_call_and_loads_nothing_that_op
         uploaded = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/documents", content=b"Notes",
                             headers={**headers, "Content-Type": "application/octet-stream", "X-File-Name": "a.txt"})
         removed = app.delete(f"/api/v1/company/documents/{ATLAS}", headers=headers)
+        # Nor does Share to company (B4b).
+        mine = app.get("/api/v1/company/shares", headers=headers)
+        shared = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/shares", headers=headers,
+                          json={"title": "Renewals", "text": "Orion renews in March."})
+        withdrawn = app.post(f"/api/v1/company/shares/{ATLAS}/withdraw", headers=headers)
 
     assert view.status_code == 200, view.text
     assert view.json()["state"] == "not_joined" and view.json()["on_this_computer"] is True
@@ -64,6 +69,10 @@ def test_with_no_company_the_app_makes_no_company_call_and_loads_nothing_that_op
     for answer in (listed, uploaded, removed):
         assert answer.status_code == 200, answer.text
         assert (answer.json()["state"], answer.json()["documents"], answer.json()["outcome"]) == ("not_joined", [], None)
+    for answer in (mine, shared, withdrawn):
+        assert answer.status_code == 200, answer.text
+        assert (answer.json()["state"], answer.json()["shares"], answer.json()["outcome"]) == ("not_joined", [], None)
+        assert answer.json()["allowed"] is False
     assert not (tmp_path / "company.json").exists()
 
 
@@ -200,4 +209,38 @@ def test_company_documents_through_the_api_with_no_token_in_them(company_server,
     assert (json_body.status_code, json_body.json()["code"]) == (422, "invalid_command")
     assert len(company_server.uploads) == sent
     for answer in (listed, added, replaced, removed):
+        assert not any(token in answer.text for token in company_server.issued)
+
+
+def test_share_to_company_through_the_api_with_no_token_in_it(company_server):  # noqa: F811 - the fixture
+    company_server.join_here()
+    app, _, _ = client_app()
+    with app:
+        _, headers = bootstrap(app)
+        status = app.get("/api/v1/company", headers=headers)
+        shared = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/shares", headers=headers, json={
+            "title": "Renewals", "text": "Orion renews in March.\nAsk early.", "source_note": "From a chat"})
+        share = shared.json()["shares"][0]["id"]
+        mine = app.get("/api/v1/company/shares?status=pending", headers=headers)
+        withdrawn = app.post(f"/api/v1/company/shares/{share}/withdraw", headers=headers)
+        # Longer than a share may be, or another field: refused before the company's server is asked.
+        sent = len(company_server.submission_bodies)
+        long = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/shares", headers=headers,
+                        json={"title": "Renewals", "text": "x" * 8001})
+        extra = app.post(f"/api/v1/company/spaces/{SALES_SPACE}/shares", headers=headers,
+                         json={"title": "Renewals", "text": "Text.", "kind": "skill"})
+
+    assert status.json()["limits"]["share_to_company"] is True  # The message action shows.
+    assert shared.status_code == 200, shared.text
+    assert (shared.json()["outcome"], shared.json()["allowed"]) == ("sent", True)
+    assert company_server.submission_bodies[0] == {
+        "title": "Renewals", "text": "Orion renews in March.\nAsk early.", "source_note": "From a chat"}
+    assert mine.status_code == 200, mine.text
+    assert [item["id"] for item in mine.json()["shares"]] == [share]
+    assert {"mine": "1", "status": "pending"} in [dict(request.url.params) for request in company_server.requests]
+    assert (withdrawn.json()["outcome"], withdrawn.json()["shares"]) == ("withdrawn", [])
+    for answer in (long, extra):
+        assert (answer.status_code, answer.json()["code"]) == (422, "invalid_command")
+    assert len(company_server.submission_bodies) == sent
+    for answer in (status, shared, mine, withdrawn):
         assert not any(token in answer.text for token in company_server.issued)
