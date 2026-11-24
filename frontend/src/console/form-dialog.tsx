@@ -6,7 +6,8 @@ import { problem } from './words';
 /**
  * An add or edit form in a dialog: its fields, Cancel and one primary Save.
  * `onSubmit` sends the change; while it runs the form waits, and a refusal
- * shows in plain words above the buttons.
+ * shows in plain words above the buttons. `submitDisabled` holds Save back
+ * while the form says why it can't be sent yet.
  */
 export function FormDialog({
   title,
@@ -14,6 +15,7 @@ export function FormDialog({
   submitLabel,
   onClose,
   onSubmit,
+  submitDisabled = false,
   children,
 }: {
   title: string;
@@ -21,6 +23,7 @@ export function FormDialog({
   submitLabel: string;
   onClose: () => void;
   onSubmit: () => Promise<void>;
+  submitDisabled?: boolean;
   children: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
@@ -55,7 +58,11 @@ export function FormDialog({
         )}
         <footer className="console-form-actions">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={busy}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={busy || submitDisabled}
+          >
             {busy ? 'Saving…' : submitLabel}
           </Button>
         </footer>

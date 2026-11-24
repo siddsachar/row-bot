@@ -20,6 +20,8 @@ const PAGES: [string, string][] = [
   ['policy-company', 'policy?tab=company'],
   ['policy-groups', 'policy?tab=groups'],
   ['policy-history', 'policy?tab=history'],
+  ['review', 'review'],
+  ['review-all', 'review?status=all'],
   ['audit', 'audit'],
 ];
 const THEMES = ['light', 'dark'] as const;

@@ -8,6 +8,11 @@ export function problem(error: unknown): string {
   const known: Record<string, string> = {
     unreachable:
       "The company server can't be reached. Check your connection and try again.",
+    submission_not_found: 'That share is no longer on the server.',
+    submission_decided:
+      'Someone already decided this share. Reload the page to see what happened.',
+    text_too_long_for_a_fact:
+      'A fact holds up to 2,000 characters. Shorten the text, then approve it.',
     cannot_suspend_yourself: "You can't suspend yourself.",
     cannot_change_your_own_role: "You can't change your own admin role.",
     person_not_found: 'That person is no longer on the server.',
@@ -70,6 +75,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'share.submitted': 'Shared to the company',
   'share.approved': 'Share approved',
   'share.rejected': 'Share rejected',
+  'share.withdrawn': 'Share withdrawn',
   'library.published': 'Published to the library',
   'data.exported': 'Data exported',
   'data.deleted': 'Data deleted',

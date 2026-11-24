@@ -1168,6 +1168,22 @@
               "details": {
                 "additionalProperties": false,
                 "properties": {
+                  "edited": {
+                    "enum": [
+                      "title",
+                      "text",
+                      "title,text"
+                    ],
+                    "type": "string"
+                  },
+                  "fact_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  },
+                  "from_space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  },
                   "item_kind": {
                     "enum": [
                       "fact",
@@ -1228,6 +1244,79 @@
                   "kind": {
                     "enum": [
                       "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "share"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "item_kind": {
+                    "enum": [
+                      "fact",
+                      "relation",
+                      "skill",
+                      "source"
+                    ],
+                    "type": "string"
+                  },
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "item_kind",
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "share"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "share.withdrawn"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
                       "person"
                     ]
                   }
@@ -2076,6 +2165,7 @@
             "share.approved",
             "share.rejected",
             "share.submitted",
+            "share.withdrawn",
             "space.changed",
             "tool.called"
           ],
