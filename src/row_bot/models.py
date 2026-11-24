@@ -1971,6 +1971,10 @@ def get_cloud_model_context(model_name: str) -> int:
     provider_id = parsed[0] if parsed else None
     runtime_model = _runtime_model_name(model_name)
     _sync_custom_model_cache()
+    if provider_id == "company":
+        from row_bot.company.provider import context_window as company_context_window
+
+        return company_context_window(runtime_model)  # Row-Bot for Teams: as the company's catalog says.
     if provider_id == "claude_subscription":
         # What Claude Code reported running the model with comes first; a size saved before it, last (I33).
         try:

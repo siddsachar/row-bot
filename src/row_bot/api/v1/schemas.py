@@ -2878,6 +2878,44 @@ class LocalModelRemoveRequest(WireModel):
     model_id: LocalModelId | None = None
 
 
+# Row-Bot for Teams (C1b): why the last Join or Sign in again didn't join, or why the server can't be used now.
+CompanyFailure = Literal["not_https", "invalid_address", "not_company_server", "unreachable", "busy", "browser",
+                         "cancelled", "denied", "timed_out", "failed", "storage_unavailable"]
+
+
+class CompanyView(WireModel):
+    """Settings › Company (C1b): this Row-Bot's company, read without contacting it."""
+
+    schema_version: Literal[1]
+    state: Literal["not_joined", "waiting", "joined", "disconnected", "unreachable"]
+    # The company as Row-Bot names it (its server's host), also after Leave for the notice.
+    company: str | None = Field(max_length=256)
+    origin: str | None = Field(max_length=512)
+    # Who signed in (the company's /api/me), once known.
+    name: str | None = Field(max_length=200)
+    email: str | None = Field(max_length=320)
+    joined_at: str | None = Field(max_length=64)
+    # This computer's name as the company's server shows it.
+    computer_name: str = Field(max_length=200)
+    # Waiting on a Sign in again as the same device.
+    rejoining: bool
+    failure: CompanyFailure | None
+    notice: Literal["left", "left_offline"] | None
+    # False on another device (a phone): Join and Sign in again open this computer's browser.
+    on_this_computer: bool
+    # Company models (C2): how many the company offers this person, None until its catalog is read; and the
+    # one it suggests to a person who hasn't chosen a model.
+    model_count: int | None = Field(default=None, ge=0, le=512)
+    suggested_model_ref: str | None = Field(default=None, max_length=280)
+    suggested_model_name: str | None = Field(default=None, max_length=256)
+
+
+class CompanyJoinRequest(WireModel):
+    address: str = Field(min_length=1, max_length=512)
+    # This computer's name for the company's server; empty: the computer's own name.
+    device_name: str = Field(default="", max_length=200)
+
+
 SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
 
 

@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Address",
+      "type": "string"
+    },
+    "device_name": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Device Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "address"
+  ],
+  "title": "CompanyJoinRequest",
+  "type": "object"
+}

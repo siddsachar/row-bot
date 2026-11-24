@@ -78,6 +78,15 @@ pages:
     dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot
       prepares after you agree. Channels need the matching channel extra and
       third-party account configuration.
+  company:
+    description: Join your company's Row-Bot server with your company sign-in, see
+      which company and account this Row-Bot uses, sign in again, or leave.
+    docs_route: /docs/settings/apps
+    security: Joining opens your company's sign-in in your browser, which returns to
+      this computer only; the device credential is kept in the system keychain, and
+      leaving deletes it. Nothing is sent to a company server until you join.
+    dependencies: Needs a company running a Row-Bot company server, and the system
+      keychain on this computer.
   system:
     description: Configure the workspace folder, what Row-Bot may do (commands, files,
       browser and Computer Use), and logging.
