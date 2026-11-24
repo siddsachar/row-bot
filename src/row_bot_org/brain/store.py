@@ -506,10 +506,16 @@ def own_email(conn: psycopg.Connection, principal_id: str) -> str | None:
     return None if row is None else row[0]
 
 
+def own_entra_oid(conn: psycopg.Connection, principal_id: str) -> str | None:
+    """The Entra object id Row-Bot has for the transaction's own principal (Entra sign-in only), if any."""
+    row = conn.execute("SELECT entra_oid FROM row_bot_org.principals WHERE id = %s", (principal_id,)).fetchone()
+    return None if row is None else row[0]
+
+
 __all__ = ["COMPANY", "GROUP", "MAX_CLAIMS", "NOT_IN_GRAPH", "STALE_CLAIM", "ChunkHit", "Claim", "FactHit", "FactToEmbed", "SpaceRow",
            "add_document", "add_fact", "chunk_hits", "chunks_to_embed", "claim_document", "create_space",
            "default_embeddings_model", "delete_document", "delete_fact", "delete_space", "fact_hits", "facts_to_embed",
            "finish_document", "get_document", "get_fact", "get_space", "get_spaces", "known_principals",
-           "list_documents", "list_facts", "list_spaces", "own_email", "replace_document", "retire_fact", "store_chunk_embeddings",
+           "list_documents", "list_facts", "list_spaces", "own_email", "own_entra_oid", "replace_document", "retire_fact", "store_chunk_embeddings",
            "store_chunks", "store_fact_embeddings", "text_candidates", "update_fact", "update_space", "vector_candidates",
            "vector_literal"]

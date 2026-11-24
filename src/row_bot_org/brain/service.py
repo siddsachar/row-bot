@@ -132,18 +132,26 @@ def _email(address: str) -> str:
     return "e." + hashlib.sha256(address.strip().lower().encode("utf-8")).hexdigest()[:40]
 
 
-def brain_principal(principal: RequestPrincipal, email: str | None = None) -> Principal:
-    """``principal`` in the shared rules' terms (with ``email``, the email Row-Bot has for them)."""
+def _entra(object_id: str) -> str:
+    return "o." + hashlib.sha256(object_id.strip().lower().encode("utf-8")).hexdigest()[:40]
+
+
+def brain_principal(principal: RequestPrincipal, email: str | None = None,
+                    entra_oid: str | None = None) -> Principal:
+    """``principal`` in the shared rules' terms (with ``email`` and ``entra_oid``, what Row-Bot has for them)."""
     terms = {EVERYONE, _person(principal.principal_id), *map(_group, principal.groups)}
-    return Principal(principal.principal_id, frozenset(terms | ({_email(email)} if email else set())))
+    terms |= {_email(email)} if email else set()
+    terms |= {_entra(entra_oid)} if entra_oid else set()
+    return Principal(principal.principal_id, frozenset(terms))
 
 
 def item_audience(readers: Sequence[str] | None) -> frozenset[str]:
-    """A document's audience from its readers (``e:<email>``, ``g:<group>``): empty (the space's readers) for
+    """A document's audience from its readers (``e:<email>``, ``o:<Entra object id>``, ``g:<group>``): empty (the space's readers) for
     None, ``ADMINS_ONLY`` for an empty list."""
     if readers is None:
         return frozenset()
-    found = {_group(reader[2:]) if reader.startswith("g:") else _email(reader[2:]) for reader in readers}
+    found = {_group(reader[2:]) if reader.startswith("g:") else _entra(reader[2:]) if reader.startswith("o:")
+             else _email(reader[2:]) for reader in readers}
     return frozenset(found) or frozenset({ADMINS_ONLY})
 
 
@@ -547,7 +555,8 @@ class BrainService:
             chunks = store.chunk_hits(conn, [key for (kind, key), _ in fused if kind == "chunk"])
             facts = store.fact_hits(conn, [key for (kind, key), _ in fused if kind == "fact"])
             rows = store.get_spaces(conn, sorted({hit.space_id for hit in (*chunks.values(), *facts.values())}))
-            checker = brain_principal(principal, store.own_email(conn, principal.principal_id))
+            checker = brain_principal(principal, store.own_email(conn, principal.principal_id),
+                                      store.own_entra_oid(conn, principal.principal_id))
         hits = []
         for (kind, key), score in fused:
             found = chunks.get(key) if kind == "chunk" else facts.get(key)
