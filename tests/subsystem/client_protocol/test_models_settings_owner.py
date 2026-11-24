@@ -136,19 +136,18 @@ def test_surface_default_writes_real_owner_and_rejects_unavailable(monkeypatch):
     assert tool.value == "openai/image"
 
 
-def test_context_write_requires_current_policy_and_uses_existing_setters(monkeypatch):
+def test_cloud_reading_limit_is_saved_whatever_the_main_model_is(monkeypatch):
     from row_bot import models
 
     calls = []
-    monkeypatch.setattr(owner, "read_models_settings", lambda **kwargs: {"context": {"policy_kind": "provider"}})
+    monkeypatch.setattr(owner, "read_models_settings", lambda **kwargs: {"context": {"policy_kind": "local"}})
     monkeypatch.setattr(models, "validate_context_size", lambda cap: calls.append(("validate", cap)))
     monkeypatch.setattr(models, "set_cloud_context_size", lambda cap: calls.append(("set", cap)))
     monkeypatch.setattr(models, "clear_cloud_context_override", lambda: calls.append(("auto", None)))
-    owner.update_model_context("provider", 65536, validate=lambda: None)
-    owner.update_model_context("provider", None, validate=lambda: None)
+    monkeypatch.setattr(models, "set_context_size", lambda cap: calls.append(("local", cap)))
+    owner.update_model_context(65536, validate=lambda: None)
+    owner.update_model_context(None, validate=lambda: None)
     assert calls == [("validate", 65536), ("set", 65536), ("auto", None)]
-    with pytest.raises(ValueError, match="context_policy_changed"):
-        owner.update_model_context("local", 65536, validate=lambda: None)
 
 
 def test_models_view_prefers_actual_brain_runtime_and_never_probes_context(monkeypatch):

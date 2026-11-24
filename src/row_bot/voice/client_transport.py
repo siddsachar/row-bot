@@ -466,6 +466,15 @@ class ClientDictationTransport:
             self._invalidate(lease)
             return self._snapshot(lease)
 
+    def holds_microphone(self) -> bool:
+        """Whether dictation or a voice session holds the microphone's lease now."""
+        with self.coordinator._dictation_lock:
+            lease = self.coordinator._dictation_lease
+            if lease is None:
+                return False
+            self._expire(lease)
+            return not lease.revoked
+
     def close(self) -> bool:
         with self.coordinator._dictation_lock:
             self.coordinator._dictation_closed = True

@@ -1,0 +1,499 @@
+{
+  "$defs": {
+    "LocalModelContextChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Bytes"
+        },
+        "slow": {
+          "default": false,
+          "title": "Slow",
+          "type": "boolean"
+        },
+        "tokens": {
+          "maximum": 4194304,
+          "minimum": 1024,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens"
+      ],
+      "title": "LocalModelContextChoice",
+      "type": "object"
+    },
+    "LocalModelContextSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "automatic": {
+          "anyOf": [
+            {
+              "maximum": 4194304,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic"
+        },
+        "automatic_memory_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic Memory Bytes"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/LocalModelContextChoice"
+          },
+          "maxItems": 16,
+          "title": "Choices",
+          "type": "array"
+        },
+        "chosen": {
+          "anyOf": [
+            {
+              "maximum": 4194304,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chosen"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "editable": {
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "loaded": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loaded"
+        },
+        "memory_place": {
+          "anyOf": [
+            {
+              "enum": [
+                "card",
+                "memory"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Place"
+        },
+        "reload_choices": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 16,
+          "title": "Reload Choices",
+          "type": "array"
+        },
+        "room_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Room Bytes"
+        }
+      },
+      "required": [
+        "editable",
+        "choices"
+      ],
+      "title": "LocalModelContextSettings",
+      "type": "object"
+    },
+    "LocalModelReplyLimitSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "automatic": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic"
+        },
+        "choices": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 16,
+          "title": "Choices",
+          "type": "array"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maximum": 262144,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "choices"
+      ],
+      "title": "LocalModelReplyLimitSettings",
+      "type": "object"
+    },
+    "LocalModelSamplingCard": {
+      "additionalProperties": false,
+      "description": "The model card's values for the model's family, for a reply that thinks and one that doesn't.",
+      "properties": {
+        "non_thinking": {
+          "$ref": "#/$defs/LocalModelSamplingValues"
+        },
+        "thinking": {
+          "$ref": "#/$defs/LocalModelSamplingValues"
+        }
+      },
+      "required": [
+        "thinking",
+        "non_thinking"
+      ],
+      "title": "LocalModelSamplingCard",
+      "type": "object"
+    },
+    "LocalModelSamplingSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "card": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalModelSamplingCard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "custom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalModelSamplingValues"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "temperature",
+              "top_p",
+              "top_k",
+              "min_p",
+              "presence_penalty"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "title": "Fields",
+          "type": "array"
+        },
+        "thinks": {
+          "title": "Thinks",
+          "type": "boolean"
+        },
+        "value": {
+          "enum": [
+            "auto",
+            "engine",
+            "custom"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "thinks",
+        "fields"
+      ],
+      "title": "LocalModelSamplingSettings",
+      "type": "object"
+    },
+    "LocalModelSamplingValues": {
+      "additionalProperties": false,
+      "description": "Sampling values for a local model's replies; a value left out is the engine's own.",
+      "properties": {
+        "min_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min P"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": -2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Presence Penalty"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top P"
+        }
+      },
+      "title": "LocalModelSamplingValues",
+      "type": "object"
+    },
+    "LocalModelThinkingSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "automatic": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Automatic"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "value": {
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "available",
+        "value"
+      ],
+      "title": "LocalModelThinkingSettings",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One local model's settings sheet (U1): its window, Thinking, reply limit and sampling.",
+  "properties": {
+    "applied": {
+      "anyOf": [
+        {
+          "enum": [
+            "next_start",
+            "restarted",
+            "when_idle"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Applied"
+    },
+    "context": {
+      "$ref": "#/$defs/LocalModelContextSettings"
+    },
+    "engine": {
+      "enum": [
+        "ollama",
+        "built_in",
+        "server"
+      ],
+      "title": "Engine",
+      "type": "string"
+    },
+    "engine_name": {
+      "maxLength": 256,
+      "title": "Engine Name",
+      "type": "string"
+    },
+    "model_ref": {
+      "maxLength": 647,
+      "minLength": 1,
+      "title": "Model Ref",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "notice": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Notice"
+    },
+    "profile": {
+      "maxLength": 64,
+      "title": "Profile",
+      "type": "string"
+    },
+    "reply_limit": {
+      "$ref": "#/$defs/LocalModelReplyLimitSettings"
+    },
+    "sampling": {
+      "$ref": "#/$defs/LocalModelSamplingSettings"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "thinking": {
+      "$ref": "#/$defs/LocalModelThinkingSettings"
+    }
+  },
+  "required": [
+    "model_ref",
+    "name",
+    "engine",
+    "engine_name",
+    "profile",
+    "context",
+    "thinking",
+    "reply_limit",
+    "sampling"
+  ],
+  "title": "LocalModelSettingsView",
+  "type": "object"
+}

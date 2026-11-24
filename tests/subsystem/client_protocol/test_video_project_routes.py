@@ -192,6 +192,69 @@ def test_the_panel_gives_lines_to_characters_their_voices_and_scenes_their_effec
         assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "loudness": -30}).status_code == 422
 
 
+def test_the_panel_sets_a_videos_look_and_the_brand_kit_its_type_and_titles(service, studio):  # noqa: F811
+    """C5: the panel reads a video's look as it's made (its recipe's, else its own) and changes one choice, which
+    makes it again; the kit keeps its font and title style."""
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Trip", seed_default_skills=False)
+    register_attachment(chat, "beach.mp4", _MP4)
+    project = video_projects.create(chat, "Trip", [{"source": "beach.mp4", "end": 3}], look={"recipe": "film"})
+    video_projects.make(project, 1)
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        view = _made(client, headers, project.project_id)
+        assert (view["recipe"], view["grade"], view["grain"], view["letterbox"], view["transitions"]) == (
+            "film", "cinematic", True, True, "cut")
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in view["scenes"]]
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes, "grade": "bw",
+                                                          "letterbox": False})
+        assert changed.status_code == 200, changed.text
+        again = _made(client, headers, project.project_id)
+        assert (again["number"], again["grade"], again["grain"], again["letterbox"]) == (2, "bw", True, False)
+        assert client.put(path, headers=headers, json={"base": 2, "scenes": scenes, "grade": "sepia"}
+                          ).status_code == 422
+
+        kit = client.get("/api/v1/video-brand", headers=headers).json()
+        assert (kit["font"], kit["titles"]) == ("sans", "studio")
+        saved = client.put("/api/v1/video-brand", headers=headers, json={**kit, "font": "serif", "titles": "minimal"})
+        assert (saved.json()["font"], saved.json()["titles"]) == ("serif", "minimal")
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "font": "comic"}).status_code == 422
+
+
+def test_the_panel_picks_a_videos_caption_style_and_reads_its_chapters(service, studio):  # noqa: F811
+    """C7: a captioned video's style (its own, else its kind's, else the kit's) is read and changed by the panel,
+    and the kit offers the new styles; a made video's chapters come with it."""
+    from row_bot import threads, video_projects
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Tips", seed_default_skills=False)
+    register_attachment(chat, "tips.mp4", _MP4)
+    project = video_projects.create(chat, "Ten tips", [
+        {"source": "tips.mp4", "end": 3, "line": "Start here."}, {"source": "tips.mp4", "card": "Pricing"},
+        {"source": "tips.mp4", "card": "Wrap up"}], captions=True, look={"recipe": "youtube"})
+    video_projects.make(project, 1)
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        view = _made(client, headers, project.project_id)
+        assert view["caption_style"] == "box"
+        assert view["chapters"] == [], "scenes of 3 s: no chapters YouTube would take"
+        scenes = [{key: scene[key] for key in ("scene_id", "source", "start", "end", "speed", "zoom", "card", "line")}
+                  for scene in view["scenes"]]
+        changed = client.put(path, headers=headers, json={"base": 1, "scenes": scenes, "caption_style": "clean"})
+        assert changed.status_code == 200, changed.text
+        assert _made(client, headers, project.project_id)["caption_style"] == "clean"
+        kit = client.get("/api/v1/video-brand", headers=headers).json()
+        assert client.put("/api/v1/video-brand", headers=headers, json={**kit, "captions": "word"}).json()[
+            "captions"] == "word"
+
+
 def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_nothing(service, studio):  # noqa: F811
     """C1: the panel's cards. Approving marks scenes on their version; each card's frame is its own route; a change
     to a storyboard stays a storyboard (making it is the person's call), and footage still to make can't be made."""
@@ -247,3 +310,36 @@ def test_a_storyboard_is_approved_by_scene_its_frames_load_and_a_change_makes_no
         refused = client.post(f"{path}/make", headers=headers)
         assert (refused.status_code, refused.json()["code"]) == (422, "video_project_invalid"), \
             "the AI shot is still to make: Row-Bot makes it"
+
+
+def test_the_panel_exports_a_portrait_post_and_reads_a_videos_publish_kit(service, studio):  # noqa: F811
+    """C10: a made video exports at 4:5 for Instagram, and once a platform was named its publish kit comes with it:
+    the post's words, its thumbnails and its subtitles, by reference."""
+    from row_bot import threads, video_projects, video_publish
+    from row_bot.application.attachments import register_attachment
+
+    chat = threads.create_thread("Desk", seed_default_skills=False)
+    register_attachment(chat, "desk.mp4", _MP4)
+    project = video_projects.create(chat, "Desk", [{"source": "desk.mp4", "end": 3, "line": "One sheet."}])
+    video_projects.make(project, 1)
+    path = f"/api/v1/video-projects/{project.project_id}"
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        view = _made(client, headers, project.project_id)
+        assert view["publish"] is None, "no kit until a platform is named"
+        exported = client.post(f"{path}/export", headers=headers, json={"shape": "4:5"})
+        assert exported.status_code == 200, exported.text
+        deadline = time.monotonic() + 30
+        while "4:5" not in video_projects.get(project.project_id).latest.exports and time.monotonic() < deadline:
+            threading.Event().wait(0.02)
+        edit = video_edits.get(view["edit"]["edit_id"])
+        video_edits._set(edit, words=[(0.2, 0.9, "One"), (0.9, 1.6, "sheet.")], shape="16:9")
+        video_publish.make(video_projects.get(project.project_id), ["youtube"], description="No saw.")
+        read = client.get(path, headers=headers).json()
+        assert [item["shape"] for item in read["exports"]] == ["4:5"]
+        kit = read["publish"]
+        assert kit["platforms"] == ["youtube"] and (kit["title"], kit["description"]) == ("Desk", "No saw.")
+        assert [(item["shape"], item["name"]) for item in kit["thumbnails"]] == [("16:9", "Desk thumbnail 16x9.jpg")]
+        assert [(item["format"], item["name"]) for item in kit["subtitles"]] == [("srt", "Desk.srt"),
+                                                                                 ("vtt", "Desk.vtt")]

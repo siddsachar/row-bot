@@ -395,6 +395,10 @@ def endpoint_configuration_revision(endpoint: dict) -> str:
     value.pop("model_probes", None)
     if value.get("managed"):
         value.pop("base_url", None)  # the server's address now, which its owner gives at each request
+    if value.get("managed") == "local":
+        # Run on this computer sizes each model's window to this computer (its models list carries them), so a
+        # new window, or the endpoint-wide one it used to save, keeps the same models' probe evidence.
+        value.pop("manual_capabilities", None)
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -686,6 +690,69 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str, *, validate: Ca
     except Exception:
         logger.debug("Failed to reset current model after refreshing %s", endpoint["provider_id"], exc_info=True)
     return CustomEndpointModelRefreshResult(infos, default_reset=default_reset)
+
+
+class LmStudioReloadError(ValueError):
+    """LM Studio didn't load the model at the window asked for; ``words`` says why, plainly."""
+
+    def __init__(self, words: str) -> None:
+        self.words = words
+        super().__init__(words)
+
+
+def reload_lmstudio_model(endpoint_or_provider_id: str, model_id: str, context: int, *,
+                          validate: Callable[[], None] = lambda: None) -> int:
+    """Load a model in LM Studio on this computer again with a window of ``context`` tokens (the person
+    pressed "Reload in LM Studio"; U1), through its REST API (LM Studio 0.4+, ``/api/v1``): each loaded
+    instance of it is unloaded (``POST /api/v1/models/unload``), then it is loaded with ``context_length``
+    (``POST /api/v1/models/load``), and the endpoint's models are read again so Row-Bot uses the new window.
+    Returns the window LM Studio loaded. Raises ``ValueError`` for an endpoint that isn't LM Studio on this
+    computer and :class:`LmStudioReloadError` when LM Studio refuses."""
+
+    endpoint = get_custom_endpoint(endpoint_or_provider_id)
+    if (not endpoint or str(endpoint.get("profile") or "") != "lmstudio" or endpoint.get("managed")
+            or str(endpoint.get("execution_location") or "") != "local"):
+        raise ValueError("not_lmstudio")
+    headers = _custom_endpoint_headers(endpoint)
+    guard = _endpoint_probe_authority(endpoint, headers, validate)
+    root = _native_root_url(str(endpoint.get("base_url") or ""))
+
+    def call(method: str, path: str, body: dict | None = None) -> Any:
+        guard()
+        response = _probe_request(method, f"{root}{path}", headers=headers, timeout=_endpoint_timeout(guard, 120),
+                                  validate=guard, json_body=body)
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("error")
+                detail = detail.get("message") if isinstance(detail, dict) else detail
+            except Exception:  # noqa: BLE001 - its words are optional
+                detail = ""
+            raise LmStudioReloadError(str(detail or f"LM Studio answered {response.status_code}.")[:240])
+        return response.json() if response.content else {}
+
+    try:
+        listed = call("GET", "/api/v1/models")
+    except LmStudioReloadError:
+        raise LmStudioReloadError("This LM Studio can't load models for Row-Bot. Update it to 0.4 or later.") from None
+    item = next((entry for entry in (listed.get("models") or ()) if isinstance(entry, dict)
+                 and model_id in {str(entry.get("key") or ""), str(entry.get("id") or "")}), None)
+    if item is None:
+        raise LmStudioReloadError("LM Studio doesn't list this model any more.")
+    most = _positive_int(item.get("max_context_length"))
+    if most and int(context) > most:
+        raise LmStudioReloadError(f"This model reads at most {most:,} tokens. Choose a smaller size.")
+    for instance in item.get("loaded_instances") or ():
+        if isinstance(instance, dict) and instance.get("id"):
+            call("POST", "/api/v1/models/unload", {"instance_id": str(instance["id"])})
+    loaded = call("POST", "/api/v1/models/load", {"model": str(item.get("key") or model_id),
+                                                  "context_length": int(context), "echo_load_config": True})
+    config = loaded.get("load_config") if isinstance(loaded, dict) else None
+    window = _positive_int(config.get("context_length")) if isinstance(config, dict) else 0
+    try:
+        refresh_custom_endpoint_models(str(endpoint["id"]), validate=validate)
+    except Exception:  # noqa: BLE001 - loaded; the window is read again at the next refresh
+        logger.debug("LM Studio's models weren't read again after a reload", exc_info=True)
+    return window or int(context)
 
 
 def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = None, *,
@@ -1334,6 +1401,23 @@ def store_managed_endpoint_models(endpoint_id: str, models: list[tuple[str, str,
     _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(endpoint, payload))
 
 
+def declare_endpoint_model(endpoint_id: str, model_id: str) -> None:
+    """A model its owner states can chat and call tools, kept with no probe (``row-bot run``: the endpoint and
+    the model are named on its command line). The first call shows whether it can; streamed tool calls are not
+    assumed, so tool requests take the non-streamed path."""
+
+    endpoint = get_custom_endpoint(endpoint_id)
+    if endpoint is None:
+        raise ValueError("not_found")
+    _store_custom_endpoint_models(endpoint_id, model_infos_from_openai_compatible_catalog(
+        endpoint, {"data": [{"id": model_id}]}))
+    declared = {"model_id": model_id, "chat_ok": True, "streaming_ok": True, "tool_calling": True,
+                "tool_round_trip": True, "streaming_tool_calling": False, "declared": True,
+                "profile": endpoint.get("profile"), "transport": endpoint.get("transport"), "errors": []}
+    _classify_probe_result(declared)
+    _store_custom_endpoint_probe(endpoint_id, declared)
+
+
 def remove_managed_endpoint(endpoint_id: str) -> bool:
     """Remove a managed endpoint its owner no longer runs (its models were removed). True when it was saved."""
 
@@ -1444,7 +1528,7 @@ def model_infos_from_openai_compatible_catalog(
         # saves each endpoint at the context its model was trained for).
         context_window = (
             _positive_int(manual.get("context_window")) if isinstance(manual, dict) else 0
-        ) or _metadata_context_window(metadata)
+        ) or _managed_model_context(normalized, model_id) or _metadata_context_window(metadata)
         if context_window:
             metadata["context_window"] = context_window
         results.append(model_info_from_metadata(
@@ -1468,6 +1552,17 @@ def _managed_model_name(endpoint: dict[str, Any], model_id: str) -> str | None:
     from row_bot import local_runtime
 
     return local_runtime.model_label(model_id)
+
+
+def _managed_model_context(endpoint: dict[str, Any], model_id: str) -> int:
+    """The window Run on this computer serves its model at (its presets say so); llama.cpp's router reports
+    nothing for a model it hasn't loaded."""
+
+    if endpoint.get("managed") != "local":
+        return 0
+    from row_bot import local_runtime
+
+    return local_runtime.model_context(model_id) or 0
 
 
 def _catalog_model_items(payload: dict[str, Any]) -> list[Any]:

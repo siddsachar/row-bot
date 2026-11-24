@@ -14,8 +14,10 @@
     "captions": {
       "enum": [
         "box",
+        "clean",
         "bold",
-        "title"
+        "title",
+        "word"
       ],
       "title": "Captions",
       "type": "string"
@@ -23,6 +25,17 @@
     "colour": {
       "pattern": "^#[0-9a-fA-F]{6}$",
       "title": "Colour",
+      "type": "string"
+    },
+    "font": {
+      "default": "sans",
+      "enum": [
+        "sans",
+        "modern",
+        "serif",
+        "display"
+      ],
+      "title": "Font",
       "type": "string"
     },
     "framing": {
@@ -74,6 +87,16 @@
     "outro": {
       "maxLength": 120,
       "title": "Outro",
+      "type": "string"
+    },
+    "titles": {
+      "default": "studio",
+      "enum": [
+        "studio",
+        "minimal",
+        "bold"
+      ],
+      "title": "Titles",
       "type": "string"
     },
     "voice": {

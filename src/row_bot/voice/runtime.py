@@ -45,6 +45,8 @@ class VoiceRuntimeSettings:
     cloud_voices: dict[str, str] = field(default_factory=dict)
     voice_descriptions: dict[str, str] = field(default_factory=dict)
     designed_voices: dict[str, str] = field(default_factory=dict)
+    # "Hey Row-Bot" (desktop only): off until the person turns it on.
+    wake_word: bool = False
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -145,6 +147,7 @@ def load_voice_runtime_settings() -> VoiceRuntimeSettings:
                     push_to_talk=_coerce_bool(data.get("push_to_talk"), False),
                     speech_language=languages.setting(data.get("speech_language")),
                     **cloud_voice_settings(data),
+                    wake_word=_coerce_bool(data.get("wake_word"), False),
                 )
     except Exception:
         pass

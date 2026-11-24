@@ -1306,12 +1306,13 @@ def _query_config() -> str:
         # Context size caps
         from row_bot.models import get_cloud_context_override, get_local_context_mode, get_user_context_size
         lines.append(
-            f"- Local context: {get_local_context_mode()} ({get_user_context_size():,} requested tokens)"
+            f"- Ollama models without their own window: {get_local_context_mode()} "
+            f"({get_user_context_size():,} requested tokens; each local model's sheet in Settings › Models sets its own)"
         )
         cloud_override = get_cloud_context_override()
         lines.append(
-            f"- Provider context override: {cloud_override:,} tokens"
-            if cloud_override else "- Provider context override: Auto"
+            f"- Cloud reading limit: {cloud_override:,} tokens"
+            if cloud_override else "- Cloud reading limit: Auto"
         )
     except Exception:
         pass

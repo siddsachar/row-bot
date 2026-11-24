@@ -104,6 +104,7 @@ import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
+import { WakeWordHost } from '../voice/WakeWord';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import { canAutoOpenDesign } from './design-auto-open';
@@ -1970,6 +1971,11 @@ export default function Workspace() {
           </a>
         )}
         <div className="context-parking" ref={contextParking} hidden />
+        <WakeWordHost
+          startInNewChat={() =>
+            creation.newChat('', undefined, { voice: 'talk' })
+          }
+        />
         {!desktop && !conversationVisible && !compact && !settingsOpen && (
           // Home and routed views: one 48px bar. A conversation and Settings
           // carry these controls in their own header (B119); a panel sheet

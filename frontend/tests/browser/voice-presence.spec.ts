@@ -371,6 +371,20 @@ async function desktopHotkeyBridge(page: Page) {
 const pushToTalk = (page: Page) =>
   page.getByRole('switch', { name: 'Push to talk' });
 
+/**
+ * Push to talk is this profile's saved setting, which the specs after this one
+ * share: wait for its saved notice, or the page may close before it is saved.
+ */
+async function setPushToTalk(page: Page, on: boolean) {
+  const toggle = pushToTalk(page);
+  if ((await toggle.isChecked()) === on) return;
+  await toggle.click();
+  await expect(toggle).toBeChecked({ checked: on });
+  await expect(
+    page.getByText(`Push to talk turned ${on ? 'on' : 'off'}`).first(),
+  ).toBeVisible();
+}
+
 for (const viewport of VIEWPORTS)
   for (const scheme of ['light', 'dark'] as const)
     test(`the Windows app's hold-to-talk key: chosen in Settings, armed only during push-to-talk voice · ${viewport.label} · ${scheme}`, async ({
@@ -384,12 +398,9 @@ for (const viewport of VIEWPORTS)
       });
       // Shown only with push to talk on.
       await expect(pushToTalk(page)).toBeVisible();
-      const wasOn = await pushToTalk(page).isChecked();
-      if (wasOn) await pushToTalk(page).click();
-      await expect(pushToTalk(page)).not.toBeChecked();
+      await setPushToTalk(page, false);
       await expect(setting).toHaveCount(0);
-      await pushToTalk(page).click();
-      await expect(pushToTalk(page)).toBeChecked();
+      await setPushToTalk(page, true);
       await expect(setting).toHaveValue('');
       await setting.selectOption('ctrl+alt+space');
       await shotGroup(
@@ -457,12 +468,9 @@ for (const viewport of VIEWPORTS)
       await bar.getByRole('button', { name: 'End voice' }).click();
       await expect(bar).toBeHidden();
       await expect.poll(calls).toEqual(['ctrl+alt+space', null]);
-      // Back to how it was for the other specs.
+      // Back off for the specs after this one.
       await page.goto('/app-v2/settings/voice');
-      if (!wasOn) {
-        await pushToTalk(page).click();
-        await expect(pushToTalk(page)).not.toBeChecked();
-      }
+      await setPushToTalk(page, false);
     });
 
 for (const scheme of ['light', 'dark'] as const)

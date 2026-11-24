@@ -2071,6 +2071,9 @@ export class HttpTransport implements ClientTransport {
   talkTicket(handle: wire.DictationHandle, signal?: AbortSignal) {
     return wire.talkTicket(this.base, this.session(), handle, signal);
   }
+  wakeTicket(signal?: AbortSignal) {
+    return wire.wakeTicket(this.base, this.session(), signal);
+  }
   openVoiceSocket() {
     // Same origin as every other request; the session cookie authenticates it.
     const url = new URL(
@@ -3361,6 +3364,31 @@ export class HttpTransport implements ClientTransport {
   }
   updateModelContext(body: wire.ModelContextMutation, signal?: AbortSignal) {
     return wire.updateModelContext(this.base, this.session(), body, signal);
+  }
+  localModelSettings(modelRef: string, signal?: AbortSignal) {
+    return wire.getLocalModelSettings(
+      this.base,
+      this.session(),
+      modelRef,
+      signal,
+    );
+  }
+  saveLocalModelSettings(
+    body: wire.LocalModelSettingsMutation,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveLocalModelSettings(this.base, this.session(), body, signal);
+  }
+  reloadLocalModelInLmStudio(
+    body: wire.LocalModelReloadRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.reloadLocalModelInLmStudio(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
   }
   updateModelVisibility(
     body: wire.ModelVisibilityMutation,

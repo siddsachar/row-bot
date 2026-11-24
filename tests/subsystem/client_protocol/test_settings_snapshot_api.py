@@ -766,6 +766,20 @@ def test_review_save_receipt_and_retry_preserve_unrelated_values(api):
     assert observed.status_code == 200 and observed.json() == receipt
 
 
+def test_the_wake_word_is_off_until_turned_on_and_the_host_reads_the_saved_choice(api):
+    from row_bot.voice.wake import wake_word_enabled
+
+    client, headers, _, _ = api
+    before = client.get(BASE, headers=headers).json()
+    assert before["voice"]["runtime"]["wake_word"] is False and wake_word_enabled() is False
+    request = {"settings_revision": before["revision"], "page": "voice",
+               "field": "runtime.wake_word", "value": True}
+    response = _execute(client, headers, request, _review(client, headers, request))
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["voice"]["runtime"]["wake_word"] is True
+    assert wake_word_enabled() is True
+
+
 def test_secret_review_and_receipt_never_echo_plaintext(api):
     client, headers, _, secret_state = api
     before = client.get(BASE, headers=headers).json()
