@@ -14,6 +14,8 @@ export type AnswerState = {
   ticks: Record<string, Record<string, boolean>>;
   /** Block id → the label of the reply its buttons sent. */
   choices: Record<string, string>;
+  /** Block id → a surface's data model as the person left it (generative UI). */
+  surfaces: Record<string, Record<string, unknown>>;
 };
 type Change = Omit<AnswerStateChange, 'expected_revision'>;
 
@@ -22,6 +24,7 @@ function kept(view: AnswerStateView): Entry['view'] {
     revision: view.revision,
     ticks: view.ticks as AnswerState['ticks'],
     choices: view.choices as AnswerState['choices'],
+    surfaces: (view.surfaces ?? {}) as AnswerState['surfaces'],
   };
 }
 type Entry = {
@@ -38,7 +41,7 @@ type Entry = {
 const RETRIES = 8;
 const retryDelay = (attempt: number) => Math.min(500 * 2 ** attempt, 5000);
 
-const EMPTY: AnswerState = { ticks: {}, choices: {} };
+const EMPTY: AnswerState = { ticks: {}, choices: {}, surfaces: {} };
 const entries = new Map<string, Entry>();
 
 function entry(conversationId: string): Entry {
@@ -57,6 +60,14 @@ function publish(conversationId: string, view: Entry['view']) {
 }
 
 function applied(view: Entry['view'], change: Change): Entry['view'] {
+  if (change.surface_data)
+    return {
+      ...view,
+      surfaces: {
+        ...view.surfaces,
+        [change.block_id]: change.surface_data as Record<string, unknown>,
+      },
+    };
   if (change.choice)
     return {
       ...view,

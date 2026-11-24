@@ -24,7 +24,8 @@ MAX_COMPONENT_CHARS = 128 * 1024
 MAX_COMPONENT_TEXT_CHARS = 256 * 1024
 # An inline visual's HTML/SVG; it only ever runs in the client's sandboxed frame, with no network.
 MAX_VISUAL_CHARS = 200 * 1024
-TAGS = ("table", "chart", "checklist", "figures", "progress", "choices", "visual")
+# "ui" is a surface: A2UI 1.0 drawn with Row-Bot's components (application/surfaces.py).
+TAGS = ("table", "chart", "checklist", "figures", "progress", "choices", "visual", "ui")
 _VISUAL_TITLE_RE = re.compile(r"<title[^>]*>([\s\S]{0,2000}?)</title>", re.IGNORECASE)
 FENCE_RE = re.compile(
     r"```rowbot-(" + "|".join(TAGS) + r")[ \t]*\n([\s\S]*?)\n```"
@@ -466,6 +467,10 @@ def parse_component(tag: str, source: str) -> tuple[str, dict[str, Any]] | None:
 
     if tag == "visual":
         return _visual(source)
+    if tag == "ui":
+        from row_bot.application.surfaces import parse
+
+        return parse(source)
     if tag not in _SCHEMAS or len(source) > MAX_COMPONENT_CHARS:
         return None
     try:
@@ -492,6 +497,11 @@ def infer_component(source: str) -> tuple[str, dict[str, Any]] | None:
         raw = _load(text)
     except (ValueError, RecursionError):
         return None
+    from row_bot.application.surfaces import looks_like, parse
+
+    if looks_like(raw):
+        # A2UI written without its rowbot-ui tag: an envelope, or a createSurface body with components.
+        return parse(text)
     if not isinstance(raw, dict):
         return None
     fits = [component for tag in _SCHEMAS if (component := _build(tag, raw)) is not None]

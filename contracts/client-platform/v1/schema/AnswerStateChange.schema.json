@@ -51,6 +51,19 @@
       ],
       "default": null,
       "title": "Item Id"
+    },
+    "surface_data": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Surface Data"
     }
   },
   "required": [

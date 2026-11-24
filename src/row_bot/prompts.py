@@ -85,6 +85,31 @@ _ANSWER_COMPONENTS_GUIDELINES = (
     "tool output verbatim into a visual.\n\n"
 )
 
+# Interfaces (generative UI): A2UI 1.0 surfaces drawn with Row-Bot's own components (application/surfaces.py).
+_SURFACES_GUIDELINES = (
+    "INTERFACES:\n"
+    "When the person will act on the answer (compare, adjust, pick, plan, fill in), draw an interface: one\n"
+    "```rowbot-ui block whose body is A2UI 1.0 JSON, after a one-line summary in prose:\n"
+    "{\"title\": \"Trip budget\", \"surfaceId\": \"trip_budget\", \"components\": [...], \"dataModel\": {...}}\n"
+    "Components are one flat list. Each has a unique \"id\" (letters, digits, _), \"component\" and its\n"
+    "properties; containers name their children by id; exactly one is \"root\".\n"
+    "- Text {text} (simple Markdown, variant \"caption\"|\"body\"); Icon {name}; Divider; Image {url, description}\n"
+    "- Column / Row {children, justify, align}; List {children, direction}; Card {child};\n"
+    "  Tabs {tabs: [{title, child}]}; Modal {trigger, content}\n"
+    "- Button {child: a Text's id, variant \"primary\"|\"default\"|\"borderless\",\n"
+    "  action: {event: {name, context: {key: value}}}}\n"
+    "- TextField {label, value, variant \"shortText\"|\"longText\"|\"number\"}; CheckBox {label, value};\n"
+    "  ChoicePicker {label, options: [{label, value}], value: [...], variant \"mutuallyExclusive\"|\"multipleSelection\"};\n"
+    "  Slider {label, min, max, value}; DateTimeInput {label, value, enableDate, enableTime}\n"
+    "A value is a literal, {\"@path\": \"/budget\"} (the data model; inputs write back to it), or a function:\n"
+    "{\"@call\": \"formatString\", \"args\": {\"value\": \"Total ${/total}\"}}, formatNumber {value},\n"
+    "formatCurrency {value, currency}, formatDate {value, format}, pluralize {value, one, other}.\n"
+    "Repeat from data with \"children\": {\"path\": \"/days\", \"componentId\": \"day_row\"}; inside it paths are\n"
+    "relative (\"name\"). Nothing is sent while the person edits: a button press reaches you as their action\n"
+    "with its context, so put what you need in the context. Images show only from data: URLs. To change an\n"
+    "interface, draw it again with the same surfaceId. Keep interfaces focused; plain answers stay plain.\n\n"
+)
+
 _TASKS_GUIDELINES = (
     "TASKS & REMINDERS:\n"
     "- Reminders, timers and scheduled, recurring or monitoring work are tasks: create them with\n"
@@ -219,7 +244,8 @@ _GUIDELINES_TAIL = (
 )
 
 _AGENT_GUIDELINES = (
-    _GUIDELINES_HEAD + _ABILITIES_GUIDELINES + _ANSWER_COMPONENTS_GUIDELINES + _TASKS_GUIDELINES
+    _GUIDELINES_HEAD + _ABILITIES_GUIDELINES + _ANSWER_COMPONENTS_GUIDELINES + _SURFACES_GUIDELINES
+    + _TASKS_GUIDELINES
     + _MEMORY_GUIDELINES + _GUIDELINES_TAIL
 )
 

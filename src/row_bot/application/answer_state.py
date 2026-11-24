@@ -1,4 +1,5 @@
-"""The person's own state on a reply's components (F3): checklist ticks and which choice they sent.
+"""The person's own state on a reply's components (F3): checklist ticks, which choice they sent, and what
+they entered on a surface (generative UI: its edited data model).
 
 It is kept beside the chat (``thread_ui/<id>.answers.json``), never in the transcript, so a tick never
 reaches the model by itself; a choice reaches it only as the message the person's tap sent. Each change
@@ -37,6 +38,7 @@ def _load(conversation_id: str) -> dict[str, Any]:
         value = {}
     ticks = value.get("ticks") if isinstance(value, dict) else None
     choices = value.get("choices") if isinstance(value, dict) else None
+    surfaces = value.get("surfaces") if isinstance(value, dict) else None
     return {
         "ticks": {
             block: {item: done for item, done in items.items() if isinstance(done, bool)}
@@ -44,6 +46,7 @@ def _load(conversation_id: str) -> dict[str, Any]:
             if isinstance(items, dict)
         },
         "choices": {block: label for block, label in (choices or {}).items() if isinstance(label, str)},
+        "surfaces": {block: data for block, data in (surfaces or {}).items() if isinstance(data, dict)},
     }
 
 
@@ -75,7 +78,12 @@ def save_answer_state(service: Any, conversation_id: str, change: dict[str, Any]
         state = _load(conversation_id)
         if _revision(state) != change.get("expected_revision"):
             raise ClientPlatformError("answer_state_revision_conflict")
-        if change.get("choice") is not None:
+        if change.get("surface_data") is not None:
+            # A surface's data model as the person left it: replaced whole, never merged.
+            if not isinstance(change["surface_data"], dict):
+                raise ClientPlatformError("invalid_command")
+            state["surfaces"][block] = change["surface_data"]
+        elif change.get("choice") is not None:
             choice = str(change["choice"])
             if not choice or len(choice) > MAX_CHOICE:
                 raise ClientPlatformError("invalid_command")

@@ -808,6 +808,58 @@
       "title": "Snapshot",
       "type": "object"
     },
+    "SurfaceBlock": {
+      "additionalProperties": false,
+      "description": "A rowbot-ui surface (generative UI): an A2UI 1.0 tree of Row-Bot's own components, checked by the\nserver (``application/surfaces.py``) and drawn by the client. Data, not code: it loads nothing.",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "surface_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+          "title": "Surface Id",
+          "type": "string"
+        },
+        "surface_json": {
+          "maxLength": 262144,
+          "minLength": 2,
+          "title": "Surface Json",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16520,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "surface",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "surface_id",
+        "title",
+        "surface_json",
+        "text"
+      ],
+      "title": "SurfaceBlock",
+      "type": "object"
+    },
     "TableBlock": {
       "additionalProperties": false,
       "description": "A rowbot-table component: plain-text cells in column order, sorted in the client.",
@@ -1360,6 +1412,7 @@
                 "markdown": "#/$defs/MarkdownBlock",
                 "mermaid": "#/$defs/MermaidBlock",
                 "progress": "#/$defs/ProgressBlock",
+                "surface": "#/$defs/SurfaceBlock",
                 "table": "#/$defs/TableBlock",
                 "text": "#/$defs/TextBlock",
                 "visual": "#/$defs/VisualBlock",
@@ -1397,6 +1450,9 @@
               },
               {
                 "$ref": "#/$defs/VisualBlock"
+              },
+              {
+                "$ref": "#/$defs/SurfaceBlock"
               },
               {
                 "$ref": "#/$defs/YouTubeBlock"
@@ -1491,6 +1547,7 @@
                 "agent_task",
                 "agent_guidance",
                 "page",
+                "surface",
                 "personal_model_fallback",
                 "linked",
                 "backup_model",

@@ -25,6 +25,16 @@
       "title": "Revision",
       "type": "string"
     },
+    "surfaces": {
+      "patternProperties": {
+        "^block:[0-9a-f]{24}$": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "title": "Surfaces",
+      "type": "object"
+    },
     "ticks": {
       "patternProperties": {
         "^block:[0-9a-f]{24}$": {

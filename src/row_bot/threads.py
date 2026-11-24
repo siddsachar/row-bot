@@ -2705,7 +2705,7 @@ class ForkedConversation:
 
 
 # A person's own message may carry only this note; any other was sent by Row-Bot or another conversation.
-_PERSON_NOTES = frozenset({"page"})
+_PERSON_NOTES = frozenset({"page", "surface"})
 _ATTACHMENT_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _SAVED_OUTPUT = re.compile(r"out_[0-9a-f]{16}")
 

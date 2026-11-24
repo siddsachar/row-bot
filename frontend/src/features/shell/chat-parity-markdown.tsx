@@ -237,6 +237,7 @@ const PENDING: Record<string, string> = {
   'rowbot-progress': 'Preparing progress…',
   'rowbot-choices': 'Preparing choices…',
   'rowbot-visual': 'Drawing a visual…',
+  'rowbot-ui': 'Drawing an interface…',
 };
 
 type TaskOwner = { conversationId?: string; blockId: string };
@@ -409,6 +410,18 @@ export default function SafeMarkdown({
       )
         content.push(lines[index++]);
       if (index < lines.length) index++;
+      if (streaming && language === 'rowbot-ui') {
+        // An interface still being written: the card it will fill, drawn quietly.
+        blocks.push(
+          <div className="genui-pending" role="status" key={`code-${start}`}>
+            <span>{PENDING[language]}</span>
+            <i aria-hidden />
+            <i aria-hidden />
+            <i aria-hidden />
+          </div>,
+        );
+        continue;
+      }
       if (streaming && language.startsWith('rowbot-')) {
         // A component still being written: its block shows once the reply is saved.
         blocks.push(

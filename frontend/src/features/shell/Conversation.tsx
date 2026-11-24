@@ -153,7 +153,7 @@ import { BrowserStep } from '../browser/BrowserThumbnail';
 import {
   registerPromptSender,
   setPromptReady,
-  type TappedChoice,
+  type Tapped,
 } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
 import { INCOGNITO_PLACEHOLDER } from './incognito';
@@ -1583,7 +1583,7 @@ export default function Conversation({
     capturedDraft?: ReturnType<typeof controller.getDraft>,
     selectedVersion = controller.getSelectionVersion(),
     retry = false,
-    tapped?: TappedChoice,
+    tapped?: Tapped,
   ) {
     if (
       !id ||
@@ -1717,7 +1717,12 @@ export default function Conversation({
               // Retry runs the last message again in place, never a second copy of it.
               ...(retry ? { retry: true } : {}),
               // A reply button's words: marked as the person's tap on that reply (never a note from Row-Bot).
-              ...(tapped ? { tapped_choice: tapped } : {}),
+              // A surface's button: Row-Bot writes the message from that surface (never approval).
+              ...(tapped
+                ? 'surface' in tapped
+                  ? { surface_action: tapped.surface }
+                  : { tapped_choice: tapped }
+                : {}),
             },
             sendRevision,
             claim.commandId,
@@ -1777,7 +1782,7 @@ export default function Conversation({
     attachments: typeof draft.attachments = [],
     retry = false,
     questionChecked = false,
-    tapped?: TappedChoice,
+    tapped?: Tapped,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
     // A message typed while Row-Bot's turn waits on one question answers it,
@@ -2043,13 +2048,11 @@ export default function Conversation({
     !pendingSteering &&
     !pendingResume,
   );
-  const sendPanelPrompt = useEffectEvent(
-    (text: string, tapped?: TappedChoice) => {
-      if (!promptReady) return false;
-      send(text, true, [], false, false, tapped);
-      return true;
-    },
-  );
+  const sendPanelPrompt = useEffectEvent((text: string, tapped?: Tapped) => {
+    if (!promptReady) return false;
+    send(text, true, [], false, false, tapped);
+    return true;
+  });
   useEffect(() => {
     if (!id) return;
     return registerPromptSender(id, (text, tapped) =>

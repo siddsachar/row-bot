@@ -8932,6 +8932,17 @@
           "title": "Submission Id",
           "type": "string"
         },
+        "surface_action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SurfaceAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "tapped_choice": {
           "anyOf": [
             {
@@ -9165,6 +9176,53 @@
         "nonce"
       ],
       "title": "SubscriptionProbePayload",
+      "type": "object"
+    },
+    "SurfaceAction": {
+      "additionalProperties": false,
+      "description": "The person pressed a button on a surface a reply drew: the reply, the surface, the button's action\nname and its context, resolved from the surface's data. Row-Bot writes the message from the surface\nitself; the action and its context keys must be ones the surface declares.",
+      "properties": {
+        "context": {
+          "additionalProperties": true,
+          "maxProperties": 32,
+          "title": "Context",
+          "type": "object"
+        },
+        "message_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_.-]+$",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "source_component_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Source Component Id",
+          "type": "string"
+        },
+        "surface_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+          "title": "Surface Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "surface_id",
+        "name",
+        "source_component_id"
+      ],
+      "title": "SurfaceAction",
       "type": "object"
     },
     "TappedChoice": {

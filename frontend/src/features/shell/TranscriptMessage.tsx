@@ -24,6 +24,7 @@ import {
   Volume2,
   VolumeX,
   LayoutTemplate,
+  MousePointerClick,
   MoreHorizontal,
   X,
 } from 'lucide-react';
@@ -841,6 +842,13 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           <small className="message-source">
             <LayoutTemplate size={14} aria-hidden />
             Sent from a page
+          </small>
+        )}
+        {row.note === 'surface' && (
+          // A press on a button of an interface Row-Bot drew: the button's words and what it sent.
+          <small className="message-source">
+            <MousePointerClick size={14} aria-hidden />
+            Pressed in an interface
           </small>
         )}
         {row.content_status && row.content_status !== 'inline' && (

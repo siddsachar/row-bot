@@ -1,0 +1,407 @@
+/*
+ * Surfaces (generative UI): interfaces a reply draws with A2UI, laid out
+ * from Row-Bot's own controls. One card in the reply, quiet chrome, the
+ * app's tokens throughout, so a drawn interface reads as part of Row-Bot.
+ */
+.genui {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  max-width: 100%;
+  margin: 12px 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-primary);
+  font-size: var(--type-size-body);
+  line-height: var(--type-line-body);
+  animation: genui-in var(--motion-draw) var(--ease-out) both;
+}
+@keyframes genui-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .genui {
+    animation: none;
+  }
+}
+
+.genui-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.genui-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+.genui-row > * {
+  min-width: 0;
+}
+
+.genui-list {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.genui-list[data-direction='horizontal'] {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: var(--space-1);
+}
+.genui-list[data-direction='horizontal'] > .genui-list-item {
+  flex: 0 0 min(240px, 80%);
+  scroll-snap-align: start;
+}
+.genui-list-item {
+  min-width: 0;
+}
+
+.genui-card {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+/* A card in a card stays flat: one level of chrome is enough. */
+.genui-card .genui-card {
+  background: transparent;
+}
+
+.genui-divider {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--border-hairline);
+}
+.genui-divider[data-axis='vertical'] {
+  width: auto;
+  align-self: stretch;
+  border-top: 0;
+  border-left: 1px solid var(--border-hairline);
+}
+
+.genui-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.genui-text p {
+  margin: 0;
+}
+.genui-text p + p,
+.genui-text ul {
+  margin-top: var(--space-1);
+}
+.genui-text ul {
+  margin-bottom: 0;
+  padding-inline-start: 20px;
+}
+.genui-text code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font: 0.92em var(--font-mono);
+}
+.genui-text[data-variant='caption'] {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.genui-heading {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.genui-heading[data-level='1'] {
+  font-size: var(--text-17);
+  line-height: var(--leading-17);
+}
+.genui-heading[data-level='2'] {
+  font-size: var(--text-15);
+  line-height: var(--leading-15);
+}
+.genui-heading[data-level='3'] {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+
+.genui-icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.genui-image {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+.genui-image[data-variant='icon'] {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+.genui-image[data-variant='avatar'] {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+}
+.genui-image[data-variant='smallFeature'] {
+  width: 96px;
+  height: 96px;
+}
+.genui-image[data-variant='mediumFeature'] {
+  width: 100%;
+  max-height: 240px;
+}
+.genui-image[data-variant='largeFeature'],
+.genui-image[data-variant='header'] {
+  width: 100%;
+  max-height: 360px;
+}
+.genui-video,
+.genui-audio {
+  width: 100%;
+  border-radius: var(--radius-card);
+}
+.genui-media-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--border-hairline);
+  border-radius: var(--radius-card);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.genui-media-link > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.genui-media-link small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+.genui-button {
+  display: inline-grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.genui-button > .button {
+  max-width: 100%;
+  justify-content: center;
+}
+.genui-button > .button .genui-text {
+  overflow-wrap: normal;
+}
+.genui-button > .button[data-pressed] {
+  border-color: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+}
+
+.genui-field {
+  display: grid;
+  gap: 6px;
+  min-width: min(100%, 180px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.genui-field > label,
+.genui-slider-head > label,
+.genui-field > legend {
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-label);
+  font-weight: var(--weight-medium);
+  line-height: var(--type-line-label);
+}
+.genui-textarea {
+  min-height: 72px;
+  resize: vertical;
+  font: inherit;
+}
+.genui-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.genui-slider output {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+.genui-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent-solid);
+}
+
+.genui-checkbox,
+.genui-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.genui-checkbox {
+  flex-wrap: wrap;
+}
+.genui-checkbox input,
+.genui-choice input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.genui-choice-options {
+  display: grid;
+  gap: var(--space-2);
+}
+.genui-choices[data-style='chips'] .genui-choice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.genui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+.genui-chip:hover {
+  background: var(--surface-hover);
+}
+.genui-chip[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent-solid) 55%, transparent);
+  background: var(--accent-subtle);
+}
+.genui-chip:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: 2px;
+}
+
+.genui-check-message {
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+
+.genui-tabs .tabs {
+  margin-bottom: var(--space-3);
+}
+
+.genui-modal-trigger {
+  display: contents;
+}
+.genui-modal-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* An interface still being written: the card it will fill. */
+.genui-pending {
+  display: grid;
+  gap: var(--space-2);
+  margin: 12px 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.genui-pending > i {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 25%,
+    var(--surface-hover) 50%,
+    var(--surface-sunken) 75%
+  );
+  background-size: 200% 100%;
+  animation: genui-shimmer 1.4s linear infinite;
+}
+.genui-pending > i:nth-of-type(1) {
+  width: 60%;
+}
+.genui-pending > i:nth-of-type(2) {
+  width: 85%;
+}
+.genui-pending > i:nth-of-type(3) {
+  width: 40%;
+}
+@keyframes genui-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .genui-pending > i {
+    animation: none;
+  }
+}
+
+.genui-unreadable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+
+@media (max-width: 640px) {
+  .genui {
+    padding: var(--space-3);
+  }
+  /* A phone stacks a row's parts when they don't fit side by side. */
+  .genui-row > .genui-field,
+  .genui-row > .genui-card {
+    flex: 1 1 100%;
+  }
+}
+@media (pointer: coarse) {
+  .genui-chip,
+  .genui-button > .button {
+    min-height: 44px;
+  }
+  .genui-checkbox,
+  .genui-choice {
+    min-height: 44px;
+    align-items: center;
+  }
+  .genui-checkbox input,
+  .genui-choice input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
+}

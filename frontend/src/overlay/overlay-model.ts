@@ -44,6 +44,7 @@ function blockText(block: Block): string {
     case 'progress':
     case 'choices':
     case 'visual':
+    case 'surface':
       return block.text;
     case 'chart':
       return block.text || 'Chart';

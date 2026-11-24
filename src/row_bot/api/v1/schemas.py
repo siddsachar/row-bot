@@ -155,6 +155,17 @@ class TappedChoice(WireModel):
     label: str | None = Field(default=None, min_length=1, max_length=40)
 
 
+class SurfaceAction(WireModel):
+    """The person pressed a button on a surface a reply drew: the reply, the surface, the button's action
+    name and its context, resolved from the surface's data. Row-Bot writes the message from the surface
+    itself; the action and its context keys must be ones the surface declares."""
+    message_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9:_.-]+$")
+    surface_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    name: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    source_component_id: str = Field(min_length=1, max_length=64)
+    context: dict[str, Any] = Field(default_factory=dict, max_length=32)
+
+
 class VideoPanelRequest(WireModel):
     """The Video panel's request sent as the person's message (C1): a comment on a storyboard card, a swap of its
     footage, a new take, or making a storyboard whose footage Row-Bot makes first."""
@@ -173,6 +184,8 @@ class SubmitPayload(WireModel):
     page_id: str | None = Field(default=None, pattern=r"^page-[0-9a-f]{8}$")
     # A reply button's tap (F3): the reply that offered it. The text is the button's words, the person's own.
     tapped_choice: TappedChoice | None = None
+    # A press on a surface's button (generative UI): the agent reads A2UI's action message, never as approval.
+    surface_action: SurfaceAction | None = None
     # The Video panel's request (C1): which of its buttons sent the person's words.
     video_panel: VideoPanelRequest | None = None
     # The sending device's IANA zone ("Europe/London"): "local time" in this turn means it (M10).
@@ -10423,6 +10436,17 @@ class ChoicesBlock(WireModel):
     text: str = Field(max_length=4096)
 
 
+class SurfaceBlock(WireModel):
+    """A rowbot-ui surface (generative UI): an A2UI 1.0 tree of Row-Bot's own components, checked by the
+    server (``application/surfaces.py``) and drawn by the client. Data, not code: it loads nothing."""
+    id: OpaqueId
+    type: Literal["surface"]
+    surface_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    title: str = Field(min_length=1, max_length=120)
+    surface_json: str = Field(min_length=2, max_length=262144)
+    text: str = Field(max_length=16520)
+
+
 class YouTubeBlock(WireModel):
     id: OpaqueId
     type: Literal["youtube"]
@@ -10453,6 +10477,7 @@ TranscriptBlock = Annotated[
         ProgressBlock,
         ChoicesBlock,
         VisualBlock,
+        SurfaceBlock,
         YouTubeBlock,
         AttachmentBlock,
     ],
@@ -10693,7 +10718,7 @@ class TranscriptRow(WireModel):
     # model finished a turn the personal model got stuck on.
     # "backup_model" is the quiet line where the backup model took over a turn (#140).
     # "watch": Row-Bot's own line that a watch ran out (B4), written without a model turn.
-    note: Literal["continuation", "agent_task", "agent_guidance", "page", "personal_model_fallback",
+    note: Literal["continuation", "agent_task", "agent_guidance", "page", "surface", "personal_model_fallback",
                   "linked", "backup_model", "watch"] | None = None
     # A message from another conversation (5.3.1 C, note "linked"): where it came from.
     linked_from: LinkedFrom | None = None
@@ -11405,6 +11430,8 @@ class AnswerStateView(WireModel):
     revision: str = Field(max_length=128)
     ticks: dict[AnswerBlockId, dict[AnswerItemId, bool]]
     choices: dict[AnswerBlockId, Annotated[str, StringConstraints(min_length=1, max_length=40)]]
+    # What the person entered on each surface: its data model as they left it (generative UI).
+    surfaces: dict[AnswerBlockId, dict[str, Any]] = Field(default_factory=dict)
 
 
 class AnswerStateChange(WireModel):
@@ -11414,6 +11441,7 @@ class AnswerStateChange(WireModel):
     item_id: AnswerItemId | None = None
     done: bool | None = None
     choice: Annotated[str, StringConstraints(min_length=1, max_length=40)] | None = None
+    surface_data: dict[str, Any] | None = None
 
 
 class ResourceChoice(WireModel):

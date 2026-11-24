@@ -33,6 +33,7 @@ import {
   ChartReplies,
 } from './answer-components/AnswerComponents';
 import { AnswerVisual } from './answer-components/Visual';
+import { SurfaceView } from './surfaces/SurfaceView';
 import { saveProblem, useSaveFile } from './save-file';
 import {
   AttachmentThumbnail,
@@ -497,6 +498,7 @@ export function publicBlockText(block: Block) {
     case 'progress':
     case 'choices':
     case 'visual':
+    case 'surface':
       return block.text;
     case 'youtube':
       return `${block.title}\n${block.url}`;
@@ -579,6 +581,15 @@ export function TranscriptBlocks({
                 block={block}
                 conversationId={conversationId}
                 copyText={copyText}
+                key={key}
+              />
+            );
+          case 'surface':
+            return (
+              <SurfaceView
+                json={block.surface_json}
+                blockId={block.id}
+                target={target}
                 key={key}
               />
             );

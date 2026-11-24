@@ -20,7 +20,7 @@ _PUBLIC_REFERENCE = re.compile(r"^[A-Za-z0-9:_-]{1,256}$")
 # Inputs the server started, shown as a short note instead of the person's
 # bubble: a follow-up step, a delegated agent's task and its parent's messages.
 # "linked": a message from another conversation (5.3.1 C).
-PUBLIC_NOTES = frozenset({"continuation", "agent_task", "agent_guidance", "page", "linked"})
+PUBLIC_NOTES = frozenset({"continuation", "agent_task", "agent_guidance", "page", "surface", "linked"})
 # A workflow run's line shows at most this many messages left for it, each cut to this many characters.
 MAX_HELD_SHOWN = 10
 HELD_TEXT_CHARS = 4_000

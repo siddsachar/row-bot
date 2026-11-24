@@ -147,6 +147,44 @@ def _tapped_choice(conversation_id: str, value: Any) -> dict[str, str] | None:
     return {"message_id": message_id, **({"label": label} if label else {})}
 
 
+def _surface_action(conversation_id: str, value: Any) -> tuple[str, str] | None:
+    """A press on a surface's button (generative UI): (what the agent reads, what the chat shows).
+
+    The reply must be one of this conversation's, the surface one it drew, and the action and its context
+    keys ones that surface declares; Row-Bot writes the message from the surface itself.
+    """
+
+    if not value:
+        return None
+    if not isinstance(value, dict):
+        raise ClientPlatformError("invalid_command")
+    from datetime import datetime, timezone
+
+    from langchain_core.messages import AIMessage
+    from row_bot import threads
+    from row_bot.application import surfaces
+    from row_bot.application.answer_components import component_spans
+
+    message_id = str(value.get("message_id") or "")[:256]
+    reply = next((message for message in threads.get_latest_checkpoint_messages(conversation_id)
+                  if isinstance(message, AIMessage) and message.id == message_id), None)
+    if reply is None:
+        raise ClientPlatformError("invalid_command")
+    content = reply.content
+    text = content if isinstance(content, str) else "".join(
+        str(part.get("text") or "") for part in content if isinstance(part, dict) and part.get("type") == "text")
+    surface = next((json.loads(fields["surface_json"]) for _start, _end, kind, fields in component_spans(text)
+                    if kind == "surface" and fields["surface_id"] == value.get("surface_id")), None)
+    if surface is None:
+        raise ClientPlatformError("invalid_command")
+    try:
+        return surfaces.action_message(surface, str(value.get("name") or ""), value.get("context") or {},
+                                       str(value.get("source_component_id") or ""),
+                                       datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    except surfaces.SurfaceError:
+        raise ClientPlatformError("invalid_command") from None
+
+
 VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
 
 
@@ -1541,10 +1579,12 @@ class ClientPlatformService:
         last = next((message for message in reversed(messages) if is_person_message(message)), None)
         extra = getattr(last, "additional_kwargs", None) or {}
         shown = extra.get("platform_public_content")
-        if (last is None or extra.get("platform_note") != "page" or not isinstance(shown, str)
+        note = extra.get("platform_note")
+        # A message sent from a page or by a press on a surface's button runs again as Row-Bot wrote it.
+        if (last is None or note not in {"page", "surface"} or not isinstance(shown, str)
                 or shown.strip() != text.strip() or not isinstance(last.content, str)):
             return None
-        return last.content, {"text": shown, "note": "page"}
+        return last.content, {"text": shown, "note": str(note)}
 
     @staticmethod
     def _approval_waiting(conversation_id: str) -> bool:
@@ -1682,6 +1722,10 @@ class ClientPlatformService:
         if panel and (tapped or page_id or resume or followup is not None or queue_record is not None
                       or frozen_context is not None or attachment_refs):
             raise ClientPlatformError("invalid_command")
+        pressed = _surface_action(conversation_id, payload.get("surface_action"))
+        if pressed and (tapped or panel or page_id or resume or followup is not None or queue_record is not None
+                        or frozen_context is not None or attachment_refs or payload.get("retry")):
+            raise ClientPlatformError("invalid_command")
         # Retry on the reply to a message sent from a page runs that message again: the same decisions, as the
         # page wrote them, still marked as from the page (never the words the chat shows, as the person's own).
         retried_page = (self._retried_page_message(conversation_id, text)
@@ -1797,6 +1841,10 @@ class ClientPlatformService:
             kept = {key: value for key, value in queue_context["configurable"].items() if key != "app_scope"}
             queue_context = {**queue_context, "configurable": {**kept, **({"app_scope": deepcopy(narrowed)} if narrowed else {})}}
         shown = retried_page[1] if retried_page is not None else None
+        if pressed:
+            # A press on a surface's button: like a page's Send, the chat shows the button's words and the agent
+            # reads A2UI's action message; its note keeps it from ever approving a tool call.
+            text, shown = pressed[0], {"text": pressed[1], "note": "surface"}
         if page_id:
             # The person's Send to Row-Bot under a page (N5): its decisions, written by Row-Bot from the page
             # (never the client's words), move to sent now and come back if the message isn't admitted.
