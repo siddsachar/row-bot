@@ -12,6 +12,12 @@ export function problem(error: unknown): string {
     cannot_change_your_own_role: "You can't change your own admin role.",
     person_not_found: 'That person is no longer on the server.',
     device_not_found: 'That device is no longer on the server.',
+    connector_not_found: 'That connector is no longer on the server.',
+    connector_not_active:
+      'This connector is paused or stopped. Resume it to sync it.',
+    secret_required:
+      'A new tenant or application id needs its client secret too. Enter the secret.',
+    not_for_this_kind: 'That credential is for the other kind of connector.',
     name_taken: 'That name is already used. Choose another one.',
     endpoint_has_models:
       'This endpoint still has catalog models. Remove them first.',

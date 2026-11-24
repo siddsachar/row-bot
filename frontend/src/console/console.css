@@ -407,7 +407,7 @@ body {
     flex-basis: 100%;
     overflow-x: auto;
   }
-  /* A tab bar: five equal tabs, the label under its icon, so all fit at 390 px. */
+  /* A tab bar: six equal tabs, the label under its icon. */
   .console-nav ul {
     display: flex;
     gap: var(--space-1);
@@ -442,5 +442,23 @@ body {
   .console-setting-stack .input,
   .console-checklist {
     width: 100%;
+  }
+}
+
+/* Six labels don't fit a phone's width: the tabs are icons there, each still
+   named by its label for assistive technology, and the page's title says
+   where you are. */
+@media (max-width: 479px) {
+  .console-nav-link {
+    min-height: 44px;
+  }
+  .console-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

@@ -11,6 +11,7 @@ import { problem } from './words';
 export function FormDialog({
   title,
   description,
+  explain = problem,
   submitLabel,
   onClose,
   onSubmit,
@@ -18,6 +19,8 @@ export function FormDialog({
 }: {
   title: string;
   description: string;
+  /** How a refusal is said, when a page knows its own codes. */
+  explain?: (error: unknown) => string;
   submitLabel: string;
   onClose: () => void;
   onSubmit: () => Promise<void>;
@@ -50,7 +53,7 @@ export function FormDialog({
         {children}
         {error !== null && (
           <p className="console-form-error" role="alert">
-            {problem(error)}
+            {explain(error)}
           </p>
         )}
         <footer className="console-form-actions">
