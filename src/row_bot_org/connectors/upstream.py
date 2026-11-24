@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -51,6 +52,12 @@ MAX_JSON_BYTES = 8 * 1024 * 1024
 # A Retry-After is waited at most this long; with none, the caller backs off on its own.
 MAX_RETRY_AFTER = 3600.0
 PAGE_SIZE = 200
+# The longest id, and link or page token, the connector keeps (as its columns do); a longer one is the source's error.
+MAX_ID = 512
+MAX_LINK = 8192
+# Graph's sharing changes come only with this header, on the feed and on the cursor it starts from.
+GRAPH_PREFER = "deltashowsharingchanges, hierarchicalsharing"
+_OBJECT_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _GRAPH_ITEM = "id,name,size,file,folder,root,package,parentReference,cTag,eTag,deleted"
 _DRIVE_FILE = "id,name,mimeType,parents,size,md5Checksum,modifiedTime,trashed"
 _DRIVE_ID_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
@@ -105,6 +112,8 @@ class Item:
     # The content's version: Graph's cTag (eTag without one), Drive's md5Checksum (modifiedTime for a Google Doc).
     version: str | None = None
     removed: bool = False
+    # Whether its sharing changed (Graph's @microsoft.graph.sharedChanged); None when the source doesn't say.
+    shared_changed: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -286,23 +295,38 @@ def _text(value: Any, limit: int = 1024) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
 
+def _id(value: Any) -> str | None:
+    """An upstream id the connector can keep: a non-empty string of at most ``MAX_ID`` characters."""
+    return value if isinstance(value, str) and 0 < len(value) <= MAX_ID else None
+
+
+def _token(value: Any, what: str) -> str:
+    """A page token or link to carry on from, as long as the connector can keep."""
+    if not isinstance(value, str) or not value or len(value) > MAX_LINK:
+        raise Unavailable(f"{what} gave a page token the connector can't use.")
+    return value
+
+
 # -- Microsoft Graph --------------------------------------------------------------------------------
 
 def graph_item(entry: dict[str, Any]) -> Item | None:
     """An item of a Graph listing or delta page; None for one without an id."""
-    item_id = entry.get("id")
-    if not isinstance(item_id, str) or not item_id or len(item_id) > 512:
+    item_id = _id(entry.get("id"))
+    if item_id is None:
         return None
     parent = entry.get("parentReference")
-    parent_id = parent.get("id") if isinstance(parent, dict) and isinstance(parent.get("id"), str) else None
+    # A parent too long to keep is no folder in scope: the item is out of scope.
+    parent_id = _id(parent.get("id")) if isinstance(parent, dict) else None
     if "deleted" in entry:
         return Item(item_id, parent_id, _text(entry.get("name")), False, removed=True)
     is_folder = "folder" in entry or "root" in entry
     file = entry.get("file") if isinstance(entry.get("file"), dict) else {}
     version = entry.get("cTag") if isinstance(entry.get("cTag"), str) else entry.get("eTag")
+    shared = entry.get("@microsoft.graph.sharedChanged")
     return Item(item_id, parent_id, _text(entry.get("name")), is_folder,
                 media_type=_text(file.get("mimeType"), 200) or None, size=_int(entry.get("size")),
-                version=version[:512] if isinstance(version, str) else None)
+                version=version[:512] if isinstance(version, str) else None,
+                shared_changed=shared is True or (isinstance(shared, str) and shared.lower() == "true"))
 
 
 def _graph_identity(identity: Any, fallback: str) -> Grant | None:
@@ -323,7 +347,11 @@ def _graph_identity(identity: Any, fallback: str) -> Grant | None:
         email = next((p["email"] for p in people if isinstance(p.get("email"), str) and "@" in p["email"]), None)
         person_id = next((str(p["id"]) for p in people if p.get("id")), fallback)
         name = next((p["displayName"] for p in people if isinstance(p.get("displayName"), str)), email or person_id)
-        return Grant(PERSON, f"user:{person_id}", name[:200], email=email)
+        # A user's id is their Entra object id (a SharePoint site user's is a number).
+        user = identity.get("user")
+        oid = user.get("id") if isinstance(user, dict) else None
+        return Grant(PERSON, f"user:{person_id}"[:300], name[:200], email=email,
+                     oid=oid.lower() if isinstance(oid, str) and _OBJECT_ID.fullmatch(oid) else None)
     if isinstance(identity.get("application"), dict):
         return None
     return Grant(OTHER, fallback, "Someone the source doesn't name")
@@ -367,7 +395,7 @@ class MicrosoftSource:
         """A next or delta link Graph gave, which must stay on Graph (the access token goes with it)."""
         if not isinstance(link, str) or not link.startswith(f"{GRAPH}/"):
             raise Unavailable("Microsoft pointed the connector at another address.")
-        return link
+        return _token(link, "Microsoft")
 
     def root(self) -> str:
         """The id of the folder everything in scope is under: the folder, or the drive's root."""
@@ -378,7 +406,8 @@ class MicrosoftSource:
         return found["id"]
 
     def latest_cursor(self) -> str:
-        found = self.http.json(f"{GRAPH}/drives/{self.drive}/root/delta", params={"token": "latest"})
+        found = self.http.json(f"{GRAPH}/drives/{self.drive}/root/delta", params={"token": "latest"},
+                               headers={"Prefer": GRAPH_PREFER})
         return self._link(found.get("@odata.deltaLink"))
 
     def children(self, folder_id: str, page: str | None) -> Page:
@@ -392,8 +421,7 @@ class MicrosoftSource:
         return Page(items, next=None if link is None else self._link(link))
 
     def changes(self, cursor: str) -> Page:
-        found = self.http.json(self._link(cursor),
-                               headers={"Prefer": "deltashowsharingchanges, hierarchicalsharing"})
+        found = self.http.json(self._link(cursor), headers={"Prefer": GRAPH_PREFER})
         items = [item for item in map(graph_item, _list(found.get("value"))) if item is not None]
         if (link := found.get("@odata.nextLink")) is not None:
             return Page(items, next=self._link(link))
@@ -433,11 +461,11 @@ class MicrosoftSource:
 
 def drive_item(entry: dict[str, Any], *, removed: bool = False) -> Item | None:
     """A file of a Drive listing or change; None for one without an id."""
-    item_id = entry.get("id")
-    if not isinstance(item_id, str) or not item_id or len(item_id) > 512:
+    item_id = _id(entry.get("id"))
+    if item_id is None:
         return None
     parents = entry.get("parents")
-    parent_id = parents[0] if isinstance(parents, list) and parents and isinstance(parents[0], str) else None
+    parent_id = _id(parents[0]) if isinstance(parents, list) and parents else None
     mime = _text(entry.get("mimeType"), 200)
     name = _text(entry.get("name"))
     if removed or entry.get("trashed") is True:
@@ -512,10 +540,7 @@ class GoogleSource:
 
     def latest_cursor(self) -> str:
         found = self.http.json(f"{DRIVE}/changes/startPageToken", params=self._drives())
-        token = found.get("startPageToken")
-        if not isinstance(token, str) or not token:
-            raise Unavailable("Google gave no change token.")
-        return token
+        return _token(found.get("startPageToken"), "Google")
 
     def children(self, folder_id: str, page: str | None) -> Page:
         params = {"q": f"'{_drive_id(folder_id)}' in parents and trashed = false", "pageSize": str(PAGE_SIZE),
@@ -529,7 +554,7 @@ class GoogleSource:
         items = [item for item in (drive_item(f) for f in _list(found.get("files")) if isinstance(f, dict))
                  if item is not None]
         token = found.get("nextPageToken")
-        return Page(items, next=token if isinstance(token, str) and token else None)
+        return Page(items, next=None if token in (None, "") else _token(token, "Google"))
 
     def changes(self, cursor: str) -> Page:
         found = self.http.json(f"{DRIVE}/changes", params={
@@ -544,12 +569,9 @@ class GoogleSource:
             item = drive_item(file, removed=change.get("removed") is True)
             if item is not None:
                 items.append(item)
-        if isinstance(found.get("nextPageToken"), str) and found["nextPageToken"]:
-            return Page(items, next=found["nextPageToken"])
-        token = found.get("newStartPageToken")
-        if not isinstance(token, str) or not token:
-            raise Unavailable("Google gave no change token.")
-        return Page(items, cursor=token)
+        if found.get("nextPageToken") not in (None, ""):
+            return Page(items, next=_token(found["nextPageToken"], "Google"))
+        return Page(items, cursor=_token(found.get("newStartPageToken"), "Google"))
 
     def grants(self, item: Item) -> list[Grant]:
         grants: list[Grant] = []
@@ -563,9 +585,9 @@ class GoogleSource:
             for permission in _list(found.get("permissions")):
                 if isinstance(permission, dict):
                     grants.extend(drive_grants(permission))
-            page = found.get("nextPageToken") if isinstance(found.get("nextPageToken"), str) else None
-            if not page:
+            if found.get("nextPageToken") in (None, ""):
                 return grants
+            page = _token(found["nextPageToken"], "Google")
 
     def download(self, item: Item, limit: int) -> bytes:
         file_id = _drive_id(item.id)

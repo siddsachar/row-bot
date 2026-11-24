@@ -1,11 +1,14 @@
 """Fake Microsoft Graph and Google Drive sources for the Org server's connectors, served through
 ``httpx.MockTransport`` (nothing leaves the process: no real Microsoft or Google host is ever called).
 
-Each fake holds a drive of folders and files, a change log its feed reads (``change``/``move``/``remove``/
-``share``), the permissions of each file, and every request it was sent (``requests``). Pages are small
+Each fake holds a drive of folders and files, a change log its feed reads (``change``/``rename``/``move``/
+``remove``/``share``), the permissions of each file, and every request it was sent (``requests``). Pages are small
 (``page_size``) so listings and feeds come in several pages. ``refuse_sign_in`` makes the token endpoint refuse
 (with a body that quotes the secret, as a careless server might), ``throttle`` answers every data call 429 with that
-Retry-After, and the access token is checked on every data call.
+Retry-After, ``failing`` answers a file's download 503, ``long_links`` makes Graph's next links longer than any
+connector keeps, and the access token is checked on every data call. ``share(..., logged=False)`` changes sharing
+the feed never reports; ``share(folder, ..., under=...)`` changes what the files under a folder inherit, reporting
+only the folder (marked ``@microsoft.graph.sharedChanged``, as Graph does).
 """
 
 from __future__ import annotations
@@ -51,6 +54,8 @@ class Node:
     mime: str = "text/markdown"
     # Larger than its content (a file the fake says is big, without holding it).
     size: int | None = None
+    # Its last change was to its sharing (Graph marks it so).
+    shared_changed: bool = False
 
 
 class _Fake:
@@ -64,6 +69,8 @@ class _Fake:
         self.page_size = 2
         self.refuse_sign_in = False
         self.throttle: int | None = None
+        self.failing: set[str] = set()
+        self.long_links = False
 
     # -- the drive -----------------------------------------------------------------------------------
 
@@ -78,21 +85,33 @@ class _Fake:
 
     def change(self, node_id: str, content: bytes) -> None:
         node = self.nodes[node_id]
-        node.content, node.version = content, node.version + 1
+        node.content, node.version, node.shared_changed = content, node.version + 1, False
+        self.log.append(node_id)
+
+    def rename(self, node_id: str, name: str) -> None:
+        node = self.nodes[node_id]
+        node.name, node.shared_changed = name, False
         self.log.append(node_id)
 
     def move(self, node_id: str, parent: str) -> None:
         """Only the moved item shows up in the feed (as Graph's and Drive's do), not what it holds."""
         self.nodes[node_id].parent = parent
+        self.nodes[node_id].shared_changed = False
         self.log.append(node_id)
 
     def remove(self, node_id: str) -> None:
         self.nodes[node_id].removed = True
         self.log.append(node_id)
 
-    def share(self, node_id: str, permissions: list[dict[str, Any]]) -> None:
-        self.nodes[node_id].permissions = list(permissions)
-        self.log.append(node_id)
+    def share(self, node_id: str, permissions: list[dict[str, Any]], *, under: tuple[str, ...] = (),
+              logged: bool = True) -> None:
+        """New permissions for ``node_id`` and, inherited, for the files ``under`` it (which the feed doesn't name);
+        unless ``logged`` is false, the feed reports ``node_id`` as a sharing change."""
+        for changed in (node_id, *under):
+            self.nodes[changed].permissions = list(permissions)
+        if logged:
+            self.nodes[node_id].shared_changed = True
+            self.log.append(node_id)
 
     def children(self, parent: str) -> list[Node]:
         return [node for node in self.nodes.values() if node.parent == parent and not node.removed]
@@ -156,10 +175,12 @@ class FakeGraph(_Fake):
     def _item(self, node: Node) -> dict[str, Any]:
         if node.removed:
             return {"id": node.id, "deleted": {"state": "deleted"}, "parentReference": {"driveId": self.drive}}
+        shared = {"@microsoft.graph.sharedChanged": "True"} if node.shared_changed else {}
         if node.id == self.root:
-            return {"id": node.id, "name": "root", "root": {}, "folder": {"childCount": len(self.children(node.id))}}
+            return {"id": node.id, "name": "root", "root": {}, "folder": {"childCount": len(self.children(node.id))},
+                    **shared}
         entry: dict[str, Any] = {"id": node.id, "name": node.name, "eTag": f"e{node.id}.{node.version}",
-                                 "parentReference": {"driveId": self.drive, "id": node.parent}}
+                                 "parentReference": {"driveId": self.drive, "id": node.parent}, **shared}
         if node.folder:
             entry["folder"] = {"childCount": len(self.children(node.id))}
         else:
@@ -197,6 +218,8 @@ class FakeGraph(_Fake):
         if match.group(2) == "/permissions":
             return _json(200, {"value": node.permissions})
         if match.group(2) == "/content":
+            if node.id in self.failing:
+                return _json(503, {"error": {"code": "serviceNotAvailable"}})
             return httpx.Response(302, headers={"Location": f"{SHAREPOINT}/_layouts/download/{node.id}"})
         start = int(params.get("$skiptoken", "0"))
         page, following = self.paged(self.children(node.id), start)
@@ -227,6 +250,8 @@ class FakeGraph(_Fake):
             body["@odata.deltaLink"] = self._delta_link(len(self.log))
         else:
             body["@odata.nextLink"] = f"{self._delta_link(position)}&skip={following}"
+            if self.long_links:
+                body["@odata.nextLink"] += "&pad=" + "x" * 9000
         return _json(200, body)
 
     def _delta_link(self, position: int) -> str:

@@ -4,26 +4,35 @@
 sync then works in transactions of the connector's ``run_as`` admin (the last admin to save or resume it), acting as
 an admin (``roles.enter_admin``): its documents are uploaded in their name, and the model calls that process them
 are metered to them. When that person is no longer an active admin, the connector stops with a reason until another
-admin saves or resumes it. Network calls are made between transactions, never inside one.
+admin resumes it, and its documents are read by admins only at once (nobody can check their permissions). Network
+calls are made between transactions, never inside one.
 
 **What a turn does**, one step at a time, until it has caught up or used its share (``CALLS_PER_TURN`` calls, the
 pass's ``PASS_SECONDS``), and as soon as the worker is stopped or something is queued:
 
+0. Once signed in (``store.start_turn``): every file's permissions are to read again once a day (the sweep that
+   catches what the feeds don't report, and changes to ``group_map`` or the principal map), and at once when its
+   documents were made admins only while it was stopped.
 1. The first time (and when Graph says its feed expired), it notes where the change feed stands now, then lists
    everything under the root folder, folder by folder, page by page (``store_children``). Once the listing is done,
    what it didn't see again is gone (``end_listing``).
 2. Files whose content or permissions are to read come first: their permissions are read and mirrored
    (``mirror.mirror``), then a new or changed file of a type the brain reads, up to its upload limit, is downloaded
    and its document created or replaced, with its readers, in one transaction. A file of another type, too large,
-   or that can't be fetched is skipped (with the reason) until it changes upstream, and its document goes.
+   past the connector's limits (``MAX_FILES``, ``ROW_BOT_ORG_CONNECTOR_MAX_GB``) or that can't be fetched is skipped
+   (with the reason) until it changes upstream, and its document goes. One that fails to be read waits and the turn
+   goes on; after ``ITEM_TRIES`` in a row it is skipped (failing closed: its document goes).
 3. Then folders still to list (one moved into scope), then the change feed, page by page from its cursor:
-   removed files go, files moved out of scope go, a changed folder has every permission under it read again.
+   removed files go, files moved out of scope go, a changed folder (the root included) has every permission under
+   it read again unless Graph says its sharing didn't change.
 
 **Failures.** A 429 waits its Retry-After (at least ``MIN_WAIT_SECONDS``); a 5xx, a timeout or an answer that can't
 be read waits longer each time in a row (``failure_wait``). A refusal (the sign-in, or access to the drive or
 folder) is audited (``connector.changed``, ``auth_failed``) and waits too; after ``REFUSALS_TO_STOP`` in a row the
-connector stops (``error``) with a plain reason. Every wait is stored on the connector, so nothing is called again
-before it ends: no loop. A turn that stopped at a limit is due again at once, and the worker starts its next pass
+connector stops (``error``) with a plain reason; after ``store.LOCK_AFTER`` stopped, its documents are read by admins
+only until a good sync reads their permissions again (a paused one keeps them: an admin's choice). Anything else
+unforeseen waits as an outage does. Every wait is stored on the connector, so nothing is called again before it ends:
+no loop. A turn that stopped at a limit is due again at once, and the worker starts its next pass
 straight away; one that caught up syncs again after ``SYNC_EVERY_SECONDS``. Results go to the log (counts and the
 connector's id, never a file name, token, secret or URL).
 """
@@ -58,8 +67,8 @@ CALLS_PER_TURN = 100
 MIN_WAIT_SECONDS = 30.0
 MAX_WAIT_SECONDS = 3600.0
 REFUSALS_TO_STOP = 3
-NOT_AN_ADMIN = ("The admin this connector syncs as isn't an admin any more. An admin saves or resumes it to sync it "
-                "as themselves.")
+NOT_AN_ADMIN = ("The admin this connector syncs as isn't an admin any more, so only admins can read its files. An "
+                "admin resumes it to sync it as themselves.")
 NO_SECRET = "This connector has no secret saved. Save its credentials again."
 SECRET_UNAVAILABLE = ("This connector's secret can't be opened here (the server key changed?). Save its credentials "
                       "again.")
@@ -67,6 +76,10 @@ UNSUPPORTED = "The company brain doesn't read this type of file."
 TOO_LARGE = "This file is larger than the company brain takes."
 BAD_NAME = "This file's name can't be used."
 NOT_FETCHED = "This file couldn't be fetched from its source."
+# A file that fails this many reads in a row (its source answering otherwise) is skipped, and its document goes.
+ITEM_TRIES = 3
+# A connector's most documents (its bytes: ROW_BOT_ORG_CONNECTOR_MAX_GB).
+MAX_FILES = 10_000
 # Who a refusal's audit event names: the server's own sync.
 SERVER = Actor(ActorKind.SERVICE, "company-server")
 
@@ -114,6 +127,8 @@ class _Turn:
     deadline: float
     tally: Tally = field(default_factory=Tally)
     calls_left: int = CALLS_PER_TURN
+    # Files that failed one after another in this turn: two in a row is the source failing, not a file.
+    failed_in_a_row: int = 0
 
     @contextmanager
     def admin_transaction(self) -> Iterator[Any]:
@@ -215,17 +230,52 @@ class _Turn:
                                      principal_map=self.row.principal_map)
             content = None
             if due.content_due or due.document_id is None:
+                if (limited := self.over_limit(due, item.size)) is not None:
+                    self.skip(due, limited)
+                    return
                 self.call(2)
                 content = self.source.download(item, self.service.max_bytes)
+                if item.size is None and (limited := self.over_limit(due, len(content))) is not None:
+                    self.skip(due, limited)
+                    return
         except upstream.TooLarge:
             self.skip(due, TOO_LARGE)
             return
         except upstream.ItemGone:
             self.skip(due, NOT_FETCHED)
             return
+        except upstream.Throttled:
+            raise
+        except upstream.Unavailable as down:
+            self.file_failed(due, down)
+            return
+        self.failed_in_a_row = 0
         with self.admin_transaction() as conn:
             document_id = self.store_document(conn, due, kind, name, content, mirrored)
             store.item_settled(conn, self.row.id, due, document_id=document_id, mirrored=mirrored)
+
+    def over_limit(self, due: store.DueItem, size: int | None) -> str | None:
+        """Why this file can't be a document of the connector's (its files or bytes at their limits), or None."""
+        with self.admin_transaction() as conn:
+            count, total = store.held(conn, self.row.id, besides=due.document_id)
+        if due.document_id is None and count >= MAX_FILES:
+            return f"{store.LIMIT_REASON} of {MAX_FILES:,} files."
+        if size is not None and total + size > self.service.max_connector_bytes:
+            return f"{store.LIMIT_REASON} of {self.service.connector_max_gb:,} GB."
+        return None
+
+    def file_failed(self, due: store.DueItem, down: upstream.Unavailable) -> None:
+        """One file couldn't be read (its source answering otherwise): it waits and the turn goes on; after
+        ``ITEM_TRIES`` in a row it is skipped and its document goes, so its permissions are never left unchecked.
+        A second file failing straight after is the source failing: the whole connector waits."""
+        if self.failed_in_a_row:
+            raise down
+        self.failed_in_a_row += 1
+        with self.admin_transaction() as conn:
+            failures = store.bump_item(conn, self.row.id, due)
+        logger.warning("connector %s: a file couldn't be read (%d in a row): %s", self.row.id, failures, down.reason)
+        if failures >= ITEM_TRIES:
+            self.skip(due, NOT_FETCHED)
 
     def skip(self, due: store.DueItem, reason: str) -> None:
         with self.admin_transaction() as conn:
@@ -270,6 +320,8 @@ class ConnectorService:
         self.idp = settings.idp
         self.server_key = settings.gateway_key
         self.max_bytes = settings.brain_max_upload_mb * 1024 * 1024
+        self.connector_max_gb = settings.connector_max_gb
+        self.max_connector_bytes = settings.connector_max_gb * 1024 ** 3
         self.transport: httpx.BaseTransport | None = None
 
     # -- who it acts as --------------------------------------------------------------------------
@@ -335,6 +387,8 @@ class ConnectorService:
         deadline = time.monotonic() + PASS_SECONDS
         taken: list[str] = []
         more = False
+        with brain_store.worker_transaction(self.pool) as conn:
+            store.lock_stopped(conn)
         while not stopping():
             if time.monotonic() >= deadline:
                 return True
@@ -347,7 +401,8 @@ class ConnectorService:
                 more = self._turn(due, stopping, deadline) or more
             except Exception as error:  # noqa: BLE001 - one connector failing never stops the others
                 logger.error("connector %s: its sync failed (%s)", due.id, type(error).__name__)
-                self._release(due.id)
+                with brain_store.worker_transaction(self.pool) as conn:
+                    store.fail_unexpected(conn, due.id)
         return more
 
     def _release(self, connector_id: str) -> None:
@@ -382,12 +437,18 @@ class ConnectorService:
             try:
                 turn.call()
                 turn.source.sign_in()
+                with self.as_admin(admin) as conn:
+                    store.start_turn(conn, turn.row)
+                turn.reload()
                 caught_up = turn.run()
             except upstream.Refused as refused:
                 self._refused(admin, turn.row, refused.reason)
                 return False
             except upstream.Unavailable as down:
                 self._unavailable(admin, turn.row, down)
+                return False
+            except upstream.SourceError as other:  # Anything else the source said: it waits as for an outage.
+                self._unavailable(admin, turn.row, upstream.Unavailable(other.reason))
                 return False
             except NotAdmin:
                 self._release(due.id)

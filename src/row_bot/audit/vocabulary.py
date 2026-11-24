@@ -165,12 +165,14 @@ HASH_PATTERN = r"[0-9a-f]{64}"  # SHA-256, lowercase hex.
 GROUP_PATTERN = r"[^\x00-\x20\x7f](?:[^\x00-\x1f\x7f]{0,254}[^\x00-\x20\x7f])?"
 EVENT_ID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"  # A random UUID.
 TIME_PATTERN = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z"  # UTC, microseconds, Z: one spelling per instant.
+# An id at a company source (a SharePoint drive or item id, a Google file or shared drive id, a delegated user's email).
+SOURCE_PATTERN = r"[A-Za-z0-9][A-Za-z0-9!._,:@|+=-]{0,511}"
 
 SUMMARY_MAX = 300  # As the activity log's summaries.
 
-DetailKind = Literal["id", "model", "version", "hash", "group", "enum", "int", "text"]
+DetailKind = Literal["id", "model", "version", "hash", "group", "source", "enum", "int", "text"]
 PATTERNS = MappingProxyType({"id": ID_PATTERN, "model": MODEL_PATTERN, "version": VERSION_PATTERN,
-                             "hash": HASH_PATTERN, "group": GROUP_PATTERN})
+                             "hash": HASH_PATTERN, "group": GROUP_PATTERN, "source": SOURCE_PATTERN})
 
 
 @dataclass(frozen=True)
@@ -320,12 +322,14 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
                                 change=_enum("created", "updated", "merged", "retired", "restored"),
                                 fields=_enum(*ENTITY_FIELD_SETS, required=False), merged_into=Detail("id"),
                                 **_SPACE),
-    # A company connector (B2) made, changed, paused, resumed, asked to sync now or deleted by an admin (which
-    # fields a change touched; how many documents a delete removed), or refused by its source (the server's sync:
-    # how many refusals in a row, the last of which stops it).
+    # A company connector (B2) made (where it reads), changed, paused, resumed, asked to sync now or deleted by an
+    # admin (which fields a change touched; how many documents a delete removed), or refused by its source (the
+    # server's sync: how many refusals in a row, the last of which stops it).
     Action.CONNECTOR_CHANGED: _spec({_A, _S}, _SHARED, {TargetKind.CONNECTOR}, _DONE,
                                     change=_enum("created", "updated", "paused", "resumed", "sync_requested",
                                                  "deleted", "auth_failed"),
                                     kind=_enum(*CONNECTOR_KINDS), fields=_enum(*CONNECTOR_FIELD_SETS, required=False),
-                                    documents_removed=Detail("int"), attempts=Detail("int"), **_SPACE),
+                                    documents_removed=Detail("int"), attempts=Detail("int"),
+                                    drive_id=Detail("source"), folder_id=Detail("source"), subject=Detail("source"),
+                                    **_SPACE),
 })

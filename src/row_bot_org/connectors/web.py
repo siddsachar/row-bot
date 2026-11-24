@@ -186,13 +186,13 @@ class ConnectorIn(_Body):
 
 
 class ConnectorChange(_Body):
+    """What may change: never the source (kind, space, drive, folder, or the user a Google connector acts as)."""
+
     name: str | None = None
     tenant_id: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
     service_account: str | None = None
-    # null stops acting as a user (no domain-wide delegation).
-    subject: str | None = None
     principal_map: dict[str, str] | None = Field(None, max_length=MAX_MAP)
 
     @field_validator("name")
@@ -209,11 +209,6 @@ class ConnectorChange(_Body):
     @classmethod
     def _check_secret(cls, value: str | None) -> str | None:
         return _secret(value)
-
-    @field_validator("subject")
-    @classmethod
-    def _check_subject(cls, value: str | None) -> str | None:
-        return _subject(value)
 
     @field_validator("principal_map")
     @classmethod
@@ -270,7 +265,9 @@ def connectors_router(service: ConnectorService, brain: Any) -> APIRouter:
                                      name=body.name, drive_id=body.drive_id, folder_id=body.folder_id,
                                      tenant_id=body.tenant_id, client_id=client_id, subject=body.subject,
                                      secret_sealed=sealed, principal_map=body.principal_map)
-        changed(conn, principal, row, "created")
+        # Where it reads, for the record (the source can't change later).
+        changed(conn, principal, row, "created", **{key: value for key, value in (
+            ("drive_id", row.drive_id), ("folder_id", row.folder_id), ("subject", row.subject)) if value})
         brain.wake()
         return JSONResponse(shown(conn, row), status_code=201)
 
@@ -286,9 +283,9 @@ def connectors_router(service: ConnectorService, brain: Any) -> APIRouter:
         if isinstance(row, JSONResponse):
             return row
         given = body.model_fields_set
-        tenant_id, client_id, subject, secret = row.tenant_id, row.client_id, row.subject, None
+        tenant_id, client_id, secret = row.tenant_id, row.client_id, None
         if row.kind == "microsoft":
-            if given & {"service_account", "subject"}:
+            if "service_account" in given:
                 return _error(422, "not_for_this_kind")
             tenant_id = body.tenant_id or row.tenant_id
             client_id = body.client_id or row.client_id
@@ -300,11 +297,9 @@ def connectors_router(service: ConnectorService, brain: Any) -> APIRouter:
                 return _error(422, "not_for_this_kind")
             if body.service_account is not None:
                 client_id, secret = service_account(body.service_account)
-            if "subject" in given:
-                subject = body.subject
         name = body.name or row.name
         principal_map = row.principal_map if body.principal_map is None else body.principal_map
-        credentials = secret is not None or subject != row.subject
+        credentials = secret is not None
         fields = [field for field, touched in zip(CONNECTOR_FIELDS, (
             name != row.name, credentials, principal_map != row.principal_map)) if touched]
         if not fields:
@@ -312,7 +307,7 @@ def connectors_router(service: ConnectorService, brain: Any) -> APIRouter:
         sealed = None if secret is None else secrets.seal(service.server_key, row.id, row.kind, tenant_id,
                                                           client_id, secret)
         updated = store.update_connector(conn, row.id, name=name, tenant_id=tenant_id, client_id=client_id,
-                                         subject=subject, secret_sealed=sealed, principal_map=principal_map,
+                                         secret_sealed=sealed, principal_map=principal_map,
                                          run_as=principal.principal_id, credentials_changed=credentials,
                                          map_changed="principal_map" in fields)
         if updated is None:

@@ -186,3 +186,47 @@ def test_a_sealed_secret_opens_only_for_its_own_connector_tenant_and_client() ->
             secrets.unseal(key, *other, sealed)
     with pytest.raises(secrets.SecretUnavailable):
         secrets.unseal(bytes(32), "connector-1", "microsoft", "tenant-1", "client-1", sealed)
+
+
+def test_entra_people_map_by_object_id_and_emails_only_inside_the_allowed_domains() -> None:
+    oid = "aaaaaaaa-0000-4000-8000-000000000001"
+    grant = Grant(PERSON, "user:1", "Eve", email="eve@contoso.example", oid=oid)
+    assert mirror([grant], provider="microsoft", idp=idp("entra"), principal_map={}).readers == (
+        "e:eve@contoso.example", f"o:{oid}")
+    # Only an Entra sign-in gives Row-Bot people's object ids, and only Graph names people by them.
+    for provider, provider_idp in (("microsoft", idp("okta")), ("google", idp("entra"))):
+        assert mirror([grant], provider=provider, idp=provider_idp, principal_map={}).readers == (
+            "e:eve@contoso.example",)
+    # With allowed_email_domains, an email outside them maps to nobody, so its file is admins only.
+    okta = IdpConfig(kind="okta", issuer="https://idp.example/", client_id="row-bot",
+                     allowed_email_domains=("example.com",))
+    inside, outside = person("Bo@Example.com"), person("bo@elsewhere.example", key="user:2")
+    assert mirror([inside], provider="google", idp=okta, principal_map={}).readers == ("e:bo@example.com",)
+    found = mirror([inside, outside], provider="google", idp=okta, principal_map={})
+    assert found.readers == () and [entry["key"] for entry in found.unmapped] == ["user:2"]
+
+
+def test_graph_marks_sharing_changes_and_ids_or_links_too_long_to_keep_are_dropped() -> None:
+    shared = upstream.graph_item({"id": "f-1", "name": "F", "folder": {}, "parentReference": {"id": "root-1"},
+                                  "@microsoft.graph.sharedChanged": "True"})
+    assert (shared.parent_id, shared.is_folder, shared.shared_changed) == ("root-1", True, True)
+    plain = upstream.graph_item({"id": "f-1", "name": "F", "folder": {}, "parentReference": {"id": "root-1"}})
+    assert plain.shared_changed is False
+    assert upstream.drive_item({"id": "d-1", "name": "D", "mimeType": upstream.FOLDER_MIME}).shared_changed is None
+    # A parent too long to be a folder the connector keeps leaves the item out of scope; an id too long, out.
+    assert upstream.graph_item({"id": "f-2", "name": "x.md", "file": {},
+                                "parentReference": {"id": "p" * 600}}).parent_id is None
+    assert upstream.drive_item({"id": "d-2", "name": "x.md", "parents": ["p" * 600]}).parent_id is None
+    assert upstream.graph_item({"id": "i" * 600, "name": "x.md"}) is None
+    # A Microsoft user is named by their Entra object id (lower case).
+    (grant,) = upstream.graph_grants({"id": "p", "grantedToV2": {"user": {"id": ENGINEERING_ID.upper()}}})
+    assert grant.oid == ENGINEERING_ID
+
+    source, seen = graph_source(lambda request: httpx.Response(200, json={
+        "@odata.deltaLink": f"{upstream.GRAPH}/drives/b!drive/root/delta?token=t1"}))
+    source.latest_cursor()
+    # The cursor the feed starts from is asked for with the same sharing-changes header as the feed.
+    assert seen[0].headers["prefer"] == upstream.GRAPH_PREFER
+    with pytest.raises(upstream.Unavailable):
+        source.changes(f"{upstream.GRAPH}/drives/b!drive/root/delta?token=" + "t" * 9000)
+    assert len(seen) == 1

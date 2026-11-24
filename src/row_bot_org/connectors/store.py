@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import psycopg
@@ -23,11 +23,17 @@ from row_bot_org.connectors.upstream import Item
 STALE_CLAIM = "15 minutes"
 # What a connector's warning lists at most.
 MOST_UNMAPPED = 20
+# How a file skipped for its connector's limits is described (sync.py words the rest).
+LIMIT_REASON = "This connector has reached its limit"
+# A stopped connector's documents are read by admins only after this long (at once when its admin isn't one).
+LOCK_AFTER = "24 hours"
+# Every file's permissions are read again this often, whatever the change feed says.
+SWEEP_EVERY = "1 day"
 
 _COLUMNS = ("c.id, c.kind, c.space_id, c.name, c.drive_id, c.folder_id, c.tenant_id, c.client_id, c.subject,"
             " c.secret_sealed IS NOT NULL, c.principal_map, c.state, c.state_reason, c.root_id, c.feed_cursor,"
             " c.listing, c.generation, c.auth_failures, c.failures, c.next_sync_at, c.last_sync_at, c.run_as,"
-            " c.created_by, c.created_at, c.updated_at")
+            " c.created_by, c.created_at, c.updated_at, c.permissions_checked_at, c.error_since, c.locked_at")
 
 
 def _time(value: datetime | None) -> str | None:
@@ -61,12 +67,16 @@ class ConnectorRow:
     created_by: str
     created_at: datetime
     updated_at: datetime
+    permissions_checked_at: datetime | None = None
+    error_since: datetime | None = None
+    locked_at: datetime | None = None
 
 
 def _connector(row: tuple) -> ConnectorRow:
     return ConnectorRow(str(row[0]), row[1], str(row[2]), row[3], row[4], row[5], row[6], row[7], row[8], row[9],
                         dict(row[10]), row[11], row[12], row[13], row[14], row[15], row[16], row[17], row[18],
-                        row[19], row[20], str(row[21]), str(row[22]), row[23], row[24])
+                        row[19], row[20], str(row[21]), str(row[22]), row[23], row[24], row[25], row[26],
+                        row[27])
 
 
 def get_connector(conn: psycopg.Connection, connector_id: str) -> ConnectorRow | None:
@@ -88,16 +98,36 @@ def sealed_secret(conn: psycopg.Connection, connector_id: str) -> bytes | None:
 def counts(conn: psycopg.Connection, connector_id: str) -> dict[str, Any]:
     """What a connector holds: its files, their documents, the files skipped, the files only admins read because
     a principal of theirs can't be mapped, and those principals (the most shared first)."""
-    files, documents, skipped, unmapped_files = conn.execute(
+    files, documents, skipped, unmapped_files, failing, limited = conn.execute(
         "SELECT count(*) FILTER (WHERE NOT is_folder), count(document_id), count(skipped),"
-        " count(*) FILTER (WHERE document_id IS NOT NULL AND jsonb_array_length(unmapped) > 0)"
-        " FROM row_bot_org.connector_items WHERE connector_id = %s", (connector_id,)).fetchone()
+        " count(*) FILTER (WHERE document_id IS NOT NULL AND jsonb_array_length(unmapped) > 0),"
+        " count(*) FILTER (WHERE failures > 0 AND (content_due OR readers_due)),"
+        " count(*) FILTER (WHERE starts_with(skipped, %s))"
+        " FROM row_bot_org.connector_items WHERE connector_id = %s", (LIMIT_REASON, connector_id)).fetchone()
     principals = conn.execute(
         "SELECT u ->> 'key', max(u ->> 'name'), count(*) FROM row_bot_org.connector_items i,"
         " jsonb_array_elements(i.unmapped) AS u WHERE i.connector_id = %s AND i.document_id IS NOT NULL"
         " GROUP BY 1 ORDER BY 3 DESC, 1 LIMIT %s", (connector_id, MOST_UNMAPPED)).fetchall()
     return {"files": files, "documents": documents, "skipped": skipped, "unmapped_files": unmapped_files,
-            "unmapped": [{"key": key, "name": name, "files": count} for key, name, count in principals]}
+            "unmapped": [{"key": key, "name": name, "files": count} for key, name, count in principals],
+            "failing": failing, "limited": limited}
+
+
+def _when(value: datetime | None) -> str:
+    return "never" if value is None else value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def permissions_note(row: ConnectorRow) -> str | None:
+    """What a stopped or paused connector's files are read by, in plain words."""
+    checked = f"Permissions last checked at {_when(row.permissions_checked_at)}."
+    if row.state == "error" and row.locked_at is not None:
+        return f"This connector stopped, so only admins can read its files until it syncs again. {checked}"
+    if row.state == "error":
+        return (f"This connector stopped: its files keep their last permissions for 24 hours, then only admins can "
+                f"read them. {checked}")
+    if row.state == "paused":
+        return f"Paused: its files keep their last permissions. {checked}"
+    return None
 
 
 def to_json(row: ConnectorRow, held: dict[str, Any]) -> dict[str, Any]:
@@ -106,12 +136,18 @@ def to_json(row: ConnectorRow, held: dict[str, Any]) -> dict[str, Any]:
     warning = None if not unmapped else (
         f"{unmapped:,} {'file is' if unmapped == 1 else 'files are'} shared with people or groups Row-Bot can't"
         " match, so only admins can read them. Map them to Row-Bot groups in the connector's principal map.")
+    limited = held["limited"]
+    limit_warning = None if not limited else (
+        f"{limited:,} {'file was' if limited == 1 else 'files were'} left out: this connector reached its limit of"
+        " files or space. Connect a narrower folder, or remove files at the source.")
     return {"id": row.id, "kind": row.kind, "space_id": row.space_id, "name": row.name, "drive_id": row.drive_id,
             "folder_id": row.folder_id, "tenant_id": row.tenant_id, "client_id": row.client_id,
             "subject": row.subject, "has_secret": row.has_secret, "principal_map": row.principal_map,
             "state": row.state, "state_reason": row.state_reason, "last_sync_at": _time(row.last_sync_at),
             "next_sync_at": _time(row.next_sync_at), "run_as": row.run_as, "created_by": row.created_by,
-            "created_at": _time(row.created_at), "updated_at": _time(row.updated_at), **held, "warning": warning}
+            "created_at": _time(row.created_at), "updated_at": _time(row.updated_at),
+            "permissions_checked_at": _time(row.permissions_checked_at), "permissions_note": permissions_note(row),
+            **held, "warning": warning, "limit_warning": limit_warning}
 
 
 def create_connector(conn: psycopg.Connection, *, connector_id: str, kind: str, space_id: str, name: str,
@@ -126,20 +162,21 @@ def create_connector(conn: psycopg.Connection, *, connector_id: str, kind: str, 
 
 
 def update_connector(conn: psycopg.Connection, connector_id: str, *, name: str, tenant_id: str | None,
-                     client_id: str, subject: str | None, secret_sealed: bytes | None, principal_map: dict[str, str],
+                     client_id: str, secret_sealed: bytes | None, principal_map: dict[str, str],
                      run_as: str, credentials_changed: bool, map_changed: bool) -> ConnectorRow | None:
     """Save an admin's change: they take the connector over (``run_as``). New credentials clear its refusals and,
     when it stopped with an error, start it again; a new principal map re-reads every file's permissions."""
     row = conn.execute(
         "UPDATE row_bot_org.connectors SET name = %(name)s, tenant_id = %(tenant)s, client_id = %(client)s,"
-        " subject = %(subject)s, secret_sealed = coalesce(%(sealed)s::bytea, secret_sealed), principal_map = %(map)s,"
+        " secret_sealed = coalesce(%(sealed)s::bytea, secret_sealed), principal_map = %(map)s,"
         " run_as = %(run_as)s, updated_at = now(),"
         " auth_failures = CASE WHEN %(credentials)s THEN 0 ELSE auth_failures END,"
         " state = CASE WHEN %(credentials)s AND state = 'error' THEN 'active' ELSE state END,"
         " state_reason = CASE WHEN %(credentials)s AND state = 'error' THEN NULL ELSE state_reason END,"
+        " error_since = CASE WHEN %(credentials)s AND state = 'error' THEN NULL ELSE error_since END,"
         " next_sync_at = CASE WHEN %(credentials)s OR %(remap)s THEN now() ELSE next_sync_at END"
         " WHERE id = %(id)s RETURNING id",
-        {"name": name, "tenant": tenant_id, "client": client_id, "subject": subject, "sealed": secret_sealed,
+        {"name": name, "tenant": tenant_id, "client": client_id, "sealed": secret_sealed,
          "map": Jsonb(principal_map), "run_as": run_as, "credentials": credentials_changed, "remap": map_changed,
          "id": connector_id}).fetchone()
     if row is None:
@@ -154,6 +191,7 @@ def set_state(conn: psycopg.Connection, connector_id: str, state: str, *, run_as
     """Pause or resume (``active``: again at once, with no failures counted, as ``run_as``). Whether it changed."""
     row = conn.execute(
         "UPDATE row_bot_org.connectors SET state = %(state)s, state_reason = NULL, updated_at = now(),"
+        " error_since = CASE WHEN %(state)s = 'active' THEN NULL ELSE error_since END,"
         " run_as = coalesce(%(run_as)s::uuid, run_as),"
         " auth_failures = CASE WHEN %(state)s = 'active' THEN 0 ELSE auth_failures END,"
         " failures = CASE WHEN %(state)s = 'active' THEN 0 ELSE failures END,"
@@ -202,20 +240,50 @@ def release(conn: psycopg.Connection, connector_id: str) -> None:
     conn.execute("UPDATE row_bot_org.connectors SET claimed_at = NULL WHERE id = %s", (connector_id,))
 
 
+def _lock_documents(conn: psycopg.Connection, connector_ids: Sequence[str]) -> None:
+    """These connectors' documents are read by admins only (the worker may only narrow readers)."""
+    conn.execute("UPDATE row_bot_org.brain_documents SET readers = '{}' WHERE connector_id = ANY(%s::uuid[])"
+                 " AND readers <> '{}'::text[]", (list(connector_ids),))
+
+
 def stop_without_admin(conn: psycopg.Connection, connector_id: str, reason: str) -> None:
-    """The worker's: the admin it syncs as can't any more; it stops with ``reason`` until an admin saves or
-    resumes it."""
-    conn.execute("UPDATE row_bot_org.connectors SET claimed_at = NULL, state = 'error', state_reason = %s"
-                 " WHERE id = %s AND state = 'active'", (reason, connector_id))
+    """The worker's: the admin it syncs as can't any more; it stops with ``reason`` until an admin resumes it, and
+    its documents are read by admins only at once (nobody can check their permissions)."""
+    stopped = conn.execute(
+        "UPDATE row_bot_org.connectors SET claimed_at = NULL, state = 'error', state_reason = %s,"
+        " error_since = now(), locked_at = now() WHERE id = %s AND state = 'active' RETURNING id",
+        (reason, connector_id)).fetchone()
+    if stopped is not None:
+        _lock_documents(conn, [connector_id])
+
+
+def lock_stopped(conn: psycopg.Connection) -> None:
+    """The worker's, each pass: connectors stopped with an error for ``LOCK_AFTER`` have their documents read by
+    admins only, until a good sync reads their permissions again."""
+    locked = [str(row[0]) for row in conn.execute(
+        "UPDATE row_bot_org.connectors SET locked_at = now() WHERE state = 'error' AND locked_at IS NULL"
+        f" AND error_since < now() - interval '{LOCK_AFTER}' RETURNING id").fetchall()]
+    if locked:
+        _lock_documents(conn, locked)
+
+
+def fail_unexpected(conn: psycopg.Connection, connector_id: str) -> None:
+    """The worker's: a turn failed in a way nothing foresaw; it waits as a failed turn does (1, 2, 4... minutes,
+    at most an hour)."""
+    conn.execute("UPDATE row_bot_org.connectors SET claimed_at = NULL, failures = failures + 1,"
+                 " next_sync_at = now() + make_interval(secs => least(3600, 60 * power(2, least(failures, 10))))"
+                 " WHERE id = %s", (connector_id,))
 
 
 def finish_turn(conn: psycopg.Connection, connector_id: str, *, caught_up: bool, wait_seconds: float) -> None:
     """A sync turn that went well: again in ``wait_seconds`` (at once when it stopped at a limit)."""
     conn.execute(
-        "UPDATE row_bot_org.connectors SET claimed_at = NULL, failures = 0, auth_failures = 0,"
-        " next_sync_at = now() + make_interval(secs => %s),"
-        " last_sync_at = CASE WHEN %s THEN now() ELSE last_sync_at END WHERE id = %s",
-        (wait_seconds, caught_up, connector_id))
+        "UPDATE row_bot_org.connectors c SET claimed_at = NULL, failures = 0, auth_failures = 0,"
+        " next_sync_at = now() + make_interval(secs => %(wait)s),"
+        " last_sync_at = CASE WHEN %(caught_up)s THEN now() ELSE last_sync_at END,"
+        " permissions_checked_at = CASE WHEN %(caught_up)s AND NOT EXISTS (SELECT 1 FROM row_bot_org.connector_items i"
+        "     WHERE i.connector_id = c.id AND i.readers_due) THEN swept_at ELSE permissions_checked_at END"
+        " WHERE id = %(id)s", {"wait": wait_seconds, "caught_up": caught_up, "id": connector_id})
 
 
 def fail_turn(conn: psycopg.Connection, connector_id: str, *, wait_seconds: float) -> None:
@@ -233,7 +301,8 @@ def refuse_turn(conn: psycopg.Connection, connector_id: str, *, reason: str, mos
         " next_sync_at = now() + make_interval(secs => %(wait)s),"
         " state = CASE WHEN state = 'active' AND auth_failures + 1 >= %(most)s THEN 'error' ELSE state END,"
         " state_reason = CASE WHEN state = 'active' AND auth_failures + 1 >= %(most)s THEN %(reason)s::text"
-        "                ELSE state_reason END"
+        "                ELSE state_reason END,"
+        " error_since = CASE WHEN state = 'active' AND auth_failures + 1 >= %(most)s THEN now() ELSE error_since END"
         " WHERE id = %(id)s RETURNING auth_failures, state = 'error'",
         {"wait": wait_seconds, "most": most, "reason": reason, "id": connector_id}).fetchone()
     return (0, False) if row is None else (row[0], row[1])
@@ -246,7 +315,8 @@ def start_listing(conn: psycopg.Connection, row: ConnectorRow, *, root_id: str, 
     listing doesn't see is gone once it ends. The listing's generation."""
     (generation,) = conn.execute(
         "UPDATE row_bot_org.connectors SET root_id = %s, feed_cursor = %s, listing = true,"
-        " generation = generation + 1 WHERE id = %s RETURNING generation", (root_id, cursor, row.id)).fetchone()
+        " generation = generation + 1, swept_at = now() WHERE id = %s RETURNING generation",
+        (root_id, cursor, row.id)).fetchone()
     conn.execute("UPDATE row_bot_org.connector_items SET listed = false, list_page = NULL"
                  " WHERE connector_id = %s AND is_folder", (row.id,))
     conn.execute(
@@ -255,6 +325,24 @@ def start_listing(conn: psycopg.Connection, row: ConnectorRow, *, root_id: str, 
         " ON CONFLICT (connector_id, upstream_id) DO UPDATE SET parent_id = NULL, is_folder = true, listed = false,"
         " seen = EXCLUDED.seen", (row.id, root_id, generation))
     return generation
+
+
+def start_turn(conn: psycopg.Connection, row: ConnectorRow) -> None:
+    """At the start of a turn that signed in: a connector whose documents were made admins only reads every
+    permission again (each document stays admins only until its own is read); and once a day every file's
+    permissions are read again, whatever the change feed said (it catches what the feed doesn't report, and changes
+    to group_map or the principal map)."""
+    again = row.locked_at is not None
+    if row.feed_cursor is not None and not row.listing:
+        again = conn.execute(
+            "UPDATE row_bot_org.connectors SET swept_at = now() WHERE id = %s"
+            f" AND (swept_at IS NULL OR swept_at < now() - interval '{SWEEP_EVERY}') RETURNING id",
+            (row.id,)).fetchone() is not None or again
+    if row.locked_at is not None:
+        conn.execute("UPDATE row_bot_org.connectors SET locked_at = NULL WHERE id = %s", (row.id,))
+    if again:
+        conn.execute("UPDATE row_bot_org.connector_items SET readers_due = true WHERE connector_id = %s"
+                     " AND NOT is_folder AND document_id IS NOT NULL", (row.id,))
 
 
 def next_unlisted(conn: psycopg.Connection, connector_id: str) -> tuple[str, str | None] | None:
@@ -338,16 +426,20 @@ def _readers_again_under(conn: psycopg.Connection, connector_id: str, folder_id:
 def apply_changes(conn: psycopg.Connection, row: ConnectorRow, items: Sequence[Item], cursor: str) -> int:
     """One page of the change feed, and the cursor to read from next. A removed item, or one whose folder is no
     longer in scope (moved out), goes with everything under it; one whose folder is in scope is kept (moved in, a
-    new folder's children are to list); a changed folder has the permissions under it read again. How many
-    documents went."""
+    new folder's children are to list); a changed folder, the root included, has the permissions under it read again
+    unless the source says its sharing didn't change (Graph's sharedChanged). How many documents went."""
     removed = 0
     for item in sorted(items, key=lambda found: not found.is_folder):
+        # A folder's sharing may have changed for everything under it (unless the source says it didn't).
+        shared = item.shared_changed is not False
         if item.id == row.root_id:
+            if shared and not item.removed:
+                _readers_again_under(conn, row.id, item.id)
             continue
         if item.removed or not _in_scope(conn, row.id, item.parent_id):
             removed += remove_items(conn, row.id, [item.id])
             continue
-        if not _upsert(conn, row.id, item, item.parent_id, row.generation) and item.is_folder:
+        if not _upsert(conn, row.id, item, item.parent_id, row.generation) and item.is_folder and shared:
             _readers_again_under(conn, row.id, item.id)
     conn.execute("UPDATE row_bot_org.connectors SET feed_cursor = %s WHERE id = %s", (cursor, row.id))
     return removed
@@ -377,7 +469,8 @@ def next_due(conn: psycopg.Connection, connector_id: str) -> DueItem | None:
     row = conn.execute(
         "SELECT upstream_id, parent_id, name, media_type, size, version, document_id, content_due, readers_due"
         " FROM row_bot_org.connector_items WHERE connector_id = %s AND NOT is_folder AND (content_due OR readers_due)"
-        " ORDER BY updated_at, upstream_id LIMIT 1", (connector_id,)).fetchone()
+        " AND (retry_at IS NULL OR retry_at <= now()) ORDER BY updated_at, upstream_id LIMIT 1",
+        (connector_id,)).fetchone()
     if row is None:
         return None
     return DueItem(Item(row[0], row[1], row[2], False, media_type=row[3], size=row[4], version=row[5]),
@@ -387,7 +480,8 @@ def next_due(conn: psycopg.Connection, connector_id: str) -> DueItem | None:
 def _done(conn: psycopg.Connection, connector_id: str, due: DueItem, *, document_id: str | None,
           mirrored: Mirrored | None, skipped: str | None) -> None:
     conn.execute(
-        "UPDATE row_bot_org.connector_items SET content_due = false, readers_due = false, document_id = %s,"
+        "UPDATE row_bot_org.connector_items SET content_due = false, readers_due = false, failures = 0,"
+        " retry_at = NULL, document_id = %s,"
         " synced_version = CASE WHEN %s THEN %s::text ELSE synced_version END, readers = %s::text[], unmapped = %s,"
         " skipped = %s,"
         " updated_at = now() WHERE connector_id = %s AND upstream_id = %s",
@@ -405,6 +499,25 @@ def skip_item(conn: psycopg.Connection, connector_id: str, due: DueItem, reason:
                                (due.document_id, connector_id)).rowcount
     _done(conn, connector_id, due, document_id=None, mirrored=None, skipped=reason)
     return removed
+
+
+def bump_item(conn: psycopg.Connection, connector_id: str, due: DueItem) -> int:
+    """A file that couldn't be read just now waits (1, 2, 4... minutes; others go on meanwhile); its failures in a
+    row."""
+    (failures,) = conn.execute(
+        "UPDATE row_bot_org.connector_items SET failures = failures + 1,"
+        " retry_at = now() + make_interval(secs => least(3600, 60 * power(2, least(failures, 10)))),"
+        " updated_at = now() WHERE connector_id = %s AND upstream_id = %s RETURNING failures",
+        (connector_id, due.item.id)).fetchone()
+    return failures
+
+
+def held(conn: psycopg.Connection, connector_id: str, *, besides: str | None) -> tuple[int, int]:
+    """How many documents a connector has, and their bytes, leaving out the document ``besides``."""
+    count, size = conn.execute(
+        "SELECT count(*), coalesce(sum(byte_count), 0) FROM row_bot_org.brain_documents WHERE connector_id = %s"
+        " AND id IS DISTINCT FROM %s::uuid", (connector_id, besides)).fetchone()
+    return count, int(size)
 
 
 def item_settled(conn: psycopg.Connection, connector_id: str, due: DueItem, *, document_id: str | None,
@@ -428,8 +541,10 @@ def document_digest(conn: psycopg.Connection, connector_id: str, document_id: st
     return None if row is None else (row[0], row[1])
 
 
-__all__ = ["MOST_UNMAPPED", "STALE_CLAIM", "ConnectorRow", "Due", "DueItem", "apply_changes", "claim_due", "counts",
-           "create_connector", "delete_connector", "document_digest", "end_listing", "fail_turn", "finish_turn",
-           "get_connector", "item_settled", "list_connectors", "next_due", "next_unlisted", "refuse_turn",
-           "release", "remove_items", "sealed_secret", "set_readers", "set_state", "skip_item", "start_listing",
-           "stop_without_admin", "store_children", "sync_now", "to_json", "update_connector"]
+__all__ = ["LIMIT_REASON", "LOCK_AFTER", "MOST_UNMAPPED", "STALE_CLAIM", "SWEEP_EVERY", "ConnectorRow", "Due",
+           "DueItem", "apply_changes", "bump_item", "claim_due", "counts", "create_connector", "delete_connector",
+           "document_digest", "end_listing", "fail_turn", "fail_unexpected", "finish_turn", "get_connector", "held",
+           "item_settled", "list_connectors", "lock_stopped", "next_due", "next_unlisted", "permissions_note",
+           "refuse_turn", "release", "remove_items", "sealed_secret", "set_readers", "set_state", "skip_item",
+           "start_listing", "start_turn", "stop_without_admin", "store_children", "sync_now", "to_json",
+           "update_connector"]

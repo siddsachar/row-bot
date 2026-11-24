@@ -1,11 +1,13 @@
 """Mirroring a file's upstream permissions onto its document's readers (``brain_documents.readers``, migration 0011).
 
 A reader is ``e:<email>`` (a person, by the email Row-Bot has for them, lower case: one stored only when the identity
-provider verified it) or ``g:<group>`` (a Row-Bot group, as ``group_map`` names it). Each upstream permission that
-lets someone read the file (a ``Grant``) maps, in this order:
+provider verified it), ``o:<object id>`` (a person, by the Entra object id Row-Bot has for them from an Entra
+sign-in) or ``g:<group>`` (a Row-Bot group, as ``group_map`` names it). Each upstream permission that lets someone
+read the file (a ``Grant``) maps, in this order:
 
 1. its key in the connector's ``principal_map`` (set by an admin): that Row-Bot group;
-2. a person with an email: that email;
+2. a person: their email (only inside ``allowed_email_domains`` when those are set) and, for a Microsoft
+   connector with Entra sign-in, their Entra object id;
 3. a group: the Row-Bot group ``group_map`` maps its identifier to (an Entra group's object id; a Google group's
    email, compared without case); with no ``group_map``, a Microsoft group maps to its object id itself when people
    sign in with Entra (whose groups claim holds those ids, which is then what Row-Bot stores);
@@ -41,6 +43,8 @@ class Grant:
     email: str | None = None
     # A group's identifier at the identity provider (an Entra object id, a Google group's email).
     group: str | None = None
+    # A Microsoft user's Entra object id (lower case).
+    oid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,17 @@ def _group(grant: Grant, provider: str, idp: IdpConfig | None) -> str | None:
     return grant.group if provider == "microsoft" and idp.kind == "entra" else None
 
 
+def _person(grant: Grant, provider: str, idp: IdpConfig | None) -> set[str]:
+    found: set[str] = set()
+    email = (grant.email or "").strip().lower()
+    domains = idp.allowed_email_domains if idp is not None else ()
+    if "@" in email and (not domains or email.rsplit("@", 1)[1] in domains):
+        found.add("e:" + email)
+    if grant.oid and provider == "microsoft" and idp is not None and idp.kind == "entra":
+        found.add("o:" + grant.oid.lower())
+    return found
+
+
 def mirror(grants: Sequence[Grant], *, provider: str, idp: IdpConfig | None,
            principal_map: Mapping[str, str]) -> Mirrored:
     """The readers ``grants`` give a file of a ``provider`` (``microsoft`` or ``google``) connector."""
@@ -70,8 +85,8 @@ def mirror(grants: Sequence[Grant], *, provider: str, idp: IdpConfig | None,
         mapped = principal_map.get(grant.key)
         if mapped is not None:
             readers.add("g:" + mapped)
-        elif grant.kind == PERSON and grant.email:
-            readers.add("e:" + grant.email.strip().lower())
+        elif grant.kind == PERSON and (person := _person(grant, provider, idp)):
+            readers |= person
         elif grant.kind == GROUP and (group := _group(grant, provider, idp)) is not None:
             readers.add("g:" + group)
         else:

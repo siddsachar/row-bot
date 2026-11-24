@@ -54,9 +54,10 @@ def sign_in(conn: psycopg.Connection, identity: VerifiedIdentity, *, verifier: b
             user_agent: str, address: str, replaces: bytes | None) -> tuple[str, str]:
     """Make or update the principal and, when it is active, a session. Returns (principal id, status)."""
     principal_id, status = conn.execute(
-        "SELECT principal_id, status FROM row_bot_org.sign_in(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "SELECT principal_id, status FROM row_bot_org.sign_in(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (identity.issuer, identity.subject, identity.display_name, identity.email, list(identity.groups),
-         verifier, timedelta(seconds=lifetime), timedelta(seconds=idle), user_agent, address, replaces),
+         verifier, timedelta(seconds=lifetime), timedelta(seconds=idle), user_agent, address, replaces,
+         identity.entra_oid),
     ).fetchone()
     return str(principal_id), status
 

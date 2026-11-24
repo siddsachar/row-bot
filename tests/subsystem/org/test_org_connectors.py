@@ -33,7 +33,9 @@ import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from row_bot_org.app import create_app  # noqa: E402
-from row_bot_org.brain.store import NOT_IN_GRAPH  # noqa: E402
+from row_bot_org.brain.store import NOT_IN_GRAPH, worker_transaction  # noqa: E402
+from row_bot_org.connectors import store as connector_store  # noqa: E402
+from row_bot_org.connectors import sync as connector_sync  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
@@ -72,6 +74,12 @@ REFUSED = "Microsoft refused the connector's sign-in. Check its credentials and 
 @pytest.fixture
 def idp() -> Iterator[FakeIdp]:
     with running_idp("okta") as running:
+        yield running
+
+
+@pytest.fixture
+def entra_idp() -> Iterator[FakeIdp]:
+    with running_idp("entra") as running:
         yield running
 
 
@@ -246,7 +254,8 @@ def test_a_microsoft_folder_is_listed_in_full_then_followed_by_its_change_feed(o
 
     detail = {"kind": "microsoft", "space_id": company}
     assert changes(org_database) == [
-        ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company", {"change": "created", **detail}),
+        ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company",
+         {"change": "created", **detail, "drive_id": graph.drive, "folder_id": "F-hr"}),
         ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company",
          {"change": "sync_requested", **detail}),
         ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company",
@@ -365,7 +374,7 @@ def test_a_restricted_file_is_invisible_to_everyone_not_listed_by_any_route_and_
 
     detail = {"kind": "microsoft", "space_id": company}
     assert [entry[6] for entry in changes(org_database)] == [
-        {"change": "created", **detail}, {"change": "sync_requested", **detail},
+        {"change": "created", **detail, "drive_id": graph.drive}, {"change": "sync_requested", **detail},
         {"change": "updated", **detail, "fields": "principal_map"}]
 
 
@@ -432,7 +441,8 @@ def test_a_refused_sign_in_is_audited_and_stops_the_connector_after_three_and_no
     service = ("connector.changed", "service", "company-server", connector_id, "failed", "company")
     detail = {"kind": "microsoft", "space_id": company}
     assert changes(org_database) == [
-        ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company", {"change": "created", **detail}),
+        ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company",
+         {"change": "created", **detail, "drive_id": graph.drive}),
         *[(*service, {"change": "auth_failed", **detail, "attempts": attempt}) for attempt in (1, 2, 3)],
         ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company", {"change": "resumed", **detail}),
         ("connector.changed", "admin", admin_id, connector_id, "succeeded", "company",
@@ -533,3 +543,328 @@ def test_a_google_shared_drive_syncs_files_and_docs_follows_its_changes_and_mirr
         assert refused.status_code == 422 and key_file not in refused.text
         wrong = admin.patch(f"/api/admin/connectors/{connector_id}", json={"client_secret": "x"})
         assert (wrong.status_code, wrong.json()) == (422, {"error": "not_for_this_kind"})
+        # What it reads is fixed when it is made: the user a Google connector acts as included.
+        assert admin.patch(f"/api/admin/connectors/{connector_id}",
+                           json={"subject": "someone@example.com"}).status_code == 422
+    (created,) = [entry for entry in changes(org_database) if entry[6]["change"] == "created"]
+    assert created[6] == {"change": "created", "kind": "google", "space_id": company, "drive_id": drive.root}
+
+
+# -- Entra people ---------------------------------------------------------------------------------------------
+
+OBJECT_IDS = {"it": "aaaaaaaa-0000-4000-8000-000000000000", "eve": "aaaaaaaa-0000-4000-8000-000000000001",
+              "bo": "aaaaaaaa-0000-4000-8000-000000000002", "sam": "aaaaaaaa-0000-4000-8000-000000000003"}
+
+
+def entra_person(server: TestClient, idp: FakeIdp, subject: str, groups: list[str] | None = None) -> TestClient:
+    """A browser signed in through Entra as ``subject``, with its own object id (Entra sends no verified email)."""
+    client = TestClient(server.app, base_url=PUBLIC_URL, headers=ORIGIN)
+    login = client.get("/auth/login", follow_redirects=False)
+    done = client.get(idp.authorize(login.headers["location"], subject=subject, groups=groups or [],
+                                    oid=OBJECT_IDS[subject]), follow_redirects=False)
+    assert done.status_code == 303, done.text
+    return client
+
+
+def test_with_entra_sign_in_a_file_shared_with_one_person_is_read_by_them_alone(org_database, entra_idp) -> None:
+    graph = FakeGraph()
+    graph.file("plan", "plan.md", "root-1", b"Eve's plan.",
+               [user_permission(OBJECT_IDS["eve"], "Eve", "eve@contoso.example")])
+    graph.file("notes", "notes.md", "root-1", b"Bo's notes.", [user_permission(OBJECT_IDS["bo"], "Bo", None)])
+
+    with org_server(org_database, entra_idp) as server:
+        admin = entra_person(server, entra_idp, "it", [IT_ADMINS])
+        eve, bo = entra_person(server, entra_idp, "eve"), entra_person(server, entra_idp, "bo")
+        sam = entra_person(server, entra_idp, "sam")
+        company = company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company))["id"]
+        assert process(server) == 2
+        assert titles(eve, company) == {"plan"}
+        assert titles(bo, company) == {"notes"}
+        assert titles(sam, company) == set()
+        assert titles(admin, company) == {"plan", "notes"}
+        assert recalled(eve, "plan notes") == {"plan"}
+        assert recalled(bo, "plan notes") == {"notes"}
+        assert recalled(sam, "plan notes") == set()
+        assert connector_of(admin, connector_id)["unmapped_files"] == 0
+    # Entra sends no verified email, so Row-Bot keeps none: people are matched by the object id it keeps instead.
+    assert superuser_sql(org_database, "SELECT email, entra_oid FROM row_bot_org.principals ORDER BY entra_oid") == [
+        (None, OBJECT_IDS[name]) for name in ("it", "eve", "bo", "sam")]
+
+
+# -- revocations upstream --------------------------------------------------------------------------------------
+
+def test_a_root_unshare_is_mirrored_and_the_daily_sweep_reads_what_the_feed_missed(org_database, idp) -> None:
+    graph = FakeGraph()
+    graph.file("a", "a.md", "root-1", b"Alpha notes.", ENGINEERING)
+    graph.file("b", "b.md", "root-1", b"Beta notes.", ENGINEERING)
+    graph.folder("F-docs", "Docs", "root-1")
+    graph.file("c", "c.md", "F-docs", b"Gamma notes.", ENGINEERING)
+    sam_only = [user_permission("u-sam", "Sam", "sam@example.com")]
+
+    def permission_reads() -> list[str]:
+        return [request.url.path.split("/")[-2] for request in graph.to("graph.microsoft.com")
+                if request.url.path.endswith("/permissions")]
+
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        eve, sam = person(server, idp, "eve", ["Engineering"]), person(server, idp, "sam", ["Sales"])
+        company = company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company))["id"]
+        assert process(server) == 3
+        assert titles(eve, company) == {"a", "b", "c"}
+        checked = connector_of(admin, connector_id)["permissions_checked_at"]
+        assert checked is not None
+
+        # A folder renamed, its sharing unchanged (Graph says so): nothing under it is read again.
+        reads = len(permission_reads())
+        graph.rename("F-docs", "Documents")
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert len(permission_reads()) == reads
+
+        # The root's sharing changes for everything under it, and the feed names only the root.
+        graph.share("root-1", sam_only, under=("a", "b", "c"))
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert titles(eve, company) == set()
+        assert titles(sam, company) == {"a", "b", "c"}
+        assert sorted(permission_reads()[reads:]) == ["a", "b", "c"]
+
+        # A change the feed never reports waits for the daily sweep, which reads every file's permissions again.
+        graph.share("a", ENGINEERING, logged=False)
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert titles(eve, company) == set()
+        superuser_sql(org_database, "UPDATE row_bot_org.connectors SET swept_at = now() - interval '2 days'")
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert titles(eve, company) == {"a"}
+        assert titles(sam, company) == {"b", "c"}
+        assert connector_of(admin, connector_id)["permissions_checked_at"] > checked
+
+
+# -- facts citing synced files ------------------------------------------------------------------------------
+
+def test_facts_citing_a_synced_file_go_with_it_and_never_become_the_whole_spaces(org_database, idp) -> None:
+    graph = FakeGraph()
+    graph.folder("F-hr", "HR", "root-1")
+    graph.folder("F-other", "Other", "root-1")
+    for name in ("x", "y", "z"):
+        graph.file(name, f"{name}.md", "F-hr", f"Notes {name}.".encode(), ENGINEERING)
+
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        eve, sam = person(server, idp, "eve", ["Engineering"]), person(server, idp, "sam", ["Sales"])
+        company = company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company, folder_id="F-hr"))["id"]
+        assert process(server) == 3
+        ids = {title: document["id"] for title, document in documents(admin, company).items()}
+        for title in ("x", "y", "z"):
+            added = admin.post(f"/api/brain/spaces/{company}/facts",
+                               json={"text": f"Fact from {title}.", "source_document_id": ids[title]})
+            assert added.status_code == 201, added.text
+        assert admin.post(f"/api/brain/spaces/{company}/facts", json={"text": "A fact of its own."}).status_code == 201
+
+        def facts_of(client: TestClient) -> list[str]:
+            return sorted(fact["text"] for fact in client.get(f"/api/brain/spaces/{company}/facts").json()["facts"])
+
+        assert facts_of(eve) == ["A fact of its own.", "Fact from x.", "Fact from y.", "Fact from z."]
+        assert facts_of(sam) == ["A fact of its own."]
+
+        # A file moved out of scope, and one no longer read (skipped): their facts go with their documents.
+        graph.move("y", "F-other")
+        graph.rename("z", "z.pdf")
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert titles(eve, company) == {"x"}
+        assert facts_of(eve) == ["A fact of its own.", "Fact from x."]
+        assert facts_of(sam) == ["A fact of its own."]
+
+        # The connector deleted: the last one goes too.
+        assert admin.delete(f"/api/admin/connectors/{connector_id}").status_code == 204
+        assert facts_of(eve) == facts_of(sam) == ["A fact of its own."]
+    assert superuser_sql(org_database, "SELECT body FROM row_bot_org.brain_facts") == [("A fact of its own.",)]
+
+
+# -- a file that keeps failing, and the unforeseen ----------------------------------------------------------------
+
+def test_a_file_that_keeps_failing_waits_while_the_rest_sync_then_is_skipped_and_its_document_goes(
+        org_database, idp) -> None:
+    graph = FakeGraph()
+    for name in ("flaky", "good", "other"):
+        graph.file(name, f"{name}.md", "root-1", f"First {name}.".encode(), ENGINEERING)
+
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        eve = person(server, idp, "eve", ["Engineering"])
+        company = company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company))["id"]
+        assert process(server) == 3
+
+        graph.change("flaky", b"Second flaky.")
+        graph.change("good", b"Second good.")
+        graph.failing = {"flaky"}
+        sync_now(admin, connector_id)
+        assert process(server) == 1
+        shown = connector_of(admin, connector_id)
+        assert (shown["state"], shown["failing"], shown["skipped"]) == ("active", 1, 0)
+        assert recalled(eve, "second") == {"good"}
+        assert titles(eve, company) == {"flaky", "good", "other"}
+
+        # Its third failure in a row: skipped, and its document goes (it is never left unchecked).
+        for _ in range(2):
+            superuser_sql(org_database, "UPDATE row_bot_org.connector_items SET retry_at = now()"
+                          " WHERE retry_at IS NOT NULL")
+            due_now(org_database, connector_id)
+            assert process(server) == 0
+        shown = connector_of(admin, connector_id)
+        assert (shown["state"], shown["failing"], shown["skipped"], shown["documents"]) == ("active", 0, 1, 2)
+        assert titles(eve, company) == {"good", "other"}
+
+        # Two files failing one after the other is the source failing: the connector waits, and only the first counts.
+        graph.change("good", b"Third good.")
+        graph.change("other", b"Second other.")
+        graph.failing = {"good", "other"}
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert superuser_sql(org_database, "SELECT failures, next_sync_at > now() + interval '50 seconds'"
+                             " FROM row_bot_org.connectors") == [(1, True)]
+        assert superuser_sql(org_database, "SELECT upstream_id, failures FROM row_bot_org.connector_items"
+                             " WHERE failures > 0") == [("good", 1)]
+
+
+def test_an_unforeseen_failure_waits_like_an_outage_and_a_link_too_long_to_keep_is_refused(
+        org_database, idp, monkeypatch) -> None:
+    graph = FakeGraph()
+    graph.file("a", "a.md", "root-1", b"Alpha notes.", ENGINEERING)
+
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        company = company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company))["id"]
+
+        def unforeseen(*_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("something nobody foresaw")
+
+        monkeypatch.setattr(connector_store, "next_unlisted", unforeseen)
+        assert process(server) == 0
+        assert superuser_sql(org_database, "SELECT failures, next_sync_at > now() + interval '50 seconds',"
+                             " claimed_at IS NULL FROM row_bot_org.connectors") == [(1, True, True)]
+        seen = len(graph.requests)
+        assert process(server) == 0
+        assert len(graph.requests) == seen
+        monkeypatch.undo()
+        due_now(org_database, connector_id)
+        assert process(server) == 1
+
+        # Graph hands back a next link longer than any the connector keeps: it waits, as for an outage.
+        graph.long_links = True
+        for name in ("b", "c", "d"):
+            graph.file(name, f"{name}.md", "root-1", b"More notes.", ENGINEERING)
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert superuser_sql(org_database, "SELECT failures, state, next_sync_at > now() + interval '50 seconds'"
+                             " FROM row_bot_org.connectors") == [(1, "active", True)]
+        assert titles(admin, company) == {"a"}
+
+
+# -- stopped and paused -------------------------------------------------------------------------------------------
+
+def test_a_stopped_connectors_files_become_admins_only_until_it_syncs_again_and_a_paused_ones_keep_theirs(
+        org_database, idp) -> None:
+    graph = FakeGraph()
+    graph.file("leave", "leave.md", "root-1", b"Everyone gets 25 days of annual leave.", ENGINEERING)
+
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        eve, ray = person(server, idp, "eve", ["Engineering"]), person(server, idp, "ray")
+        admin_id, ray_id, company = me(admin), me(ray), company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company))["id"]
+        assert process(server) == 1
+        assert titles(eve, company) == {"leave"}
+
+        # Ray, made an admin, saves it (so it syncs as him); then he is an admin no more: at once only admins read.
+        assert admin.put(f"/api/admin/people/{ray_id}/role", json={"role": "admin"}).status_code == 200
+        saved = ray.patch(f"/api/admin/connectors/{connector_id}", json={"name": "HR files"})
+        assert (saved.status_code, saved.json()["run_as"]) == (200, ray_id)
+        assert admin.put(f"/api/admin/people/{ray_id}/role", json={"role": "member"}).status_code == 200
+        due_now(org_database, connector_id)
+        assert process(server) == 0
+        shown = connector_of(admin, connector_id)
+        assert (shown["state"], shown["state_reason"]) == ("error", connector_sync.NOT_AN_ADMIN)
+        assert shown["permissions_note"].startswith("This connector stopped, so only admins can read its files")
+        assert titles(eve, company) == set()
+        assert titles(admin, company) == {"leave"}
+
+        # The worker may make files admins only, and nothing more: no wider readers, no other settings.
+        leave_id = documents(admin, company)["leave"]["id"]
+        with runtime_pool(org_database) as pool:
+            for statement, values in (("UPDATE row_bot_org.connectors SET name = 'Mine'", ()),
+                                      ("UPDATE row_bot_org.brain_documents SET readers = '{g:Sales}' WHERE id = %s",
+                                       (leave_id,))):
+                with worker_transaction(pool) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    conn.execute(statement, values)
+
+        # An admin resumes it: it syncs as them, reads its files' permissions again, and they read as before.
+        resumed = admin.post(f"/api/admin/connectors/{connector_id}/resume")
+        assert (resumed.json()["state"], resumed.json()["run_as"]) == ("active", admin_id)
+        assert process(server) == 0
+        assert titles(eve, company) == {"leave"}
+        assert connector_of(admin, connector_id)["permissions_note"] is None
+
+        # Stopped by refusals: its files keep their permissions for 24 hours, then only admins read them.
+        graph.refuse_sign_in = True
+        for _ in range(3):
+            due_now(org_database, connector_id)
+            assert process(server) == 0
+        shown = connector_of(admin, connector_id)
+        assert shown["state"] == "error"
+        assert shown["permissions_note"].startswith("This connector stopped: its files keep their last permissions")
+        assert titles(eve, company) == {"leave"}
+        superuser_sql(org_database, "UPDATE row_bot_org.connectors SET error_since = now() - interval '25 hours'")
+        assert process(server) == 0
+        assert titles(eve, company) == set()
+        graph.refuse_sign_in = False
+        assert admin.post(f"/api/admin/connectors/{connector_id}/resume").status_code == 200
+        assert process(server) == 0
+        assert titles(eve, company) == {"leave"}
+
+        # Paused (an admin's choice): its files keep their permissions, and it says when they were last checked.
+        paused = admin.post(f"/api/admin/connectors/{connector_id}/pause").json()
+        assert paused["permissions_note"].startswith("Paused: its files keep their last permissions. Permissions last"
+                                                     " checked at ")
+        assert paused["permissions_checked_at"] is not None
+        assert process(server) == 0
+        assert titles(eve, company) == {"leave"}
+
+
+# -- limits -----------------------------------------------------------------------------------------------------
+
+def test_a_connector_syncs_only_so_many_files_and_bytes_and_says_what_it_left_out(org_database, idp,
+                                                                                  monkeypatch) -> None:
+    monkeypatch.setattr(connector_sync, "MAX_FILES", 2)
+    graph = FakeGraph()
+    for name in ("a", "b", "c"):
+        graph.file(name, f"{name}.md", "root-1", b"0123456789", ENGINEERING)
+
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        company = company_space(admin)
+        connector_id = connect(server, admin, graph, microsoft(graph, company))["id"]
+        assert process(server) == 2
+        shown = connector_of(admin, connector_id)
+        assert (shown["documents"], shown["skipped"], shown["limited"]) == (2, 1, 1)
+        assert shown["limit_warning"] == ("1 file was left out: this connector reached its limit of files or space."
+                                          " Connect a narrower folder, or remove files at the source.")
+        assert superuser_sql(org_database, "SELECT skipped FROM row_bot_org.connector_items WHERE upstream_id = 'c'"
+                             ) == [("This connector has reached its limit of 2 files.",)]
+
+        # Past its bytes, a file grown upstream is left out too (and its document goes).
+        server.app.state.connectors.max_connector_bytes = 25
+        graph.change("b", b"0123456789" * 2)
+        sync_now(admin, connector_id)
+        assert process(server) == 0
+        assert titles(admin, company) == {"a"}
+        shown = connector_of(admin, connector_id)
+        assert (shown["documents"], shown["limited"]) == (1, 2)
