@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "CompanyGraphSpace": {
+      "additionalProperties": false,
+      "description": "A company knowledge space the person may read (B8), and whether they own it (owners curate it in the\nadmin console).",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_owner": {
+          "title": "Is Owner",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "company",
+            "group"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 160,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "is_owner"
+      ],
+      "title": "CompanyGraphSpace",
+      "type": "object"
+    },
+    "KnowledgeGraphEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 64,
+          "title": "Relation Type",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "target_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 128,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source_id",
+        "target_id",
+        "relation_type",
+        "updated_at"
+      ],
+      "title": "KnowledgeGraphEdge",
+      "type": "object"
+    },
+    "KnowledgeGraphNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "entity_type": {
+          "maxLength": 64,
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_user": {
+          "title": "Is User",
+          "type": "boolean"
+        },
+        "orphan": {
+          "title": "Orphan",
+          "type": "boolean"
+        },
+        "relation_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Relation Count",
+          "type": "integer"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "manual",
+            "extraction",
+            "document",
+            "wiki",
+            "import",
+            "other"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_label": {
+          "maxLength": 128,
+          "title": "Source Label",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "needs_review",
+            "superseded",
+            "archived"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "core",
+            "semantic",
+            "episodic",
+            "resource"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 128,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "subject",
+        "description",
+        "entity_type",
+        "source",
+        "updated_at",
+        "relation_count",
+        "orphan",
+        "is_user",
+        "status",
+        "tier",
+        "source_label"
+      ],
+      "title": "KnowledgeGraphNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Knowledge home's Company scope (B8): the company's knowledge graph, filtered by its server to what the\nperson may read, as the personal graph's nodes and edges. Read only.",
+  "properties": {
+    "company": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company"
+    },
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeGraphEdge"
+      },
+      "maxItems": 3000,
+      "title": "Edges",
+      "type": "array"
+    },
+    "entity_types": {
+      "items": {
+        "maxLength": 64,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Entity Types",
+      "type": "array"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeGraphNode"
+      },
+      "maxItems": 1000,
+      "title": "Nodes",
+      "type": "array"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "lease_expired",
+            "not_confirmed",
+            "busy",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "shown_entities": {
+      "maximum": 1000,
+      "minimum": 0,
+      "title": "Shown Entities",
+      "type": "integer"
+    },
+    "shown_relations": {
+      "maximum": 3000,
+      "minimum": 0,
+      "title": "Shown Relations",
+      "type": "integer"
+    },
+    "space_ids": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9:_-]+$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Space Ids",
+      "type": "array"
+    },
+    "spaces": {
+      "items": {
+        "$ref": "#/$defs/CompanyGraphSpace"
+      },
+      "maxItems": 512,
+      "title": "Spaces",
+      "type": "array"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "not_joined",
+        "disconnected",
+        "locked_down",
+        "unreachable"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "total_entities": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Total Entities",
+      "type": "integer"
+    },
+    "total_relations": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Total Relations",
+      "type": "integer"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "company",
+    "reason",
+    "nodes",
+    "edges",
+    "spaces",
+    "space_ids",
+    "total_entities",
+    "total_relations",
+    "shown_entities",
+    "shown_relations",
+    "truncated",
+    "entity_types"
+  ],
+  "title": "CompanyGraphView",
+  "type": "object"
+}

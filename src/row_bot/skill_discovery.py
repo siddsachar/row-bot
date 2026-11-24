@@ -104,6 +104,7 @@ def collect_enabled_skill_records(*, load_manual: bool = True) -> list[SkillReco
         if load_manual
         else skills.get_enabled_manual_skills_snapshot()
     )
+    # Both lists leave out Skills Hub skills the person's company doesn't allow (skills._company_kept, C3b).
     for skill in manual_skills:
         if skills.is_tool_guide(skill):
             continue

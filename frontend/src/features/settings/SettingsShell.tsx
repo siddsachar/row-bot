@@ -45,6 +45,7 @@ const descriptions: Record<string, string> = {
   tools: 'Search, research and built-in tools the assistant can use.',
   apps: 'Services Row-Bot can work in for you. Connect one in about a minute.',
   skills: 'Ways of doing a job that Row-Bot follows when they fit.',
+  company: 'Your company’s Row-Bot server, when your work uses one.',
   system: 'Where Row-Bot works on this computer, and what it may do there.',
   activity: 'Everything Row-Bot did, and who allowed it.',
   access:

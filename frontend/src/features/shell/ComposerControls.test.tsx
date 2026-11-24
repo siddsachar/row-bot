@@ -34,6 +34,8 @@ const mock = vi.hoisted(() => ({
 vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
   useRuntime: () => ({ controller: mock.controller }),
+  // The picker's company suggestion (Row-Bot for Teams) needs no runtime here.
+  useOptionalRuntime: () => null,
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
@@ -678,6 +680,31 @@ it('does not offer Hands-off in a conversation other people share', async () => 
       'Other people share this conversation, so it runs on Auto at most.',
     ),
   ).toBeVisible();
+});
+
+it('offers no level above the company’s ceiling, shows the chat at it and keeps the choice (C3b)', async () => {
+  mock.state.workspace = {
+    ...mock.state.workspace!,
+    controls: { ...mock.state.workspace!.controls, approval_mode: 'full' },
+    approval: {
+      full_autonomy_confirmed: true,
+      full_autonomy_available: true,
+      company_max_level: 'auto',
+    },
+  };
+  render(<ComposerControls onError={vi.fn()} />);
+  // The person chose Hands-off; their company allows Auto at most.
+  const approvals = await menu('Approvals: Auto');
+  const full = approvals.getByRole('menuitem', { name: /^Hands-off/ });
+  expect(full).toHaveAttribute('aria-disabled', 'true');
+  expect(within(full).getByText('Set by your company')).toBeVisible();
+  expect(
+    approvals.getByRole('menuitem', { name: /^Block/ }),
+  ).not.toHaveAttribute('aria-disabled', 'true');
+  await act(async () =>
+    fireEvent.click(approvals.getByRole('menuitem', { name: /^Ask/ })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2].approval_mode).toBe('approve');
 });
 
 it('hands Add resource the + trigger so focus can return to it', async () => {

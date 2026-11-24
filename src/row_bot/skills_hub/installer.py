@@ -46,7 +46,12 @@ def install_bundle(
     conflict_policy: ConflictPolicy = "keep_existing",
 ) -> InstallResult:
     import row_bot.skills as skills
+    from row_bot.company.enforce import app_refusal
 
+    held = app_refusal("skills_hub", bundle.install_ref, str(bundle.metadata.get("hub_entry_ref") or ""))
+    if held:
+        # The person's company doesn't allow it (C3b): nothing is written.
+        return InstallResult(success=False, message=held, skill_name="")
     skills.load_skills()
     scan = scan_bundle(bundle)
     if scan.blocked:
@@ -145,6 +150,11 @@ def update_skill(
     record = get_record(local_name)
     if record is None:
         return InstallResult(False, f"Skill '{local_name}' is not hub-installed.", skill_name=local_name)
+    from row_bot.company.enforce import APP_HELD, skill_held
+
+    if skill_held(local_name):
+        # The person's company doesn't allow it (C3b): it isn't updated, and the copy kept stays as it is.
+        return InstallResult(False, APP_HELD["skills_hub"], skill_name=local_name, record=record)
     try:
         bundle = reviewed_bundle or fetch_bundle_for_record(record)
     except Exception as exc:

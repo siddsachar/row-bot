@@ -62,6 +62,7 @@ import { typeSlot } from './knowledge-palette';
 import { When, plural } from './home-format';
 import { humanizeToken, relativeTime } from '../../ui/format';
 import { usePhone } from '../../ui/on-your-computer';
+import CompanyScope from '../company/CompanyScope';
 
 /** Recall tiers from memory_policy.py, in words people use (B8). */
 const MEMORY_TIERS: Record<string, string> = {
@@ -522,7 +523,20 @@ function KnowledgeSearch({
   );
 }
 
-export default function KnowledgeHome({
+/**
+ * Knowledge home. Row-Bot for Teams (B8): while this Row-Bot is joined to a
+ * company, a switch shows the company's knowledge graph instead (read only);
+ * with no company joined it is exactly the person's own view.
+ */
+export default function KnowledgeHome(props: KnowledgeHomeProps) {
+  return (
+    <CompanyScope>
+      <MyKnowledge {...props} />
+    </CompanyScope>
+  );
+}
+
+function MyKnowledge({
   snapshot,
   loading,
   error,

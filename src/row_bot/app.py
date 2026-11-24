@@ -316,6 +316,12 @@ async def _continue_goals_after_restart() -> None:
 async def _auto_start_channel_background(channel) -> None:
     channel_name = str(getattr(channel, "name", "") or "")
     display_name = str(getattr(channel, "display_name", channel_name) or channel_name)
+    from row_bot.company.enforce import allows_app
+
+    if not allows_app("channels", channel_name):
+        # The person's company doesn't allow it (C3b): it stays set up, and isn't started.
+        logger.info("startup.channel.company_policy channel=%s", channel_name)
+        return
     started = time.perf_counter()
     ok = False
     try:

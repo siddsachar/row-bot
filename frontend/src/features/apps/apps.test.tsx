@@ -361,6 +361,36 @@ it('puts your apps first, attention first, and only searches online when asked',
   );
 });
 
+it('an app the person’s company doesn’t allow reads Set by your company on its card (C3b)', async () => {
+  const held = {
+    code: 'company_policy',
+    severity: 'blocking' as const,
+    message: 'Set by your company: your company doesn’t allow this MCP server.',
+    subject: '',
+  };
+  const integrationItems = vi.fn(async ({ scope }: { scope: string }) =>
+    scope === 'installed'
+      ? page([
+          entry({
+            id: 'mcp:held',
+            name: 'Held',
+            installed: true,
+            lifecycle: 'installed',
+            readiness: null,
+            blockers: [held],
+            next_action: { kind: 'none', label: '' },
+          }),
+        ])
+      : page([]),
+  );
+  show('/settings/apps', { integrationItems });
+  const yours = await screen.findByRole('region', { name: 'Your apps' });
+  expect(within(yours).getAllByRole('link')[0]).toHaveAccessibleName(
+    /^Held.*Set by your company/,
+  );
+  expect(within(yours).queryByText('Ready')).toBeNull();
+});
+
 it('a result opened while the search is settling stays open', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const integrationItems = vi.fn(async () => page([entry()]));

@@ -748,6 +748,16 @@ const CATALOG: Record<string, Entry> = {
     'Only you can turn on Hands-off, in Row-Bot.',
     'none',
   ],
+  // Row-Bot for Teams (C3b): an app, an approval level or chat export the company doesn't allow.
+  company_policy: [
+    'Your company’s rules don’t allow this. Settings › Company lists them.',
+    'none',
+  ],
+  // Row-Bot for Teams (C5): this computer's IT department set its company server.
+  company_pinned: [
+    'Your IT department set this computer’s company server, so it can’t be changed here.',
+    'none',
+  ],
 
   // Conversations, sending and waiting messages
   checkpoint_unavailable: [
@@ -3481,6 +3491,8 @@ const refusals = new Set([
   'browser_navigation_denied',
   'capability_unavailable',
   'clone_blocked',
+  // The person's company doesn't allow it (Row-Bot for Teams, C3b).
+  'company_policy',
   'computer_use_local_only',
   'developer_repository_action_denied',
   'document_processing_denied',

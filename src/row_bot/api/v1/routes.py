@@ -1242,6 +1242,10 @@ _STATUS.update({"chat_page_unavailable": 404, "chat_page_invalid": 422, "chat_pa
 # App views in chat: each reaches the client as itself (unlisted, every one read "Part of Row-Bot isn't responding").
 _STATUS.update({"views_off": 403, "view_tool_refused": 403, "view_tool_denied": 403, "view_rate_limited": 429,
                 "view_busy": 409, "view_unavailable": 409, "view_tool_failed": 502})
+# Row-Bot for Teams (C3b): the person's company doesn't allow it (an app, an approval level, chat export).
+_STATUS["company_policy"] = 403
+# Row-Bot for Teams (C5): this computer's IT department set its company server (no other, and no Leave).
+_STATUS["company_pinned"] = 409
 
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).
@@ -7306,6 +7310,76 @@ def create_router(
         from row_bot.application.client_speech_models import remove
 
         return await respond(request, dto.SpeechModelsView, await call(remove, body.model_id))
+
+    # Row-Bot for Teams (C1b): this Row-Bot joined to a company's server. Reading it contacts nothing; Join and
+    # Sign in again open this computer's browser, so only its own desktop app starts them.
+    async def company_view(request: Request, method: Callable, *args: Any) -> JSONResponse:
+        on_machine = on_this_computer(await _context(request))
+        return await respond(request, dto.CompanyView, {**await call(method, *args), "on_this_computer": on_machine})
+
+    @router.get("/company")
+    async def company_status(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_company import status
+
+        return await company_view(request, status)
+
+    @router.post("/company/join")
+    async def company_join(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.CompanyJoinRequest, 4096)
+        from row_bot.application.client_company import join
+
+        return await company_view(request, join, body.address, body.device_name)
+
+    @router.post("/company/sign-in-again")
+    async def company_sign_in_again(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        from row_bot.application.client_company import sign_in_again
+
+        return await company_view(request, sign_in_again)
+
+    @router.post("/company/cancel")
+    async def company_cancel(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_company import cancel
+
+        return await company_view(request, cancel)
+
+    @router.post("/company/check")
+    async def company_check(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_company import check
+
+        return await company_view(request, check)
+
+    @router.post("/company/leave")
+    async def company_leave(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_company import leave
+
+        return await company_view(request, leave)
+
+    # Row-Bot for Teams (B8): Knowledge home's Company scope, read only. The company's server filters its
+    # knowledge graph to what the person may read; with no company joined nothing is asked.
+    @router.get("/company/graph")
+    async def company_graph(request: Request, spaces: str = "", q: str = "", limit: int = 300) -> JSONResponse:
+        await session(request)
+        from row_bot.company import brain
+
+        wanted = [space for space in spaces.split(",")[: brain.MAX_SPACES] if space]
+        view = await call(brain.graph, wanted, q, limit)
+        return await respond(request, dto.CompanyGraphView, view or brain.empty_graph("not_joined"))
+
+    @router.get("/company/entities/{entity_id}")
+    async def company_entity(request: Request, entity_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.company import brain
+
+        view = await call(brain.entity, entity_id)
+        return await respond(request, dto.CompanyEntityView, view or brain.empty_entity("not_joined"))
 
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
