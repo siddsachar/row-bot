@@ -333,6 +333,24 @@ def test_a_cancelled_consult_answers_with_a_short_cancelled_result(live, ends_be
             return active(owner)
 
         realtime._control, realtime._active = cancel, ended_mid_answer
+    else:
+        # A slow machine: the host says the stopped run's answer, and tells the session so, while the
+        # cancel's own call is still being answered.
+        realtime = live.service.realtime
+        control, event = realtime._control, realtime.event
+        told = threading.Event()
+
+        async def handled(owner, handle, item, **kwargs):
+            if item.type == "provider_response_create_sent":
+                told.set()
+            return await event(owner, handle, item, **kwargs)
+
+        def cancel(owner, expected, *args):
+            result = control(owner, expected, *args)
+            told.wait(1)  # the session takes one event at a time: this bounds the overlap it never allows
+            return result
+
+        realtime._control, realtime.event = cancel, handled
     started = start(live, "gemini")
     with live.client.websocket_connect(LIVE, headers=ORIGIN) as socket:
         hello(socket, started)

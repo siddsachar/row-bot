@@ -84,12 +84,17 @@ async def run_live_socket(transport: Any, redeemed: Any, *, link: Any, receive: 
             flags["orb"] = orb
             await link.send_event({"type": "state", "state": orb, "muted": flags["muted"]})
 
+    # The session takes one event at a time: the relay's own, and the turn the host tells it of after
+    # saying Row-Bot's answer, may come at once (a stopped run's answer while its cancel is answered).
+    one_at_a_time = asyncio.Lock()
+
     async def handle_event(fields: dict) -> Any:
-        if "generation_id" not in fields:
-            fields = {**fields, "generation_id": await asyncio.to_thread(transport.generation, owner, handle)}
-        event = RealtimeEvent(**{"event_id": str(uuid4()), **fields})
-        result = await asyncio.to_thread(
-            lambda: asyncio.run(transport.event(owner, handle, event, validate=validate)))
+        async with one_at_a_time:
+            if "generation_id" not in fields:
+                fields = {**fields, "generation_id": await asyncio.to_thread(transport.generation, owner, handle)}
+            event = RealtimeEvent(**{"event_id": str(uuid4()), **fields})
+            result = await asyncio.to_thread(
+                lambda: asyncio.run(transport.event(owner, handle, event, validate=validate)))
         if event.type == "output_started":
             flags["speaking"] = True
         elif event.type in _SPEAKING_ENDS:
