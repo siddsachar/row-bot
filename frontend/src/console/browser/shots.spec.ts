@@ -17,6 +17,7 @@ const PAGES: [string, string][] = [
   ['models-catalog', 'models?tab=catalog'],
   ['models-budgets', 'models?tab=budgets'],
   ['models-usage', 'models?tab=usage'],
+  ['connectors', 'connectors'],
   ['policy-company', 'policy?tab=company'],
   ['policy-groups', 'policy?tab=groups'],
   ['policy-history', 'policy?tab=history'],
@@ -135,6 +136,17 @@ for (const theme of THEMES) {
     await settle(page);
     await page.getByRole('button', { name: 'Edit Anthropic' }).click();
     await shoot(page, `models-endpoint-edit-${theme}`);
+    await page.keyboard.press('Escape');
+
+    await page.goto('https://org.example.test/console/connectors');
+    await settle(page);
+    await page
+      .getByRole('button', { name: 'Show details for HR policies' })
+      .click();
+    await shoot(page, `connectors-details-${theme}`);
+    await page.getByRole('button', { name: 'Add connector' }).click();
+    await page.getByText('Before you start').click();
+    await shoot(page, `connectors-add-${theme}`);
     await page.keyboard.press('Escape');
 
     await page.goto('https://org.example.test/console/policy?tab=company');

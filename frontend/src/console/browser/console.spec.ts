@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { HR_POLICIES } from './fake-connectors';
 import { openConsole, ORIGIN } from './serve';
 
 test('people: search, a confirmed suspension, and no actions on yourself', async ({
@@ -98,6 +99,65 @@ test('audit: plain-words events, a filter, older pages, the integrity check and 
   expect(violations).toEqual([]);
 });
 
+test('connectors: add and test one, map someone unmatched, then pause it', async ({
+  page,
+}) => {
+  const { api, violations } = await openConsole(page, '/console/connectors');
+  await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible();
+  const connectors = page.getByRole('list', { name: 'Connectors' });
+  await expect(connectors.getByText('Needs a look')).toHaveCount(2);
+
+  await page.getByRole('button', { name: 'Add connector' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog
+    .getByLabel(/^Tenant id/)
+    .fill('0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e');
+  await dialog
+    .getByLabel(/^Application \(client\) id/)
+    .fill('1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d');
+  await dialog.getByLabel(/^Client secret/).fill('test-client-secret');
+  await dialog.getByLabel(/^Drive id/).fill('b!finance-drive');
+  await dialog.getByLabel(/^Name/).fill('Finance');
+  await dialog.getByRole('button', { name: 'Connect and test' }).click();
+  await expect(page.getByRole('dialog', { name: 'Connected' })).toBeVisible();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(connectors.getByText('Finance', { exact: true })).toBeVisible();
+
+  await page
+    .getByRole('button', { name: 'Show details for HR policies' })
+    .click();
+  await expect(page.getByText('4 files only admins can read')).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Map HR Members to a Row-Bot group' })
+    .click();
+  await page
+    .getByRole('dialog')
+    .getByLabel(/^HR Members/)
+    .fill('Sales');
+  await page.getByRole('button', { name: 'Save the map' }).click();
+  await expect(
+    page.getByText(
+      'SharePoint site group · Mapped to Sales: applies when its files are read again',
+    ),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'Pause HR policies' }).click();
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Pause' })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Resume HR policies' }),
+  ).toBeVisible();
+  const paths = api.calls.map((call) => `${call.method} ${call.path}`);
+  expect(paths).toContain(`PATCH /api/admin/connectors/${HR_POLICIES}`);
+  expect(paths).toContain(`POST /api/admin/connectors/${HR_POLICIES}/pause`);
+  expect(
+    JSON.stringify(api.calls.filter((call) => call.method === 'GET')),
+  ).not.toContain('test-client-secret');
+  expect(violations).toEqual([]);
+});
+
 test('every page fits a 390 px phone without sideways scrolling', async ({
   page,
 }) => {
@@ -114,6 +174,7 @@ test('every page fits a 390 px phone without sideways scrolling', async ({
     'policy?tab=groups',
     'policy?tab=history',
     'audit',
+    'connectors',
   ]) {
     await page.goto(`${ORIGIN}/console/${path}`);
     await expect(page.locator('.console-page h1')).toBeVisible();
