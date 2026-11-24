@@ -5,7 +5,7 @@ import { ThemeChoice } from './Appearance';
 import DeviceNotifications from './DeviceNotifications';
 import {
   settingsGroups,
-  visibleLeaves,
+  settingsLeaves,
   type SettingsLeaf,
   type SettingsLeafId,
 } from './model';
@@ -128,14 +128,11 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
  */
 export default function PhoneSettingsList({
   more = false,
-  learning = false,
 }: {
   /** The second list: every page outside This phone and Row-Bot. */
   more?: boolean;
-  /** A build with Learning (preview): its page is in More settings. */
-  learning?: boolean;
 }) {
-  const leaves = visibleLeaves(learning);
+  const leaves = settingsLeaves;
   if (more)
     return (
       <div className="phone-settings">

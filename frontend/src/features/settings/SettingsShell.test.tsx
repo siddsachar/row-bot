@@ -133,19 +133,21 @@ it('lists every group with its leaves and marks the open page', () => {
       .getAllByRole('list')
       .map((list) => list.getAttribute('aria-label')),
   ).toEqual(settingsGroups.map((group) => group.label));
-  // Learning (preview) is listed only in a build with its flag (O34).
   expect(within(navigation).getAllByRole('link')).toHaveLength(
     settingsLeaves.length,
   );
-  expect(
-    within(navigation).queryByRole('link', { name: 'Learning' }),
-  ).toBeNull();
   for (const group of settingsGroups)
     expect(
       within(
         within(navigation).getByRole('list', { name: group.label }),
       ).getAllByRole('link'),
     ).toHaveLength(group.leaves.length);
+  expect(
+    within(within(navigation).getByRole('list', { name: 'General' })).getByRole(
+      'link',
+      { name: 'Learning' },
+    ),
+  ).toBeVisible();
   expect(screen.getByRole('link', { name: 'Documents' })).toHaveAttribute(
     'aria-current',
     'page',
@@ -599,14 +601,14 @@ it('on a phone, This phone’s theme is one tap, and a deep link to a page goes 
   }
 });
 
-it('on a phone keeps Learning (preview) reachable in More settings in a preview build', () => {
+it('on a phone keeps Learning reachable in More settings', () => {
   onPhone();
   try {
     render(
       <ThemeProvider>
         <MemoryRouter initialEntries={['/settings']}>
           <Routes>
-            <Route path="settings" element={<SettingsShell learning more />} />
+            <Route path="settings" element={<SettingsShell more />} />
           </Routes>
         </MemoryRouter>
       </ThemeProvider>,

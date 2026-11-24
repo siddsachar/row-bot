@@ -96,10 +96,16 @@ const SWITCHES: readonly SwitchDefinition[] = [
   },
   {
     id: 'self-improvement',
-    label: 'Learning new skills',
+    label: 'Creating skills while chatting',
     verb: 'is',
-    phrases: ['learn new skills', 'self improvement', 'learning skills'],
-    href: '/settings/preferences#identity.self_improvement_enabled',
+    phrases: [
+      'create skills while chatting',
+      'learn new skills',
+      'self improvement',
+      'learning skills',
+    ],
+    // Its row is Settings › Learning's (D29); Preferences still saves it.
+    href: '/settings/learning#identity.self_improvement_enabled',
     page: 'preferences',
     field: 'identity.self_improvement_enabled',
     read: (snapshot) =>

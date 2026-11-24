@@ -441,7 +441,7 @@ def _import_paths() -> tuple[list[str], list[str]]:
     return list(dict.fromkeys(sites)), [package_parent]
 
 
-def worker_environment(data: Path, *, extra: Mapping[str, str] | None = None) -> dict[str, str]:
+def worker_environment(data: Path) -> dict[str, str]:
     """The worker's environment: the person's, minus Row-Bot's own switches and provider keys
     (credentials come on standard input), bound to the throwaway folder."""
 
@@ -459,8 +459,6 @@ def worker_environment(data: Path, *, extra: Mapping[str, str] | None = None) ->
         # A failed test turn never reaches the person's desktop (no notification, no sound; L2v).
         DESKTOP_SWITCH: "off",
     })
-    for key, value in (extra or {}).items():
-        environment[str(key)] = str(value)
     return environment
 
 
@@ -540,12 +538,8 @@ class EvalWorker:
                 argv += ["--site", item]
             for item in paths:
                 argv += ["--path", item]
-        # Ways of working reach a turn through Learning's preview gate (L3b): an arm that carries them
-        # needs it in the worker too (its own throwaway profile has nothing else of Learning's).
-        carries = any(arm.get("ways") for arm in self.spec.get("arms") or () if isinstance(arm, Mapping))
-        extra = {"ROW_BOT_LEARNING_PREVIEW": "1"} if carries else None
         kwargs: dict[str, Any] = {
-            "cwd": str(folder / "work"), "env": worker_environment(data, extra=extra), "shell": False,
+            "cwd": str(folder / "work"), "env": worker_environment(data), "shell": False,
             "stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "bufsize": 0,
         }
         if os.name == "nt":

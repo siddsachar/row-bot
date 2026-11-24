@@ -554,7 +554,7 @@ const SETTING_NAMES: Record<string, string> = {
   tool_toggle: 'Tools',
   image_gen_model: 'Image model',
   video_gen_model: 'Video model',
-  self_improvement: 'Learn new skills',
+  self_improvement: 'Create skills while chatting',
   read_aloud: 'Read aloud',
   live_captions: 'Live captions',
   log_detail: 'Log detail',

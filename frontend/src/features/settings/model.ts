@@ -9,7 +9,7 @@ export const settingsGroups = [
   {
     id: 'general',
     label: 'General',
-    leaves: ['preferences', 'appearance', 'buddy', 'proactive'],
+    leaves: ['preferences', 'appearance', 'buddy', 'learning', 'proactive'],
   },
   { id: 'models', label: 'Models', leaves: ['models', 'voice'] },
   {
@@ -36,18 +36,13 @@ export const settingsGroups = [
 ] as const;
 
 export type SettingsGroupId = (typeof settingsGroups)[number]['id'];
-type ListedLeafId = (typeof settingsGroups)[number]['leaves'][number];
-/**
- * Learning (preview) is a page only in a build started with its flag (O34). It
- * stays out of the lists above, which the public docs are generated from.
- */
-type PreviewLeafId = 'learning';
-export type SettingsLeafId = ListedLeafId | PreviewLeafId;
+export type SettingsLeafId = (typeof settingsGroups)[number]['leaves'][number];
 
-const leafLabels: Record<ListedLeafId, string> = {
+const leafLabels: Record<SettingsLeafId, string> = {
   preferences: 'Preferences',
   appearance: 'Appearance',
   buddy: 'Buddy',
+  learning: 'Learning',
   proactive: 'Proactive',
   models: 'Models',
   voice: 'Voice',
@@ -64,15 +59,13 @@ const leafLabels: Record<ListedLeafId, string> = {
   data: 'Data',
 };
 
-const previewLeafLabels: Record<PreviewLeafId, string> = {
-  learning: 'Learning',
-};
-
 /** Words people use for a page that are not in its name. */
-export const settingsKeywords: Record<ListedLeafId, string> = {
+export const settingsKeywords: Record<SettingsLeafId, string> = {
   preferences: 'identity name personality launch window dream cycle',
   appearance: 'theme dark light accent colour color density transparency',
   buddy: 'companion avatar pack motion desktop',
+  learning:
+    'learn improve personal model training teach skills create quiet hours limit',
   proactive:
     'proactive speak first moments for you morning brief quiet hours focus drafts follow-ups meeting prep rules activity why',
   models:
@@ -112,42 +105,6 @@ export const settingsLeaves: SettingsLeaf[] = settingsGroups.flatMap((group) =>
     href: `/settings/${id}`,
   })),
 );
-
-const previewKeywords: Record<PreviewLeafId, string> = {
-  learning:
-    'learn improve personal model training teach skills create quiet hours limit',
-};
-
-/** Learning (preview): its page, in General after Buddy. */
-export const previewLeaves: SettingsLeaf[] = [
-  {
-    id: 'learning',
-    label: previewLeafLabels.learning,
-    group: 'general',
-    category: 'General',
-    href: '/settings/learning',
-  },
-];
-
-/** The pages this build shows: Learning only with its preview flag. */
-export function visibleLeaves(learning: boolean): SettingsLeaf[] {
-  if (!learning) return settingsLeaves;
-  const after = settingsLeaves.findIndex((leaf) => leaf.id === 'buddy') + 1;
-  return [
-    ...settingsLeaves.slice(0, after),
-    ...previewLeaves,
-    ...settingsLeaves.slice(after),
-  ];
-}
-
-/** A page's search words, Learning (preview) included. */
-export function keywordsOf(id: SettingsLeafId) {
-  return id === 'learning' ? previewKeywords.learning : settingsKeywords[id];
-}
-
-function labelOf(id: SettingsLeafId) {
-  return id === 'learning' ? previewLeafLabels.learning : leafLabels[id];
-}
 
 /** Legacy ids and moved pages: where they live now. */
 export const settingsRedirects: Record<
@@ -190,10 +147,7 @@ export const agentProfileLibrary = {
 export function resolveSetting(value: string) {
   const key = value.toLowerCase();
   const target = settingsRedirects[key]?.leaf ?? key;
-  // The route itself sends Learning away in a build without its flag.
-  return [...settingsLeaves, ...previewLeaves].find(
-    (leaf) => leaf.id === target,
-  );
+  return settingsLeaves.find((leaf) => leaf.id === target);
 }
 
 /**
@@ -264,7 +218,7 @@ export function settingsHref(value: string, anchor = '') {
 }
 
 function leafText(leaf: SettingsLeaf) {
-  return `${leaf.label} ${leaf.category} ${keywordsOf(leaf.id)} ${Object.entries(
+  return `${leaf.label} ${leaf.category} ${settingsKeywords[leaf.id]} ${Object.entries(
     settingsRedirects,
   )
     .filter(([, target]) => target.leaf === leaf.id)
@@ -272,9 +226,9 @@ function leafText(leaf: SettingsLeaf) {
     .join(' ')}`.toLowerCase();
 }
 
-export function searchSettings(query: string, learning = false) {
+export function searchSettings(query: string) {
   const term = query.trim().toLowerCase();
-  return visibleLeaves(learning).filter((leaf) =>
+  return settingsLeaves.filter((leaf) =>
     term
       .split(/\s+/)
       .filter(Boolean)
@@ -309,12 +263,6 @@ export const settingsRows: SettingsRow[] = [
     anchor: 'identity.personality',
     label: 'Personality',
     keywords: 'behaviour tone',
-  },
-  {
-    leaf: 'preferences',
-    anchor: 'identity.self_improvement_enabled',
-    label: 'Learn new skills',
-    keywords: 'self-improvement improve',
   },
   {
     leaf: 'preferences',
@@ -830,10 +778,8 @@ export const settingsRows: SettingsRow[] = [
     label: 'Sandboxes',
     keywords: 'sandbox demo try test made-up data second copy',
   },
-];
-
-/** Learning (preview)'s rows; "Learn new skills" moves there (D29). */
-export const previewSettingsRows: SettingsRow[] = [
+  // Learning's rows come last, so a search that also finds another page's
+  // row ("skills", "model", "limit") lists that page's row first.
   {
     leaf: 'learning',
     anchor: 'identity.self_improvement_enabled',
@@ -866,26 +812,14 @@ export const previewSettingsRows: SettingsRow[] = [
   },
 ];
 
-/** The rows this build offers: with Learning (preview), its rows replace "Learn new skills". */
-export function visibleSettingsRows(learning: boolean): SettingsRow[] {
-  return learning
-    ? [
-        ...settingsRows.filter(
-          (row) => row.anchor !== 'identity.self_improvement_enabled',
-        ),
-        ...previewSettingsRows,
-      ]
-    : settingsRows;
-}
-
-export function searchSettingsRows(query: string, learning = false) {
+export function searchSettingsRows(query: string) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  return visibleSettingsRows(learning).filter((row) => {
+  return settingsRows.filter((row) => {
     const own = `${row.label} ${row.keywords ?? ''}`.toLowerCase();
     // The page name narrows ("mcp runtime" → MCP › Runtimes), but
     // one word must name the row itself, so "system" lists the page only.
-    const text = `${own} ${labelOf(row.leaf)}`.toLowerCase();
+    const text = `${own} ${leafLabels[row.leaf]}`.toLowerCase();
     return (
       words.every((word) => text.includes(word)) &&
       words.some((word) => own.includes(word))
@@ -924,7 +858,7 @@ export function settingsLink(href: string): SettingsLink | null {
       (row) => row.href === `/settings/${page}${rest}`,
     );
     return own
-      ? { to: own.href!, label: `${labelOf(own.leaf)} › ${own.label}` }
+      ? { to: own.href!, label: `${leafLabels[own.leaf]} › ${own.label}` }
       : null;
   }
   if (anchor) {

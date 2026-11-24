@@ -47,8 +47,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Close the app first: restoring turns Learning's start-up flag off, and a
-  // poll still due (download, training) would get a 404 a real app never sees.
+  // Close the app first: restoring deletes Learning's data and its stand-ins, and
+  // a poll still due (download, training) would read them half gone.
   await page.close();
   await l2c2(page, 'restore');
   await fixture(page, '/__s8_fixture/models/restore');
@@ -88,7 +88,7 @@ function notice(page: Page, text: string | RegExp) {
 const GPU = 'NVIDIA GeForce RTX 5080 Laptop (16 GB)';
 
 async function turnOn(page: Page) {
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l1a(page, 'gpu');
   await page.goto('/app-v2/settings/learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();

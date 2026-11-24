@@ -241,7 +241,7 @@ def test_each_person_runs_in_their_own_scratch_profile_and_nothing_is_written_el
     for person, env in fake.calls:
         data = Path(env["ROW_BOT_DATA_DIR"])
         assert data == (tmp_path / "scratch" / "16gb" / person / "data").resolve()
-        assert env["ROW_BOT_LEARNING_PREVIEW"] == "1" and env["ROW_BOT_DESKTOP_NOTIFICATIONS"] == "off"
+        assert env["ROW_BOT_DESKTOP_NOTIFICATIONS"] == "off"
         assert "ROW_BOT_SOMETHING_ELSE" not in env  # nothing of this shell's Row-Bot settings reaches a person
     written = _files(tmp_path) - before
     assert written and all(path.startswith(("out", "scratch")) for path in written)

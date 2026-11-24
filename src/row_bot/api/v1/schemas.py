@@ -5073,7 +5073,7 @@ class InsightReceipt(WireModel):
     snapshot: InsightsSnapshot
 
 
-# Learning (preview, O34): only in a build started with ROW_BOT_LEARNING_PREVIEW=1.
+# Learning (preview): in every build, off until the person turns it on (O34).
 
 
 class LearningSpending(WireModel):

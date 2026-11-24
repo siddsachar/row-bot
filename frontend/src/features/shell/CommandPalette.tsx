@@ -37,7 +37,6 @@ import {
   type ConversationKind,
 } from './conversation-groups';
 import { PALETTE_INTENTS, intentScore, switchRequest } from './palette-intents';
-import { useLearningPreview } from '../learning/learning-state';
 import type { PaletteSwitchAction } from './palette-switches';
 
 /** Type words a query can use to find threads ("design", "code"). */
@@ -48,9 +47,9 @@ const KIND_WORDS: Record<ConversationKind, string> = {
 };
 import {
   agentProfileLibrary,
-  keywordsOf,
-  visibleLeaves,
-  visibleSettingsRows,
+  settingsKeywords,
+  settingsLeaves,
+  settingsRows,
   settingsRedirects,
   settingsRowHref,
 } from '../settings/model';
@@ -249,7 +248,6 @@ export default function CommandPalette({
   const state = useClientState();
   const { controller } = useRuntime();
   const theme = useOptionalTheme();
-  const learning = useLearningPreview();
   const [query, setQuery] = useState('');
   // The result Enter runs when it was chosen with the arrows or the pointer;
   // null follows the best result.
@@ -448,7 +446,7 @@ export default function CommandPalette({
             run: command.run,
           });
       }
-      for (const leaf of visibleLeaves(learning)) {
+      for (const leaf of settingsLeaves) {
         const legacy = LEGACY_SETTING_NAMES[leaf.id];
         const aliases = Object.entries(settingsRedirects)
           .filter(([, target]) => target.leaf === leaf.id)
@@ -459,7 +457,7 @@ export default function CommandPalette({
           leaf.label,
           `Open ${leaf.label} settings`,
           legacy ? `Open ${legacy} settings` : undefined,
-          `${leaf.category} ${keywordsOf(leaf.id)} ${aliases}`,
+          `${leaf.category} ${settingsKeywords[leaf.id]} ${aliases}`,
         );
         if (score !== null)
           results.push({
@@ -493,13 +491,10 @@ export default function CommandPalette({
           });
       }
       // Individual settings rows, below pages that match as well.
-      // Learning's rows only with its preview flag; "Learn new skills" moved there (D29).
-      for (const row of visibleSettingsRows(learning)) {
+      for (const row of settingsRows) {
         const score = fuzzyScore(trimmed, row.label, row.keywords);
         if (score !== null && score >= LITERAL_SCORE) {
-          const page = visibleLeaves(learning).find(
-            (leaf) => leaf.id === row.leaf,
-          );
+          const page = settingsLeaves.find((leaf) => leaf.id === row.leaf);
           results.push({
             id: `setting-row:${row.leaf}:${row.anchor}`,
             group: 'Settings',
@@ -623,7 +618,6 @@ export default function CommandPalette({
     appearance,
     commands,
     files,
-    learning,
     onClose,
     onOpenConversation,
     onOpenFile,

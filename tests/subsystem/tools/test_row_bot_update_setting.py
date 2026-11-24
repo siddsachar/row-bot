@@ -205,6 +205,25 @@ def test_row_bot_turns_desktop_notifications_off_on_the_persons_ok_and_undoes_it
     assert notifications.desktop_enabled() is True
 
 
+def test_create_skills_while_chatting_is_shown_at_its_learning_row_and_undoes(profile, level, person,
+                                                                             reload_for_data_dir):
+    """Preferences' "Learn new skills" is Settings › Learning › Create skills while chatting since D29."""
+    [identity] = reload_for_data_dir(profile, "row_bot.identity")
+
+    answer = self_settings.change("self_improvement", "off")
+
+    [card] = person["cards"]
+    assert card["change"] == {"label": "Create skills while chatting",
+                              "where": "Settings › Learning › Create skills while chatting",
+                              "href": "/settings/learning#identity.self_improvement_enabled", "before": "On",
+                              "after": "Off", "tier": "preference"}
+    assert answer.startswith("Create skills while chatting is off.")
+    assert identity.is_self_improvement_enabled() is False
+    undo = self_settings.parse_undo(answer)
+    assert self_settings.undo(undo["setting"], undo["value"], undo["now"])[0] == "undone"
+    assert identity.is_self_improvement_enabled() is True
+
+
 def test_block_refuses_on_both_turn_on_paths(profile, level, person, monkeypatch):
     """G22: the setup tool's "Turn on" used to ask the person under Block while the setting tool refused."""
     from row_bot.tools import registry

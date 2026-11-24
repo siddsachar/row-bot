@@ -1,6 +1,5 @@
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
-import { useLearningPreview } from '../learning/learning-state';
 import SettingsShell from './SettingsShell';
 
 /**
@@ -10,10 +9,9 @@ import SettingsShell from './SettingsShell';
  */
 export default function SettingsIndex() {
   const phone = useMedia(PHONE_LAYOUT);
-  const learning = useLearningPreview();
   const [search] = useSearchParams();
   return phone ? (
-    <SettingsShell learning={learning} more={search.get('view') === 'more'} />
+    <SettingsShell more={search.get('view') === 'more'} />
   ) : (
     <Navigate to="/settings/models" replace />
   );

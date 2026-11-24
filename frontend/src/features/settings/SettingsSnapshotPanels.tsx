@@ -6230,7 +6230,6 @@ export function PreferencesSnapshotPanel({
   mutation,
   showUpdateControls = false,
   part = 'preferences',
-  skillsMoved = false,
   host = null,
   onReviewMemory,
 }: {
@@ -6239,8 +6238,6 @@ export function PreferencesSnapshotPanel({
   showUpdateControls?: boolean;
   /** Preferences, or the Updates / Data pages that share its snapshot. */
   part?: 'preferences' | 'updates' | 'data';
-  /** "Learn new skills" lives in Settings › Learning (D29, a Learning preview build). */
-  skillsMoved?: boolean;
   /** The hosting company that runs this Row-Bot and installs its updates (H3). */
   host?: SettingsSnapshot['system']['hosted_by'];
   /** Opens Review memory, beside the Dream Cycle's overnight tidy-up. */
@@ -6394,7 +6391,6 @@ export function PreferencesSnapshotPanel({
     <PreferencesPage
       snapshot={snapshot}
       mutation={mutation}
-      skillsMoved={skillsMoved}
       onReviewMemory={onReviewMemory}
     />
   );
@@ -6533,12 +6529,10 @@ function NotificationsGroup({
 function PreferencesPage({
   snapshot,
   mutation,
-  skillsMoved,
   onReviewMemory,
 }: {
   snapshot: SettingsSnapshot['preferences'];
   mutation: SettingsMutationIO;
-  skillsMoved: boolean;
   onReviewMemory?: () => void;
 }) {
   const identity = snapshot.identity;
@@ -6601,15 +6595,6 @@ function PreferencesPage({
             ),
           }}
         />
-        {!skillsMoved && (
-          <SwitchSetting
-            mutation={mutation}
-            field="identity.self_improvement_enabled"
-            label="Learn new skills"
-            hint={`${identity.name || 'Row-Bot'} offers to save multi-step work as a skill, and suggests improvements to the skills it uses. Nothing is saved until you approve.`}
-            value={identity.self_improvement_enabled}
-          />
-        )}
       </SettingsGroup>
       <SettingsGroup title="Opening Row-Bot">
         <SegmentedSetting

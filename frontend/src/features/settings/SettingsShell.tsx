@@ -11,8 +11,8 @@ import {
   searchSettings,
   searchSettingsRows,
   settingsGroups,
+  settingsLeaves,
   settingsRowHref,
-  visibleLeaves,
   type SettingsLeaf,
 } from './model';
 import {
@@ -70,15 +70,12 @@ function typingTarget(target: EventTarget | null) {
 export default function SettingsShell({
   leaf,
   more = false,
-  learning = false,
   children,
 }: {
   /** The open page; none for a phone's list of pages (D6). */
   leaf?: SettingsLeaf;
   /** A phone's More settings: the pages outside This phone and Row-Bot. */
   more?: boolean;
-  /** A build with Learning (preview): its page is listed (O34). */
-  learning?: boolean;
   children?: ReactNode;
 }) {
   const place = usePlace();
@@ -125,12 +122,12 @@ export default function SettingsShell({
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, []);
-  const leaves = visibleLeaves(learning);
+  const leaves = settingsLeaves;
   const searching = Boolean(query.trim());
-  const pages = searching ? searchSettings(query, learning) : [];
+  const pages = searching ? searchSettings(query) : [];
   // A hosted Row-Bot's host runs its network: Devices has no Network or
   // Public link section to find.
-  const rows = (searching ? searchSettingsRows(query, learning) : []).filter(
+  const rows = (searching ? searchSettingsRows(query) : []).filter(
     (row) =>
       place.kind !== 'hosted' ||
       row.leaf !== 'access' ||
@@ -255,7 +252,7 @@ export default function SettingsShell({
         {mode === 'list' || mode === 'more' ? (
           // A phone's grouped list (D6 A); it scrolls under the header.
           <div className="phone-settings-frame" key={mode} ref={setListRoot}>
-            <PhoneSettingsList more={more} learning={learning} />
+            <PhoneSettingsList more={more} />
           </div>
         ) : null}
         {/* A phone has no second search: the app header's Search finds

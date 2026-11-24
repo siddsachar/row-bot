@@ -57,7 +57,6 @@ def boot(data: Path, profile: Path | None) -> tuple[str, Any]:
     """Bind Row-Bot to ``data`` (with the ChatGPT lane's sign-in in memory when ``profile`` is given)."""
 
     os.environ["ROW_BOT_DATA_DIR"] = str(data)
-    os.environ["ROW_BOT_LEARNING_PREVIEW"] = "1"
     os.environ["ROW_BOT_DESKTOP_NOTIFICATIONS"] = "off"
     os.environ.setdefault("ROW_BOT_AUTO_START_OLLAMA", "0")
     sys.path.insert(0, str(ROOT))

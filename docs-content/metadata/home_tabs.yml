@@ -27,3 +27,9 @@ tabs:
     docs_route: /docs/home/insights
     screenshot_id: home-insights
     source: frontend/src/features/home/InsightsHome.tsx
+  learning:
+    # Shown while Learning is on. The Home overview until Learning has its own
+    # guide pages.
+    title: Learning
+    docs_route: /docs/home/
+    source: frontend/src/features/learning/LearningHome.tsx

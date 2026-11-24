@@ -79,16 +79,6 @@ def test_a_version_that_isnt_ready_answers_nothing(data_dir):
     assert _route(data_dir) is None
 
 
-def test_without_the_preview_flag_nothing_is_routed(data_dir, monkeypatch):
-    from tests.fixtures.learning import set_learning_preview
-
-    _ready(data_dir)
-    use.start_trial(1, "document_lookups", PERSONAL, root=data_dir)
-    set_learning_preview(monkeypatch, False)
-
-    assert learning.route_turn(conversation_id="c", text=DOCS, model_ref=MAIN) is None
-
-
 # ── Watching a routed turn ──────────────────────────────────────────────────
 
 

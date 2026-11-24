@@ -79,8 +79,7 @@ Priorities, in order:
   (replay, task packs in throwaway sandboxes, equal-budget arms), the sealed audit
   vault (only `evaluation` reads it) and the task packs. Off by default; while off
   or paused its seams cost one check, and it creates no file and imports nothing
-  beyond the switch. Until the 5.4 cut it exists only in a build started with
-  `ROW_BOT_LEARNING_PREVIEW=1`; its surfaces live in `frontend/src/features/learning/`
+  beyond the switch. Its surfaces live in `frontend/src/features/learning/`
   and `application/client_learning.py`. The training engine is its own locked project
   (`src/row_bot/learning_engine/`), downloaded only when the person agrees into the
   data folder's `runtimes/learning/`, never into Row-Bot's environment or installers.

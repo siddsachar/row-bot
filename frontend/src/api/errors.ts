@@ -3033,11 +3033,8 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   insight_unavailable: ['This insight is no longer available.', 'none'],
-  // Learning (preview).
-  learning_unavailable: [
-    "Learning isn't part of this version of Row-Bot.",
-    'none',
-  ],
+  // Learning (preview). Unavailable: its state couldn't be read for an action.
+  learning_unavailable: ["Learning didn't load. Try again.", 'retry', RETRY],
   invalid_learning_command: ["That Learning action isn't valid.", 'review'],
   learning_revision_conflict: [
     'Learning changed on another device. Try again.',

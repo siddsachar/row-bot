@@ -79,7 +79,7 @@ def get_identity_config() -> dict:
 def save_identity_config(identity: dict) -> None:
     """Persist identity dict into user_config.json (merges with existing data)."""
     config = _load_user_config()
-    # Other identity keys ("Learn new skills") stay as they are.
+    # Other identity keys ("Create skills while chatting") stay as they are.
     config["identity"] = {
         **(config.get("identity") if isinstance(config.get("identity"), dict) else {}),
         "name": (identity.get("name") or _DEFAULT_NAME).strip() or _DEFAULT_NAME,

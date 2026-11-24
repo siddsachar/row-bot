@@ -18,7 +18,7 @@ own thread, plus a wake-up whenever something changes):
 Starting is the runner's call (quiet hours, after Dream) or the person's (**Train now**,
 which starts at once when nothing heavy is running and otherwise waits for it). Neither starts
 while another app holds the graphics card's memory (L2c): training would spill out of it and crawl.
-Nothing here runs while Learning is off or paused, or in a build without the preview flag.
+Nothing here runs while Learning is off or paused.
 """
 
 from __future__ import annotations
@@ -568,7 +568,7 @@ class TrainingSupervisor:
                 if job is None:
                     self._end_run("learning_off")
                     return False
-                if not settings.enabled or not gate.preview_enabled():
+                if not settings.enabled:
                     self._end_run("learning_off")
                     return False
                 if settings.paused:

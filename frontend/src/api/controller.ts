@@ -5125,7 +5125,7 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     return result;
   };
-  /** Learning (preview): only when the handshake offers `learning:preview`. */
+  /** Learning (preview). */
   learning = (signal?: AbortSignal) =>
     this.query(() => this.transport.learning?.(signal));
   learningTraining = (signal?: AbortSignal) =>

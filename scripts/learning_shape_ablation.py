@@ -600,7 +600,6 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out).resolve() if args.out else data.parent / "shape-ablation"
     # Every Row-Bot module binds this folder; no desktop notification from a headless run (O68).
     os.environ["ROW_BOT_DATA_DIR"] = str(data)
-    os.environ["ROW_BOT_LEARNING_PREVIEW"] = "1"
     os.environ["ROW_BOT_DESKTOP_NOTIFICATIONS"] = "off"
     os.environ.setdefault("ROW_BOT_AUTO_START_OLLAMA", "0")
     sys.path.insert(0, str(ROOT / "src"))

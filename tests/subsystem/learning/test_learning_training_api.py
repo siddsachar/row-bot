@@ -17,7 +17,7 @@ from row_bot.learning import runner as runner_module
 from row_bot.learning.store import LearningStore
 from row_bot.learning.training import jobs as training_jobs
 from row_bot.learning.training import protocol
-from tests.fixtures.learning import FakeDataset, FakeEngine, FakeLease, set_learning_preview
+from tests.fixtures.learning import FakeDataset, FakeEngine, FakeLease, save_learning_settings
 from tests.subsystem.client_protocol.test_settings_snapshot_api import api
 
 # ruff: noqa: F401, F811 -- the imported pytest fixture is requested by name.
@@ -230,14 +230,16 @@ def test_buddy_shows_a_quiet_line_while_a_personal_model_trains(on, engine, monk
     assert brain.resolve(None).message == "Idle"
 
 
-def test_without_the_preview_flag_the_training_read_and_actions_are_unavailable(api, monkeypatch):
-    client, headers, _, _ = api
-    set_learning_preview(monkeypatch, False)
+def test_with_learning_never_turned_on_the_training_read_says_off_and_train_now_is_refused(api):
+    client, headers, data, _ = api
+    save_learning_settings(data, enabled=False)
     response = client.get(LEARNING + "/training", headers=headers)
-    assert response.status_code == 404 and response.json()["code"] == "learning_unavailable"
+    assert response.status_code == 200
+    assert response.json()["state"] == "none" and response.json()["runner"]["state"] == "off"
+    revision = client.get(LEARNING, headers=headers).json()["revision"]
     identity = str(uuid4())
     refused = client.post(LEARNING + "/commands", headers={**headers, "Idempotency-Key": identity},
                           json={"command_id": identity, "client_session_id": headers["X-Client-Session"],
-                                "revision": "0" * 64, "action": "train_now"})
-    assert refused.status_code == 404 and refused.json()["code"] == "learning_unavailable"
+                                "revision": revision, "action": "train_now"})
+    assert refused.status_code == 409 and refused.json()["code"] == "learning_off"
     assert runner_module.loaded() is None or runner_module.training_now() is False

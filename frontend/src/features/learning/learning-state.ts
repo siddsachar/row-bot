@@ -16,9 +16,6 @@ import type {
 import { useLiveUpdate } from '../../live';
 import { useRuntime } from '../../runtime';
 
-/** The handshake capability of a build started with ROW_BOT_LEARNING_PREVIEW=1 (O34). */
-export const LEARNING_CAPABILITY = 'learning:preview';
-
 export type LearningAction = LearningCommand['action'];
 export type LearningFields = Omit<
   LearningCommand,
@@ -384,27 +381,12 @@ function useSelected<T>(
   );
 }
 
-/** Whether this build has Learning (preview) at all. */
-export function useLearningPreview(): boolean {
-  return useSelected(
-    useOptionalController(),
-    (state) =>
-      Boolean(
-        state.handshake?.application_capabilities?.includes(
-          LEARNING_CAPABILITY,
-        ),
-      ),
-    false,
-  );
-}
-
 /**
- * Learning's shared state and actions, or null without the preview flag.
+ * Learning's shared state and actions, or null without a client.
  * Reading starts when a surface first asks for it.
  */
 export function useLearning(): LearningIO | null {
   const controller = useOptionalController();
-  const preview = useLearningPreview();
   const identity = useSelected(
     controller,
     (state) =>
@@ -419,15 +401,15 @@ export function useLearning(): LearningIO | null {
     store ? store.getView : () => EMPTY_VIEW,
   );
   useEffect(() => {
-    if (store && preview && identity) store.ensure(identity);
-  }, [identity, preview, store]);
+    if (store && identity) store.ensure(identity);
+  }, [identity, store]);
   // Learning's state changed on the server (O127): every surface showing it reads it again at once.
   useLiveUpdate(['learning'], () => {
-    if (store && preview) store.changed();
+    if (store) store.changed();
   });
   return useMemo(
     () =>
-      controller && store && preview
+      controller && store
         ? {
             snapshot: view.snapshot,
             error: view.error,
@@ -443,7 +425,7 @@ export function useLearning(): LearningIO | null {
             watchDownload: store.watchDownload,
           }
         : null,
-    [controller, preview, store, view],
+    [controller, store, view],
   );
 }
 

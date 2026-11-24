@@ -204,18 +204,14 @@ def test_runs_stopped_for_the_person_wait_for_them_and_failures_show_their_reaso
     assert (setup.runner.status().state, setup.runner.status().reason) == ("failed", "out_of_gpu_memory")
 
 
-@pytest.mark.parametrize("state", ["off", "paused", "without_the_preview_flag"])
-def test_nothing_starts_while_learning_is_off_paused_or_without_the_preview_flag(setup, state, monkeypatch):
-    from tests.fixtures.learning import set_learning_preview
-
+@pytest.mark.parametrize("state", ["off", "paused"])
+def test_nothing_starts_while_learning_is_off_or_paused(setup, state):
     _plan(setup)
     _journal(setup.root, datetime(2026, 10, 16, 1, 10))
     if state == "off":
         save_learning_settings(setup.root, enabled=False)
-    elif state == "paused":
-        save_learning_settings(setup.root, paused=True)
     else:
-        set_learning_preview(monkeypatch, False)
+        save_learning_settings(setup.root, paused=True)
     assert setup.runner.check().state in ("off", "paused")
     assert setup.engine.commands == [] and setup.supervisor.training() is False
 

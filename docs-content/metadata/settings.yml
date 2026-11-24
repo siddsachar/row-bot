@@ -3,8 +3,8 @@
 # there needs exactly one entry here (collect_inventory.py fails otherwise).
 pages:
   preferences:
-    description: Set the assistant's name and personality, learning new skills, how
-      Row-Bot opens, and the overnight Dream Cycle.
+    description: Set the assistant's name and personality, how Row-Bot opens, and the
+      overnight Dream Cycle.
     docs_route: /docs/settings/preferences
     screenshot_id: settings-preferences
   appearance:
@@ -17,6 +17,18 @@ pages:
     docs_route: /docs/settings/buddy
     screenshot_id: settings-buddy
     dependencies: Desktop overlay behaviour depends on native-window support.
+  learning:
+    description: Turn Learning on, pause it or turn it off; choose what it learns from,
+      how changes are used, its monthly limit, the personal model and where it trains,
+      and delete learning data. Create skills while chatting is here too, with Learning
+      on or off.
+    # The Settings overview until Settings › Learning has its own guide page.
+    docs_route: /docs/settings/
+    security: Learning is off until you turn it on. Its records, tests and models stay
+      on this computer; its own model calls go to your default model's provider, and
+      Hugging Face is used only if you choose it.
+    dependencies: Training needs the training engine and a starting model, downloaded
+      only after you agree.
   proactive:
     description: Choose how much Row-Bot brings up by itself (Off, Quiet, Balanced or
       Eager), quiet hours, desktop context for timing, sources, the kinds of moments,

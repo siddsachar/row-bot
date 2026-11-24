@@ -23,8 +23,8 @@ States the person sees (``DownloadView.state``):
   ``no_cuda``, ``refused``) and Try again;
 - ``none``: nothing to download, or nothing asked.
 
-Only one download runs at a time, on its own thread, only while Learning is on and not paused in
-a build with the preview flag; Row-Bot quitting stops it (it shows as paused next time).
+Only one download runs at a time, on its own thread, only while Learning is on and not paused;
+Row-Bot quitting stops it (it shows as paused next time).
 """
 
 from __future__ import annotations
@@ -288,8 +288,6 @@ class Downloads:
     # ── The person's actions ────────────────────────────────────────────
 
     def _require_on(self) -> None:
-        if not gate.preview_enabled():
-            raise DownloadError("learning_off")
         settings = gate.read_settings(self._root)
         if not settings.enabled:
             raise DownloadError("learning_off")
@@ -394,7 +392,7 @@ class Downloads:
     def _run(self, live: _Live, plan: lockfile.EnginePlan | None, model: weights.PinnedModel | None,
              sizes: dict[str, Any], server: server_files.ServerInstaller | None = None) -> None:
         def check() -> None:
-            if live.stop.is_set() or not gate.is_enabled(self._root) or not gate.preview_enabled():
+            if live.stop.is_set() or not gate.is_enabled(self._root):
                 if not live.stop.is_set():
                     live.reason = "learning"
                     live.stop.set()

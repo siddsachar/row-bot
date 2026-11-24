@@ -148,14 +148,14 @@ def test_a_token_the_worker_refreshes_is_handed_back_to_be_written_to_the_person
 def test_the_worker_environment_is_bound_to_the_throwaway_folder_without_keys_or_row_bot_switches(monkeypatch,
                                                                                                 tmp_path):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", "C:/the/person")
-    monkeypatch.setenv("ROW_BOT_LEARNING_PREVIEW", "1")
+    monkeypatch.setenv("ROW_BOT_LEARNING_PRACTICE", "1")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
     monkeypatch.setenv("PYTHONPATH", "somewhere")
 
     environment = eval_worker.worker_environment(tmp_path / "data")
 
     assert environment["ROW_BOT_DATA_DIR"] == str(tmp_path / "data")
-    assert "ROW_BOT_LEARNING_PREVIEW" not in environment and "OPENAI_API_KEY" not in environment
+    assert "ROW_BOT_LEARNING_PRACTICE" not in environment and "OPENAI_API_KEY" not in environment
     assert "PYTHONPATH" not in environment and environment["ROW_BOT_AUTO_START_OLLAMA"] == "0"
 
 

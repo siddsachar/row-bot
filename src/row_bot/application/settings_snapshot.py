@@ -1757,15 +1757,14 @@ def _preferences(root: Path) -> dict[str, Any]:
 def _learning(root: Path) -> dict[str, Any]:
     """Learning's saved settings, read by its switch alone (no store, no other import).
 
-    ``has_data`` is a path check: Learning data kept after turning it off. Without the
-    preview flag (O34) the page is unavailable.
+    ``has_data`` is a path check: Learning data kept after turning it off.
     """
 
     from row_bot import learning
 
     settings = learning.read_settings(root)
     return {
-        "availability": "available" if settings.readable and learning.preview_enabled() else "unavailable",
+        "availability": "available" if settings.readable else "unavailable",
         "enabled": settings.enabled,
         "paused": settings.paused,
         "sources": {

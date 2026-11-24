@@ -279,8 +279,6 @@ class PersonRun:
         learning.invalidate()
         if learning.data_dir().resolve() != self.data:
             raise ScratchError(f"Row-Bot's data folder is {learning.data_dir()}, not this person's {self.data}")
-        if not learning.preview_enabled():
-            raise ScratchError("Start the run with ROW_BOT_LEARNING_PREVIEW=1.")
         self.sign_in = SignIn(Path(self.args.eval_profile))
         self.sign_in.install()
         from row_bot.providers import codex

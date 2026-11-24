@@ -5,10 +5,9 @@ import { fixtureHeaders } from './surface-helpers';
 import { composer, newConversation } from './unified-helpers';
 
 // Learning (preview), L1a: turn it on, the Learning tab appears, Teach on a reply
-// and Undo, a chat switched off, and the Overview's states. The fixture flips the
-// start-up flag (as if launched with ROW_BOT_LEARNING_PREVIEW=1), fakes the
-// hardware check and scripts the reply; nothing reaches a GPU, a download or a
-// provider. Each test puts the profile back.
+// and Undo, a chat switched off, and the Overview's states. The fixture stands in
+// for the download, fakes the hardware check and scripts the reply; nothing
+// reaches a GPU, a download or a provider. Each test puts the profile back.
 
 async function fixture(page: Page, action: string) {
   const response = await page.request.post(
@@ -37,8 +36,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Close the app first: restoring turns Learning's start-up flag off, and a
-  // poll still due (download, training) would get a 404 a real app never sees.
+  // Close the app first: restoring deletes Learning's data and its stand-ins, and
+  // a poll still due (download, training) would read them half gone.
   await page.close();
   await fixture(page, 'restore');
 });
@@ -129,12 +128,15 @@ test('turn Learning on, its tab appears, Teach a reply and undo it, then switch 
 }, info) => {
   // 17 screens in light and dark, each with an axe scan, and nine page loads: more than 60 s on a busy runner.
   test.slow();
-  // Before: no Learning anywhere, and Preferences keeps "Learn new skills".
+  // Before: Learning off, no Teach on a reply, and "Learn new skills" lives in
+  // Settings › Learning, not Preferences (D29).
+  await fixture(page, 'stand-ins');
+  await fixture(page, 'gpu');
   await openSettings(page, 'preferences');
   await expect(
     page.getByRole('switch', { name: 'Learn new skills' }),
-  ).toBeVisible();
-  await shoot(page, info, 'preferences-before');
+  ).toHaveCount(0);
+  await shoot(page, info, 'preferences');
   const id = await newConversation(page);
   await composer(page).fill('l1a teach fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -147,14 +149,6 @@ test('turn Learning on, its tab appears, Teach a reply and undo it, then switch 
   );
   await shoot(page, info, 'reply-toolbar-before');
 
-  // A build started with the preview flag: Settings › Learning, off.
-  await fixture(page, 'preview');
-  await fixture(page, 'gpu');
-  await openSettings(page, 'preferences');
-  await expect(
-    page.getByRole('switch', { name: 'Learn new skills' }),
-  ).toHaveCount(0);
-  await shoot(page, info, 'preferences-after');
   await openSettings(page, 'learning');
   await expect(page.getByText('Learning off', { exact: true })).toBeVisible();
   await expect(
@@ -286,7 +280,7 @@ test('turn Learning on, its tab appears, Teach a reply and undo it, then switch 
 test('the Learning tab: paused, limit reached, reading past chats, its other views and deleting learning data', async ({
   page,
 }, info) => {
-  await fixture(page, 'preview');
+  await fixture(page, 'stand-ins');
   await fixture(page, 'gpu');
   await turnOn(page, info, false, 'Not now');
   const open = async (view = '') => {
@@ -367,7 +361,7 @@ test('the Learning tab: paused, limit reached, reading past chats, its other vie
 test('Learning data says how much of it is browser and computer pictures', async ({
   page,
 }, info) => {
-  await fixture(page, 'preview');
+  await fixture(page, 'stand-ins');
   await fixture(page, 'gpu');
   await turnOn(page, info, false, 'Not now');
   await fixture(page, 'pictures');
@@ -387,7 +381,7 @@ test('without an NVIDIA graphics card the setup sheet says Learning still improv
   page,
 }, info) => {
   // A model trained on Hugging Face runs here after, so with no card to run one it isn't offered.
-  await fixture(page, 'preview');
+  await fixture(page, 'stand-ins');
   await fixture(page, 'no-gpu');
   await openSettings(page, 'learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();
@@ -411,7 +405,7 @@ test('without an NVIDIA graphics card the setup sheet says Learning still improv
 test('a graphics card too small to train offers Hugging Face in setup (O124)', async ({
   page,
 }, info) => {
-  await fixture(page, 'preview');
+  await fixture(page, 'stand-ins');
   await fixture(page, 'small-gpu');
   await openSettings(page, 'learning');
   await page.getByRole('button', { name: 'Turn on Learning' }).click();

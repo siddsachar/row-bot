@@ -81,10 +81,6 @@ def _hosted() -> bool:
     return hosted_by() is not None
 
 
-def _learning_preview() -> bool:
-    from row_bot import learning
-
-    return learning.preview_enabled()
 # Settings actions that act on this computer's screen (Computer Use's test
 # opens Calculator; the others open macOS System Settings): desktop app only.
 _SCREEN_SETTINGS_ACTIONS = frozenset({
@@ -1750,8 +1746,6 @@ def create_router(
                     *(_LOCAL_APPLICATION_CAPABILITIES if local_owner else ()),
                     # A known host runs this Row-Bot (H13): its first chat and phone card (U3, U10).
                     *(("hosted",) if _hosted() else ()),
-                    # Learning (preview) surfaces exist only in a build with its flag (O34).
-                    *(("learning:preview",) if _learning_preview() else ()),
                 ],
                 "presentation_capabilities": sorted(
                     set(body.presentation_features) & _PRESENTATION_FEATURES
@@ -11010,7 +11004,7 @@ def create_router(
         )
         return await respond(request, dto.InsightReceipt, result)
 
-    # Learning (preview): every route answers learning_unavailable without the flag (O34).
+    # Learning (preview).
     @router.get("/learning")
     async def learning_snapshot(request: Request) -> JSONResponse:
         current = await session(request)

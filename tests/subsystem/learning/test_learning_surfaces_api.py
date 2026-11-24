@@ -1,4 +1,4 @@
-"""Learning's API for its surfaces (L1a): the preview flag both ways, the snapshot, and the
+"""Learning's API for its surfaces (L1a): Learning off in every build, the snapshot, and the
 revision-checked commands with their admission receipts: turning on with the setup choices,
 pause and resume, off, Teach and its Undo, "Don't learn from this chat", the download answer
 and deleting learning data. Hardware detection and the past-chat window have their own files."""
@@ -27,7 +27,6 @@ from tests.fixtures.learning import (
     all_record_text,
     learning_files,
     save_learning_settings,
-    set_learning_preview,
 )
 from tests.subsystem.client_protocol.test_settings_snapshot_api import BASE, api
 
@@ -95,38 +94,11 @@ def _turn_on(client, headers, **choices) -> dict:
     return _ok(_command(client, headers, "turn_on", setup={**SETUP, **choices}))
 
 
-# ── The preview flag (O34) ───────────────────────────────────────────────────
+# ── Learning off, in every build (O34) ───────────────────────────────────────
 
 
-def test_without_the_preview_flag_learning_is_unavailable_and_off_whatever_was_saved(api, monkeypatch):
+def test_the_app_offers_learning_off_with_the_setup_defaults(api, no_channels):
     client, headers, data, _ = api
-    set_learning_preview(monkeypatch, False)
-    save_learning_settings(data, enabled=True)
-    before = learning_files(data)
-
-    assert learning.is_enabled() is False
-    assert learning.read_settings().enabled is False
-    for path in ("", "/hardware", "/lessons", "/conversations/chat-a", f"/commands/{uuid4()}"):
-        response = client.get(LEARNING + path, headers=headers)
-        assert response.status_code == 404 and response.json()["code"] == "learning_unavailable", path
-    refused = _command(client, headers, "turn_on", revision="0" * 64, setup=SETUP)
-    assert refused.status_code == 404 and refused.json()["code"] == "learning_unavailable"
-    handshake = client.post("/api/v1/handshake", json={}, headers={"Origin": "http://localhost"}).json()
-    assert "learning:preview" not in handshake["application_capabilities"]
-    settings = client.get(BASE, headers=headers).json()
-    assert settings["learning"]["availability"] == "unavailable"
-    request = {"settings_revision": settings["revision"], "page": "learning", "field": "enabled", "value": True}
-    review = client.post(BASE + "/review", headers=headers, json=request)
-    assert review.status_code != 200
-    # Nothing new was created: only the settings file written above.
-    assert learning_files(data) == before == ["learning_config.json"]
-
-
-def test_with_the_preview_flag_the_app_offers_learning_off_with_the_setup_defaults(api, no_channels):
-    client, headers, data, _ = api
-    handshake = client.post("/api/v1/handshake", json={}, headers={"Origin": "http://localhost"}).json()
-    assert "learning:preview" in handshake["application_capabilities"]
-
     snapshot = _snapshot(client, headers)
 
     assert snapshot["state"] == "off"
@@ -134,8 +106,10 @@ def test_with_the_preview_flag_the_app_offers_learning_off_with_the_setup_defaul
     assert snapshot["apply_mode"] == "ask_first"
     assert snapshot["spending"]["limit_tokens"] == 2_000_000 and snapshot["spending"]["used_tokens"] == 0
     assert snapshot["spending"]["limit_reached"] is False
-    # Quiet hours are Dream Cycle's hours; nothing runs in them yet, so there is no next look.
-    dream = client.get(BASE, headers=headers).json()["preferences"]["dream_cycle"]
+    # Settings › Learning is there, off; quiet hours are Dream Cycle's hours (nothing runs in them yet).
+    settings = client.get(BASE, headers=headers).json()
+    assert settings["learning"]["availability"] == "available" and settings["learning"]["enabled"] is False
+    dream = settings["preferences"]["dream_cycle"]
     assert snapshot["quiet_hours"] == {"window_start": dream["window_start"], "window_end": dream["window_end"],
                                        "next_look_at": None}
     assert snapshot["past_chats"] == {"state": "none", "total": 0, "done": 0}

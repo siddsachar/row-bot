@@ -2,8 +2,8 @@ import type { Page, TestInfo } from '@playwright/test';
 import { accessibility, assertNoOverflow, expect, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
 
-// Learning (preview), L2a: the personal model's training. The fixture flips the start-up
-// flag, fakes the hardware check and makes the fake trainer the training engine, driven
+// Learning (preview), L2a: the personal model's training. The fixture fakes the hardware
+// check and makes the fake trainer the training engine, driven
 // step by step; nothing reaches a GPU, a download or a provider. Train now → progress →
 // pause on use → it continues → Stop, then Row-Bot closing mid-run and running out of GPU
 // memory, with Monitor's row and Buddy's line. Each test puts the profile back.
@@ -40,8 +40,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Close the app first: restoring turns Learning's start-up flag off, and a
-  // poll still due (download, training) would get a 404 a real app never sees.
+  // Close the app first: restoring deletes Learning's data and its stand-ins, and
+  // a poll still due (download, training) would read them half gone.
   await page.close();
   await l2a(page, 'restore');
   await l1a(page, 'restore');
@@ -134,7 +134,7 @@ test('Train now, progress, pause on use, it continues, Stop; Row-Bot closing mid
   page,
 }, info) => {
   test.setTimeout(180_000);
-  await l1a(page, 'preview');
+  await l1a(page, 'stand-ins');
   await l1a(page, 'gpu');
   await turnOn(page);
   await l2a(page, 'engine');

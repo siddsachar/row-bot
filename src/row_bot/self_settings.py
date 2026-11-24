@@ -12,7 +12,7 @@ approval level decides who approves it (``tools.approval_gate``):
 - **repair** (running the Dream Cycle now): as a preference.
 
 Everything else (approval levels, keys and sign-ins, devices and remote access apart from whether phone
-notifications show details, install stats, Learning,
+notifications show details, install stats, Learning apart from Create skills while chatting,
 data-folder access, updates, the workspace folder, appearance, downloads and installs, anything that
 deletes) is not here: Row-Bot shows the row instead.
 
@@ -898,10 +898,11 @@ SETTINGS: tuple[Setting, ...] = (
             "up to 200 characters about how to talk", _prepare_personality,
             lambda: (lambda text: Value(text, text or "(none)"))(str(_field_now("preferences", "identity",
                                                                                 "personality")))),
-    Setting("self_improvement", "Learn new skills", "preferences", "Preferences", "identity.self_improvement_enabled",
-            "preference", "'on' or 'off'",
+    # Its row is Settings › Learning's (D29), with Learning on or off; Preferences still saves it.
+    Setting("self_improvement", "Create skills while chatting", "learning", "Learning",
+            "identity.self_improvement_enabled", "preference", "'on' or 'off'",
             _switch_setting("preferences", "identity.self_improvement_enabled", ("identity", "self_improvement_enabled"),
-                            lambda on: f"Self-improvement {'enabled' if on else 'disabled'}.",
+                            lambda on: f"Create skills while chatting is {'on' if on else 'off'}.",
                             after_save=lambda _on: _clear_agent_cache()),
             _switch_now("preferences", "identity", "self_improvement_enabled")),
     Setting("dream_cycle", "Dream Cycle", "preferences", "Preferences", "dream-cycle", "preference", "'on' or 'off'",
@@ -1115,7 +1116,8 @@ def describe() -> str:
         lines.append(f"- {setting.id}: {setting.label}{where}.{now} Takes {setting.takes}.")
     lines.append(
         "Row-Bot never changes these, only shows where they are: approval levels, keys and sign-ins, devices and "
-        "remote access (apart from whether notifications show details), install stats, Learning, data-folder access, updates, the workspace folder, appearance, "
+        "remote access (apart from whether notifications show details), install stats, Learning (apart from Create "
+        "skills while chatting), data-folder access, updates, the workspace folder, appearance, "
         "downloads and installs, and anything that deletes."
     )
     return "\n".join(lines)

@@ -1986,7 +1986,8 @@ it('renders editable document, tool, and preference owners', async () => {
     screen.getByText(/Row-Bot starts every chat as: “You are Row-Bot/),
   ).toBeVisible();
   expect(screen.getByText('0 / 200')).toBeVisible();
-  expect(screen.getByLabelText('Learn new skills')).not.toBeChecked();
+  // "Learn new skills" lives in Settings › Learning (D29).
+  expect(screen.queryByLabelText('Learn new skills')).toBeNull();
   const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
   expect(
     within(openIn).getByRole('radio', { name: 'Ask each time' }),

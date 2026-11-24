@@ -7519,7 +7519,7 @@ def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
     return {"removed": True}
 
 
-# ── Learning (preview), L1a: the flag, the hardware check and the Overview's states ──
+# ── Learning (preview), L1a: the stand-ins, the hardware check and the Overview's states ──
 
 _l1a_saved: dict[str, object] = {}
 
@@ -7549,8 +7549,8 @@ def _l1a_stream(text: str, config: dict):
 
 @app.post("/__l1a_fixture/learning/{action}")
 def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
-    """Learning (preview) for the L1a spec: the start-up flag, a faked hardware check and the
-    Overview's states. Nothing reaches a GPU, a download or a provider."""
+    """Learning (preview) for the L1a spec: the download and free-space stand-ins, a faked hardware
+    check and the Overview's states. Nothing reaches a GPU, a download or a provider."""
     predecessor._authorize(x_fixture_token)
     import time as _time
 
@@ -7566,9 +7566,7 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         _l1a_saved["memory_free"] = hardware.memory_free_for_training
         from row_bot.application import client_learning
         _l1a_saved["hardware_read"] = client_learning.read_learning_hardware
-    if action == "preview":
-        learning._PREVIEW = True  # the start-up flag, as if launched with ROW_BOT_LEARNING_PREVIEW=1
-        learning.invalidate()
+    if action == "stand-ins":
         # The personal model's download (L2b): a stand-in whose states the specs set; never a real one.
         from row_bot.learning.training import downloads as _downloads
         _downloads._downloads = _FixtureDownloads()
@@ -7649,7 +7647,6 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         _downloads._downloads = None
         from row_bot.application import client_learning
         client_learning.read_learning_hardware = _l1a_saved["hardware_read"]
-        learning._PREVIEW = False
         learning.invalidate()
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
@@ -8202,7 +8199,7 @@ def l2b_learning(action: str, name: str = "", x_fixture_token: str = Header(defa
     current = downloads.loaded()
     if action == "state":
         if not isinstance(current, _FixtureDownloads):
-            raise HTTPException(409, "Turn on the preview first")
+            raise HTTPException(409, "Install the L1a stand-ins first")
         current.set(name)
     elif action == "old-driver":
         found = hardware.classify([hardware.Gpu("NVIDIA GeForce RTX 4090 Laptop GPU", 16_376, "560.94")])
@@ -8776,7 +8773,7 @@ def l2c_learning(action: str, name: str = "", x_fixture_token: str = Header(defa
 
         current = downloads.loaded()
         if not isinstance(current, _FixtureDownloads):
-            raise HTTPException(409, "Turn on the preview first")
+            raise HTTPException(409, "Install the L1a stand-ins first")
         current.set("installed")
         planner, makes, engine = _FixturePlanner(), _FixtureReleases(), FakeEngine(seconds_per_step=_L2C_SECONDS)
         lease = FakeLease(since_activity=3600.0)

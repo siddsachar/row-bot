@@ -1888,7 +1888,7 @@ class RowBotStatusTool(BaseTool):
             ),
         ]
 
-        # Self-improvement tools: only while "Learn new skills" is on.
+        # Self-improvement tools: only while "Create skills while chatting" (Settings › Learning) is on.
         from row_bot.identity import is_self_improvement_enabled
 
         if is_self_improvement_enabled():
