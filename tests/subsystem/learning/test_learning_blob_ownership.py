@@ -18,7 +18,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from row_bot import learning
 from row_bot.learning import capture, past_chats, scope
 from row_bot.learning.store import BLOB_GRACE_SECONDS, LearningStore
-from tests.fixtures.learning import CapturedWork, jpeg_bytes, picture_turn
+from tests.fixtures.learning import CapturedWork, jpeg_bytes, picture_turn, save_learning_settings
 
 pytestmark = pytest.mark.subsystem
 
@@ -59,6 +59,14 @@ def _blobs(root) -> dict[str, bytes]:
 def _requests(store: LearningStore) -> dict[str, object]:
     return {item.id: capture.read_request(store, item)
             for item in store.find("decision", subkind="model_call", limit=10_000)}
+
+
+@pytest.fixture
+def learning_on(learning_on):
+    """Learning on, with "Also learn from the last 30 days of chats" ticked (off by default, O195)."""
+
+    save_learning_settings(learning_on, sources={"past_chats": True})
+    return learning_on
 
 
 @pytest.fixture

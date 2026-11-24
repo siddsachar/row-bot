@@ -18,8 +18,10 @@ import {
  */
 
 // API requests from opening the app on a conversation until it is idle:
-// measured 34-35 (35 before: the deferred reads still come, a moment later).
-const OPEN_BUDGET = 38;
+// measured 34-35 (35 before: the deferred reads still come, a moment later),
+// then 39: Learning is on from the start (O195) and reads its state and the
+// open chat's Teach state (two reads, both within the first screen's budget).
+const OPEN_BUDGET = 41;
 // Of those, the requests sent before the first read the first screen doesn't
 // show: measured 19-21. Before, Proactive and Monitor went 4th, ahead of the
 // open conversation (the spec's order checks fail there).

@@ -1774,6 +1774,7 @@ def _learning(root: Path) -> dict[str, Any]:
         },
         "apply_mode": settings.apply_mode,
         "monthly_token_limit": settings.monthly_token_limit,
+        "experimental": settings.experimental,
         "train_in_quiet_hours": settings.train_in_quiet_hours,
         "train_where": settings.train_where,
         "has_data": learning.store_exists(root),
@@ -1870,16 +1871,17 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "dream_cycle.window_end": 5,
         "updates.channel": "stable",
     },
-    # The Learning setup sheet's defaults, with Learning itself off.
+    # Learning on, for learning from corrections; its experimental parts and the personal model off (O195).
     "learning": {
-        "enabled": False,
+        "enabled": True,
         "paused": False,
         "sources.my_chats": True,
         "sources.workflows_and_goals": True,
-        "sources.past_chats": True,
+        "sources.past_chats": False,
         "apply_mode": "ask_first",
         "monthly_token_limit": 2_000_000,
-        "train_in_quiet_hours": True,
+        "experimental": False,
+        "train_in_quiet_hours": False,
         "train_where": "this_computer",
     },
 }

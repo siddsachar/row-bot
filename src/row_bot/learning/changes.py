@@ -96,7 +96,7 @@ class TestPlan:
     kinds, ``repeats`` runs per arm. Packs: up to ``visible_own`` visible tasks of its kind and
     ``visible_other`` of each other pack, ``hidden_own`` of its pack's hidden tasks (``repeats`` runs) and
     ``harder_own`` of the harder split (O31), through the real runtime unless ``runtime`` is off. Practice (L4b, in
-    a build with practice on): up to ``practice`` of the practice tasks of its kind, newest first."""
+    while practice is on): up to ``practice`` of the practice tasks of its kind, newest first."""
 
     own: int = 8
     other: int = 4

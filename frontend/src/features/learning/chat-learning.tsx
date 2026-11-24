@@ -61,10 +61,10 @@ export function useChatTeach(conversationId: string | null): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, on, revision]);
   const current = state?.conversation_id === conversationId ? state : null;
-  const teach =
-    io && current?.state === 'learning'
-      ? (next: TeachTarget) => setTarget(next)
-      : null;
+  // One function for as long as Teach is offered: the transcript's rows are memoised, and a chat
+  // redraws with every word of a streaming reply.
+  const openTeach = useCallback((next: TeachTarget) => setTarget(next), []);
+  const teach = io && current?.state === 'learning' ? openTeach : null;
   async function send(answer: TeachAnswer) {
     if (!io || !conversationId || !target) return;
     const receipt = await io.run('teach', {

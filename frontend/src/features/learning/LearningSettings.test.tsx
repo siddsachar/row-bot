@@ -13,11 +13,9 @@ import LearningSettings from './LearningSettings';
 import {
   downloadState,
   fakeIO,
-  GPU_16GB,
   installedModel,
   learningSnapshot,
   NO_GPU,
-  SMALL_GPU,
   personalModel,
 } from './test-data';
 import type { LearningIO } from './learning-state';
@@ -67,6 +65,7 @@ const learningSettings = {
   sources: { my_chats: true, workflows_and_goals: true, past_chats: true },
   apply_mode: 'ask_first',
   monthly_token_limit: 2_000_000,
+  experimental: false,
   train_in_quiet_hours: true,
   train_where: 'this_computer',
   has_data: false,
@@ -113,33 +112,18 @@ it('off: one card with Turn on Learning, How it works and Create skills while ch
   expect(screen.queryByText(/Delete learning data/)).toBeNull();
 });
 
-it('the setup sheet fills in every default, turns on with one tap and then asks before downloading', async () => {
+it('the setup sheet fills in the saved choices, turns on with one tap and never asks to download (O195)', async () => {
   const io = fakeIO(learningSnapshot(), {
-    after: (action) =>
-      action === 'turn_on'
-        ? { state: 'on' }
-        : {
-            personal_model: {
-              ...learningSnapshot().personal_model,
-              download: 'waiting',
-            },
-          },
+    after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
   });
   const { onOpenLearning } = show(io);
 
   fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
   const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)'),
-  ).toBeVisible();
-  expect(
-    within(sheet).getByText('Can train models up to about 9B on your tasks.'),
-  ).toBeVisible();
   for (const name of [
     /^My chats/,
     'Workflows and goals',
     'Also learn from the last 30 days of chats',
-    /^Train a personal model during quiet hours/,
   ])
     expect(within(sheet).getByRole('checkbox', { name })).toBeChecked();
   expect(
@@ -151,9 +135,6 @@ it('the setup sheet fills in every default, turns on with one tap and then asks 
     within(sheet).getByRole('radio', { name: 'Ask me first' }),
   ).toBeChecked();
   expect(
-    within(sheet).getByRole('combobox', { name: 'Starting model' }),
-  ).toHaveDisplayValue('Qwen3.5 9B · Apache 2.0 · 19.3 GB download');
-  expect(
     within(sheet).getByRole('combobox', { name: 'Monthly limit' }),
   ).toHaveDisplayValue('2M tokens');
   expect(
@@ -161,54 +142,97 @@ it('the setup sheet fills in every default, turns on with one tap and then asks 
   ).toBeVisible();
   expect(
     within(sheet).getByText(
-      /Training on answers from OpenAI, Anthropic or Google models may be limited by their terms/,
+      'A personal model is set up on its own, under Personal model. Nothing downloads when you turn Learning on.',
     ),
   ).toBeVisible();
+  // Nothing about the personal model to choose here, so the computer isn't read.
+  expect(
+    within(sheet).queryByRole('combobox', { name: 'Starting model' }),
+  ).toBeNull();
+  expect(io.hardware).not.toHaveBeenCalled();
 
   fireEvent.click(
     within(sheet).getByRole('button', { name: 'Turn on Learning' }),
   );
 
-  const ask = await screen.findByRole('dialog', {
-    name: 'Download the training engine and Qwen3.5 9B?',
-  });
+  expect(await screen.findByText('Learning is on.')).toBeVisible();
   expect(io.run).toHaveBeenCalledWith('turn_on', {
     setup: {
       sources: { my_chats: true, workflows_and_goals: true, past_chats: true },
       apply_mode: 'ask_first',
       monthly_token_limit: 2_000_000,
-      train_in_quiet_hours: true,
-      train_where: 'this_computer',
-      starting_model: 'qwen3.5-9b',
     },
   });
-  expect(ask).toHaveAccessibleDescription(
-    'The training engine (2.2 GB) and Qwen3.5 9B (19.3 GB). 512 GB free on this computer.',
-  );
-  fireEvent.click(within(ask).getByRole('button', { name: 'Download' }));
-  await act(async () => undefined);
-  expect(io.run).toHaveBeenLastCalledWith('answer_download', {
-    download: 'download',
-  });
-  expect(await screen.findByText('Learning is on.')).toBeVisible();
+  expect(screen.queryByRole('dialog', { name: /^Download/ })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Open Learning' }));
   expect(onOpenLearning).toHaveBeenCalledOnce();
 });
-
-it('Not now records the answer and nothing downloads', async () => {
-  const io = fakeIO(learningSnapshot(), {
-    after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
-  });
-  show(io);
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  await within(sheet).findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)');
-  fireEvent.click(
-    within(sheet).getByRole('button', { name: 'Turn on Learning' }),
+/** Settings › Learning, on, with a mutation whose saves come back with `saved`'s Learning settings. */
+function showSaving(
+  io: LearningIO,
+  learning: SettingsSnapshot['learning'],
+  saved: Partial<SettingsSnapshot['learning']>,
+) {
+  const learningMutation = {
+    ...savingMutation(),
+    execute: vi.fn<SettingsMutationIO['execute']>(
+      async (_request, _review, commandId) => ({
+        command_id: commandId,
+        status: 'completed',
+        settings_revision: 'c'.repeat(64),
+        snapshot: {
+          revision: 'c'.repeat(64),
+          learning: { ...learning, ...saved },
+        } as SettingsSnapshot,
+      }),
+    ),
+  };
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <LearningSettings
+          io={io}
+          preferences={preferences}
+          preferencesMutation={mutation('preferences')}
+          learning={learning}
+          learningMutation={learningMutation}
+          onSettingsChanged={vi.fn()}
+          onOpenLearning={vi.fn()}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
   );
+  return learningMutation;
+}
+
+it('turning on Train during quiet hours asks before downloading, and Not now records the answer (O195)', async () => {
+  const io = fakeIO(
+    learningSnapshot({
+      state: 'on',
+      personal_model: personalModel({ train_in_quiet_hours: false }),
+    }),
+  );
+  const learning = {
+    ...learningSettings,
+    enabled: true,
+    train_in_quiet_hours: false,
+  };
+  const saving = showSaving(io, learning, { train_in_quiet_hours: true });
+
+  fireEvent.click(
+    screen.getByRole('switch', { name: 'Train during quiet hours' }),
+  );
+
   const ask = await screen.findByRole('dialog', {
-    name: /^Download the training engine/,
+    name: 'Download the training engine and Qwen3.5 9B?',
   });
+  expect(saving.review).toHaveBeenLastCalledWith(
+    expect.objectContaining({ field: 'train_in_quiet_hours', value: true }),
+    expect.anything(),
+  );
+  expect(ask).toHaveAccessibleDescription(
+    /^The training engine \(2\.2\sGB\) and Qwen3\.5 9B \(19\.3\sGB\)\. 512\sGB free on this computer\.$/,
+  );
   fireEvent.click(within(ask).getByRole('button', { name: 'Not now' }));
   await act(async () => undefined);
   expect(io.run).toHaveBeenLastCalledWith('answer_download', {
@@ -216,62 +240,90 @@ it('Not now records the answer and nothing downloads', async () => {
   });
 });
 
-it('with no NVIDIA card the sheet says lessons still work and offers no Hugging Face (O131)', async () => {
-  const io = fakeIO(learningSnapshot(), { hardware: NO_GPU });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'A personal model runs on an NVIDIA graphics card with 8 GB or more, and this computer has none.',
-    ),
-  ).toBeVisible();
-  expect(
-    within(sheet).getByText(
-      'Learning still improves Row-Bot with lessons and ways of working.',
-    ),
-  ).toBeVisible();
-  expect(
-    within(sheet).queryByRole('button', { name: 'Use Hugging Face' }),
-  ).toBeNull();
-});
-
-it('a card too small to train says so plainly and offers Hugging Face (O124)', async () => {
-  const io = fakeIO(learningSnapshot(), {
-    hardware: SMALL_GPU,
-    after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
-  });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'You can train one on Hugging Face instead (your own account, priced before each run), or skip it: Learning still improves Row-Bot with lessons and ways of working.',
-    ),
-  ).toBeVisible();
-  fireEvent.click(
-    within(sheet).getByRole('button', { name: 'Use Hugging Face' }),
+it('a computer that can’t train asks nothing when training is turned on', async () => {
+  const io = fakeIO(
+    learningSnapshot({
+      state: 'on',
+      personal_model: personalModel({ train_in_quiet_hours: false }),
+    }),
+    { hardware: NO_GPU },
   );
-  expect(
-    within(sheet).getByText(/will train on Hugging Face, in your own account/),
-  ).toBeVisible();
+  const learning = {
+    ...learningSettings,
+    enabled: true,
+    train_in_quiet_hours: false,
+  };
+  showSaving(io, learning, { train_in_quiet_hours: true });
+
   fireEvent.click(
-    within(sheet).getByRole('button', { name: 'Turn on Learning' }),
+    screen.getByRole('switch', { name: 'Train during quiet hours' }),
   );
 
-  expect(await screen.findByText('Learning is on.')).toBeVisible();
-  expect(io.run).toHaveBeenCalledWith('turn_on', {
-    setup: expect.objectContaining({ train_where: 'hugging_face' }),
-  });
-  // Nothing to download on this computer: no download ask.
+  expect(
+    await screen.findByText('Train during quiet hours turned on'),
+  ).toBeVisible();
+  await act(async () => undefined);
+  expect(io.hardware).toHaveBeenCalled();
   expect(screen.queryByRole('dialog', { name: /^Download/ })).toBeNull();
 });
 
+it('Experimental is its own switch, off, and says what it adds and costs (O195)', async () => {
+  const io = fakeIO(learningSnapshot({ state: 'on' }));
+  const learning = { ...learningSettings, enabled: true };
+  const saving = showSaving(io, learning, { experimental: true });
+
+  expect(screen.getByRole('heading', { name: 'Experimental' })).toBeVisible();
+  const toggle = screen.getByRole('switch', {
+    name: 'Try experimental learning',
+  });
+  expect(toggle).not.toBeChecked();
+  expect(toggle).toHaveAccessibleDescription(
+    'Practice on tasks Row-Bot makes up from its own mistakes, a quick question when it can’t tell what to change, and trials that compare ways of learning. They use more of the monthly limit.',
+  );
+  // Nothing is kept back for comparing methods while they are off.
+  expect(
+    screen.getByRole('combobox', { name: 'Monthly limit' }),
+  ).toHaveAccessibleDescription(/About 20 tests of a change\. Local models/);
+
+  fireEvent.click(toggle);
+  expect(
+    await screen.findByText('Try experimental learning turned on'),
+  ).toBeVisible();
+  expect(saving.review).toHaveBeenLastCalledWith(
+    {
+      settings_revision: 'b'.repeat(64),
+      page: 'learning',
+      field: 'experimental',
+      value: true,
+    },
+    expect.anything(),
+  );
+});
+
+it('with experimental learning on, the limit says a fifth is kept for comparing methods', () => {
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <LearningSettings
+          io={fakeIO(learningSnapshot({ state: 'on' }))}
+          preferences={preferences}
+          preferencesMutation={mutation('preferences')}
+          learning={{ ...learningSettings, enabled: true, experimental: true }}
+          learningMutation={mutation('learning')}
+          onSettingsChanged={vi.fn()}
+          onOpenLearning={vi.fn()}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getByRole('combobox', { name: 'Monthly limit' }),
+  ).toHaveAccessibleDescription(
+    /About 20 tests of a change\. A fifth of it is kept for comparing methods\./,
+  );
+});
 it('the setup sheet turns Learning on with no monthly limit and says what that means', async () => {
   const io = fakeIO(learningSnapshot(), {
-    hardware: SMALL_GPU,
     after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
   });
   show(io);
@@ -284,7 +336,7 @@ it('the setup sheet turns Learning on with no monthly limit and says what that m
   );
   expect(
     within(sheet).getByText(
-      "No monthly cap: nothing limits Learning's spending, comparing methods included. What it spends still shows each month. Local models don't count.",
+      "No monthly cap: nothing limits Learning's spending. What it spends still shows each month. Local models don't count.",
     ),
   ).toBeVisible();
   fireEvent.click(
@@ -296,7 +348,6 @@ it('the setup sheet turns Learning on with no monthly limit and says what that m
     setup: expect.objectContaining({ monthly_token_limit: null }),
   });
 });
-
 it('on: its settings, and turning Learning off asks with what stays', async () => {
   const io = fakeIO(
     learningSnapshot({
@@ -516,7 +567,7 @@ it('with no monthly limit, what this month used still shows', () => {
   const limit = screen.getByRole('combobox', { name: 'Monthly limit' });
   expect(limit).toHaveDisplayValue('No limit');
   expect(limit).toHaveAccessibleDescription(
-    /No monthly cap: nothing limits Learning's spending, comparing methods included\. What it spends still shows each month\./,
+    /No monthly cap: nothing limits Learning's spending\. What it spends still shows each month\./,
   );
 });
 
@@ -555,27 +606,6 @@ it('an earlier Download answer reads as Ready to download, and a pairing-only ch
   ).toBeVisible();
 });
 
-it('the hardware check that fails offers Check again', async () => {
-  const io = fakeIO(learningSnapshot());
-  io.hardware = vi
-    .fn()
-    .mockResolvedValueOnce({ ...NO_GPU, state: 'unknown' })
-    .mockResolvedValueOnce(GPU_16GB);
-  show(io);
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'Row-Bot couldn’t check this computer’s graphics card.',
-    ),
-  ).toBeVisible();
-  fireEvent.click(within(sheet).getByRole('button', { name: 'Check again' }));
-  expect(
-    await within(sheet).findByText('NVIDIA GeForce RTX 5060 Ti (16 GB)'),
-  ).toBeVisible();
-  expect(io.hardware).toHaveBeenLastCalledWith(true);
-});
-
 it('the engine and starting model on disk show their sizes, and Remove and Delete ask first', async () => {
   const io = fakeIO(
     learningSnapshot({ state: 'on', personal_model: installedModel() }),
@@ -605,213 +635,6 @@ it('the engine and starting model on disk show their sizes, and Remove and Delet
   fireEvent.click(within(remove2).getByRole('button', { name: 'Delete' }));
   await act(async () => undefined);
   expect(io.run).toHaveBeenCalledWith('delete_starting_model');
-});
-
-it('an NVIDIA driver older than 570 says to update it, in the setup sheet', async () => {
-  const io = fakeIO(learningSnapshot(), {
-    hardware: { ...GPU_16GB, state: 'old_driver' },
-  });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText('Update your NVIDIA driver to train here.'),
-  ).toBeVisible();
-  expect(
-    within(sheet).getByRole('button', { name: 'Check again' }),
-  ).toBeVisible();
-});
-
-it('a 32 GB card offers its own tier’s model first, the smaller tiers’ as choices (L2x)', async () => {
-  const GPU_32GB = {
-    ...GPU_16GB,
-    gpu: {
-      name: 'NVIDIA GeForce RTX 5090',
-      memory_gb: 32,
-      label: 'NVIDIA GeForce RTX 5090 (32 GB)',
-    },
-    tier: {
-      id: '32gb',
-      label: '32 GB',
-      certified: true,
-      summary: 'Can train models up to about 9B on your tasks.',
-    },
-    starting_models: [
-      {
-        id: 'qwen3.5-9b',
-        name: 'Qwen3.5 9B',
-        licence: 'Apache 2.0',
-        download_bytes: 19_331_993_000,
-      },
-      {
-        id: 'test-small',
-        name: 'A small model',
-        licence: 'Apache 2.0',
-        download_bytes: 4_570_000_000,
-      },
-    ],
-  } satisfies typeof GPU_16GB;
-  const io = fakeIO(learningSnapshot(), {
-    hardware: GPU_32GB,
-    after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
-  });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'Can train models up to about 9B on your tasks.',
-    ),
-  ).toBeVisible();
-  const starting = within(sheet).getByRole('combobox', {
-    name: 'Starting model',
-  });
-  expect(starting).toHaveDisplayValue(
-    /^Qwen3\.5 9B · Apache 2\.0 · 19\.3\sGB download$/,
-  );
-  expect(
-    within(starting).getByRole('option', {
-      name: /^A small model · Apache 2\.0 · 4\.6\sGB download$/,
-    }),
-  ).toBeInTheDocument();
-  fireEvent.change(starting, { target: { value: 'test-small' } });
-  fireEvent.click(
-    within(sheet).getByRole('button', { name: 'Turn on Learning' }),
-  );
-  await act(async () => undefined);
-  expect(io.run).toHaveBeenCalledWith(
-    'turn_on',
-    expect.objectContaining({
-      setup: expect.objectContaining({ starting_model: 'test-small' }),
-    }),
-  );
-});
-
-it('the setup sheet says what training needs of the computer’s memory, and what to do when it can’t hold a tier (O105)', async () => {
-  const GPU_32GB = {
-    ...GPU_16GB,
-    gpu: {
-      name: 'NVIDIA GeForce RTX 5090',
-      memory_gb: 32,
-      label: 'NVIDIA GeForce RTX 5090 (32 GB)',
-    },
-    tier: {
-      id: '16gb',
-      label: '16 GB',
-      certified: true,
-      summary: 'Can train models up to about 9B on your tasks.',
-      system_memory_gb: 30,
-    },
-    memory_short: [
-      {
-        id: '24gb',
-        label: '24 GB',
-        certified: true,
-        summary: 'Can train models up to about 9B on your tasks.',
-        system_memory_gb: 41,
-      },
-    ],
-    memory: { limit_gb: 36, free_gb: 20, system: 'windows' as const },
-  } satisfies typeof GPU_16GB;
-  const io = fakeIO(learningSnapshot(), { hardware: GPU_32GB });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'Training needs about 30 GB of this computer’s memory free (RAM and virtual memory).',
-    ),
-  ).toBeVisible();
-  expect(
-    within(sheet).getByText(
-      /^Larger models need about 41 GB of RAM and virtual memory to train, and this computer has 36 GB\. Raise Windows’ virtual memory/,
-    ),
-  ).toBeVisible();
-  fireEvent.click(within(sheet).getByRole('button', { name: 'Check again' }));
-  await act(async () => undefined);
-  expect(io.hardware).toHaveBeenLastCalledWith(true);
-});
-
-it('a computer whose memory can’t hold training says so up front, with what to do (O105)', async () => {
-  const io = fakeIO(learningSnapshot(), {
-    hardware: {
-      ...GPU_16GB,
-      state: 'low_memory',
-      tier: { ...GPU_16GB.tier!, system_memory_gb: 15 },
-      starting_models: [],
-      memory: { limit_gb: 12, free_gb: 5, system: 'linux' },
-    },
-  });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'This computer’s memory can’t hold training yet: it needs about 15 GB of RAM and virtual memory, and this computer has 12 GB.',
-    ),
-  ).toBeVisible();
-  expect(
-    within(sheet).getByText('Add swap space or RAM, then check again.'),
-  ).toBeVisible();
-  expect(
-    within(sheet).queryByRole('combobox', { name: 'Starting model' }),
-  ).toBeNull();
-  expect(
-    within(sheet).getByRole('button', { name: 'Check again' }),
-  ).toBeVisible();
-});
-
-it('setup says why it recommends a smaller model when the graphics card has little free (O112)', async () => {
-  const io = fakeIO(learningSnapshot(), {
-    hardware: {
-      ...GPU_16GB,
-      gpu: {
-        name: 'NVIDIA GeForce RTX 4080',
-        memory_gb: 16,
-        label: 'NVIDIA GeForce RTX 4080 (16 GB)',
-      },
-      tier: {
-        id: '16gb',
-        label: '16 GB',
-        certified: true,
-        summary: 'Can train models up to about 9B on your tasks.',
-        card_need_gb: 15.3,
-      },
-      recommended: {
-        id: 'small',
-        label: 'small',
-        certified: true,
-        summary: '',
-        card_need_gb: 8,
-      },
-      card_free_gb: 9.6,
-      starting_models: [
-        {
-          id: 'test-small',
-          name: 'A small model',
-          licence: 'Apache 2.0',
-          download_bytes: 4_570_000_000,
-        },
-        GPU_16GB.starting_models[0],
-      ],
-    },
-  });
-  show(io);
-
-  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
-  expect(
-    await within(sheet).findByText(
-      'Your graphics card has about 9 GB free now (your display and other apps use the rest), so Row-Bot recommends A small model. Larger models need about 16 GB free on it.',
-    ),
-  ).toBeVisible();
-  expect(
-    within(sheet).getByRole('combobox', { name: 'Starting model' }),
-  ).toHaveDisplayValue(/^A small model/);
 });
 
 it('the learning data line says how much of it is browser and computer pictures', () => {

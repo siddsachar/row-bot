@@ -4,8 +4,8 @@
 night: the look for things to improve diagnosed an issue and said **"needs more examples"** (its evidence isn't
 enough to know what to change). Then one ``learning_diagnosis`` call is asked for a question with exactly two short
 answers that would settle it; when the model can't write one, nothing is asked. At most one a day, never two open,
-never again about an issue the person answered or waved away (✕), and only in a build with the quick question on
-(:func:`row_bot.learning.quick_question_enabled`).
+never again about an issue the person answered or waved away (✕), and only while the quick question is on
+(:func:`row_bot.learning.experimental_enabled`, O195).
 
 **Where.** It is part of Learning's snapshot, so Overview's Needs you shows it on every device the person uses
 (desktop, phone, a remote browser), as soon as it is asked; the morning summary says one is waiting. It never blocks
@@ -60,7 +60,7 @@ class QuestionError(ValueError):
 
 
 def enabled() -> bool:
-    return gate.quick_question_enabled()
+    return gate.experimental_enabled()
 
 
 def _meta(store: Any, key: str, default: Any) -> Any:

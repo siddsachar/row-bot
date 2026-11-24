@@ -205,11 +205,13 @@ class FakePerson:
         self.exits = exits or {}
         self.tokens = tokens
         self.calls: list[tuple[str, dict[str, str]]] = []
+        self.commands: list[list[str]] = []
 
     def __call__(self, command: list[str], env: dict[str, str], log: Path) -> int:
         person = command[command.index("--person") + 1]
         run_dir = Path(command[command.index("--run-dir") + 1])
         self.calls.append((person, dict(env)))
+        self.commands.append(list(command))
         state = State(run_dir / "state.json")
         state.data["starts"] = int(state.data.get("starts", 0)) + 1
         state.save()
@@ -251,20 +253,22 @@ def test_each_person_runs_in_their_own_scratch_profile_and_nothing_is_written_el
 
 
 def test_practice_and_jobs_reach_every_persons_build_only_when_asked(tmp_path, home):
+    # Practice and the quick question are the person's Experimental setting (O195); the jobs keep their switch.
     from row_bot import learning
 
     (tmp_path / "eval-profile").mkdir()
-    switches = (learning.PRACTICE_ENV, learning.QUICK_QUESTION_ENV, learning.JOBS_ENV)
     plain = FakePerson()
     release_check.ReleaseCheck(_args(tmp_path, people="mara"), runner=plain, say=lambda _text: None).execute()
-    assert plain.calls and all(not any(key in env for key in switches) for _person, env in plain.calls)
+    assert plain.calls and all(learning.JOBS_ENV not in env for _person, env in plain.calls)
+    assert all("--experimental" not in command for command in plain.commands)
 
     on = FakePerson()
     args = release_check.parse(["--out", str(tmp_path / "out-l4"), "--scratch", str(tmp_path / "scratch-l4"),
                                 "--eval-profile", str(tmp_path / "eval-profile"), "--days", "2", "--people", "mara",
                                 "--practice", "--jobs"])
     release_check.ReleaseCheck(args, runner=on, say=lambda _text: None).execute()
-    assert on.calls and all(all(env.get(key) == "1" for key in switches) for _person, env in on.calls)
+    assert on.calls and all(env.get(learning.JOBS_ENV) == "1" for _person, env in on.calls)
+    assert all("--experimental" in command for command in on.commands)
     run = json.loads((tmp_path / "out-l4" / "run.json").read_text(encoding="utf-8"))
     assert (run["practice"], run["jobs"]) == (True, True)
 

@@ -17,6 +17,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from row_bot.learning import evaluation
 from row_bot.learning.store import LearningStore
 from row_bot.learning.training import dataset, recipes, shape
+from tests.fixtures.learning import save_learning_settings
 
 pytestmark = [pytest.mark.subsystem]
 
@@ -121,6 +122,14 @@ def work(writer, chats, clock):
 @pytest.fixture
 def recipe():
     return recipes.load("16gb")
+
+
+@pytest.fixture
+def learning_on(learning_on):
+    """Learning on, with "Also learn from the last 30 days of chats" ticked (off by default, O195)."""
+
+    save_learning_settings(learning_on, sources={"past_chats": True})
+    return learning_on
 
 
 def _compile(root, chats, recipe, **kwargs):

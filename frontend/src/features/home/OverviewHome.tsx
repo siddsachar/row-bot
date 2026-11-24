@@ -127,6 +127,8 @@ export type OverviewHomeProps = {
   processes?: ProcessIo;
   /** Whether this host can dictate and Talk: the phone's Ask box offers them. */
   voice?: { dictate: boolean; talk: boolean };
+  /** Learning's one-time note that it is on (O195): under the greeting, after Recent on a phone. */
+  learningIntro?: ReactNode;
   /**
    * Proactive's For you, in place of Today while Proactive is on: it gets
    * Today's fact rows (for Later today), those on a later day (`ahead`, under
@@ -577,6 +579,7 @@ export default function OverviewHome({
   notificationsOffer,
   processes,
   voice,
+  learningIntro,
   forYou,
   onAsk,
   asking = false,
@@ -1241,6 +1244,10 @@ export default function OverviewHome({
 
       {!needsModel && !phone && notificationsOffer?.(attention)}
 
+      {/* Learning's one-time note: under the greeting on a computer; on a phone after what needs you
+          and what's at work (below), so it never pushes them below the fold. */}
+      {!needsModel && !phone && learningIntro}
+
       {!needsModel && needRows.length > 0 && (
         <Section
           id="overview-needs"
@@ -1538,6 +1545,8 @@ export default function OverviewHome({
           </ul>
         </Section>
       )}
+
+      {!needsModel && phone && learningIntro}
 
       {/* Once a model works Row-Bot is set up; the rest is optional, never
           a "needs you" item or a count of what's left (U1, U2). */}

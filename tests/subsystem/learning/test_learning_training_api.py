@@ -29,8 +29,6 @@ SETUP = {
     "sources": {"my_chats": True, "workflows_and_goals": True, "past_chats": False},
     "apply_mode": "ask_first",
     "monthly_token_limit": 2_000_000,
-    "train_in_quiet_hours": True,
-    "train_where": "this_computer",
 }
 
 
@@ -75,6 +73,8 @@ def _refused(response, code: str) -> None:
 @pytest.fixture
 def on(api):
     client, headers, data, _ = api
+    # On by default (O195): turning it on starts from off, with training on as Settings saves it.
+    save_learning_settings(data, enabled=False, train_in_quiet_hours=True)
     _ok(_command(client, headers, "turn_on", setup=SETUP))
     return client, headers, data
 

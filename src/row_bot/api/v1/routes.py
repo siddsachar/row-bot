@@ -3726,7 +3726,8 @@ def create_router(
     @router.get("/conversations/{conversation_id}/links")
     async def conversation_links(conversation_id: str, request: Request) -> JSONResponse:
         """The conversations this one started or proposed, with their state (5.3.1 C)."""
-        await session(request)
+        # Its card is in the chat the person is looking at: a view read, never behind background reads.
+        await session(request, lane="view")
         await call(service._metadata, conversation_id)
         from row_bot.linked_conversations import links
 

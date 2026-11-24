@@ -42,7 +42,7 @@ names the rendering and counts derived rows. ``shape="captured"`` keeps rows exa
 computer action (5.3) is left out of a served row, as the text-only personal model is served without it;
 a captured row can't hold it, so such a turn is left out there (``unsupported_content``).
 
-**Practice** (L4b, D6, only in a build with practice on): the main model's passing practice turns
+**Practice** (L4b, D6, only while practice is on): the main model's passing practice turns
 (``learning.practice``: tasks Row-Bot made up from its own mistakes, run in throwaway sandboxes through
 the real runtime, kept as Row-Bot sent them) are their own slice of the mix, rendered like captured rows
 (the same ``shape.render``), training only (validation stays the person's own work), and at most
@@ -897,11 +897,11 @@ def _practice_example(item: Mapping[str, Any], *, roots: Sequence[str], envelope
 
 
 def _practice_share(requested: float | None) -> float:
-    """How much of the training rows practice may be: none in a build without practice (L4b)."""
+    """How much of the training rows practice may be: none while practice is off (L4b)."""
 
     from row_bot import learning as gate
 
-    if not gate.practice_enabled():
+    if not gate.experimental_enabled():
         return 0.0
     wanted = PRACTICE_SHARE if requested is None else float(requested)
     return min(max(wanted, 0.0), PRACTICE_SHARE)
@@ -952,7 +952,7 @@ def compile_dataset(
     ``shape``: ``serving`` renders rows in the serving envelope of the recipe's ``serve_context``
     (``envelope`` overrides Row-Bot's own, for tests); ``captured`` keeps them as captured.
     ``practice_share`` (L4b): the most of the training rows practice may be, capped at :data:`PRACTICE_SHARE`
-    and :data:`PRACTICE_SHARE` by default, in a build with practice on; 0 without it (the seam a recipe's own mix
+    and :data:`PRACTICE_SHARE` by default, while practice is on; 0 without it (the seam a recipe's own mix
     will set).
     """
 

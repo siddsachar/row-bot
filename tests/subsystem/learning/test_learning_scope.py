@@ -55,7 +55,7 @@ def test_the_decision_for_each_kind_of_source(facts, allowed, reason):
 
 def test_learning_off_and_the_opt_out_deny_everything():
     owner_chat = SourceFacts("app", "chat-1")
-    assert scope.decide(owner_chat, learning.DEFAULTS) == scope.ScopeDecision(False, scope.LEARNING_OFF)
+    assert scope.decide(owner_chat, replace(ON, enabled=False)) == scope.ScopeDecision(False, scope.LEARNING_OFF)
     assert scope.decide(owner_chat, ON, opted_out=True) == scope.ScopeDecision(False, scope.CHAT_OPTED_OUT)
 
 
@@ -73,8 +73,8 @@ def test_the_source_toggles_feed_the_same_decision():
     assert _decide(workflow, workflows_and_goals=False).reason == scope.WORKFLOWS_AND_GOALS_OFF
     assert _decide(goal, workflows_and_goals=False).reason == scope.WORKFLOWS_AND_GOALS_OFF
     assert _decide(chat, workflows_and_goals=False).allowed is True
-    assert _decide(past, past_chats=False).reason == scope.PAST_CHATS_OFF
-    assert _decide(past).allowed is True
+    assert _decide(past).reason == scope.PAST_CHATS_OFF  # off by default (O195)
+    assert _decide(past, past_chats=True).allowed is True
     assert _decide(chat, past_chats=False).allowed is True  # only past chats need that box
     # The never-rules come before the toggles.
     shared = SourceFacts("channel", "slack_C1", channel="slack", shared=True, with_owner=False)
@@ -178,13 +178,13 @@ def test_a_lookup_that_fails_denies():
     assert scope.describe_thread("chat-1", lookup=Broken({})).conversation == "unknown"
 
 
-def test_check_is_off_without_reading_anything(data_dir):
+def test_check_is_off_without_reading_anything(data_dir, learning_off):
     class Unreachable(FakeThreads):
         def thread(self, thread_id):
             raise AssertionError("Learning off must not look anything up")
 
     assert scope.check("chat-1", lookup=Unreachable({})) == scope.ScopeDecision(False, scope.LEARNING_OFF)
-    assert list(data_dir.iterdir()) == []
+    assert [path.name for path in data_dir.iterdir()] == ["learning_config.json"]  # only the person's "off"
 
 
 def test_check_reads_real_conversations_and_channel_refs(learning_on):

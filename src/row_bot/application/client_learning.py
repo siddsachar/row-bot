@@ -37,7 +37,7 @@ _ACTIONS = frozenset({
     "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
     "review_version", "use_smaller_model", "change_starting_model",
     "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-    "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
+    "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question", "close_intro",
 })
 # Changes Learning drafted (L3b): test, use, undo, not now, don't suggest again, edit; a lesson Row-Bot saved
 # for itself tested, or deleted. Every one is the person's own choice (D24).
@@ -545,6 +545,8 @@ def _method_view(store: Any, now: float | None = None) -> dict[str, Any]:
     plan = meta.plan(store, quick=True)
     fresh = evaluation.fresh_count(store=store)
     state = {"resume": "running", "ready": "ready", "limit": "limit"}.get(plan.state, "waiting")
+    if not learning.experimental_enabled():
+        state = "off"  # the trials run only with Learning's experimental parts on (O195)
     return {"version": current.version if current is not None else 1, "since": _iso(since.get("at")) if since else None,
             "description": _text(method.describe(), 600), "tried": tried, "kept": kept,
             "tokens": max(0, int(spending.used_this_month(now=now))), "trials": trial_rows, "history": history[:30],
@@ -1324,6 +1326,8 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
         "kinds_learning": _kinds_learning(changes) if settings.enabled else [],
         "method": _method() if settings.enabled else None,
         "quick_question": _quick_question() if settings.enabled else None,
+        # Home's one-time note (O195): Learning is on though the person never turned it on.
+        "introduce": state == "on" and not settings.introduced,
     }
     data["revision"] = _revision(settings, opted_out)
     validate()
@@ -1651,17 +1655,6 @@ def found_job_id(found: Any) -> str:
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 
-def _trainable_models() -> set[str]:
-    """The starting models setup may choose: the certified ones this computer's card trains (the smallest
-    tier's alone before the card was read, or on a computer that can't train)."""
-
-    from row_bot.learning.training import hardware
-
-    found = hardware.peek()
-    models = {item.id for item in found.starting_models} if found is not None and found.can_train else set()
-    return models or {learning.STARTING_MODELS[0]}
-
-
 def _setup_values(setup: Any) -> dict[str, Any]:
     if not isinstance(setup, dict):
         raise ClientPlatformError("invalid_learning_command")
@@ -1675,19 +1668,16 @@ def _setup_values(setup: Any) -> dict[str, Any]:
     # None: no limit, which only an explicit null chooses (a missing limit is refused).
     limit = setup.get("monthly_token_limit", -1)
     if (setup.get("apply_mode") not in learning.APPLY_MODES
-            or setup.get("train_where") not in learning.TRAIN_PLACES
-            or setup.get("starting_model", learning.STARTING_MODELS[0]) not in _trainable_models()
-            or type(setup.get("train_in_quiet_hours")) is not bool
             or (limit is not None
                 and (type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT))):
         raise ClientPlatformError("invalid_learning_command")
+    # The personal model's settings stay as they are: it is set up in Personal model, never here (O195).
     values.update({
         "apply_mode": setup["apply_mode"],
         "monthly_token_limit": limit,
-        "train_in_quiet_hours": setup["train_in_quiet_hours"],
-        "train_where": setup["train_where"],
-        "starting_model": setup.get("starting_model", learning.STARTING_MODELS[0]),
         "paused": False,
+        # The person turned it on: Home's note that Learning is on has nothing to tell them.
+        "introduced": True,
         # Turning on last: the store and the past-chat import see every choice.
         "enabled": True,
     })
@@ -2208,6 +2198,9 @@ def _perform(
     if action == "turn_on":
         _save(setup_values)
         summary = "Learning is on."
+    elif action == "close_intro":
+        _save({"introduced": True})
+        summary = "Learning stays on. Change it in Settings › Learning."
     elif action == "turn_off":
         _save({"enabled": False, "paused": False})
         summary = "Learning is off. Your learning data is kept until you delete it."

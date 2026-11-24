@@ -352,7 +352,7 @@ def test_chat_only_actual_prepared_boundary_preserves_native_identity(platform, 
     handle = platform.registry.get(receipt["execution_id"])
     calls = []
     class Model:
-        def stream(self, messages):
+        def stream(self, messages, config=None):  # a chat model's own signature
             calls.append(messages)
             assert queued["submission_id"] in [message.id for message in messages]
             assert future["submission_id"] not in [message.id for message in messages]

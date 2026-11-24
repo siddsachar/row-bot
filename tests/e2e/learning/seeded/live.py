@@ -352,7 +352,8 @@ class PersonRun:
         save_learning_settings(self.data, enabled=False, sources={"my_chats": True, "workflows_and_goals": True,
                                                                   "past_chats": True},
                                apply_mode="ask_first", monthly_token_limit=MONTHLY_LIMIT, train_in_quiet_hours=True,
-                               train_where="this_computer", serve_runtime="ollama", model_download="waiting")
+                               train_where="this_computer", serve_runtime="ollama", model_download="waiting",
+                               experimental=bool(self.args.experimental))
         for path, text in sorted(self.history.start_files.items()):
             target = self.workspace / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1644,7 +1645,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="L4a: during the generations, quiet hours run every this many nights")
     parser.add_argument("--monthly-limit", type=int, default=MONTHLY_LIMIT,
                         help="L4a: the person's monthly Learning limit during the generations (trials get 20%%)")
+    parser.add_argument("--experimental", action="store_true",
+                        help="the person turned on experimental learning (O195): practice, the quick question and "
+                             "the strategy trials")
     args = parser.parse_args(argv)
+    if args.generations and not args.experimental:
+        parser.error("--generations compares learning methods, which is experimental learning: add --experimental")
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     check_scratch(Path(args.data), Path(args.eval_profile))
     run = PersonRun(args)

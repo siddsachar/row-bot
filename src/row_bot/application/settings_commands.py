@@ -158,6 +158,7 @@ _BOOL_FIELDS = {
     ("learning", "sources.my_chats"),
     ("learning", "sources.workflows_and_goals"),
     ("learning", "sources.past_chats"),
+    ("learning", "experimental"),
     ("learning", "train_in_quiet_hours"),
 }
 _ACTION_FIELDS = {

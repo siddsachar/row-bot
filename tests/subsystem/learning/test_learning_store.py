@@ -56,7 +56,7 @@ def test_reads_never_create_the_store(data_dir, clock):
     assert learning_files(data_dir) == []
 
 
-def test_nothing_is_written_or_created_while_learning_is_off(data_dir, clock):
+def test_nothing_is_written_or_created_while_learning_is_off(data_dir, learning_off, clock):
     store = LearningStore(clock=clock)
     attempts = [
         lambda: store.put(episode("chat-1")),
@@ -68,7 +68,7 @@ def test_nothing_is_written_or_created_while_learning_is_off(data_dir, clock):
         with pytest.raises(LearningStoreError) as error:
             write()
         assert error.value.code == "learning_off"
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == ["learning_config.json"]  # only the person's "off"
 
 
 def test_turning_learning_on_or_the_first_write_while_on_creates_the_store(learning_on, clock):

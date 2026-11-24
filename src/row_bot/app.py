@@ -830,10 +830,12 @@ async def _run_startup_sequence():
     with _startup_phase("dream_cycle_daemon"):
         await asyncio.to_thread(start_dream_loop)
 
-    # Learning (preview): an unfinished past-chat import carries on. Off: one check, nothing else.
+    # Learning: its store exists while it is on (on by default, O195); an unfinished past-chat import carries
+    # on. Off: one check, nothing else.
     from row_bot import learning as _learning
 
     if _learning.is_enabled():
+        await asyncio.to_thread(_learning.ensure_store)
         await asyncio.to_thread(_learning.start_past_chat_import)
         # Training left running when Row-Bot closed pauses at its newest checkpoint; the
         # quiet-hours runner starts (L2a).

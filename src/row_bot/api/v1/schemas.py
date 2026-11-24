@@ -1480,7 +1480,7 @@ class LearningSourcesSnapshot(WireModel):
 
 
 class LearningSettingsSnapshot(WireModel):
-    """Learning (preview): saved settings only; nothing acts on most of them yet."""
+    """Learning's saved settings (Settings › Learning)."""
 
     availability: Literal["available", "unavailable"]
     enabled: bool
@@ -1490,6 +1490,8 @@ class LearningSettingsSnapshot(WireModel):
     apply_mode: Literal["ask_first", "automatic"]
     # Tokens a month (0: no Learning model calls); null: no limit, its spending still shows.
     monthly_token_limit: int | None = Field(ge=0, le=1_000_000_000)
+    # Practice, the quick question and the strategy trials (O195).
+    experimental: bool
     train_in_quiet_hours: bool
     train_where: Literal["this_computer", "hugging_face"]
     # Learning data is on this computer (kept after Learning is turned off).
@@ -5560,7 +5562,7 @@ class LearningOvernight(WireModel):
     method: Literal["switched", "kept"] | None = None
     method_version: int | None = Field(default=None, ge=1)
     method_words: str = Field(default="", max_length=200)
-    # L4b (in a build with practice on): the practice tasks it made up and ran ("Practised 12 document tasks it made
+    # L4b (while practice is on): the practice tasks it made up and ran ("Practised 12 document tasks it made
     # up: 9 passed"), their kind of work when there was one, and whether coding practice waited for a container.
     practised: int = Field(default=0, ge=0)
     practised_passed: int = Field(default=0, ge=0)
@@ -5616,9 +5618,9 @@ class LearningMethodStep(WireModel):
 
 class LearningNextTrial(WireModel):
     """When the next strategy trial can run: once 30 new hidden problems have built up and the trials' share of
-    the month allows it."""
+    the month allows it; never while the person's experimental switch is off (O195)."""
 
-    state: Literal["waiting", "ready", "running", "limit"]
+    state: Literal["waiting", "ready", "running", "limit", "off"]
     fresh: int = Field(ge=0)
     needed: int = Field(ge=0)
 
@@ -5862,8 +5864,10 @@ class LearningSnapshot(WireModel):
     testing_now: LearningTestingNow | None = None
     # L4a: how Row-Bot learns (while Learning is on).
     method: LearningMethod | None = None
-    # L4b: the quick question waiting for the person (a build with it on).
+    # L4b: the quick question waiting for the person (while it is on).
     quick_question: LearningQuickQuestion | None = None
+    # Home's one-time note that Learning is on, until the person closes it or turns Learning on themselves (O195).
+    introduce: bool = False
 
 
 class LearningNamedValue(WireModel):
@@ -6007,13 +6011,12 @@ class LearningLessonPage(WireModel):
 
 
 class LearningSetupChoices(WireModel):
+    """Turn on Learning's choices. The personal model is set up in Personal model, never here (O195)."""
+
     sources: LearningSourcesSnapshot
     apply_mode: Literal["ask_first", "automatic"]
     # Tokens a month (0: no Learning model calls); null: no limit, its spending still shows.
     monthly_token_limit: int | None = Field(ge=0, le=1_000_000_000)
-    train_in_quiet_hours: bool
-    train_where: Literal["this_computer", "hugging_face"]
-    starting_model: Literal["qwen3.5-9b"] = "qwen3.5-9b"
 
 
 class LearningCommand(WireModel):
@@ -6029,7 +6032,7 @@ class LearningCommand(WireModel):
         "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
         "review_version", "use_smaller_model", "change_starting_model",
         "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-        "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
+        "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question", "close_intro",
         "hf_sign_in", "hf_cancel_sign_in", "hf_sign_out", "hf_choose_model", "hf_choose_flavor", "hf_set_cap",
         "hf_start", "hf_cancel", "check_model", "stop_model_check", "forget_model",
         "hf_check_now",
