@@ -126,6 +126,12 @@
       "maxLength": 128,
       "title": "Talk Reason",
       "type": "string"
+    },
+    "wake_reason": {
+      "default": "host_unavailable",
+      "maxLength": 128,
+      "title": "Wake Reason",
+      "type": "string"
     }
   },
   "required": [

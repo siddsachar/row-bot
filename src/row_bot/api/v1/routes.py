@@ -1087,6 +1087,8 @@ _STATUS.update(
         "kokoro_model_missing": 409,
         "nothing_to_read": 422,
         "voice_language_unspoken": 422,
+        "wake_word_off": 409,
+        "wake_model_missing": 409,
     }
 )
 _STATUS.update(
@@ -2223,6 +2225,7 @@ def create_router(
     @router.get("/voice/dictation/capability")
     async def dictation_capability(request: Request) -> JSONResponse:
         await session(request)
+        context = await _context(request)
         transport = getattr(service, "dictation", None)
         value = (
             asdict(transport.capability())
@@ -2255,6 +2258,11 @@ def create_router(
             else "host_unavailable",
             realtime_reason=realtime_reason,
             live_providers=live,
+            wake_reason="host_unavailable"
+            if getattr(service, "wake", None) is None
+            else "not_this_computer"
+            if not on_this_computer(context)
+            else service.wake.reason(),
         )
         if transport is not None:
             from row_bot.application.read_aloud import read_aloud_reason
@@ -2448,6 +2456,74 @@ def create_router(
         )
         return await respond(request, dto.VoiceTicket, asdict(result))
 
+    @router.post("/voice/wake")
+    async def wake_ticket(request: Request) -> JSONResponse:
+        """A single-use ticket for the voice socket's wake mode ("Hey Row-Bot").
+
+        Only the desktop app on this computer may arm it, over loopback, and
+        only while the person has turned it on in Settings.
+        """
+        from row_bot.voice.client_transport import DictationOwner
+
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        require_this_computer(context)
+        wake = getattr(service, "wake", None)
+        if wake is None:
+            raise ProtocolError("dependency_unavailable", 503)
+        owner = DictationOwner(current.id, current.binding, "", service.server_epoch)
+        result = await call(wake.ticket, owner, current.csrf)
+        return await respond(request, dto.VoiceTicket, asdict(result))
+
+    async def wake_socket(websocket: WebSocket, context: Any, ticket: object) -> None:
+        """The voice socket's wake mode: 16 kHz PCM up, ``ready`` and ``wake`` events down."""
+        from row_bot.voice.wake import run_wake_socket
+
+        wake = getattr(service, "wake", None)
+        try:
+            if wake is None or not on_this_computer(context):
+                raise ProtocolError("action_denied", 403)
+            redeemed = await call(wake.redeem, ticket)
+            owner = redeemed.owner
+            current = security.session(context, owner.client_session_id, redeemed.csrf)
+            if current.binding != owner.access_binding or owner.server_epoch != service.server_epoch:
+                raise ProtocolError("action_denied", 403)
+        except Exception:
+            await websocket.close(code=1008)
+            return
+
+        async def send_event(event: dict) -> None:
+            await websocket.send_text(json.dumps(event))
+
+        async def receive() -> Any:
+            incoming = await websocket.receive()
+            if incoming["type"] == "websocket.disconnect":
+                return None
+            if incoming.get("bytes") is not None:
+                return incoming["bytes"]
+            text = incoming.get("text") or ""
+            value = json.loads(text) if len(text) <= 1024 else None
+            if not isinstance(value, dict):
+                raise ProtocolError("invalid_command", 422)
+            return value
+
+        async def revalidate() -> None:
+            latest = await _context(websocket)
+            security.session(latest, current.id, current.csrf)
+            if not on_this_computer(latest):
+                raise ProtocolError("action_denied", 403)
+
+        code = 1000
+        try:
+            await run_wake_socket(wake, send_event=send_event, receive=receive, revalidate=revalidate)
+        except Exception as exc:
+            code = 1011 if not isinstance(exc, (ProtocolError, ValueError)) else 1008
+            logger.warning("Wake word listening ended: %s", type(exc).__name__)
+        try:
+            await websocket.close(code=code)
+        except Exception:
+            pass
+
     @router.websocket("/voice/stream")
     async def voice_stream(websocket: WebSocket) -> None:
         """Row-Bot Voice: the person's audio in, events and speech out.
@@ -2476,18 +2552,23 @@ def create_router(
             message = json.loads(hello) if len(hello) <= 1024 else None
             if not isinstance(message, dict) or message.get("type") != "hello":
                 raise ProtocolError("invalid_command", 422)
-            redeemed = await call(transport.redeem, message.get("ticket"))
-            owner = redeemed.owner
-            current = security.session(context, owner.client_session_id, redeemed.csrf)
-            if (
-                current.binding != owner.access_binding
-                or owner.server_epoch != service.server_epoch
-                or (context.scheme != "https" and not context.direct_loopback)
-            ):
-                raise ProtocolError("action_denied", 403)
-            await readable_conversation(owner.conversation_id)
+            wake = message.get("mode") == "wake"
+            if not wake:
+                redeemed = await call(transport.redeem, message.get("ticket"))
+                owner = redeemed.owner
+                current = security.session(context, owner.client_session_id, redeemed.csrf)
+                if (
+                    current.binding != owner.access_binding
+                    or owner.server_epoch != service.server_epoch
+                    or (context.scheme != "https" and not context.direct_loopback)
+                ):
+                    raise ProtocolError("action_denied", 403)
+                await readable_conversation(owner.conversation_id)
         except Exception:
             await websocket.close(code=1008)
+            return
+        if wake:
+            await wake_socket(websocket, context, message.get("ticket"))
             return
         validate = dictation_validation(websocket, current, owner.conversation_id)
         sending = asyncio.Lock()
@@ -9738,13 +9819,73 @@ def create_router(
         try:
             result = await call(
                 update_model_context,
-                body.policy_kind,
                 body.cap,
                 validate=dispatch_validation(request, current),
             )
-        except ValueError as exc:
-            raise ProtocolError(str(exc), 422) from None
+        except ValueError:
+            raise ProtocolError("invalid_command", 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
+
+    def _local_model_problem(error: ValueError) -> ProtocolError:
+        # Not a local model the person may set (a cloud one, Learning's), or a value its sheet doesn't offer.
+        code = str(error)
+        if code == "model_configuration_unavailable":
+            return ProtocolError(code, 409)
+        return ProtocolError("invalid_command", 422)
+
+    @router.get("/settings/models/local-model")
+    async def local_model_settings_view(request: Request, model_ref: str = "") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_local_model_settings import read_local_model_settings
+
+        try:
+            result = await call(
+                read_local_model_settings,
+                model_ref[:647],
+                validate=dispatch_validation(request, current),
+            )
+        except ValueError as exc:
+            raise _local_model_problem(exc) from None
+        return await respond(request, dto.LocalModelSettingsView, result)
+
+    @router.post("/settings/models/local-model")
+    async def local_model_settings_save(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.LocalModelSettingsMutation, 2048)
+        from row_bot.application.client_local_model_settings import save_local_model_settings
+
+        try:
+            result = await call(
+                save_local_model_settings,
+                body.model_ref,
+                context=body.context,
+                thinking=body.thinking,
+                reply_limit=body.reply_limit,
+                sampling=body.sampling or "keep",
+                sampling_values=body.sampling_values.model_dump() if body.sampling_values else None,
+                validate=dispatch_validation(request, current),
+            )
+        except ValueError as exc:
+            raise _local_model_problem(exc) from None
+        return await respond(request, dto.LocalModelSettingsView, result)
+
+    @router.post("/settings/models/local-model/reload")
+    async def local_model_reload(request: Request) -> JSONResponse:
+        # The person pressed "Reload in LM Studio": one request to their own LM Studio on this computer.
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.LocalModelReloadRequest, 2048)
+        from row_bot.application.client_local_model_settings import reload_in_lm_studio
+
+        try:
+            result = await call(
+                reload_in_lm_studio,
+                body.model_ref,
+                body.context,
+                validate=dispatch_validation(request, current),
+            )
+        except ValueError as exc:
+            raise _local_model_problem(exc) from None
+        return await respond(request, dto.LocalModelSettingsView, result)
 
     @router.post("/settings/models/visibility")
     async def models_visibility_update(request: Request) -> JSONResponse:

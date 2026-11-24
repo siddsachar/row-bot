@@ -22648,6 +22648,162 @@
         }
       }
     },
+    "/api/v1/settings/models/local-model": {
+      "get": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./LocalModelSettingsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./LocalModelSettingsMutation.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./LocalModelSettingsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
+    "/api/v1/settings/models/local-model/reload": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./LocalModelReloadRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./LocalModelSettingsView.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/settings/models/refresh": {
       "post": {
         "parameters": [
@@ -29918,6 +30074,52 @@
         }
       }
     },
+    "/api/v1/voice/wake": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Client-Session",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./VoiceTicket.schema.json"
+                }
+              }
+            },
+            "description": "Authenticated result"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "./Problem.schema.json"
+                }
+              }
+            },
+            "description": "Safe problem"
+          }
+        }
+      }
+    },
     "/api/v1/waits": {
       "get": {
         "parameters": [
@@ -30136,7 +30338,7 @@
   "x-websockets": [
     {
       "path": "/api/v1/voice/stream",
-      "summary": "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down."
+      "summary": "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down. In its wake mode (desktop only), 16 kHz PCM up and wake events down."
     },
     {
       "path": "/api/v1/voice/live",

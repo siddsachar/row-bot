@@ -473,6 +473,18 @@ def _saved_keys_restored():
 
 
 @pytest.fixture(autouse=True)
+def _local_runtime_sees_a_fake_computer(monkeypatch):
+    # Run on this computer reads the graphics card (nvidia-smi) to pick a model and size its window; a test never
+    # asks the real computer: it sees one without a card unless it gives its own (``hardware.detector``).
+    hardware = importlib.import_module("row_bot.local_runtime.hardware")
+    monkeypatch.setattr(hardware, "detector",
+                        lambda: hardware.classify(hardware.builds.platform_key(), 16 * hardware.GIB))
+    hardware.forget()
+    yield
+    hardware.forget()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_context_calibration():
     # Request-size calibration is learned from reported usage per model and kept in usage.db.
     # One test's fake usage (or a previous run's, in the reused worker folder) must not move

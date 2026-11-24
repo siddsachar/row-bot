@@ -441,11 +441,12 @@ it('a made version offers its other shapes, says where each fits, and downloads 
     expect.stringContaining(
       'Tall 9:16Shorts, Reels · longer than Shorts allow (1:00)',
     ),
-    expect.stringContaining('Square 1:1X, Instagram'),
+    expect.stringContaining('Square 1:1X, LinkedIn'),
+    expect.stringContaining('Portrait 4:5Instagram, Facebook'),
     expect.stringContaining('GIF'),
   ]);
   expect(
-    within(rows[2]).getByRole('button', { name: 'Download GIF' }),
+    within(rows[3]).getByRole('button', { name: 'Download GIF' }),
   ).toBeVisible();
   controller.exportVideoProject = vi.fn(async () => view());
   await userEvent.click(within(rows[0]).getByRole('button', { name: 'Make' }));
@@ -632,6 +633,180 @@ it('each character’s voice is chosen beside the storyboard, and only a changed
       ],
     }),
   );
+});
+
+it('the look is set beside the storyboard, and only the choices changed are sent', async () => {
+  // A version no other test edits: the panel keeps unsaved edits per version.
+  const { controller } = setup(
+    view({
+      number: 7,
+      latest: 7,
+      versions: [{ number: 7, at: AT, by: 'row-bot', note: 'Film look' }],
+      recipe: 'film',
+      grade: 'cinematic',
+      grain: true,
+      letterbox: true,
+    }),
+  );
+  const look = await screen.findByRole('group', { name: 'Look' });
+  expect(within(look).getByLabelText('Grade')).toHaveValue('cinematic');
+  expect(
+    within(look).getByRole('button', { name: 'Film grain' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await userEvent.selectOptions(
+    within(look).getByLabelText('Grade'),
+    'Black and white',
+  );
+  await userEvent.click(
+    within(look).getByRole('button', { name: 'Crossfade between scenes' }),
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  const change = vi.mocked(controller.changeVideoProject).mock.calls[0][1];
+  expect(change).toMatchObject({ grade: 'bw', transitions: 'crossfade' });
+  expect(change).not.toHaveProperty('grain');
+  expect(change).not.toHaveProperty('letterbox');
+});
+
+it('captions get their style beside the toggle, and a made video’s chapters copy in one tap', async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+  const { controller } = setup(
+    view({
+      number: 8,
+      latest: 8,
+      versions: [{ number: 8, at: AT, by: 'row-bot', note: 'Captioned' }],
+      captions: true,
+      caption_style: 'word',
+      chapters: [
+        { at: 0, title: 'Ten tips' },
+        { at: 40, title: 'Pricing' },
+        { at: 65, title: 'Wrap up' },
+      ],
+    }),
+  );
+  const style = await screen.findByLabelText('Caption style');
+  expect(style).toHaveValue('word');
+  const chapters = screen.getByRole('list', { name: 'Chapters' });
+  expect(within(chapters).getAllByRole('listitem')).toHaveLength(3);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Copy the chapters' }),
+  );
+  expect(writeText).toHaveBeenCalledWith(
+    '0:00 Ten tips\n0:40 Pricing\n1:05 Wrap up',
+  );
+  await userEvent.selectOptions(style, 'Clean');
+  await userEvent.click(screen.getByRole('button', { name: 'Save and make' }));
+  expect(
+    vi.mocked(controller.changeVideoProject).mock.calls[0][1],
+  ).toMatchObject({ caption_style: 'clean' });
+  vi.unstubAllGlobals();
+});
+
+it('a made video is got ready for a platform on request, and its publish kit copies, shows and saves', async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+  const save = vi.fn(async () => ({ status: 'cancelled' as const }));
+  const { controller } = setup(view({ number: 9, latest: 9 }), {
+    save,
+  } as unknown as ClientPlatform);
+  const kit = await screen.findByRole('region', { name: 'Ready to publish' });
+  expect(within(kit).queryByRole('list', { name: 'Thumbnails' })).toBeNull();
+  await userEvent.selectOptions(
+    within(kit).getByLabelText("Where it's going"),
+    'TikTok',
+  );
+  await userEvent.click(
+    within(kit).getByRole('button', { name: 'Get it ready for TikTok' }),
+  );
+  await waitFor(() => expect(controller.intent).toHaveBeenCalled());
+  const body = vi.mocked(controller.intent).mock.calls[0][2] as {
+    text: string;
+    video_panel?: unknown;
+  };
+  expect(body.text).toContain(
+    'Get version 9 of the video "Launch demo" (vid-1a2b3c4d) ready to publish on TikTok',
+  );
+  expect(body.video_panel).toBeUndefined();
+  vi.unstubAllGlobals();
+});
+
+it('a publish kit shows its thumbnails, copies its title and description with chapters, and saves its files', async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+  vi.stubGlobal('URL', {
+    ...URL,
+    createObjectURL: () => 'blob:thumbnail',
+    revokeObjectURL: () => undefined,
+  });
+  const save = vi.fn(async () => ({ status: 'cancelled' as const }));
+  setup(
+    view({
+      number: 10,
+      latest: 10,
+      versions: [{ number: 10, at: AT, by: 'row-bot', note: 'Made' }],
+      publish: {
+        platforms: ['youtube', 'reels'],
+        title: 'I built a desk',
+        description: 'One sheet, no table saw.',
+        chapters: [
+          { at: 0, title: 'Plywood desk' },
+          { at: 12, title: 'Cutting' },
+          { at: 30, title: 'Finish' },
+        ],
+        thumbnails: [
+          {
+            shape: '16:9',
+            name: 'Desk thumbnail 16x9.jpg',
+            ref: 'conversation-a:wide',
+          },
+          {
+            shape: '9:16',
+            name: 'Desk thumbnail 9x16.jpg',
+            ref: 'conversation-a:tall',
+          },
+        ],
+        subtitles: [
+          { format: 'srt', name: 'Desk.srt', ref: 'conversation-a:srt' },
+          { format: 'vtt', name: 'Desk.vtt', ref: 'conversation-a:vtt' },
+        ],
+      },
+    }),
+    { save } as unknown as ClientPlatform,
+  );
+  const kit = await screen.findByRole('region', { name: 'Ready to publish' });
+  expect(
+    within(kit).getByRole('heading', {
+      name: 'Ready to publish · YouTube, Instagram Reels',
+    }),
+  ).toBeVisible();
+  expect(within(kit).getByLabelText("Where it's going")).toHaveValue('youtube');
+  const thumbnails = within(kit).getByRole('list', { name: 'Thumbnails' });
+  expect(
+    await within(thumbnails).findByRole('img', { name: 'Thumbnail, 16:9' }),
+  ).toHaveAttribute('src', 'blob:thumbnail');
+  await userEvent.click(
+    within(kit).getByRole('button', { name: 'Copy the title' }),
+  );
+  expect(writeText).toHaveBeenLastCalledWith('I built a desk');
+  await userEvent.click(
+    within(kit).getByRole('button', { name: 'Copy the description' }),
+  );
+  expect(writeText).toHaveBeenLastCalledWith(
+    'One sheet, no table saw.\n\n0:00 Plywood desk\n0:12 Cutting\n0:30 Finish',
+  );
+  expect(await screen.findByText('Description copied.')).toBeVisible();
+  await userEvent.click(
+    within(kit).getByRole('button', { name: 'Download the 9:16 thumbnail' }),
+  );
+  expect(save).toHaveBeenLastCalledWith(
+    'conversation-a:tall',
+    'Desk thumbnail 9x16.jpg',
+  );
+  await userEvent.click(
+    within(kit).getByRole('button', { name: 'Download subtitles (SRT)' }),
+  );
+  expect(save).toHaveBeenLastCalledWith('conversation-a:srt', 'Desk.srt');
+  vi.unstubAllGlobals();
 });
 
 it('a new character given a line joins the voices, picked for them until chosen', async () => {

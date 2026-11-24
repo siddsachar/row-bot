@@ -3,12 +3,12 @@ import { clientError } from '../../api/errors';
 import type { MediaItem, SettingsChoice, VideoBrand } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, Field, Select, Skeleton } from '../../ui/primitives';
+import { CAPTION_STYLES } from './video-words';
 
-const CAPTIONS: [VideoBrand['captions'], string][] = [
-  ['box', 'In a box'],
-  ['bold', 'Bold, outlined'],
-  ['title', 'Large, centred'],
-];
+const CAPTIONS = Object.entries(CAPTION_STYLES) as [
+  VideoBrand['captions'],
+  string,
+][];
 const CORNERS: [VideoBrand['logo_corner'], string][] = [
   ['top-left', 'Top left'],
   ['top-right', 'Top right'],
@@ -23,6 +23,18 @@ const FRAMINGS: [VideoBrand['framing'], string][] = [
 const CAMERAS: [VideoBrand['camera'], string][] = [
   ['follow', 'Follows what is done'],
   ['still', 'Stays still'],
+];
+/** Every word's typeface, and how titles, lower thirds and the end card look (C5). */
+const FONTS: [VideoBrand['font'], string][] = [
+  ['sans', 'Sans'],
+  ['modern', 'Modern (Montserrat)'],
+  ['serif', 'Serif (Playfair Display)'],
+  ['display', 'Display (Anton)'],
+];
+const TITLES: [VideoBrand['titles'], string][] = [
+  ['studio', 'On a card of the colour'],
+  ['minimal', 'Minimal, cards on black'],
+  ['bold', 'Bold, on solid colour'],
 ];
 /** How loud every video's sound is made (LUFS), by where it plays. */
 const LOUDNESS: [number, string][] = [
@@ -142,6 +154,36 @@ export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
             }
           >
             {CAPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Font" layout="row">
+          <Select
+            aria-label="Font"
+            value={brand.font ?? 'sans'}
+            onChange={(event) =>
+              set({ font: event.target.value as VideoBrand['font'] })
+            }
+          >
+            {FONTS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Titles" layout="row">
+          <Select
+            aria-label="Titles"
+            value={brand.titles ?? 'studio'}
+            onChange={(event) =>
+              set({ titles: event.target.value as VideoBrand['titles'] })
+            }
+          >
+            {TITLES.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>

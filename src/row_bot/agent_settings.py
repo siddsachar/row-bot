@@ -21,6 +21,17 @@ _SCHEMA_VERSION = 1
 # goes on while it makes progress; the repeat check stops one that is stuck. At the ceiling the turn
 # ends asking "Keep going?". A saved "max_iterations" from before is ignored.
 MAX_ROUNDS = 1000
+# A lower ceiling for this process only, never saved: ``row-bot run --max-rounds`` (headless runs).
+_round_ceiling: int | None = None
+
+
+def limit_rounds(rounds: int | None) -> None:
+    """Cap every turn this process runs at *rounds* model rounds (None: the usual ceiling)."""
+
+    global _round_ceiling
+    if rounds is not None and not 0 < int(rounds) <= MAX_ROUNDS:
+        raise ValueError(f"rounds must be between 1 and {MAX_ROUNDS}")
+    _round_ceiling = int(rounds) if rounds is not None else None
 
 
 @dataclass(frozen=True)
@@ -37,7 +48,7 @@ class AgentRuntimeSettings:
 
     @property
     def max_iterations(self) -> int:
-        return MAX_ROUNDS
+        return _round_ceiling or MAX_ROUNDS
 
     def to_dict(self) -> dict[str, int]:
         return asdict(self)

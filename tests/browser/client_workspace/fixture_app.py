@@ -1038,6 +1038,15 @@ def _install_voice_engine_fixture() -> None:
 
     attachment_context.prepared_attachments = prepared_seeing
 
+    # "Hey Row-Bot" with the loudness stand-in (tests/fixtures/wake_standin.py) in place of the
+    # shipped model: a loud tone says it. The switch is this profile's own, off until a spec turns it on.
+    import tempfile
+
+    from row_bot.voice import wake
+    from tests.fixtures.wake_standin import write_standin
+
+    wake.MODEL_PATH = write_standin(Path(tempfile.mkdtemp(prefix="row-bot-wake-")))
+
 
 class SyntheticRequestDiagnostics:
     """Observe lifecycle only; never read or serialize authentication/content."""
@@ -2813,6 +2822,8 @@ def _b3_project(thread: str) -> str:
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment
 
+    from row_bot.video_editing import estimated_words
+
     clip = _s3_video()
     for name in ("signup.mp4", "pricing.mp4"):
         register_attachment(thread, name, clip)
@@ -2831,7 +2842,11 @@ def _b3_project(thread: str) -> str:
         status="saved", expected_seconds=3.0, ended_at=clock.time(), media_ref=str(saved["attachment_ref"]),
         mime_type="video/mp4", size_bytes=len(clip), marks=[0.0, 1.6, 3.0], checks_passed=True,
         checks=["Length 0:03, 640×400.", "Sound: present (average -19.2 dB, peak -3.1 dB).", "Black: none.",
-                "Still: none."])
+                "Still: none."], shape="16:9",
+        # What it says, for its subtitles (C10).
+        words=[*estimated_words("First, sign up in a few seconds.", 1.6),
+               *((start + 1.6, end + 1.6, word) for start, end, word in
+                 estimated_words("Then pick the plan that fits.", 1.4))])
     video_edits._ensure_loaded()
     video_edits._RECORDS[edit.edit_id] = edit
     video_edits._save(edit)
@@ -2852,6 +2867,31 @@ def _b3_cards(thread: str) -> str:
         {"card": "Row-Bot 5.3", "line": "Meet Row-Bot."},
         {"source": "signup.mp4", "end": 2, "line": "Sign up in a few seconds."}])
     return video_projects.summary(project)
+
+
+def _c10_stream(text: str, config: dict):
+    """Ready to publish (C10): the panel asked for a platform's kit; the real kit is made for the video it names."""
+    import re
+
+    from row_bot import video_projects, video_publish
+
+    call = predecessor._record("submit", config, "c10-publish")
+    thread = call["conversation_id"]
+    identity = f"c10:{call['generation_id']}"
+    try:
+        project = video_projects.get(re.search(r"vid-[0-9a-f]{8}", text).group(0), thread)
+        args = {"action": "publish", "project": project.project_id, "platforms": ["youtube"],
+                "title": "Sign up for Launch in seconds", "description": "Sign up, then pick the plan that fits."}
+
+        def publish():
+            video_publish.make(project, ["youtube"], title=args["title"], description=args["description"])
+            return video_projects.summary(video_projects.get(project.project_id, thread)), []
+
+        yield from _s3_steps(thread, identity, [("video", args, publish)])
+        yield from _natural_final(call, thread, "It's ready for YouTube: the thumbnail, title, description and "
+                                  "subtitles are in the Video panel.", "c10")
+    finally:
+        call["quiesced"] = True
 
 
 def _b3_stream(text: str, config: dict):
@@ -3354,6 +3394,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                                                     and '"First snow"' in text):
         # A storyboard first (C1): its cards, Make through Row-Bot, a comment on one card made again alone.
         yield from _storyboard_stream(text, config)
+        return
+    if text.startswith("Get version") and "ready to publish on" in text and '"Launch demo"' in text:
+        # Ready to publish (C10): the Video panel asked for a platform's publish kit.
+        yield from _c10_stream(text, config)
         return
     if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.
@@ -5588,12 +5632,13 @@ _E1_GB = 1_000_000_000
 _e1_state: dict = {"state": "unavailable", "done": 0, "installed": [], "failure": None, "freed": None,
                    "found": []}
 # (id, name, quantization, older, size, fit) as the real catalog lists them for a 12 GB card.
+# What a 12 GB card serves each at (models.context_for): the 2-bit 27B its 32K, the small ones 128K.
 _E1_MODELS = (
-    ("qwen3.8-27b-q4", "Qwen3.8 27B", "4-bit", False, 16_564_259_744, "partial"),
-    ("qwen3.8-27b-q3", "Qwen3.8 27B", "3-bit", False, 13_146_393_504, "partial"),
-    ("qwen3.8-27b-q2", "Qwen3.8 27B", "2-bit", False, 9_948_666_784, "gpu"),
-    ("qwen3.5-9b", "Qwen3.5 9B", "4-bit", True, 5_680_522_464, "gpu"),
-    ("qwen3.5-4b", "Qwen3.5 4B", "4-bit", True, 2_740_937_888, "gpu"),
+    ("qwen3.8-27b-q4", "Qwen3.8 27B", "4-bit", False, 16_564_259_744, "partial", 32_768),
+    ("qwen3.8-27b-q3", "Qwen3.8 27B", "3-bit", False, 13_146_393_504, "partial", 32_768),
+    ("qwen3.8-27b-q2", "Qwen3.8 27B", "2-bit", False, 9_948_666_784, "gpu", 32_768),
+    ("qwen3.5-9b", "Qwen3.5 9B", "4-bit", True, 5_680_522_464, "gpu", 131_072),
+    ("qwen3.5-4b", "Qwen3.5 4B", "4-bit", True, 2_740_937_888, "gpu", 131_072),
 )
 _E1_PICK = "qwen3.8-27b-q2"
 _E1_BUILD = 179_546_112 + 426_314_199
@@ -5605,11 +5650,18 @@ _E1_STUDIO = {"kind": "lmstudio", "label": "LM Studio", "port": 1234, "base_url"
 def _e1_view() -> dict:
     installed = set(_e1_state["installed"])
     build = bool(installed)
+    if _u1_saved:  # U1's sheet: what an installed model reads, with the person's choice
+        from row_bot import local_runtime
+
+        windows = {model_id: local_runtime.model_context(model_id) for model_id in installed}
+    else:
+        windows = {}
     rows = [{"id": model_id, "name": name, "model_ref": f"model:custom_openai_llamacpp:{model_id}", "size_bytes": size,
-             "fit": fit, "everyday": model_id == "qwen3.5-4b", "quantization": quant, "older": older,
-             "installed": model_id in installed,
+             "fit": fit, "context_tokens": windows.get(model_id, window), "everyday": model_id == "qwen3.5-4b",
+             "quantization": quant,
+             "older": older, "installed": model_id in installed,
              "download_bytes": 0 if model_id in installed else size + (0 if build else _E1_BUILD)}
-            for model_id, name, quant, older, size, fit in _E1_MODELS]
+            for model_id, name, quant, older, size, fit, window in _E1_MODELS]
     state = _e1_state["state"]
     download = None
     if state == "downloading":
@@ -5700,11 +5752,10 @@ def _e1_save_endpoint() -> None:
 
     custom.save_custom_endpoint({
         "id": "llamacpp", "name": "Row-Bot (llama.cpp)", "base_url": "http://127.0.0.1:9931/v1", "profile": "llama_cpp",
-        "execution_location": "local", "auth_required": False, "managed": "local",
-        "manual_capabilities": {"context_window": 32768},
+        "execution_location": "local", "auth_required": False, "managed": "local", "manual_capabilities": {},
     }, manage_secret=False)
     custom.store_managed_endpoint_models("llamacpp", [
-        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", 32768)
+        (row[0], row[1] if row[3] else f"{row[1]} · {row[2]}", row[6])
         for row in _E1_MODELS if row[0] in _e1_state["installed"]])
 
 
@@ -5736,6 +5787,52 @@ def e1_local_runtime(state: str, done: float = 0.0, failure: str = "", found: st
     return _e1_view()
 
 
+# ── U1 (local-models uplift): a local model's settings sheet ───────────────
+# "on": Row-Bot's own llama.cpp with Qwen3.5 9B downloaded on a synthetic 12 GB NVIDIA card (the sheet reads
+# the real sizes and memory for it), and LM Studio on this computer with gemma-4 loaded at 32K. Nothing runs:
+# a window choice only rewrites the endpoint, as it does while no server is running. "off" puts it back.
+_u1_saved: dict = {}
+
+
+@app.post("/__u1_fixture/local-model-sheet/{state}")
+def u1_local_model_sheet(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models as chat_models
+    from row_bot.local_runtime import builds, hardware, install, models, server
+    from row_bot.providers import custom
+
+    if state == "on":
+        _u1_saved.setdefault("peek", hardware.peek)
+        _u1_saved.setdefault("installed", install.installed_models)
+        card = hardware.Gpu(hardware.NVIDIA, "NVIDIA GeForce RTX 4070", 12 * hardware.GIB, "581.42")
+        found = hardware.classify(builds.WINDOWS_X64, 32 * hardware.GIB, [card])
+        hardware.peek = lambda: found
+        install.installed_models = lambda root=None: [models.get("qwen3.5-9b")]
+        _e1_state.update(state="installed", installed=["qwen3.5-9b"], failure=None)
+        _e1_save_endpoint()
+        server.save_endpoint()
+        custom.save_custom_endpoint({"id": "lmstudio-1234", "name": "LM Studio", "base_url": _E1_STUDIO["base_url"],
+                                     "profile": "lmstudio", "execution_location": "local", "auth_required": False},
+                                    manage_secret=False)
+        _e1_store_models("lmstudio-1234", ["gemma-4"])
+    elif state == "off":
+        chat_models.save_person_local_model_settings("custom_openai_llamacpp", "qwen3.5-9b")
+        chat_models.save_person_local_model_settings("custom_openai_lmstudio-1234", "gemma-4")
+        if "peek" in _u1_saved:
+            hardware.peek = _u1_saved.pop("peek")
+            install.installed_models = _u1_saved.pop("installed")
+        with custom.provider_config_transaction():
+            cfg = custom.load_provider_config(strict=True)
+            revision = custom.provider_config_revision(cfg)
+            cfg["custom_endpoints"] = [item for item in cfg.get("custom_endpoints", [])
+                                       if not (isinstance(item, dict) and item.get("id") == "lmstudio-1234")]
+            custom.save_provider_config(cfg, expected_revision=revision)
+        _e1_state.update(state="unavailable", done=0, installed=[], failure=None, found=[])
+        if custom.get_custom_endpoint("llamacpp") is not None:
+            custom.remove_managed_endpoint("llamacpp")
+    else:
+        raise HTTPException(status_code=422, detail="Unknown sheet state")
+    return {"state": state}
 # ── V1b: Row-Bot Voice's streaming speech models in Settings › Voice ─────────
 # The real catalog and pick with a fixed computer; Download, Stop and Remove change only this state.
 _v1b_state: dict = {"state": "not_installed", "done": 0, "installed": [], "failure": None}

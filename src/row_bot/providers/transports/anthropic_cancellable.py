@@ -216,6 +216,18 @@ class CancellableChatAnthropic(ChatAnthropic):
         )
 
 
+class CustomEndpointChatAnthropic(CancellableChatAnthropic):
+    """Anthropic Messages at a custom endpoint, with the endpoint's connection check (H16) on every request."""
+
+    endpoint: dict[str, Any] = {}
+
+    def _request_hooks(self, *, asynchronous: bool) -> list[Any]:
+        from row_bot.providers.endpoint_addresses import connection_check
+
+        check = connection_check(self.endpoint)
+        return check.event_hooks(asynchronous=asynchronous)["request"] if check is not None else []
+
+
 class OpenCodeChatAnthropic(CancellableChatAnthropic):
     """Anthropic Messages through OpenCode, which routes each request on its headers."""
 

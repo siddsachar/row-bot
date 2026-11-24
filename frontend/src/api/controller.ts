@@ -401,6 +401,19 @@ export class ClientController {
       throw { code: 'capability_unavailable' };
     return this.transport.openVoiceSocket();
   }
+  /** "Hey Row-Bot": a ticket for the voice socket's wake mode, and the socket. */
+  async wakeTicket(signal?: AbortSignal) {
+    if (!this.transport.wakeTicket || !this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    const result = await this.transport.wakeTicket(signal);
+    validateWire('VoiceTicket', result);
+    return result;
+  }
+  openWakeSocket() {
+    if (!this.transport.openVoiceSocket)
+      throw { code: 'capability_unavailable' };
+    return this.transport.openVoiceSocket();
+  }
   async startRealtime(
     scope: DictationScope,
     body: import('./types').TalkStart,
@@ -5497,6 +5510,26 @@ export class ClientController {
       if (!this.transport.updateModelContext)
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.updateModelContext(body, signal);
+    });
+  /** One local model's settings sheet (U1): its window, Thinking and reply length. */
+  localModelSettings = (modelRef: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.localModelSettings?.(modelRef, signal));
+  saveLocalModelSettings = (
+    body: import('./types').LocalModelSettingsMutation,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.saveLocalModelSettings)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.saveLocalModelSettings(body, signal);
+    });
+  /** The person pressed "Reload in LM Studio at N". */
+  reloadLocalModelInLmStudio = (
+    body: import('./types').LocalModelReloadRequest,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.reloadLocalModelInLmStudio)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.reloadLocalModelInLmStudio(body, signal);
     });
   /**
    * Star or unstar a model. The composer's list changes at once and settles on

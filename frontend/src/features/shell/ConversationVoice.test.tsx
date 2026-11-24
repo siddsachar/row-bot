@@ -11,6 +11,11 @@ import ConversationVoice from './ConversationVoice';
 import { startVoiceOnOpen } from './new-chat';
 import type { ClientController } from '../../api/controller';
 import { FakeAudio, FakeSocket, audioFrame } from '../voice/voice-test-fakes';
+import {
+  setWakeListener,
+  wakeOpenChat,
+  type WakeListener,
+} from '../voice/wake-word';
 const audio = { current: new FakeAudio() };
 vi.mock('../voice/voice-audio', () => ({
   BrowserVoiceAudio: vi.fn(function () {
@@ -208,6 +213,27 @@ it('ending or leaving the chat stops the voice lease', async () => {
   await tapTalk();
   view.unmount();
   expect(controller.stopTalk).toHaveBeenCalledTimes(2);
+});
+
+it('the wake word starts Row-Bot Voice in the open chat, and waits while voice runs', async () => {
+  const hold = vi.fn();
+  setWakeListener({ hold } as unknown as WakeListener);
+  try {
+    const { controller, sockets } = setup();
+    await act(async () => {
+      await wakeOpenChat();
+    });
+    expect(controller.startTalk).toHaveBeenCalledTimes(1);
+    expect(hold).toHaveBeenLastCalledWith(true);
+    await act(async () => sockets[0].open());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'End voice' }));
+    });
+    expect(hold).toHaveBeenLastCalledWith(false);
+    expect(hold).toHaveBeenCalledTimes(2);
+  } finally {
+    setWakeListener(null);
+  }
 });
 
 it('waits for the current reply before it can start', () => {

@@ -1,6 +1,12 @@
 import { useRef, useState, type RefObject } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { AlertTriangle, ChevronDown, Cloud, HardDrive } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  Cloud,
+  HardDrive,
+  SlidersHorizontal,
+} from 'lucide-react';
 import type {
   ConversationModelStatus,
   ModelChoice,
@@ -12,11 +18,13 @@ import {
   Button,
   Disclosure,
   Hint,
+  IconButton,
   Input,
   Segmented,
   Select,
   StatusDot,
 } from '../../ui/primitives';
+import { hasLocalModelSettings } from '../local-runtime/LocalModelSheet';
 import ModelList, {
   type ListedModel,
   type VisibilityAction,
@@ -52,6 +60,7 @@ export default function ModelPicker({
   onConnect,
   onReconnect,
   onManage,
+  onModelSettings,
   onSetup,
   onVisibility,
   search,
@@ -76,6 +85,8 @@ export default function ModelPicker({
   onReconnect?: () => void;
   /** Open the model catalog settings. */
   onManage: () => void;
+  /** Open a model's own settings sheet (a model on this computer, U1). */
+  onModelSettings?: (modelRef: string) => void;
   /** Open Setup when no model can be chosen yet (a fresh profile). */
   onSetup?: () => void;
   /** Favourite or hide a model from its row (F10). */
@@ -379,16 +390,33 @@ export default function ModelPicker({
                 Set up a model
               </Button>
             ) : (
-              <Button
-                variant="ghost"
-                className="model-picker-manage"
-                onClick={() => {
-                  onOpenChange(false);
-                  onManage();
-                }}
-              >
-                Manage models
-              </Button>
+              <div className="model-picker-manage-row">
+                <Button
+                  variant="ghost"
+                  className="model-picker-manage"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onManage();
+                  }}
+                >
+                  Manage models
+                </Button>
+                {onModelSettings &&
+                  current &&
+                  !selected?.personal &&
+                  hasLocalModelSettings(current, local) && (
+                    <IconButton
+                      size="sm"
+                      label={`Settings for ${name}`}
+                      onClick={() => {
+                        onOpenChange(false);
+                        onModelSettings(current);
+                      }}
+                    >
+                      <SlidersHorizontal size={14} aria-hidden />
+                    </IconButton>
+                  )}
+              </div>
             )}
           </div>
         </Popover.Content>

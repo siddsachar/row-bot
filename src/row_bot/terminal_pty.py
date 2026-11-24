@@ -78,9 +78,23 @@ def detect_shell() -> tuple[str, str]:
     return shell, shell_type
 
 
+# Windows PowerShell keeps its version in the registry, the same text as ``$PSVersionTable.PSVersion``, so the
+# first prompt of every run doesn't have to start a PowerShell to ask it.
+_WINDOWS_POWERSHELL_KEY = r"SOFTWARE\Microsoft\PowerShell\3\PowerShellEngine"
+
+
+def _windows_powershell_version() -> str:
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _WINDOWS_POWERSHELL_KEY) as key:
+        return str(winreg.QueryValueEx(key, "PowerShellVersion")[0]).strip()
+
+
 def _get_shell_version(shell_path: str, shell_type: str) -> str:
     """Get the version string for the detected shell."""
     try:
+        if shell_type == "powershell" and _IS_WINDOWS:
+            return _windows_powershell_version()
         if shell_type in ("powershell", "pwsh"):
             result = subprocess.run(
                 [shell_path, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],

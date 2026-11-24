@@ -418,6 +418,7 @@ class ClientPlatformService:
         self.dictation: ClientDictationTransport | None = None
         self.talk = None
         self.realtime = None
+        self.wake = None
         self.voice_admission = None
         # A live Row-Bot Voice session hears its conversation's run events.
         self.voice_listeners: dict[str, Callable[[tuple, Any], None]] = {}
@@ -434,9 +435,9 @@ class ClientPlatformService:
                    browser_service: Callable[[], BrowserLocalVoiceService],
                    clock: Callable[[], float] = time.monotonic,
                    realtime_provider_factory: Callable[[str], Any] | None = None,
-                   voice_engine: Any = None) -> None:
+                   voice_engine: Any = None, wake_options: Any = None) -> None:
         """Expose the host's existing voice owner without starting a service."""
-        binding = (coordinator, browser_service, clock, realtime_provider_factory, voice_engine)
+        binding = (coordinator, browser_service, clock, realtime_provider_factory, voice_engine, wake_options)
         with self._voice_binding_lock:
             if self._voice_binding is not None:
                 if all(old is new for old, new in zip(self._voice_binding, binding)):
@@ -458,6 +459,9 @@ class ClientPlatformService:
                 control_generation=self.voice_admission.control,
                 session_context=self.voice_admission.front_context, save_front=self.voice_admission.save_front,
                 run_view=self.voice_admission.run_view)
+            from row_bot.voice.wake import WakeListening
+            self.wake = WakeListening(voice_busy=self.dictation.holds_microphone, clock=clock,
+                                      options=wake_options)
             self._voice_binding = binding
 
     def close_voice(self) -> bool:

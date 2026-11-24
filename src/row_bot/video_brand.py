@@ -6,7 +6,8 @@ intro and outro are title cards on its colour before the first scene and after t
 sets footage on its backdrop or edge to edge, its camera follows what was done or stays still, and
 its voice and speed say every video's lines (a video may choose its own). Its music mood is what
 Row-Bot picks when it makes music for a video, and its loudness what every video's mix is brought to (-14 LUFS,
-as social video plays). It is kept in one small file in the data folder.
+as social video plays). Its font sets every word's typeface, and its title style how titles, lower thirds and the
+end card look (C5). It is kept in one small file in the data folder.
 """
 
 from __future__ import annotations
@@ -22,12 +23,15 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-CaptionStyle = Literal["box", "bold", "title"]
-CAPTION_STYLES: tuple[str, ...] = ("box", "bold", "title")
+CaptionStyle = Literal["box", "clean", "bold", "title", "word"]
+CAPTION_STYLES: tuple[str, ...] = ("box", "clean", "bold", "title", "word")
 MOODS: tuple[str, ...] = ("calm", "upbeat", "focused", "warm")
 CORNERS: tuple[str, ...] = ("top-left", "top-right", "bottom-left", "bottom-right")
 FRAMINGS: tuple[str, ...] = ("framed", "full")
 CAMERAS: tuple[str, ...] = ("follow", "still")
+# Its typeface and how its titles, lower thirds and end card look (C5): ``video_editing.FONTS`` and ``TITLE_STYLES``.
+FONTS: tuple[str, ...] = ("sans", "modern", "serif", "display")
+TITLE_STYLES: tuple[str, ...] = ("studio", "minimal", "bold")
 # A narration's speed: a little slower or faster than normal, never harsh.
 VOICE_SPEEDS = (0.9, 1.25)
 # A mix's loudness (LUFS): -14 for social video and YouTube, -16 for podcasts, down to -24 for broadcast.
@@ -61,6 +65,8 @@ class Brand:
     # The voice that says the lines ("" the one chosen in Settings) and its speed.
     voice: str = ""
     voice_speed: float = 1.0
+    font: str = "sans"
+    titles: str = "studio"
     loudness: float = -14.0
 
 
@@ -113,13 +119,20 @@ def _clean(data: dict[str, Any], *, check_logo: bool) -> Brand:
         raise BrandError("The loudness is a number of LUFS, -14 for social video.") from None
     if not LOUDNESS[0] <= loudness <= LOUDNESS[1]:
         raise BrandError(f"The loudness is {LOUDNESS[0]:g} to {LOUDNESS[1]:g} LUFS (-14 for social video).")
+    typeface = str(data.get("font") or "sans")
+    if typeface not in FONTS:
+        raise BrandError(f"The font is {', '.join(FONTS)}.")
+    titles = str(data.get("titles") or "studio")
+    if titles not in TITLE_STYLES:
+        raise BrandError(f"Titles are {', '.join(TITLE_STYLES)}.")
     logo = str(data.get("logo") or "").strip()
     if logo and check_logo:
         _check_logo(logo)
     return Brand(colour=colour.lower(), captions=captions, logo=logo, logo_corner=corner,
                  intro=re.sub(r"\s+", " ", str(data.get("intro") or "")).strip()[:MAX_CARD],
                  outro=re.sub(r"\s+", " ", str(data.get("outro") or "")).strip()[:MAX_CARD], music_mood=mood,
-                 framing=framing, camera=camera, voice=voice, voice_speed=speed, loudness=loudness)
+                 framing=framing, camera=camera, voice=voice, voice_speed=speed, loudness=loudness, font=typeface,
+                 titles=titles)
 
 
 def narration_voice(value: Any) -> str:

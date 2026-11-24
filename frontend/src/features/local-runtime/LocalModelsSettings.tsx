@@ -15,10 +15,11 @@ import type { ClientController } from '../../api/controller';
 import { useOverlay } from '../../ui/overlays';
 import { Button, IconButton } from '../../ui/primitives';
 import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
+import { LocalModelSettingsButton } from './LocalModelSheet';
 import LocalWays from './LocalWays';
 import RunOnThisComputer from './RunOnThisComputer';
 import { useLocalModelRuntime } from './useLocalModelRuntime';
-import { modelLabel, repairWords, sizeWords } from './words';
+import { modelLabel, readsWords, repairWords, sizeWords } from './words';
 
 const MANAGED = 'custom_openai_llamacpp';
 
@@ -224,18 +225,30 @@ export default function LocalModelsSettings({
             <li key={model.id}>
               <span>
                 <strong>{modelLabel(model)}</strong>
-                <small>{sizeWords(model.size_bytes)}</small>
+                <small>
+                  {sizeWords(model.size_bytes)} ·{' '}
+                  {readsWords(model.context_tokens)}
+                </small>
               </span>
-              {here && (
-                <IconButton
-                  label={`Remove ${modelLabel(model)}`}
+              <span className="local-model-settings-actions">
+                <LocalModelSettingsButton
+                  controller={controller}
+                  modelRef={model.model_ref}
+                  name={modelLabel(model)}
                   size="sm"
-                  disabled={busy}
-                  onClick={() => confirmRemove(model)}
-                >
-                  <Trash2 size={14} aria-hidden />
-                </IconButton>
-              )}
+                  onClosed={() => void local.reload()}
+                />
+                {here && (
+                  <IconButton
+                    label={`Remove ${modelLabel(model)}`}
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => confirmRemove(model)}
+                  >
+                    <Trash2 size={14} aria-hidden />
+                  </IconButton>
+                )}
+              </span>
             </li>
           ))}
         </ul>
