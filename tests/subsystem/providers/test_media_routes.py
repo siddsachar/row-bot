@@ -283,6 +283,15 @@ def test_minimax_h3_generates_one_picture_from_text(media, model):
                          "response_format": "b64_json", "output_format": "png"}
 
 
+def test_minimax_h3_leaves_the_size_to_the_model_when_none_was_asked(media):
+    media.image = "minimax/MiniMax-H3-Image"
+    media.answers[("POST", "/images/generations")] = [_Response({"data": [{"b64_json": PNG}]})]
+
+    assert media.image_tool._generate_image("a lighthouse").startswith("Image generated successfully.")
+    call, = media.calls
+    assert "size" not in call.json
+
+
 @pytest.mark.parametrize(("payload", "status", "detail"), [
     ({"data": [{"error": {"code": "1027", "message": "image withheld"}}]}, 200, "MiniMax error 1027: image withheld"),
     ({"error": {"message": "insufficient balance"}}, 402, "HTTP 402: insufficient balance"),
