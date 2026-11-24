@@ -30,6 +30,23 @@ describe('typeSlot', () => {
     }
   });
 
+  it('gives every type of a company’s graph a colour of its own', () => {
+    const company = [
+      'person',
+      'team',
+      'organisation',
+      'customer',
+      'project',
+      'system',
+      'policy',
+      'term',
+      'place',
+    ];
+    const slots = company.map(typeSlot);
+    expect(slots.every((slot) => slot >= 1 && slot <= GRAPH_SLOTS)).toBe(true);
+    expect(new Set(slots).size).toBe(company.length);
+  });
+
   it('follows the type regardless of case or padding', () => {
     expect(typeSlot('  Person ')).toBe(typeSlot('person'));
     expect(typeSlot('FACT')).toBe(8);

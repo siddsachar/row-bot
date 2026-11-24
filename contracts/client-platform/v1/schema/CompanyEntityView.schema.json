@@ -1,0 +1,273 @@
+{
+  "$defs": {
+    "CompanyCitation": {
+      "additionalProperties": false,
+      "description": "Where the company's knowledge mentions an entity: \"From <space>: <document>\", and the words there.",
+      "properties": {
+        "document": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Document"
+        },
+        "excerpt": {
+          "maxLength": 2000,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "document",
+            "fact"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "space": {
+          "maxLength": 160,
+          "title": "Space",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "space",
+        "document",
+        "excerpt"
+      ],
+      "title": "CompanyCitation",
+      "type": "object"
+    },
+    "CompanyEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "maxLength": 160,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Aliases",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "edited_at": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Edited At"
+        },
+        "entity_type": {
+          "maxLength": 64,
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "space_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Space Id",
+          "type": "string"
+        },
+        "space_name": {
+          "maxLength": 160,
+          "title": "Space Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "archived"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 128,
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "subject",
+        "entity_type",
+        "description",
+        "aliases",
+        "status",
+        "space_id",
+        "space_name",
+        "updated_at",
+        "edited_at"
+      ],
+      "title": "CompanyEntity",
+      "type": "object"
+    },
+    "CompanyEntityRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "outgoing",
+            "incoming"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "peer_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Peer Id",
+          "type": "string"
+        },
+        "peer_subject": {
+          "maxLength": 256,
+          "title": "Peer Subject",
+          "type": "string"
+        },
+        "peer_type": {
+          "maxLength": 64,
+          "title": "Peer Type",
+          "type": "string"
+        },
+        "relation_type": {
+          "maxLength": 64,
+          "title": "Relation Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relation_type",
+        "direction",
+        "peer_id",
+        "peer_subject",
+        "peer_type"
+      ],
+      "title": "CompanyEntityRelation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One entity of the company's knowledge graph (B8), read only.",
+  "properties": {
+    "company": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company"
+    },
+    "entity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CompanyEntity"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mention_count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Mention Count",
+      "type": "integer"
+    },
+    "mentions": {
+      "items": {
+        "$ref": "#/$defs/CompanyCitation"
+      },
+      "maxItems": 50,
+      "title": "Mentions",
+      "type": "array"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "lease_expired",
+            "not_confirmed",
+            "busy",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "relations": {
+      "items": {
+        "$ref": "#/$defs/CompanyEntityRelation"
+      },
+      "maxItems": 200,
+      "title": "Relations",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "not_joined",
+        "disconnected",
+        "locked_down",
+        "unreachable",
+        "not_found"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "company",
+    "reason",
+    "entity",
+    "relations",
+    "mentions",
+    "mention_count"
+  ],
+  "title": "CompanyEntityView",
+  "type": "object"
+}

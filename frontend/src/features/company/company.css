@@ -1,0 +1,97 @@
+/*
+ * Knowledge home's Company scope (Row-Bot for Teams, B8). The scope switch
+ * sits in a slim bar above the knowledge stage, only while this Row-Bot is
+ * joined to a company; the stage below keeps the rest of the height. The
+ * company's graph reuses the personal graph's stage, canvas, legend and
+ * inspector classes.
+ */
+.company-scope-bar {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 clamp(12px, 3vw, 36px);
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--canvas);
+}
+.company-scope-bar + .knowledge-home,
+.company-scope-bar + .knowledge-home.phone-memory {
+  height: calc(100% - 44px);
+}
+@media (pointer: coarse) {
+  .company-scope-bar {
+    height: 56px;
+    padding: 0 16px;
+  }
+  .company-scope-bar + .knowledge-home,
+  .company-scope-bar + .knowledge-home.phone-memory {
+    height: calc(100% - 56px);
+  }
+}
+
+.company-space-picker.input {
+  width: auto;
+  max-width: 200px;
+  height: 30px;
+  min-height: 30px;
+  padding-block: 0;
+  font-size: var(--text-13);
+}
+
+/* The legend reads the types; the company's graph is read only. */
+.company-graph ul.knowledge-legend {
+  margin: 0;
+  list-style: none;
+}
+.company-graph .knowledge-legend-item {
+  cursor: default;
+}
+.company-graph .knowledge-legend-item:hover {
+  background: none;
+  color: var(--text-secondary);
+}
+
+.company-citations ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.company-citation {
+  display: grid;
+  gap: 2px;
+}
+.company-citation-source {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.company-citation-excerpt {
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border-hairline);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Settings › Documents' company documents (B3): the space picker and Add sit
+ * in the group's head; a state or a notice is one row in its surface.
+ */
+.company-documents .settings-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.company-documents-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.company-documents-state p,
+.company-documents-notice {
+  flex: 1;
+  margin: 0;
+}

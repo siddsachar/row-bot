@@ -85,7 +85,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningModelSearch", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "VideoSceneApproval", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "OutputVersionView", "OutputView", "OutputCounts", "OutputPage", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "SpeechModelsView", "SpeechModelInstallRequest", "SpeechModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "VideoSceneApproval", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "OutputVersionView", "OutputView", "OutputCounts", "OutputPage", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "CompanyView", "CompanyJoinRequest", "CompanyGraphView", "CompanyEntityView", "CompanyDocumentsView", "SpeechModelsView", "SpeechModelInstallRequest", "SpeechModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -349,6 +349,18 @@ OPERATIONS = (
     ("post", "/local-runtime/stop", None, "LocalModelRuntimeView"),
     ("post", "/local-runtime/remove", "LocalModelRemoveRequest", "LocalModelRuntimeView"),
     ("post", "/local-runtime/repair", None, "LocalModelRuntimeView"),
+    ("get", "/company", None, "CompanyView"),
+    ("post", "/company/join", "CompanyJoinRequest", "CompanyView"),
+    ("post", "/company/sign-in-again", None, "CompanyView"),
+    ("post", "/company/cancel", None, "CompanyView"),
+    ("post", "/company/check", None, "CompanyView"),
+    ("post", "/company/leave", None, "CompanyView"),
+    ("get", "/company/graph", None, "CompanyGraphView"),
+    ("get", "/company/entities/{entity_id}", None, "CompanyEntityView"),
+    ("get", "/company/documents", None, "CompanyDocumentsView"),
+    ("post", "/company/spaces/{space_id}/documents", "bytes", "CompanyDocumentsView"),
+    ("put", "/company/documents/{document_id}", "bytes", "CompanyDocumentsView"),
+    ("delete", "/company/documents/{document_id}", None, "CompanyDocumentsView"),
     ("get", "/voice/speech-models", None, "SpeechModelsView"),
     ("post", "/voice/speech-models/install", "SpeechModelInstallRequest", "SpeechModelsView"),
     ("post", "/voice/speech-models/stop", None, "SpeechModelsView"),
@@ -1201,6 +1213,41 @@ export const removeLocalModelRuntime = (base: string, proof: SessionProof, body:
   jsonRequest(base, '/local-runtime/remove', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelRemoveRequest', body), undefined, signal);
 export const repairLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
   jsonRequest(base, '/local-runtime/repair', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
+export const getCompany = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CompanyView> =>
+  jsonRequest(base, '/company', 'CompanyView', proof, 'GET', undefined, undefined, signal);
+export const joinCompany = (base: string, proof: SessionProof, body: CompanyJoinRequest, signal?: AbortSignal): Promise<CompanyView> =>
+  jsonRequest(base, '/company/join', 'CompanyView', proof, 'POST', validateWire('CompanyJoinRequest', body), undefined, signal);
+export const signInToCompanyAgain = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CompanyView> =>
+  jsonRequest(base, '/company/sign-in-again', 'CompanyView', proof, 'POST', undefined, undefined, signal);
+export const cancelCompanyJoin = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CompanyView> =>
+  jsonRequest(base, '/company/cancel', 'CompanyView', proof, 'POST', undefined, undefined, signal);
+export const checkCompany = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CompanyView> =>
+  jsonRequest(base, '/company/check', 'CompanyView', proof, 'POST', undefined, undefined, signal);
+export const leaveCompany = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CompanyView> =>
+  jsonRequest(base, '/company/leave', 'CompanyView', proof, 'POST', undefined, undefined, signal);
+/** Row-Bot for Teams (B8): the company's knowledge graph, filtered by its server to what the person may read. */
+export const getCompanyGraph = (base: string, proof: SessionProof, spaces?: string, q?: string, limit?: number, signal?: AbortSignal): Promise<CompanyGraphView> =>
+  jsonRequest(base, '/company/graph' + query({spaces, q, limit}), 'CompanyGraphView', proof, 'GET', undefined, undefined, signal);
+export const getCompanyEntity = (base: string, proof: SessionProof, entity: string, signal?: AbortSignal): Promise<CompanyEntityView> =>
+  jsonRequest(base, `/company/entities/${id(entity)}`, 'CompanyEntityView', proof, 'GET', undefined, undefined, signal);
+/** Row-Bot for Teams (B3): a space owner's company documents; a file goes on to the company's server. */
+export const getCompanyDocuments = (base: string, proof: SessionProof, space?: string, signal?: AbortSignal): Promise<CompanyDocumentsView> =>
+  jsonRequest(base, '/company/documents' + query({space}), 'CompanyDocumentsView', proof, 'GET', undefined, undefined, signal);
+async function sendCompanyFile(base: string, proof: SessionProof, path: string, method: 'POST' | 'PUT', file: Blob, name: string, signal?: AbortSignal): Promise<CompanyDocumentsView> {
+  const response = await fetch(`${base}/api/v1${path}`, {
+    method, credentials: 'same-origin', cache: 'no-store', signal, body: file,
+    headers: {...proofHeaders(proof), 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name).slice(0, 256)},
+  });
+  const value = await response.json();
+  if (!response.ok) throw validateWire<Problem>('Problem', value);
+  return validateWire<CompanyDocumentsView>('CompanyDocumentsView', value);
+}
+export const uploadCompanyDocument = (base: string, proof: SessionProof, space: string, file: Blob, name: string, signal?: AbortSignal): Promise<CompanyDocumentsView> =>
+  sendCompanyFile(base, proof, `/company/spaces/${id(space)}/documents`, 'POST', file, name, signal);
+export const replaceCompanyDocument = (base: string, proof: SessionProof, document: string, file: Blob, name: string, signal?: AbortSignal): Promise<CompanyDocumentsView> =>
+  sendCompanyFile(base, proof, `/company/documents/${id(document)}`, 'PUT', file, name, signal);
+export const removeCompanyDocument = (base: string, proof: SessionProof, document: string, signal?: AbortSignal): Promise<CompanyDocumentsView> =>
+  jsonRequest(base, `/company/documents/${id(document)}`, 'CompanyDocumentsView', proof, 'DELETE', undefined, undefined, signal);
 export const getSpeechModels = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SpeechModelsView> =>
   jsonRequest(base, '/voice/speech-models', 'SpeechModelsView', proof, 'GET', undefined, undefined, signal);
 export const installSpeechModel = (base: string, proof: SessionProof, body: SpeechModelInstallRequest, signal?: AbortSignal): Promise<SpeechModelsView> =>
@@ -2384,7 +2431,7 @@ def outputs() -> dict[Path, str]:
                 "application/json": {"schema": response_schema}}}
         if request:
             request_schema = ({"type": "string", "format": "binary",
-                               "maxLength": 1048576}
+                               "maxLength": 26214400 if suffix.startswith("/company/") else 1048576}
                               if request == "bytes" else {"$ref": f"./{request}.schema.json"})
             operation["requestBody"] = {"required": True, "content": {
                 "application/sdp" if suffix.endswith("/voice/realtime/{lease_id}/exchange") else "application/octet-stream" if request == "bytes" else "application/json": {"schema": request_schema}}}

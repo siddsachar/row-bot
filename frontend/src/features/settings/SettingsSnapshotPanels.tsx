@@ -63,6 +63,7 @@ import {
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import CompanyLock from '../company/CompanyLock';
 import { useWakeWordAvailable } from '../voice/WakeWord';
 import { announceWakeWord } from '../voice/wake-word';
 import { usePlace, type PlaceWords } from '../../api/place';
@@ -5559,9 +5560,12 @@ export function AccountsSnapshotPanel({
 export function UtilitiesSnapshotPanel({
   snapshot,
   mutation,
+  companyOff = [],
 }: {
   snapshot: SettingsSnapshot['utilities'];
   mutation: SettingsMutationIO;
+  /** Tools the person's company switched off (C3b): shown, not switchable. */
+  companyOff?: readonly string[];
 }) {
   const place = usePlace();
   const availableUtilities = snapshot.items.filter(
@@ -5620,13 +5624,17 @@ export function UtilitiesSnapshotPanel({
                 </small>
               </div>
               <div className="settings-utility-toggle">
-                <SwitchSetting
-                  mutation={mutation}
-                  field={`${utility.utility_id}.enabled`}
-                  label={`Enable ${presentation.label}`}
-                  value={Boolean(utility.enabled)}
-                  bare
-                />
+                {companyOff.includes(utility.utility_id) ? (
+                  <CompanyLock detail={`${presentation.label}: Off`} />
+                ) : (
+                  <SwitchSetting
+                    mutation={mutation}
+                    field={`${utility.utility_id}.enabled`}
+                    label={`Enable ${presentation.label}`}
+                    value={Boolean(utility.enabled)}
+                    bare
+                  />
+                )}
               </div>
             </li>
           );
@@ -5984,11 +5992,14 @@ export function ToolConfigurationSnapshot({
   snapshot,
   mutation,
   only,
+  companyOff = [],
 }: {
   snapshot: SettingsSnapshot['tools'];
   mutation: SettingsMutationIO;
   /** One tool's switch and key only, as its app's settings (Apps › Tavily › Settings). */
   only?: string;
+  /** Tools the person's company switched off (C3b): shown, not switchable. */
+  companyOff?: readonly string[];
 }) {
   const toolPresentation: Record<
     string,
@@ -6079,7 +6090,9 @@ export function ToolConfigurationSnapshot({
                 </small>
               )}
             </div>
-            {tool.available && tool.enabled != null ? (
+            {companyOff.includes(tool.tool_id) ? (
+              <CompanyLock detail={`${tool.displayLabel}: Off`} />
+            ) : tool.available && tool.enabled != null ? (
               <SwitchSetting
                 mutation={mutation}
                 field={`${tool.tool_id}.enabled`}

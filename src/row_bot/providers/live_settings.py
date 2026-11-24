@@ -54,6 +54,10 @@ def read_live_provider_cards() -> dict:
             "billing": provider_billing(card["provider_id"]),
             "claude_plan": card.get("claude_plan") if card["provider_id"] == "claude_subscription" else None,
         })
+    from row_bot.company.policy import allows_provider
+
+    # Row-Bot for Teams: no card for a kind of provider the company's policy turns off (keys stay as they are).
+    cards = [card for card in cards if allows_provider(card["provider_id"])]
     _list_claude_models_once_ready(cards)
     return {"schema_version": 1, "providers": cards}
 

@@ -1,0 +1,277 @@
+{
+  "$defs": {
+    "CompanyDocument": {
+      "additionalProperties": false,
+      "description": "One of a company space's documents (B3): its status and why it waits or failed (B1a), and how far its\nknowledge got (B7). The reasons are the server's plain words.",
+      "properties": {
+        "byte_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "file_name": {
+          "maxLength": 255,
+          "title": "File Name",
+          "type": "string"
+        },
+        "graph_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Graph Reason"
+        },
+        "graph_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "pending",
+                "extracting",
+                "done",
+                "waiting",
+                "failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Graph Status"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "processing",
+            "ready",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "status_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Reason"
+        },
+        "title": {
+          "maxLength": 300,
+          "title": "Title",
+          "type": "string"
+        },
+        "uploaded_at": {
+          "maxLength": 64,
+          "title": "Uploaded At",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "file_name",
+        "byte_count",
+        "status",
+        "status_reason",
+        "graph_status",
+        "graph_reason",
+        "version",
+        "uploaded_at"
+      ],
+      "title": "CompanyDocument",
+      "type": "object"
+    },
+    "CompanyGraphSpace": {
+      "additionalProperties": false,
+      "description": "A company knowledge space the person may read (B8), and whether they own it (owners curate it in the\nadmin console).",
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_owner": {
+          "title": "Is Owner",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "company",
+            "group"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 160,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "is_owner"
+      ],
+      "title": "CompanyGraphSpace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a Documents' company documents (B3): the spaces the person owns, one space's documents, the\nupload limits, and how the last upload, replace or delete went (``outcome``, None for a read).",
+  "properties": {
+    "company": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company"
+    },
+    "documents": {
+      "items": {
+        "$ref": "#/$defs/CompanyDocument"
+      },
+      "maxItems": 500,
+      "title": "Documents",
+      "type": "array"
+    },
+    "max_upload_bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Max Upload Bytes",
+      "type": "integer"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "uploaded",
+            "replaced",
+            "removed",
+            "too_large",
+            "unsupported_type",
+            "invalid_file",
+            "not_owner",
+            "not_found"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Outcome"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "lease_expired",
+            "not_confirmed",
+            "busy",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "space_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Space Id"
+    },
+    "spaces": {
+      "items": {
+        "$ref": "#/$defs/CompanyGraphSpace"
+      },
+      "maxItems": 512,
+      "title": "Spaces",
+      "type": "array"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "not_joined",
+        "disconnected",
+        "locked_down",
+        "unreachable"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "supported_types": {
+      "items": {
+        "maxLength": 16,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Supported Types",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "company",
+    "reason",
+    "spaces",
+    "space_id",
+    "documents",
+    "max_upload_bytes",
+    "supported_types",
+    "outcome"
+  ],
+  "title": "CompanyDocumentsView",
+  "type": "object"
+}

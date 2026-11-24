@@ -109,6 +109,7 @@ def _accounts(only: str = "") -> list[dict]:
 
 def _channels() -> list[dict]:
     from row_bot.application.channel_controls import read_channels
+    from row_bot.company import enforce
     found = []
     try:
         page = read_channels(limit=50)
@@ -129,6 +130,8 @@ def _channels() -> list[dict]:
         else:
             lifecycle = "installed" if item.get("running") is True else "off"
             blockers = [facts.blocker("connection_failed", str(problem)[:512])] if problem and lifecycle == "installed" else []
+        if not enforce.allows_app("channels", item["channel_id"]):
+            blockers = [facts.blocker("company_policy", enforce.APP_HELD["channels"])]  # C3b: kept, not used.
         found.append(_row("channel:" + item["channel_id"], item["display_name"] + " channel", lifecycle=lifecycle,
                           app_ref="channel:" + item["channel_id"], blockers=blockers,
                           description=f"Talk to Row-Bot from {item['display_name']}."))

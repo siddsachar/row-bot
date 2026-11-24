@@ -467,6 +467,24 @@
       "additionalProperties": false,
       "description": "What the chat's approval control needs to offer Hands-off.",
       "properties": {
+        "company_max_level": {
+          "anyOf": [
+            {
+              "enum": [
+                "block",
+                "approve",
+                "auto",
+                "full"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Company Max Level"
+        },
         "full_autonomy_available": {
           "title": "Full Autonomy Available",
           "type": "boolean"

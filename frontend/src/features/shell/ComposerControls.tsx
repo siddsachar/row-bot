@@ -73,6 +73,7 @@ import {
   type ApprovalLevel,
 } from './approval-levels';
 import { ATTACHMENT_LIMITS } from './attachment-limits';
+import { SET_BY_COMPANY, cappedLevel, levelAllowed } from '../company/limits';
 import { useIncognitoSwitch } from './incognito';
 import { currentThinkingLabel } from './slash-arguments';
 import { targetGroups, type TargetKind } from './ResourceTargets';
@@ -323,7 +324,10 @@ export default function ComposerControls({
   );
   const profile =
     profiles.find((item) => item.id === currentProfile)?.label ?? 'Default';
-  const mode = approvalLevel(controls.approval_mode);
+  // The person's company may cap the level (C3b): the chat runs at most at its
+  // ceiling, and the person's own choice above it stays saved for later.
+  const ceiling = workspace.approval?.company_max_level ?? null;
+  const mode = cappedLevel(approvalLevel(controls.approval_mode), ceiling);
   const approval = APPROVAL_LABELS[mode];
   const Shield = APPROVAL_ICONS[mode];
   const runtimeMode = controls.runtime_mode === 'agent' ? 'Agent' : 'Chat only';
@@ -414,7 +418,7 @@ export default function ComposerControls({
   }
   /** Turns a level on; Hands-off asks once on this install, after which it never asks again. */
   function chooseLevel(level: ApprovalLevel, opener?: HTMLElement | null) {
-    if (level === mode) return;
+    if (level === mode || !levelAllowed(level, ceiling)) return;
     if (level !== 'full' || fullConfirmed) {
       void save({ approval_mode: level });
       return;
@@ -428,13 +432,16 @@ export default function ComposerControls({
   // instead of running off the screen.
   const submenuOffset = singleLine ? -SUBMENU_OVERLAP : 4;
   const levelActions = APPROVAL_LEVELS.map((value) => {
-    const unavailable = value === 'full' && !fullAvailable;
+    const held = !levelAllowed(value, ceiling);
+    const unavailable = held || (value === 'full' && !fullAvailable);
     const Icon = APPROVAL_ICONS[value];
     return {
       label: APPROVAL_LABELS[value],
-      description: unavailable
-        ? SHARED_CONVERSATION_NOTE
-        : APPROVAL_DESCRIPTIONS[value],
+      description: held
+        ? SET_BY_COMPANY
+        : unavailable
+          ? SHARED_CONVERSATION_NOTE
+          : APPROVAL_DESCRIPTIONS[value],
       icon: <Icon size={16} />,
       selected: mode === value,
       disabled: unavailable,

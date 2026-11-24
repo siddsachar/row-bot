@@ -634,6 +634,10 @@ def _canonical_provider_id(provider_id: str) -> str:
 
 def provider_display_label(provider_id: str) -> str:
     provider_id = str(provider_id or "")
+    if provider_id == "company":
+        from row_bot.company.provider import display_name
+
+        return display_name()  # Row-Bot for Teams: the joined company's name.
     try:
         from row_bot.providers.catalog import list_provider_definitions
 

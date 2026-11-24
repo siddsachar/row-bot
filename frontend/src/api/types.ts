@@ -157,6 +157,17 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
   );
 }
 
+/** Row-Bot for Teams (C1b): what Settings › Company asks of this Row-Bot. */
+export type CompanyAction =
+  'status' | 'join' | 'sign_in_again' | 'cancel' | 'check' | 'leave';
+
+/** Row-Bot for Teams (B8): what Knowledge home's Company scope asks for (no spaces: every readable one). */
+export type CompanyGraphQuery = {
+  spaces?: string[];
+  q?: string;
+  limit?: number;
+};
+
 /** The sole network boundary. Fixtures implement this same interface. */
 export interface ClientTransport {
   integrationSources?(
@@ -1388,6 +1399,42 @@ export interface ClientTransport {
   repairLocalModelRuntime?(
     signal?: AbortSignal,
   ): Promise<Wire.LocalModelRuntimeView>;
+  /** Row-Bot for Teams (C1b): this Row-Bot's company, read or changed; `body` is Join's. */
+  company?(
+    action: CompanyAction,
+    body?: Wire.CompanyJoinRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyView>;
+  /** Row-Bot for Teams (B8): the company's knowledge graph, filtered by its server; read only. */
+  companyGraph?(
+    query: CompanyGraphQuery,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyGraphView>;
+  companyEntity?(
+    entityId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyEntityView>;
+  /** Row-Bot for Teams (B3): a space owner's company documents; each call answers the space's list. */
+  companyDocuments?(
+    spaceId: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
+  uploadCompanyDocument?(
+    spaceId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
+  replaceCompanyDocument?(
+    documentId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
+  removeCompanyDocument?(
+    documentId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
   speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
   installSpeechModel?(
     body: Wire.SpeechModelInstallRequest,

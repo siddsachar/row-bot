@@ -105,6 +105,8 @@ _OPTIONAL_TOOL_MODULES = (
 
 for _module_name in _CORE_TOOL_MODULES:
     _import_tool_module(_module_name)
+# Row-Bot for Teams (B3): the company brain's tool, registered only while a company is joined.
+_import_tool_module("row_bot.company.brain_tool")
 
 if os.environ.get("ROW_BOT_TEST_MODE") != "1":
     for _module_name in _OPTIONAL_TOOL_MODULES:

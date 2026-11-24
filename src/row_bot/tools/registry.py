@@ -173,6 +173,15 @@ def register(tool: "BaseTool") -> None:
         _apply_saved_config(tool, saved)
 
 
+def unregister(name: str) -> None:
+    """Take a registered tool out: one offered only while something holds (a joined company's, B3)."""
+    with _CONFIG_LOCK:
+        _tools.pop(name, None)
+        _enabled.pop(name, None)
+        _tool_configs.pop(name, None)
+        _stand_in_configs.discard(name)
+
+
 def get_all_tools() -> list["BaseTool"]:
     """Return all registered tools (enabled + disabled), sorted by name."""
     _ensure_config_scope()
@@ -180,13 +189,24 @@ def get_all_tools() -> list["BaseTool"]:
 
 
 def get_enabled_tools() -> list["BaseTool"]:
-    """Return only the tools the user has enabled."""
+    """Return only the tools the user has enabled (less any their company switched off, C3b: their own switch is
+    kept as they set it)."""
     return [t for t in get_all_tools() if is_enabled(t.name)]
 
 
-def is_enabled(name: str) -> bool:
+def is_switched_on(name: str) -> bool:
+    """The person's own switch for a tool, as Settings shows it (whatever their company allows)."""
     _ensure_config_scope()
     return _enabled.get(name, False)
+
+
+def is_enabled(name: str) -> bool:
+    """Whether a tool may be used: switched on, and not switched off by the person's company (C3b)."""
+    if not is_switched_on(name):
+        return False
+    from row_bot.company.enforce import keep_tools
+
+    return bool(keep_tools([name]))
 
 
 def set_enabled(name: str, value: bool) -> None:
