@@ -327,24 +327,53 @@ def _context(value: str) -> int | None:
         raise SettingRefused(f"{exc} Or use 'auto'.") from None
 
 
-def _local_context_now() -> Value:
-    from row_bot.models import get_local_context_mode, get_user_context_size
+def _main_local_model() -> tuple[str, dict]:
+    """The main model and its settings sheet, when it runs on this computer with a window Row-Bot sets (Ollama
+    or Run on this computer); else refused."""
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+    from row_bot.models import get_current_model
 
-    size = None if get_local_context_mode() == "auto" else get_user_context_size()
-    return Value("auto" if size is None else str(size), _tokens_words(size))
+    ref = get_current_model() or ""
+    try:
+        view = read_local_model_settings(ref)
+    except ValueError:
+        view = None
+    if view is None or not view["context"]["editable"]:
+        raise SettingRefused("The main model's window isn't set here: it is a cloud model (use "
+                             "cloud_reading_limit), its server sets it, or it is the personal model, which runs as "
+                             "Learning trained it. Settings › Models says which.")
+    return ref, view
+
+
+def _window_words(size: int | None) -> str:
+    return "Automatic" if size is None else f"{size // 1024}K tokens"
+
+
+def _local_context_now() -> Value:
+    _ref, view = _main_local_model()
+    size = view["context"]["chosen"]
+    return Value("auto" if size is None else str(size), _window_words(size))
 
 
 def _prepare_local_context(setting: Setting, value: str) -> Change:
     size = _context(value)
+    ref, view = _main_local_model()
+    sizes = [item["tokens"] for item in view["context"]["choices"]]
+    if size is not None and size not in sizes:
+        raise SettingRefused(f"{view['name']} can read {', '.join(str(item) for item in sizes)} tokens here, "
+                             "or use 'auto'.")
 
     def apply() -> str:
-        from row_bot.models import set_context_size, set_context_size_auto
+        from row_bot.application.client_local_model_settings import save_local_model_settings
 
-        set_context_size_auto() if size is None else set_context_size(size)
-        return f"Local context size set to {_tokens_words(size)}."
+        save_local_model_settings(ref, context=size, thinking=view["thinking"]["value"],
+                                  reply_limit=view["reply_limit"]["value"], validate=lambda: None)
+        return f"{view['name']} now reads {_window_words(size)}."
 
-    return _change(setting, _local_context_now(), Value("auto" if size is None else str(size), _tokens_words(size)),
-                   apply, title="Change the reading limit for models on this computer")
+    before = view["context"]["chosen"]
+    return _change(setting, Value("auto" if before is None else str(before), _window_words(before)),
+                   Value("auto" if size is None else str(size), _window_words(size)), apply,
+                   title=f"Change how much {view['name']} reads")
 
 
 def _provider_context_now() -> Value:
@@ -361,10 +390,10 @@ def _prepare_provider_context(setting: Setting, value: str) -> Change:
         from row_bot.models import clear_cloud_context_override, set_cloud_context_size
 
         clear_cloud_context_override() if size is None else set_cloud_context_size(size)
-        return f"Provider context cap set to {_tokens_words(size)}."
+        return f"Cloud reading limit set to {_tokens_words(size)}."
 
     return _change(setting, _provider_context_now(), Value("auto" if size is None else str(size), _tokens_words(size)),
-                   apply, title="Change the reading limit for providers' models")
+                   apply, title="Change the Cloud reading limit")
 
 
 # ── Preferences, Voice and System rows (saved through the Settings service) ───
@@ -856,10 +885,12 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("video_gen_model", "Video model", "models", "Models", "video-model", "preference",
             "a video model's provider/model-id or exact label", _prepare_media_model,
             lambda: _media_now("video_gen_model")),
-    Setting("context_size", "Reading limit", "models", "Models", "reading-limit", "preference",
-            "'auto' or a token count for models on this computer", _prepare_local_context, _local_context_now),
-    Setting("cloud_context_size", "Reading limit", "models", "Models", "reading-limit", "preference",
-            "'auto' or a token count for providers' models", _prepare_provider_context, _provider_context_now),
+    Setting("local_model_context", "Main model's window", "models", "Models", "", "preference",
+            "'auto' or a token count the main model's settings offer, when it runs on this computer (Ollama or "
+            "Run on this computer)", _prepare_local_context, _local_context_now),
+    Setting("cloud_reading_limit", "Cloud reading limit", "models", "Models", "reading-limit", "preference",
+            "'auto' or a token count: the most Row-Bot sends a cloud model", _prepare_provider_context,
+            _provider_context_now),
     Setting("name", "Assistant name", "preferences", "Preferences", "identity.name", "preference",
             "a name, 1 to 128 characters", _prepare_name,
             lambda: (lambda name: Value(name, name))(str(_field_now("preferences", "identity", "name")))),
@@ -924,6 +955,8 @@ SETTINGS: tuple[Setting, ...] = (
 )
 BY_ID = {setting.id: setting for setting in SETTINGS}
 IDS = tuple(BY_ID)
+# Names the settings had before (U2), still understood.
+ALIASES = {"context_size": "local_model_context", "cloud_context_size": "cloud_reading_limit"}
 
 
 # ── Asking and saving ─────────────────────────────────────────────────────────
@@ -1008,6 +1041,7 @@ def save(change: Change) -> str:
 def change(setting_id: str, value: str) -> str:
     """Check, approve and save one change; what the model hears."""
     key = (setting_id or "").strip().lower()
+    key = ALIASES.get(key, key)
     raw = (value or "").strip()
     try:
         if key == "model":
@@ -1035,7 +1069,7 @@ def undo(setting_id: str, value: str, now: str) -> tuple[str, str]:
 
     (status, words): "undone", "changed_since" or "unavailable".
     """
-    setting = BY_ID.get(setting_id)
+    setting = BY_ID.get(ALIASES.get(setting_id, setting_id))
     if setting is None:
         return "unavailable", "That change can't be undone here."
     try:

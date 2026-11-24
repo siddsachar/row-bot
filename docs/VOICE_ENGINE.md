@@ -294,7 +294,7 @@ libraries contain no provider). On Windows:
   listens to, so events reach Microsoft only from an official build, and only
   as far as the person's Windows diagnostic data settings send them.
 - **The PyPI `onnxruntime` 1.27 (Kokoro, faster-whisper's voice filter,
-  Silero VAD, Smart Turn): telemetry built in.** Its `onnxruntime.dll` and
+  Silero VAD, Smart Turn, the wake word): telemetry built in.** Its `onnxruntime.dll` and
   `onnxruntime_pybind11_state.pyd` both contain the provider GUID and the
   group GUID `{4f50731a-89cf-4782-b3e0-dce8c90476ba}` (the same group as in
   Microsoft's ONNX Runtime inside `moonshine-voice`), plus the event names.
@@ -302,9 +302,9 @@ libraries contain no provider). On Windows:
   `onnxruntime.disable_telemetry_events()` ("Disables platform-specific
   telemetry collection", ONNX Runtime Python API) once per process, before
   any session: Kokoro's load (`tts.py`), Whisper's load (`voice/__init__.py`,
-  whose voice filter is an ONNX Runtime session) and Pipecat's analyzers
-  (`pipecat_boundary.prepare`). A PR-lane test checks the order on all three
-  paths. Every event function returns early while `enabled_` is false.
+  whose voice filter is an ONNX Runtime session), Pipecat's analyzers
+  (`pipecat_boundary.prepare`) and the wake word's model (`voice/wake.py`).
+  A PR-lane test checks the order on every path. Every event function returns early while `enabled_` is false.
   **What is left:** ONNX Runtime's ETW enable callback also writes
   `enabled_` (`ORT_TL_EtwEnableCallback` sets it to whether a controller
   enables the provider), so if a Windows component enables or re-enables the
@@ -531,3 +531,96 @@ screen off; the Windows push-to-talk hotkey on a real keyboard with another
 app in front; Live voice and the cloud speech parts with real keys (first
 audio, captions, barge-in), and OpenAI Realtime's direct WebRTC call from a
 phone over the remote-access tunnel.
+
+## The wake word (V10)
+
+"Hey Row-Bot" is opt-in, desktop only and off by default: Settings › Voice ›
+Wake word (`runtime.wake_word`, not changeable from a chat). The host never
+opens a microphone. The app window on the computer running Row-Bot captures
+with Row-Bot Voice's worklet and, while the person has it on, streams 16 kHz
+frames over the wake mode of `WS /api/v1/voice/stream` (a single-use ticket
+from `POST /api/v1/voice/wake`, which only this computer may call, over
+loopback). The host runs `row_bot.voice.wake` and sends `wake` when it hears
+the phrase; the window then closes its wake microphone and starts an ordinary
+Row-Bot Voice session, in the open chat or in a new one as Home's Talk does.
+Audio is kept only until its 80 ms step is full, never written anywhere and
+never sent on.
+
+Guards: a score threshold (0.5, calibrated in training to a target false
+accept rate), a 2 s refractory period after a detection, and silence while any
+voice session or dictation holds the microphone's lease (the window closes its
+wake microphone; the host drops frames as well). Closing the window ends
+listening. A hidden window may have its microphone muted by the system (WebKit
+on macOS); the window watches the track's mute state and its mark says
+"Wake word paused".
+
+### The model and its licence
+
+`src/row_bot/voice/hey_row_bot.onnx` is a LiveKit WakeWord v2 streaming model
+(a 1280-sample `chunk` and its state tensors in; score and next state out),
+run by Row-Bot's own 60-line runtime on onnxruntime (already a dependency),
+one thread, CPU only. Neither `livekit-wakeword` nor `openwakeword` is a
+dependency. openWakeWord was ruled out: its pre-trained models and its
+negative feature set are CC BY-NC-SA, and its package requires `tflite-runtime`
+on Linux, which has no wheel for Python 3.12 or 3.13.
+
+The model starts from LiveKit's pretrained encoders (Apache-2.0 per LiveKit's
+NOTICE) and was fine-tuned only on permissive or generated data: synthetic
+speech from Kokoro v1.0 (Apache-2.0; 44 of its 54 voices and blends of them)
+and Piper's LibriTTS-R generator (MIT code, CC BY 4.0 voice; 800 of its 904
+speakers and blends), LibriSpeech's dev sets as background speech
+(CC BY 4.0), MS-SNSD's Freesound noise clips (CC0; its DEMAND recordings,
+CC BY-SA, are left out), and generated coloured noise and rooms. No Common
+Voice, MUSAN, ACAV100M, AudioSet, FMA, MIT room recordings or other
+non-commercial data. The model (7.4 MB, SHA-256 `7f5a7079…a0296b`) is
+Apache-2.0, credited in NOTICE.
+
+### How well it hears (23 Nov 2026)
+
+Measured with `scripts/wake_word/evaluate.py` through Row-Bot's own runtime,
+on audio it never trained on: LibriSpeech test-clean and test-other (10.75 h of
+real read speech) and MS-SNSD's CC0 test noise; the phrase and near misses
+said by the held-out voices (10 Kokoro voices and Piper speakers 800-903, 1,200
+clips each), each after a second of real speech.
+
+| Threshold | False accepts per hour, speech | at 10 dB noise | Near misses woken | Recall, clean | at 10 dB noise |
+|---|---|---|---|---|---|
+| 0.3 | 0.09 | 1.30 | 27 / 1,200 | 99.3% | 98.2% |
+| **0.5 (shipped)** | **0.00** | **0.28** | **17 / 1,200** | **98.3%** | **95.8%** |
+| 0.7 | 0.00 | 0.00 | 9 / 1,200 | 95.3% | 87.2% |
+
+It wakes about when the phrase ends (median 40 ms before the measured end,
+90th percentile 90 ms after; one 80 ms step at most adds to that). Each step
+costs 0.7 ms on one CPU thread (under 1% of a core) and the model adds about
+40 MB to the host. Caveats: recall is on synthetic voices, so real voices,
+accents, far-field rooms, music and TV may do worse; there is no music in the
+training data; and FLEURS and Common Voice were not used, so non-native and
+non-English speech is less covered. Said on their own, only "hey rowboat"
+(3 of 40) and "hey, row it" (1 of 20) of the near misses woke it.
+
+"Row-Bot" and "robot" sound the same, so "hey robot" wakes it too; the near
+misses it is taught to reject include "robot" alone, "hey Rob", "row boat"
+and "hey Siri".
+
+### Reproducing the training
+
+The scripts are in `scripts/wake_word/`; keep every folder and cache on a
+drive with room (about 5 GB of downloads).
+
+1. `python scripts/wake_word/sources.py <src> --yes --noise` downloads the
+   pinned inputs (sizes and hashes checked).
+2. `python scripts/wake_word/speech.py <src> <clips>` (Row-Bot's environment,
+   CPU) makes the synthetic speech; a fifth of the Kokoro voices is held out.
+3. In a throwaway environment (`uv venv` plus `livekit-wakeword[train]==2.1.3`,
+   `piper-sample-generator==3.2.0` with that repository's `piper_train` on the
+   path, and torch): `python scripts/wake_word/piper_voices.py <src> <clips>`
+   adds Piper's voices (CPU with `CUDA_VISIBLE_DEVICES=-1`), then
+   `LIVEKIT_WAKEWORD_ENCODERS=<src>/encoders HF_HUB_OFFLINE=1
+   python scripts/wake_word/train.py <src> <clips> <out>/hey_row_bot.onnx --threads 16`
+   runs LiveKit's training loop with every data source replaced by the local
+   ones. The shipped model took 6,000 steps in 85 minutes on 16 CPU threads
+   (no GPU); a GPU is faster.
+4. `python scripts/wake_word/evaluate.py <out>/hey_row_bot.onnx <src> <clips>`
+   (Row-Bot's environment) reports false accepts per hour on held-out real
+   speech (clean and noisy), recall on the held-out voices, detection latency,
+   CPU and memory.

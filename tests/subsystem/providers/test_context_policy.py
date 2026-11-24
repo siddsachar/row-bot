@@ -200,7 +200,7 @@ def test_context_policy_uses_server_capacity_for_local_custom_endpoint(tmp_path,
 
     assert policy.provider_id == custom_provider_id("omlx")
     assert policy.policy_kind == "provider"
-    assert policy.user_cap == 131_072
+    assert policy.user_cap == 0  # the Cloud reading limit is for cloud models only (U2)
     assert policy.effective_context == 32_768
     assert policy.request_application == "trim_only"
 
@@ -500,7 +500,7 @@ def test_context_settings_v2_migration_preserves_unrelated_keys(
     })
 
     assert changed
-    assert migrated["context_policy_version"] == 3
+    assert migrated["context_policy_version"] == 4
     assert migrated["local_context_mode"] == local_mode
     assert migrated["cloud_context_override"] == cloud_override
     assert migrated["unrelated_feature"] == {"enabled": True}
@@ -520,7 +520,7 @@ def test_settings_writer_merges_instead_of_overwriting(tmp_path, monkeypatch):
     saved = json.loads(settings_path.read_text())
     assert saved["unrelated"] == "keep"
     assert saved["cloud_context_override"] == 65_536
-    assert saved["context_policy_version"] == 3
+    assert saved["context_policy_version"] == 4
 
 
 @pytest.mark.parametrize("exact", [48_000, 190_000, "190000", "190,000"])

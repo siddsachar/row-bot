@@ -82,6 +82,15 @@ it('edits the brand kit with pictures from Media as logos, and saves it only whe
     'George (British)',
   );
   await userEvent.selectOptions(screen.getByLabelText('Voice speed'), 'Slower');
+  // C5: every word's typeface, and how titles look.
+  await userEvent.selectOptions(
+    screen.getByLabelText('Font'),
+    'Serif (Playfair Display)',
+  );
+  await userEvent.selectOptions(
+    screen.getByLabelText('Titles'),
+    'Minimal, cards on black',
+  );
   await userEvent.click(save);
   expect(controller.saveVideoBrand).toHaveBeenCalledWith({
     ...KIT,
@@ -93,6 +102,8 @@ it('edits the brand kit with pictures from Media as logos, and saves it only whe
     camera: 'still',
     voice: 'bm_george',
     voice_speed: 0.9,
+    font: 'serif',
+    titles: 'minimal',
   });
   expect(saved).toHaveBeenCalled();
   expect(save).toBeDisabled();

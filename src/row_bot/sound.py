@@ -167,21 +167,29 @@ def speak(text: str, *, voice: str = "", speed: float = 0.0, pronunciations: dic
     return Speech(data, wav_seconds(data), chosen)
 
 
-def decoded_speech(path: Path) -> bytes:
-    """The first two hours of a file's sound as 16 kHz mono 16-bit PCM, read with PyAV (the decoder Whisper itself
-    uses), so transcribing needs no ffmpeg."""
+def decoded_speech(path: Path, start: float = 0.0, end: float | None = None) -> bytes:
+    """The first two hours of a file's sound (from *start* to *end* seconds when given) as 16 kHz mono 16-bit PCM,
+    read with PyAV (the decoder Whisper itself uses), so transcribing needs no ffmpeg."""
     import av
 
-    limit = 16000 * 2 * MAX_TRANSCRIBE_SECONDS
+    seconds = MAX_TRANSCRIBE_SECONDS if end is None else max(0.0, min(end - start, MAX_TRANSCRIBE_SECONDS))
+    limit = int(16000 * seconds) * 2
     decoded = bytearray()
     try:
         with av.open(str(path), metadata_errors="ignore") as container:
             if not container.streams.audio:
                 raise SoundError("That file has no sound Row-Bot can read.")
+            if start > 0:
+                container.seek(int(start * av.time_base), backward=True)
             resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
             for frame in container.decode(audio=0):
+                if frame.time is not None and frame.time + frame.samples / (frame.sample_rate or 1) <= start:
+                    continue  # Before the part asked for (a seek lands on the frame before it).
                 for piece in resampler.resample(frame):
-                    decoded += piece.to_ndarray().tobytes()
+                    samples = piece.to_ndarray().tobytes()
+                    if not decoded and frame.time is not None and frame.time < start:
+                        samples = samples[int(round(float(start - frame.time) * 16000)) * 2:]
+                    decoded += samples
                 if len(decoded) >= limit:
                     break
             else:
@@ -215,25 +223,69 @@ def has_sound(path: Path) -> bool | None:
     return False
 
 
-def transcribe(path: Path) -> tuple[list[Segment], str]:
-    """Each stretch of speech in an audio or video file, with each word's time, and the language heard."""
+def can_transcribe() -> bool:
+    """Whether the local Whisper speech model is here to transcribe with (nothing is downloaded to find out)."""
+    from row_bot.voice import get_voice_service
+
+    return get_voice_service().whisper_model_available()
+
+
+def transcribe(path: Path, start: float = 0.0, end: float | None = None) -> tuple[list[Segment], str]:
+    """Each stretch of speech in an audio or video file (from *start* to *end* seconds when given; its times are
+    still the file's), with each word's time, and the language heard."""
+    from dataclasses import replace
+
     from row_bot.voice import get_voice_service
 
     voice = get_voice_service()
     if not voice.whisper_model_available():
         raise SoundError("Transcribing needs the Whisper speech model. Install it in Settings › Voice, then try "
                          "again.")
-    decoded = decoded_speech(path)
+    decoded = decoded_speech(path, start, end)
     if len(decoded) < 3200:
         raise SoundError("That file has no sound Row-Bot can read.")
-    return voice.transcribe_words(decoded)
+    segments, language = voice.transcribe_words(decoded)
+    if start:
+        segments = [replace(segment, start=segment.start + start, end=segment.end + start,
+                            words=tuple((begin + start, until + start, word) for begin, until, word in segment.words))
+                    for segment in segments]
+    return segments, language
 
 
-def transcribe_bytes(data: bytes, suffix: str) -> tuple[list[Segment], str]:
+def transcribe_bytes(data: bytes, suffix: str, start: float = 0.0,
+                     end: float | None = None) -> tuple[list[Segment], str]:
     with tempfile.TemporaryDirectory(prefix="row-bot-transcribe-") as folder:
         path = Path(folder) / f"source{suffix or '.bin'}"
         path.write_bytes(data)
-        return transcribe(path)
+        return transcribe(path, start, end)
+
+
+def heard(shelf: Path, key: str, source: tuple[Path | None, bytes, str], start: float = 0.0,
+          end: float | None = None) -> list[tuple[float, float, str]] | None:
+    """The words the local speech model hears in a sound (a voice file, a clip or its part, a narration), each with
+    its time in the file, kept on *shelf* by *key*, so the same sound is heard once (C7's captions, C4's cuts and
+    moments). *source*: its path, or its bytes and suffix. None when nothing could be heard."""
+    import hashlib
+    import logging
+
+    kept = shelf / f"{hashlib.sha256(key.encode()).hexdigest()[:32]}.json"
+    try:
+        return [(float(start), float(end), str(word)) for start, end, word in json.loads(kept.read_text("utf-8"))]
+    except (OSError, ValueError, TypeError):
+        pass
+    path, data, suffix = source
+    try:
+        segments, _language = (transcribe(path, start, end) if path is not None
+                               else transcribe_bytes(data, suffix, start, end))
+    except (SoundError, OSError, ValueError):
+        logging.getLogger(__name__).info("No words were heard in a sound")
+        return None
+    words = [word for segment in segments for word in segment.words]
+    shelf.mkdir(parents=True, exist_ok=True)
+    partial = kept.with_name(f"{kept.name}.{uuid.uuid4().hex[:6]}.part")
+    partial.write_text(json.dumps(words), encoding="utf-8", newline="\n")
+    os.replace(partial, kept)
+    return words
 
 
 def clock(seconds: float, *, millis: bool = False) -> str:

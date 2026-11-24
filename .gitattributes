@@ -38,3 +38,4 @@ docs/llms*.txt linguist-generated=true text eol=lf
 docs/sitemap.xml linguist-generated=true text eol=lf
 # Pages: the vendored chart library is pinned by its sha256, so it never changes line endings.
 static/pages/** text eol=lf
+*.onnx binary

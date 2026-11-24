@@ -59,7 +59,8 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await views(page, info, 'video-panel', panel);
   // The same version in other shapes, each saying where it fits.
   const shapes = panel.getByRole('list', { name: 'Other shapes' });
-  await expect(shapes.getByRole('listitem')).toHaveCount(4);
+  await expect(shapes.getByRole('listitem')).toHaveCount(5);
+  await expect(shapes).toContainText('Portrait 4:5');
   await expect(shapes).toContainText('Tall 9:16');
   await expect(shapes).toContainText('Shorts, Reels');
   await views(page, info, 'video-panel-review', shapes);
@@ -71,6 +72,39 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await views(page, info, 'video-panel-brand', kit);
   await kit.getByRole('button', { name: 'Save brand kit' }).click();
   await expect(panel).toContainText('Brand kit saved');
+
+  // Its look (C5): a grade and film grain, chosen beside the storyboard, then put back as they were.
+  const look = panel.getByRole('group', { name: 'Look' });
+  const grain = look.getByRole('button', { name: 'Film grain' });
+  await look.getByLabel('Grade').selectOption('cinematic');
+  await grain.click();
+  await expect(grain).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.move(0, 0);
+  await page.evaluate(() =>
+    (document.activeElement as HTMLElement | null)?.blur(),
+  );
+  await views(page, info, 'c5-look', look);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c5-look-phone', look);
+  await page.setViewportSize(DESKTOP);
+  await look.getByLabel('Grade').selectOption('natural');
+  await grain.click();
+  await expect(grain).toHaveAttribute('aria-pressed', 'false');
+
+  // Its captions (C7): turned on, their style chosen beside the toggle, then put back.
+  const captions = panel.getByRole('switch', { name: 'Captions' });
+  await captions.check();
+  // The first one: the brand kit, still open below, has its own.
+  const captionStyle = panel
+    .getByRole('combobox', { name: 'Caption style' })
+    .first();
+  await captionStyle.selectOption('word');
+  await views(page, info, 'c7-captions', captionStyle);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c7-captions-phone', captionStyle);
+  await page.setViewportSize(DESKTOP);
+  await captions.uncheck();
+  await expect(captions).not.toBeChecked();
 
   // Its sound (C6): a line given to a character, who joins the voices, and an effect added to the scene.
   await panel.getByLabel('Scene 2: who says its line').fill('Maya');
@@ -158,6 +192,40 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   await expect(timeline.getByRole('button')).toHaveCount(1);
   await page.keyboard.press('Control+z');
   await expect(timeline.getByRole('button')).toHaveCount(2);
+});
+
+test('a made video is got ready to publish: its thumbnail, title, description and subtitles', async ({
+  page,
+}, info) => {
+  await page.setViewportSize(DESKTOP);
+  await newConversation(page);
+  await composer(page).fill('b3 video fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const card = page
+    .getByRole('log', { name: 'Conversation' })
+    .getByRole('group', { name: 'Launch demo · video' });
+  await expect(card).toContainText('Made');
+  await card.getByRole('button', { name: 'Open' }).click();
+  const panel = page.getByRole('region', { name: 'Launch demo video' });
+  const kit = panel.getByRole('region', { name: 'Ready to publish' });
+  await expect(kit.getByRole('list', { name: 'Thumbnails' })).toHaveCount(0);
+  await views(page, info, 'c10-ask', kit);
+  // Nothing is made until the person names where it's going (G9): the panel asks Row-Bot.
+  await kit.getByLabel("Where it's going").selectOption('youtube');
+  await kit.getByRole('button', { name: 'Get it ready for YouTube' }).click();
+  await expect(
+    kit.getByRole('heading', { name: 'Ready to publish · YouTube' }),
+  ).toBeVisible();
+  const thumbnail = kit.getByRole('img', { name: 'Thumbnail, 16:9' });
+  await expect(thumbnail).toHaveAttribute('src', /^blob:/);
+  await expect(kit).toContainText('Sign up for Launch in seconds');
+  await expect(
+    kit.getByRole('button', { name: 'Download subtitles (SRT)' }),
+  ).toBeVisible();
+  await page.mouse.move(0, 0);
+  await views(page, info, 'c10-kit', kit);
+  await page.setViewportSize(PHONE);
+  await views(page, info, 'c10-kit-phone', kit);
 });
 
 test('a title card scene needs no video: it says how long it shows, with no speed or trim', async ({

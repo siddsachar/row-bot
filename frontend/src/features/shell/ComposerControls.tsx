@@ -77,6 +77,7 @@ import { useIncognitoSwitch } from './incognito';
 import { currentThinkingLabel } from './slash-arguments';
 import { targetGroups, type TargetKind } from './ResourceTargets';
 import '../../ui/styles/phone-composer.css';
+import { modelSettingsPath } from '../local-runtime/LocalModelSheet';
 
 /**
  * The composer's left cluster: a + menu (attach, add resource, skills, agent
@@ -1112,6 +1113,7 @@ export default function ComposerControls({
         onConnect={providerSheet}
         onReconnect={() => providerSheet(controls.model_selection?.provider_id)}
         onManage={() => navigate('/settings/models')}
+        onModelSettings={(modelRef) => navigate(modelSettingsPath(modelRef))}
         onSetup={() => navigate('/setup')}
         onVisibility={(item, action) => void changeVisibility(item, action)}
         search={searchModels}

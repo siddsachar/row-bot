@@ -154,6 +154,46 @@ export function followStreamLevel(
   };
 }
 
+/**
+ * Feed an open microphone stream through the capture worklet: 16 kHz frames
+ * and their loudness go to the callbacks. On failure the stream is stopped.
+ */
+export async function captureFrames(
+  stream: MediaStream,
+  callbacks: Pick<CaptureCallbacks, 'frame' | 'level'>,
+): Promise<AudioContext> {
+  let context: AudioContext;
+  try {
+    context = new AudioContext({
+      sampleRate: 16000,
+      latencyHint: 'interactive',
+    });
+  } catch {
+    context = new AudioContext({ latencyHint: 'interactive' });
+  }
+  try {
+    await context.audioWorklet.addModule(captureWorkletUrl);
+    const source = context.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(context, 'row-bot-capture');
+    node.port.onmessage = (message) => {
+      const { pcm, level } = message.data as {
+        pcm: ArrayBuffer;
+        level: number;
+      };
+      callbacks.frame(pcm);
+      callbacks.level(level);
+    };
+    const sink = context.createGain();
+    sink.gain.value = 0;
+    source.connect(node).connect(sink).connect(context.destination);
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    void context.close();
+    throw error;
+  }
+  return context;
+}
+
 export class BrowserVoiceAudio implements VoiceAudio {
   private stream: MediaStream | null = null;
   private captureContext: AudioContext | null = null;
@@ -200,35 +240,10 @@ export class BrowserVoiceAudio implements VoiceAudio {
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
-    let context: AudioContext;
-    try {
-      context = new AudioContext({
-        sampleRate: 16000,
-        latencyHint: 'interactive',
-      });
-    } catch {
-      context = new AudioContext({ latencyHint: 'interactive' });
-    }
-    try {
-      await context.audioWorklet.addModule(captureWorkletUrl);
-      const source = context.createMediaStreamSource(stream);
-      const node = new AudioWorkletNode(context, 'row-bot-capture');
-      node.port.onmessage = (message) => {
-        const { pcm, level } = message.data as {
-          pcm: ArrayBuffer;
-          level: number;
-        };
-        this.capture?.frame(pcm);
-        this.capture?.level(level);
-      };
-      const sink = context.createGain();
-      sink.gain.value = 0;
-      source.connect(node).connect(sink).connect(context.destination);
-    } catch (error) {
-      stream.getTracks().forEach((track) => track.stop());
-      void context.close();
-      throw error;
-    }
+    const context = await captureFrames(stream, {
+      frame: (pcm) => this.capture?.frame(pcm),
+      level: (level) => this.capture?.level(level),
+    });
     this.stream = stream;
     this.captureContext = context;
     this.micChosen = chosen;

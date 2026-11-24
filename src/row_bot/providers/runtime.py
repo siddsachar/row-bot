@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -21,8 +22,36 @@ from row_bot.providers.custom import (
 if TYPE_CHECKING:
     from row_bot.providers.reasoning import ReasoningRequestPlan
 
+logger = logging.getLogger(__name__)
+
 # xAI Chat Completions routes requests with one conversation id to one server.
 XAI_CONVERSATION_HEADER = "x-grok-conv-id"
+# The longest reply of every model this process creates (``row-bot run --max-output-tokens``); None leaves each
+# provider's own default. Never saved.
+_reply_token_limit: int | None = None
+
+
+def limit_reply_tokens(tokens: int | None) -> None:
+    """Cap every reply of every model this process creates at *tokens* (None: each provider's default)."""
+
+    global _reply_token_limit
+    if tokens is not None and int(tokens) <= 0:
+        raise ValueError("tokens must be positive")
+    _reply_token_limit = int(tokens) if tokens is not None else None
+
+
+def with_reply_limit(model: Any) -> Any:
+    """*model* with this process's reply limit (:func:`limit_reply_tokens`) on it, when one is set."""
+
+    if _reply_token_limit is None:
+        return model
+    fields = getattr(type(model), "model_fields", None) or {}
+    for name in ("max_tokens", "num_predict"):  # OpenAI, Anthropic and the compatible transport; Ollama
+        if name in fields:
+            setattr(model, name, _reply_token_limit)
+            return model
+    logger.warning("The reply limit can't be set on %s; its provider's default applies", type(model).__name__)
+    return model
 
 
 @dataclass(frozen=True, repr=False)
@@ -763,7 +792,7 @@ def create_chat_model(
     *,
     reasoning_plan: ReasoningRequestPlan | None = None,
 ):
-    primary = _create_chat_model(model_name, provider_id, reasoning_plan=reasoning_plan)
+    primary = with_reply_limit(_create_chat_model(model_name, provider_id, reasoning_plan=reasoning_plan))
     if reasoning_plan is None or reasoning_plan.is_default:
         return _with_usage_ledger(primary, model_name, provider_id)
     from row_bot.providers.resolution import resolve_provider_config
@@ -774,7 +803,7 @@ def create_chat_model(
         provider_id,
         allow_legacy_local=provider_id is not None,
     )
-    provider_default = _create_chat_model(model_name, provider_id, reasoning_plan=None)
+    provider_default = with_reply_limit(_create_chat_model(model_name, provider_id, reasoning_plan=None))
     # The ledger sits on the wrapper: the inner calls run without callbacks.
     return _with_usage_ledger(
         ReasoningFallbackChatModel(
@@ -975,6 +1004,18 @@ def _create_chat_model(
             kwargs.update({"use_responses_api": True, "output_version": "responses/v1"})
             kwargs.update(_reasoning_constructor_kwargs(reasoning_plan, provider=provider, responses=True))
             return ChatOpenAI(**kwargs)
+        if endpoint.get("transport") == "anthropic_messages":
+            from row_bot.providers.transports.anthropic_cancellable import CustomEndpointChatAnthropic
+
+            headers = endpoint.get("headers")
+            return CustomEndpointChatAnthropic(
+                model=model_name,
+                api_key=api_key,
+                base_url=endpoint["base_url"],
+                endpoint=endpoint,
+                **({"default_headers": dict(headers)} if isinstance(headers, dict) and headers else {}),
+                **_reasoning_constructor_kwargs(reasoning_plan, provider="anthropic"),
+            )
         return ChatOpenAICompatible(
             model_name=model_name,
             api_key=api_key,
@@ -1167,12 +1208,14 @@ def _validated_runtime_reasoning_plan(
 
 
 def _local_reasoning_default(runtime_model: str) -> dict[str, Any]:
-    """A local model saved as non-thinking (a personal model, O24) is asked not to think. The transport
-    keeps it so whatever the conversation chose (``RowBotChatOllama``)."""
+    """An Ollama model's saved Thinking, before the conversation's own choice: the person's On or Off, or
+    Learning's off for a personal model (O24), which the transport keeps whatever the conversation chose
+    (``RowBotChatOllama``)."""
     try:
         from row_bot.models import local_model_settings
 
-        return {"reasoning": False} if local_model_settings(runtime_model).get("reasoning") == "off" else {}
+        saved = local_model_settings(runtime_model).get("reasoning")
+        return {"reasoning": saved == "on"} if saved in {"on", "off"} else {}
     except Exception:
         return {}
 

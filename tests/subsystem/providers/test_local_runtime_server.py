@@ -22,6 +22,7 @@ import pytest
 # Imported at collection, before a test moves the data folder: patching its path then restores the real one.
 import row_bot.providers.config as provider_config
 from row_bot.local_runtime import install, models, server
+from row_bot.local_runtime.hardware import GIB
 from tests.fixtures.local_runtime import FakeFiles, fake_build, fake_model, python_command
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
@@ -132,24 +133,26 @@ def test_stop_ends_the_server_and_the_model_it_loaded(installed):
     assert not local.ledger().is_file()  # its record went with it
 
 
-def test_an_idle_server_stops_and_a_busy_one_keeps_going(installed):
+def test_an_idle_server_stops_after_30_minutes_and_a_busy_one_keeps_going(installed):
+    """30 minutes, as Ollama's keep_alive: the prompt cache lives in the server, so a shorter stop makes a reply
+    after a pause read the whole conversation again."""
     now = {"t": 0.0}
-    local = _server(installed, clock=lambda: now["t"], idle_seconds=300)
+    local = _server(installed, clock=lambda: now["t"])
     connection = local.connection()
     try:
         _chat(connection, installed["model"].id)
         httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": True}, trust_env=False,
                    headers={"Authorization": f"Bearer {connection.api_key}"})
-        now["t"] = 1000.0
+        now["t"] = 3000.0
         local.check()
         assert local.state == "running"  # a reply is being written: never stopped under it
 
         httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": False}, trust_env=False,
                    headers={"Authorization": f"Bearer {connection.api_key}"})
-        now["t"] = 1200.0
+        now["t"] = 3000.0 + 29 * 60
         local.check()
-        assert local.state == "running"  # idle for 200 s only
-        now["t"] = 1300.0
+        assert local.state == "running"  # idle for 29 minutes only
+        now["t"] = 3000.0 + 30 * 60
         local.check()
         assert local.state == "stopped"
     finally:
@@ -303,17 +306,151 @@ def test_ensure_started_honours_training_holding_the_card_unless_the_caller_has_
         local.stop()
 
 
-def test_the_27b_builds_get_an_8_bit_context_cache_in_the_presets_file(tmp_path):
-    text = server.presets_text([("qwen3.8-27b-q2", tmp_path / "a.gguf", 32768, "q8_0"),
-                                ("qwen3.5-9b", tmp_path / "b.gguf", 32768, "f16")])
-
-    big, small = text.split("[qwen3.8-27b-q2]")[1], text.split("[qwen3.5-9b]")[1].split("[")[0]
-    assert "cache-type-k = q8_0" in big and "cache-type-v = q8_0" in big
-    assert "cache-type" not in small and "ctx-size = 32768" in small
+def _settings(text: str, section: str) -> dict[str, str]:
+    """One section of the presets file as its keys and values."""
+    body = text.split(f"[{section}]\n", 1)[1].split("\n[", 1)[0]
+    return dict(line.split(" = ", 1) for line in body.splitlines() if " = " in line)
 
 
-def test_each_request_says_the_built_in_model_thinks_and_the_chats_choice_overrides_it(tmp_path, monkeypatch):
-    """D3: each request says whether the model thinks (every built-in model does, for now); the chat's own
+def test_the_presets_file_turns_on_flash_attention_an_8_bit_cache_and_a_bounded_prompt_cache_for_every_model(
+        tmp_path):
+    text = server.presets_text([("qwen3.8-27b-q4", tmp_path / "a.gguf", 131_072),
+                                ("qwen3.5-9b", tmp_path / "b.gguf", 32_768)])
+
+    shared = _settings(text, "*")
+    assert shared["flash-attn"] == "on"
+    assert shared["cache-type-k"] == shared["cache-type-v"] == "q8_0"
+    assert shared["cache-ram"] == "2048"  # MiB, not llama.cpp's 8 GB
+    # --fit's own layer placement decides a partial fit; cache reuse can't shift these models' cache.
+    assert not {"n-gpu-layers", "ngl", "fit", "cache-reuse", "sleep-idle-seconds"} & set(shared)
+    assert _settings(text, "qwen3.8-27b-q4")["ctx-size"] == "131072"
+    assert _settings(text, "qwen3.5-9b")["ctx-size"] == "32768"
+    assert "cache-type-k" not in _settings(text, "qwen3.5-9b")  # one setting for every model
+
+
+def _card(monkeypatch, gb: int) -> None:
+    from row_bot.local_runtime import builds, hardware
+
+    monkeypatch.setattr(hardware, "detector", lambda: hardware.classify(
+        builds.WINDOWS_X64, 32 * hardware.GIB, [hardware.Gpu(hardware.NVIDIA, "RTX", gb * hardware.GIB, "581.42")]))
+    hardware.forget()
+
+
+def test_the_endpoint_lists_each_model_at_the_window_it_is_served_at_and_the_chat_policy_agrees(
+        tmp_path, monkeypatch):
+    """On a 16 GB card the 3-bit build reads 32K and the 4B (which fits with room to spare) 128K: each model keeps
+    its own window, and no endpoint-wide one overrides them."""
+    from row_bot import local_runtime
+    from row_bot import models as chat_models
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 16)
+    monkeypatch.setattr(install, "installed_models",
+                        lambda root=None: [models.get("qwen3.8-27b-q3"), models.get("qwen3.5-4b")])
+
+    server.save_endpoint()
+
+    endpoint = custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+    assert not (endpoint.get("manual_capabilities") or {}).get("context_window")
+    windows = {item["model_id"]: item["context_window"] for item in endpoint["models"]}
+    assert windows == {"qwen3.8-27b-q3": 32_768, "qwen3.5-4b": 131_072}
+    for model_id, window in windows.items():
+        ref = local_runtime.model_ref(model_id)
+        assert chat_models.get_model_max_context(ref) == window
+        assert chat_models.get_context_size(ref) == window
+
+
+def test_the_endpoint_from_before_keeps_its_probe_evidence_when_its_window_moves_to_each_model(
+        tmp_path, monkeypatch):
+    """5.3.4 saved one 32K window for the whole endpoint; the first start after the update replaces it with each
+    model's own window and keeps the probe that showed the model calls tools (agent mode stays ready)."""
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 24)
+    monkeypatch.setattr(install, "installed_models", lambda root=None: [models.get("qwen3.8-27b-q4")])
+    custom.save_custom_endpoint({
+        "id": local_runtime.ENDPOINT_ID, "name": local_runtime.DISPLAY_NAME, "base_url": "http://127.0.0.1:9931/v1",
+        "profile": "llama_cpp", "execution_location": "local", "auth_required": False,
+        "managed": local_runtime.OWNER, "manual_capabilities": {"context_window": 32_768}}, manage_secret=False)
+    custom.store_managed_endpoint_models(local_runtime.ENDPOINT_ID,
+                                         [("qwen3.8-27b-q4", "Qwen3.8 27B · 4-bit", 32_768)])
+    custom._store_custom_endpoint_probe(local_runtime.ENDPOINT_ID, {
+        "ok": True, "model_id": "qwen3.8-27b-q4", "tool_calling": True, "tool_round_trip": True})
+
+    server.save_endpoint(port=9931)
+
+    endpoint = custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+    assert endpoint["models"][0]["context_window"] == 131_072
+    assert custom.custom_probe_for_model(endpoint, "qwen3.8-27b-q4")["tool_round_trip"] is True
+
+
+def test_a_refresh_of_the_endpoint_keeps_each_models_window_while_the_router_reports_none(tmp_path, monkeypatch):
+    """llama.cpp's router says nothing about a model it hasn't loaded; the endpoint still says what the presets
+    serve it at, not the 32K a silent server gets."""
+    import httpx
+
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 24)
+    monkeypatch.setattr(install, "installed_models", lambda root=None: [models.get("qwen3.8-27b-q4")])
+    monkeypatch.setattr(server, "endpoint_connection", lambda start=True: ("http://127.0.0.1:9931/v1", "key"))
+    server.save_endpoint(port=9931)
+
+    class Answer:
+        def __init__(self, payload, status=200):
+            self.payload, self.status_code = payload, status
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(self.status_code)
+
+        def json(self):
+            return self.payload
+
+    def get(url, *args, **kwargs):
+        if str(url).endswith("/v1/models"):
+            return Answer({"data": [{"id": "qwen3.8-27b-q4", "status": {"value": "unloaded"}}]})
+        return Answer({"error": "not loaded"}, 400)
+
+    monkeypatch.setattr(httpx, "get", get)
+    infos = custom.refresh_custom_endpoint_models(local_runtime.PROVIDER_ID)
+
+    assert [info.context_window for info in infos] == [131_072]
+    assert custom.get_custom_endpoint(local_runtime.PROVIDER_ID)["models"][0]["context_window"] == 131_072
+
+
+@pytest.mark.slow
+def test_a_start_writes_the_window_and_flags_the_endpoint_says(installed, monkeypatch):
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    _card(monkeypatch, 24)
+    local = _server(installed)
+    try:
+        assert local.connection() is not None
+        text = (install.runtime_dir(installed["root"]) / server.RUN_FOLDER / server.PRESETS_FILE).read_text("utf-8")
+    finally:
+        local.stop()
+
+    model = installed["model"].id
+    endpoint = custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+    # The fake model's file is a few kilobytes, so a 24 GB card serves it at the largest window.
+    assert _settings(text, model)["ctx-size"] == "131072"
+    assert [item["context_window"] for item in endpoint["models"]] == [131_072]
+    assert _settings(text, "*")["flash-attn"] == "on"
+
+
+def test_each_request_says_whether_the_built_in_model_thinks_and_the_chats_choice_overrides_it(
+        tmp_path, monkeypatch):
+    """D3: each request says whether the model thinks (the 27B does, the 9B and 4B don't); the chat's own
     choice still decides."""
     from langchain_core.messages import HumanMessage
 
@@ -342,7 +479,135 @@ def test_each_request_says_the_built_in_model_thinks_and_the_chats_choice_overri
             return json.loads(fake.seen[-1].body)["chat_template_kwargs"]["enable_thinking"]
 
         assert [resolve_reasoning_capabilities(local_runtime.PROVIDER_ID, model.id).default_enabled
-                for model in built_in] == [True, True, True]
-        assert [thinks(model.id) for model in built_in] == [True, True, True]
+                for model in built_in] == [True, False, False]
+        assert [thinks(model.id) for model in built_in] == [True, False, False]
         assert [thinks(model.id, "off") for model in built_in] == [False, False, False]
         assert thinks("qwen3.5-9b", "on") is True
+
+
+# ── The person's window for a model (U1) ─────────────────────────────────────
+
+
+@pytest.fixture
+def settings_store(tmp_path, monkeypatch):
+    from row_bot import models as chat_models
+    from row_bot.local_runtime import hardware
+
+    monkeypatch.setattr(chat_models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    monkeypatch.setattr(chat_models, "_local_model_settings", {})
+    monkeypatch.setattr(chat_models, "_override_llm_cache", {})
+    yield chat_models
+    hardware.forget()  # what a test's fake card left in the cache
+
+
+def _sheet(model_id: str) -> dict:
+    from row_bot import local_runtime
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+
+    return read_local_model_settings(local_runtime.model_ref(model_id))
+
+
+def _choose(model_id: str, context: int | None) -> dict:
+    from row_bot import local_runtime
+    from row_bot.application.client_local_model_settings import save_local_model_settings
+
+    return save_local_model_settings(local_runtime.model_ref(model_id), context=context, thinking="auto",
+                                     reply_limit=None, validate=lambda: None)
+
+
+def test_only_windows_that_fit_the_card_are_offered_and_a_choice_is_what_the_endpoint_serves(
+        tmp_path, monkeypatch, settings_store):
+    """On a 16 GB card the 3-bit 27B fits only at 32K; the 4B is served at 128K and may be given any window up to
+    its native 256K, each with what its cache takes on the card."""
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 16)
+    monkeypatch.setattr(install, "installed_models",
+                        lambda root=None: [models.get("qwen3.8-27b-q3"), models.get("qwen3.5-4b")])
+    server.save_endpoint()
+
+    big, small = _sheet("qwen3.8-27b-q3"), _sheet("qwen3.5-4b")
+    assert [choice["tokens"] for choice in big["context"]["choices"]] == [32_768]
+    assert [choice["tokens"] for choice in small["context"]["choices"]] == [32_768, 65_536, 131_072, 262_144]
+    assert small["context"]["automatic"] == 131_072 and small["context"]["memory_place"] == "card"
+    assert small["context"]["automatic_memory_bytes"] == models.get("qwen3.5-4b").need_bytes(131_072)
+    assert small["context"]["room_bytes"] == 16 * GIB
+    with pytest.raises(ValueError, match="invalid_command"):
+        _choose("qwen3.8-27b-q3", 65_536)  # doesn't fit: refused, nothing saved
+
+    view = _choose("qwen3.5-4b", 65_536)
+
+    assert view["context"]["chosen"] == 65_536 and view["applied"] == "next_start"
+    endpoint = custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+    windows = {item["model_id"]: item["context_window"] for item in endpoint["models"]}
+    assert windows == {"qwen3.8-27b-q3": 32_768, "qwen3.5-4b": 65_536}
+    assert settings_store.get_context_size(local_runtime.model_ref("qwen3.5-4b")) == 65_536
+    _choose("qwen3.5-4b", None)  # Automatic again
+    assert local_runtime.model_context("qwen3.5-4b") == 131_072
+
+
+def test_the_sheet_says_what_automatic_thinking_is_for_each_built_in_model(tmp_path, monkeypatch, settings_store):
+    """D3: the 27B thinks unless a chat says otherwise, the 9B and 4B don't; the sheet's Automatic says which."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 24)
+    built_in = [models.get("qwen3.8-27b-q4"), models.get("qwen3.5-9b"), models.get("qwen3.5-4b")]
+    monkeypatch.setattr(install, "installed_models", lambda root=None: built_in)
+    server.save_endpoint()
+
+    thinking = [_sheet(model.id)["thinking"] for model in built_in]
+
+    assert [item["automatic"] for item in thinking] == [True, False, False]
+    assert all(item["available"] and item["value"] == "auto" for item in thinking)
+
+
+def test_a_mac_may_choose_a_larger_window_with_a_slow_first_reply_said(tmp_path, monkeypatch, settings_store):
+    from row_bot.local_runtime import builds, hardware
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(hardware, "detector", lambda: hardware.classify(builds.MACOS_ARM64, 16 * hardware.GIB,
+                                                                        apple_silicon=True))
+    hardware.forget()
+    monkeypatch.setattr(install, "installed_models", lambda root=None: [models.get("qwen3.5-9b")])
+    server.save_endpoint()
+
+    context = _sheet("qwen3.5-9b")["context"]
+
+    assert context["automatic"] == 32_768 and context["memory_place"] == "memory"
+    assert [(choice["tokens"], choice["slow"]) for choice in context["choices"]][:2] == [(32_768, False),
+                                                                                          (65_536, True)]
+
+
+@pytest.mark.slow
+def test_a_running_server_serves_a_new_window_after_restarting_when_idle(installed, monkeypatch, settings_store):
+    _card(monkeypatch, 24)
+    local = _server(installed)
+    monkeypatch.setattr(server, "loaded", lambda: [local])
+    presets = install.runtime_dir(installed["root"]) / server.RUN_FOLDER / server.PRESETS_FILE
+    model = installed["model"].id
+    try:
+        connection = local.connection()
+        assert _settings(presets.read_text("utf-8"), model)["ctx-size"] == "131072"
+        _chat(connection, model)
+        headers = {"Authorization": f"Bearer {connection.api_key}"}
+        httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": True}, headers=headers,
+                   trust_env=False)
+
+        assert _choose(model, 65_536)["applied"] == "when_idle"
+        assert local.state == "running"  # never stopped under a reply
+
+        httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": False}, headers=headers,
+                   trust_env=False)
+        local.check()
+        assert local.state == "stopped"
+        assert local.connection() is not None  # the next request starts it with the new window
+        assert _settings(presets.read_text("utf-8"), model)["ctx-size"] == "65536"
+
+        assert _choose(model, 32_768)["applied"] == "restarted"  # idle: at once
+        assert local.state == "stopped"
+    finally:
+        local.stop()
