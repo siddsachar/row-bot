@@ -43,14 +43,18 @@ it('shows a presented final large, with its name, a Final mark, a player and its
     { reference: 'conversation-a:clip', mime: 'video/mp4', role: 'final' },
   ]);
 
-  const final = screen.getByRole('figure', {
-    name: 'Final: Birthday montage.mp4',
-  });
+  // Named by its title, as its Outputs tile is; it downloads as its file.
+  const final = screen.getByRole('figure', { name: 'Final: Birthday montage' });
   expect(within(final).getByText('Final')).toBeVisible();
+  expect(within(final).getByText('Birthday montage')).toBeVisible();
+  expect(within(final).queryByText(/\.mp4/)).toBeNull();
   expect(final).toHaveTextContent('For Sam, with the party clips');
   await waitFor(() =>
     expect(final.querySelector('video')).toHaveAttribute('src', 'blob:media'),
   );
+  expect(
+    within(final).getByRole('link', { name: 'Download Birthday montage' }),
+  ).toHaveAttribute('download', 'Birthday montage.mp4');
   // An AI clip shows too, in the grid under the finals, without a mark.
   const grid = container.querySelector('.message-media-grid')!;
   expect(grid).toHaveAttribute('data-count', '1');
@@ -71,4 +75,18 @@ it('marks a made video final where it already shows, with no second player', () 
     container.querySelector('.message-media-final .final-chip'),
   ).toHaveTextContent('Final');
   expect(container.querySelectorAll('[data-media-ref]')).toHaveLength(1);
+});
+
+it('keeps the file name of a presented document, its type part of its name', () => {
+  show([
+    {
+      reference: 'conversation-a:report',
+      mime: 'application/pdf',
+      label: 'Q3 report.pdf',
+      role: 'final',
+      presented: true,
+    },
+  ]);
+  const final = screen.getByRole('figure', { name: 'Final: Q3 report.pdf' });
+  expect(within(final).getByText('Q3 report.pdf')).toBeVisible();
 });

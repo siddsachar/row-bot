@@ -20,7 +20,7 @@ import {
   OUTPUT_ICONS,
   OUTPUT_KIND_WORDS,
   SHOW_OPTIONS,
-  outputTitle,
+  outputTitles,
   versionWords,
   type OutputShow,
 } from './outputs';
@@ -243,6 +243,7 @@ export default function LibraryMedia() {
   }
 
   const now = new Date();
+  const titleOf = outputTitles(items ?? []);
   return (
     <section className="media-library" aria-label="Media">
       <div className="media-library-bar">
@@ -314,7 +315,7 @@ export default function LibraryMedia() {
       ) : (
         <ul className="media-library-list" aria-label="Media items">
           {items.map((item) => {
-            const title = outputTitle(item);
+            const title = titleOf(item);
             const chat = item.conversation_title || 'a chat';
             return (
               <li

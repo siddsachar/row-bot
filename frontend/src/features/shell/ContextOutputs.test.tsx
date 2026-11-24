@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { OutputView, ResourceView } from '../../api/types';
@@ -391,6 +392,46 @@ it('reads the working files only when the toggle shows them', async () => {
   expect(tiles('Working files')).toEqual(['Open Recording']);
   await act(async () => fireEvent.click(toggle));
   expect(screen.queryByRole('list', { name: 'Working files' })).toBeNull();
+});
+
+it('names a film’s voice lines apart, numbered in the order they were made', async () => {
+  // The video tool names each "<film> <scene>"; listed newest first.
+  const voice = (n: number, scene: string, at: string) =>
+    output(n, 'audio', {
+      name: `Sign-up in 30 seconds ${scene}`,
+      file_name: `Sign-up in 30 seconds ${scene}.wav`,
+      role: 'working',
+      created_at: at,
+    });
+  runtime.outputs.mockResolvedValue({
+    items: [
+      voice(3, 's9b01c2', '2026-11-22T10:00:03Z'),
+      voice(2, 's210f2d', '2026-11-22T10:00:02Z'),
+      output(4, 'audio', {
+        name: 'music-calm',
+        file_name: 'music-calm.wav',
+        role: 'working',
+      }),
+      voice(1, 's4e5a6b', '2026-11-22T10:00:01Z'),
+    ],
+  });
+  renderOutputs([film()], { workingCount: 4 });
+  await act(async () =>
+    fireEvent.click(screen.getByRole('switch', { name: 'Show working files' })),
+  );
+  await screen.findByRole('list', { name: 'Working files' });
+  expect(tiles('Working files')).toEqual([
+    'Open Voice 3 · Sign-up in 30 seconds',
+    'Open Voice 2 · Sign-up in 30 seconds',
+    'Open Music calm',
+    'Open Voice 1 · Sign-up in 30 seconds',
+  ]);
+  // The number leads, so it shows where the tile cuts the name short.
+  expect(
+    within(screen.getByRole('list', { name: 'Working files' })).getByText(
+      'Voice 1 · Sign-up in 30 seconds',
+    ),
+  ).toBeInTheDocument();
 });
 
 it('hides the toggle in a chat with no working files', () => {

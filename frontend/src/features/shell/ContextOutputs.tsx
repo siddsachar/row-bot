@@ -5,6 +5,7 @@ import {
   Crosshair,
   FolderDown,
   Layers,
+  Mic,
   MoreHorizontal,
   Palette,
   Play,
@@ -29,9 +30,10 @@ import { openMediaViewer } from './MediaPreview';
 import {
   OUTPUT_ICONS,
   ROLE_WORDS,
-  outputTitle,
+  outputTitles,
   useOutputs,
   versionWords,
+  voiceLineOf,
 } from './outputs';
 
 /** Newest first; the rest fold under "Show all" (two rows of three). */
@@ -80,7 +82,8 @@ export function OutputThumb({ output }: { output: OutputView }) {
         )}
       </>
     );
-  const Icon = OUTPUT_ICONS[output.kind];
+  // A film's voice line by a microphone, its music by a note.
+  const Icon = voiceLineOf(output) ? Mic : OUTPUT_ICONS[output.kind];
   return (
     <span className="context-output-thumb context-output-glyph" aria-hidden>
       {play || <Icon size={20} />}
@@ -89,8 +92,11 @@ export function OutputThumb({ output }: { output: OutputView }) {
 }
 
 /** A version as the viewer and the menu name it: "Birthday montage · v2". */
-function versionName(output: OutputView, version: OutputVersionView) {
-  const title = outputTitle(output);
+function versionName(
+  title: string,
+  output: OutputView,
+  version: OutputVersionView,
+) {
   return output.version_count > 1 ? `${title} · v${version.version}` : title;
 }
 
@@ -103,13 +109,14 @@ function Tiles({
   label: string;
   outputs: OutputView[];
   busy: string;
-  actions: (output: OutputView) => MenuAction[];
+  actions: (output: OutputView, title: string) => MenuAction[];
 }) {
   const overlay = useOverlay();
+  const titleOf = outputTitles(outputs);
   return (
     <ul className="context-output-grid" aria-label={label}>
       {outputs.map((output) => {
-        const title = outputTitle(output);
+        const title = titleOf(output);
         const version = versionWords(output);
         const hint = [output.file_name, version, ROLE_WORDS[output.role]]
           .filter(Boolean)
@@ -130,7 +137,7 @@ function Tiles({
                   openMediaViewer(overlay, {
                     reference: output.ref,
                     mime: output.mime_type,
-                    name: versionName(output, output),
+                    name: versionName(title, output, output),
                     size: output.size,
                   })
                 }
@@ -161,7 +168,7 @@ function Tiles({
               iconOnly
               variant="ghost"
               className="icon-action icon-action-sm context-output-menu"
-              actions={actions(output)}
+              actions={actions(output, title)}
             >
               <MoreHorizontal size={16} aria-hidden />
             </Menu>
@@ -272,7 +279,7 @@ export default function ContextOutputs({
     }
   }
 
-  function actions(output: OutputView): MenuAction[] {
+  function actions(output: OutputView, title: string): MenuAction[] {
     const visual = output.kind === 'image' || output.kind === 'video';
     return [
       {
@@ -327,7 +334,7 @@ export default function ContextOutputs({
               openMediaViewer(overlay, {
                 reference: version.ref,
                 mime: version.mime_type,
-                name: versionName(output, version),
+                name: versionName(title, output, version),
                 size: version.size,
               }),
           }))

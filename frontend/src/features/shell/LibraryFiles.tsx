@@ -20,7 +20,7 @@ import { Thumb } from './LibraryMedia';
 import {
   OUTPUT_ICONS,
   OUTPUT_KIND_WORDS,
-  outputTitle,
+  outputTitles,
   versionWords,
 } from './outputs';
 
@@ -72,15 +72,20 @@ const matchesKind = (file: MadeFile, kind: FileKind) =>
   file.kind === kind ||
   (kind === 'media' && Boolean(file.media));
 
-const fromOutput = (item: OutputView): MadeFile => ({
+const fromOutput = (item: OutputView, title: string): MadeFile => ({
   id: `media:${item.conversation_id}:${item.id}`,
   kind: item.kind,
-  title: outputTitle(item),
+  title,
   conversationId: item.conversation_id,
   conversationTitle: item.conversation_title ?? '',
   at: item.updated_at,
   media: item,
 });
+/** A page of outputs as files, each named as its Outputs tile names it. */
+const fromOutputs = (items: OutputView[] = []): MadeFile[] => {
+  const title = outputTitles(items);
+  return items.map((item) => fromOutput(item, title(item)));
+};
 
 /**
  * The designs and code folders bound to the newest chats. Those chats are
@@ -165,7 +170,7 @@ async function loadPagesAndMedia(
       at: page.updated_at,
       pageId: page.page_id,
     })),
-    ...(media?.items ?? []).map(fromOutput),
+    ...fromOutputs(media?.items),
   ];
   return { files, next: media?.next ?? null };
 }
@@ -226,7 +231,7 @@ export default function LibraryFiles({
         if (!abort.signal.aborted)
           setOthers({
             kind,
-            files: (page?.items ?? []).map(fromOutput),
+            files: fromOutputs(page?.items),
             next: page?.next ?? null,
           });
       },
@@ -267,7 +272,7 @@ export default function LibraryFiles({
         show: other ? (kind as 'uploads' | 'working') : 'made',
         before: next,
       });
-      const added = (page?.items ?? []).map(fromOutput);
+      const added = fromOutputs(page?.items);
       if (other)
         setOthers((last) =>
           last && last.kind === kind

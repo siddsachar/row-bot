@@ -5531,16 +5531,19 @@ button.attachment-tile-face:hover {
   flex: 1;
 }
 
-/* A setting Row-Bot changed, with Undo and its row: two icons that stay on
-   the card's row, as a page card's do, on a phone too. */
+/* A setting Row-Bot changed, with Undo and its row (two icons), and a video
+   with Open: small actions that stay on the card's row, as a page card's do,
+   on a phone too. */
 .transcript-card[data-kind='setting'] .transcript-card-text strong {
   color: var(--text-primary);
 }
 @container transcript (max-width: 520px) {
-  .transcript-card[data-kind='setting'] {
+  .transcript-card[data-kind='setting'],
+  .transcript-card[data-kind='video_project'] {
     grid-template-columns: 20px minmax(0, 1fr) auto;
   }
-  .transcript-card[data-kind='setting'] .transcript-card-actions {
+  .transcript-card[data-kind='setting'] .transcript-card-actions,
+  .transcript-card[data-kind='video_project'] .transcript-card-actions {
     grid-column: auto;
   }
 }
