@@ -33,6 +33,10 @@ import type {
   ClientTransport,
   Command,
   CommandReceipt,
+  CompanyAction,
+  CompanyGraphQuery,
+  CompanyJoinRequest,
+  CompanyShareRequest,
   EventRecord,
   Snapshot,
   SubscriptionView,
@@ -3268,6 +3272,69 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.repairLocalModelRuntime(signal);
     });
+  /**
+   * Row-Bot for Teams (C1b): this Row-Bot's company. Reading it contacts
+   * nothing; every other action is the person's (Join, Leave, Retry…).
+   */
+  company = (action: CompanyAction, body?: CompanyJoinRequest) =>
+    action === 'status'
+      ? this.query(() => this.transport.company?.(action))
+      : this.authenticatedResult((signal) => {
+          if (!this.transport.company)
+            throw clientError({ code: 'capability_unavailable' });
+          return this.transport.company(action, body, signal);
+        });
+  /**
+   * Row-Bot for Teams (B8): Knowledge home's Company scope, read only. The
+   * company's server filters its knowledge graph to what the person may read.
+   */
+  companyGraph = (query: CompanyGraphQuery = {}, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyGraph?.(query, signal));
+  companyEntity = (entityId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyEntity?.(entityId, signal));
+  /**
+   * Row-Bot for Teams (B3): a space owner's company documents in Settings ›
+   * Documents. Each call answers the space's list as it is afterwards.
+   */
+  companyDocuments = (spaceId?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyDocuments?.(spaceId, signal));
+  uploadCompanyDocument = (
+    spaceId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.uploadCompanyDocument?.(spaceId, file, name, signal),
+    );
+  replaceCompanyDocument = (
+    documentId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.replaceCompanyDocument?.(documentId, file, name, signal),
+    );
+  removeCompanyDocument = (documentId: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.removeCompanyDocument?.(documentId, signal),
+    );
+  /**
+   * Row-Bot for Teams (B4b): Share to company. The person's shares and the
+   * spaces they may share to; a share goes to a space's review queue, and a
+   * waiting one can be withdrawn (it is deleted). Each call answers the
+   * person's shares as they are afterwards.
+   */
+  companyShares = (status?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyShares?.(status, signal));
+  shareToCompany = (
+    spaceId: string,
+    body: CompanyShareRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.shareToCompany?.(spaceId, body, signal));
+  withdrawCompanyShare = (shareId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.withdrawCompanyShare?.(shareId, signal));
   /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
   speechModels = (signal?: AbortSignal) =>
     this.query(() => this.transport.speechModels?.(signal));

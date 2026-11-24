@@ -24,7 +24,7 @@ SETTINGS_PAGES = {
     "preferences": "Preferences", "appearance": "Appearance", "buddy": "Buddy", "proactive": "Proactive",
     "models": "Models",
     "voice": "Voice", "knowledge": "Memory", "documents": "Documents", "tracker": "Tracker", "tools": "Tools",
-    "skills": "Skills", "apps": "Apps", "system": "System", "activity": "Activity", "access": "Devices & remote access",
+    "skills": "Skills", "apps": "Apps", "company": "Company", "system": "System", "activity": "Activity", "access": "Devices & remote access",
     "updates": "Updates", "data": "Data",
 }
 _IN_APP_LINK = re.compile(r"\[([^\]\n]{1,200})\]\((/(?:app-v2/)?settings/[^\s)]*|/docs/[^\s)]*|/\?tab=[^\s)]*)\)")

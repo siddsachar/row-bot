@@ -41,6 +41,11 @@ def _unavailable_words(current: str, option: dict | None) -> str:
 
     parsed = parse_model_ref(current)
     name = model_name(current)
+    from row_bot.company.policy import default_model_words
+
+    company_off = default_model_words(*parsed, name) if parsed else None
+    if company_off:  # Row-Bot for Teams: the company's policy took this model away; nothing is chosen instead.
+        return company_off
     provider = provider_display_label(parsed[0]) if parsed else "its provider"
     if parsed and parsed[0] == "ollama":
         return f"{name} isn't available in {provider} right now. Check it below, or choose another model."
@@ -120,9 +125,9 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
                                 and row.selection_ref != brain_ref),
                           enabled=backup_setting["enabled"], visibility=shown),
         "vision": _picker("vision", vision_ref, rows, enabled=vision.enabled, visibility=shown),
-        "image": _picker("image", image_ref, rows, enabled=registry.is_enabled("image_gen") if image_tool else False,
+        "image": _picker("image", image_ref, rows, enabled=registry.is_switched_on("image_gen") if image_tool else False,
                          media_options=get_available_image_models(), visibility=shown),
-        "video": _picker("video", video_ref, rows, enabled=registry.is_enabled("video_gen") if video_tool else False,
+        "video": _picker("video", video_ref, rows, enabled=registry.is_switched_on("video_gen") if video_tool else False,
                          media_options=get_available_video_models(), visibility=shown),
         "camera_index": max(0, min(64, int(vision.camera_index))),
         "context": {"policy_kind": "local" if main_local else "provider", "selected_cap": cap,

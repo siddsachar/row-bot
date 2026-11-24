@@ -409,7 +409,11 @@ def _next_document(
             pasted = {key: item for key, item in value.items() if key not in _CHOICES}
             if "tools" in value:
                 pasted["tools"] = {key: item for key, item in (value["tools"] or {}).items() if key not in _TOOL_CHOICES}
-            servers[name] = _server(pasted, fields, name)
+            # Where it came from is Row-Bot's to record, never the pasted text's (C3b): a plugin's marks and
+            # claimed catalog names are dropped; a listing Row-Bot checks is bound to its names and launch.
+            from row_bot.company.enforce import mcp_provenance
+
+            servers[name] = mcp_provenance(_server(pasted, fields, name))
             affected.append(name)
     elif operation == "delete":
         if set(intent) - {"operation", "server_id", "delete_credentials"} or type(intent.get("delete_credentials", False)) is not bool:
@@ -454,6 +458,13 @@ def _next_document(
         affected.append(name)
     else:
         raise CapabilityConfigurationError("invalid_command")
+    if operation in {"add", "import"} and not child:
+        from row_bot.company.enforce import mcp_refusal
+
+        # A server the person's company doesn't allow can't be added (C3b). Names never count, so a rename
+        # can't make one allowed; an edit of its launch makes it stop matching its catalog listing.
+        if any(mcp_refusal(name, servers[name]) for name in affected):
+            raise CapabilityConfigurationError("company_policy")
     if child:
         from row_bot.plugins.state import validate_mcp_child_change
         validate_mcp_child_change(saved.document, document)

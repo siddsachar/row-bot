@@ -143,6 +143,8 @@ vi.mock('../../runtime', () => ({
     platform: { writeClipboard: vi.fn() },
     taskEditSessions: mock.taskEditSessions,
   }),
+  // Knowledge's company switch (Row-Bot for Teams) needs no runtime here.
+  useOptionalRuntime: () => null,
 }));
 // The first screen is up: Buddy beside the greeting reads at once.
 vi.mock('../../shell-settled', async (load) => ({

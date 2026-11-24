@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from tests.fixtures.company_server import company_server, company_state, keychain  # noqa: F401 - the fixtures
 from tests.fixtures.providers import FakeChatModel, fake_model_info
 
 
@@ -90,6 +91,38 @@ def test_custom_fake_provider_runtime_uses_fake_transport(tmp_path, monkeypatch)
     assert isinstance(chat_model, FakeChatModel)
     assert chat_model.model == "fake-chat"
     assert chat_model.kwargs["base_url"] == "http://127.0.0.1:65535/v1"
+
+
+def test_the_company_provider_resolves_is_ready_and_runs_through_its_gateway_while_joined(
+        company_server, tmp_path, monkeypatch) -> None:  # noqa: F811 - the fixture
+    """Row-Bot for Teams (C2): ``company`` passes what every provider must: a provider-qualified ref resolves
+    to it under the company's name, readiness reads it as configured with the catalog's context, and
+    create_chat_model returns a model whose request goes to the company's gateway, not to another provider."""
+    from langchain_core.messages import HumanMessage
+
+    from row_bot.company import provider
+    from row_bot.models import get_cloud_model_context
+    from row_bot.providers import config as provider_config, model_catalog_cache
+    from row_bot.providers.readiness import evaluate_runtime_readiness
+    from row_bot.providers.resolution import resolve_provider_config
+    from row_bot.providers.runtime import create_chat_model
+    from tests.fixtures.company_server import COMPANY, GATEWAY_OPENAI, REPLY
+
+    monkeypatch.setattr(model_catalog_cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    company_server.join_here()
+    provider.refresh()
+
+    resolved = resolve_provider_config("model:company:qwen3-32b", allow_legacy_local=False)
+    readiness = evaluate_runtime_readiness(resolved, refresh_provider_status=False)
+    answer = create_chat_model("qwen3-32b", provider_id="company").invoke([HumanMessage("Hello?")])
+
+    assert (resolved.provider_id, resolved.model_id, resolved.provider_display_name) == (
+        "company", "qwen3-32b", COMPANY)
+    assert readiness.selected_mode == "agent" and readiness.agent.credential_status == "configured"
+    assert get_cloud_model_context("model:company:qwen3-32b") == 131072
+    assert answer.content == REPLY
+    assert [request.url.path for request in company_server.gateway] == [GATEWAY_OPENAI]
 
 
 def test_provider_error_contract_normalizes_common_failures() -> None:

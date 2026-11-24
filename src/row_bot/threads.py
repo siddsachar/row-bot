@@ -420,11 +420,13 @@ def _get_thread_approval_mode_raw(thread_id: str) -> str:
 
 
 def _get_thread_approval_mode(thread_id: str) -> str:
-    """Return the approval level a thread runs at (Hands-off is Auto where others share it)."""
+    """Return the approval level a thread runs at (Hands-off is Auto where others share it, and nothing above
+    the person's company's ceiling, C3b). What the person chose stays stored as they chose it."""
+    from row_bot.company.enforce import cap
     from row_bot.full_autonomy import cap_for_conversation
 
     raw = _get_thread_approval_mode_raw(thread_id)
-    return cap_for_conversation(thread_id, normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE))
+    return cap(cap_for_conversation(thread_id, normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE)))
 
 
 def _set_thread_approval_mode(thread_id: str, mode: str) -> None:

@@ -395,6 +395,12 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
     listed = next((b["message"] for b in row["blockers"] if b["code"] == "unsupported"), "")
     if available and listed and all(s["state"] != "unsupported" for s in steps):
         steps[-1].update(state="unsupported", message=listed[:512])
+    # The person's company doesn't allow it (C3b): it can't be added, turned on or fixed; it can still be turned
+    # off, removed or updated away from.
+    held = next((b["message"] for b in row["blockers"] if b["code"] == "company_policy"), "") or (
+        facts.company_listed(row, reference) if available else "")
+    if held and intent not in {"turn_off", "remove"}:
+        steps[-1].update(state="unsupported", message=held[:512])
     unsupported = next((s for s in steps if s["state"] == "unsupported"), None)
     plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "app_id": (row["app"] or {}).get("id", ""),
             "installed_id": "", "kind": kind, "name": name, "intent": intent,

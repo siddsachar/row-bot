@@ -4,6 +4,10 @@
  * types have fixed slots, and a filter never repaints the survivors. More
  * types than slots share "Other" and are told apart by the legend, labels,
  * the inspector and the List view.
+ *
+ * A company's graph (Row-Bot for Teams) is never drawn with the person's
+ * own, so its types share the slots its graph leaves free: every type of
+ * one graph has a colour of its own.
  */
 export const GRAPH_SLOTS = 9;
 
@@ -19,6 +23,12 @@ const FIXED: Record<string, number> = {
   event: 7,
   fact: 8,
   self_knowledge: 9,
+  // The company's types beside person, organisation, project and place.
+  term: 1,
+  team: 3,
+  customer: 7,
+  policy: 8,
+  system: 9,
 };
 
 /** 1–9 for a coloured slot, 0 for Other. */

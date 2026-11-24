@@ -358,11 +358,12 @@ def _connect(path: str) -> sqlite3.Connection:
 def _apply(kind: str, path: str, payload: Any) -> None:
     if not Path(path).parent.is_dir():
         return  # The data folder is gone (a test's, or a moved profile): nothing to write to.
+    written = None
     with _db_lock, closing(_connect(path)) as connection, connection:
         if kind == "call":
             row = _row(payload)
-            if row is not None:
-                connection.execute(_UPSERT, row)
+            if row is not None and connection.execute(_UPSERT, row).rowcount:
+                written = row
         elif kind == "rule_used":
             rule_id, at = payload
             connection.execute("UPDATE approval_rules SET uses = uses + 1, last_used_at = ? WHERE id = ?",
@@ -371,6 +372,25 @@ def _apply(kind: str, path: str, payload: Any) -> None:
             # A helper agent's card waits on after its parent's turn ends: only the turn's own rows settle.
             connection.execute("UPDATE actions SET status = 'final' WHERE conversation_id = ? AND status = 'pending' "
                                "AND surface <> 'agent'", (payload,))
+    if written is not None:
+        _tell_company(dict(zip(_COLUMNS, written)))
+
+
+def _tell_company(row: Mapping[str, Any]) -> None:
+    """A joined Row-Bot tells its company about a gated action's final row (C4): its metadata fields only, by
+    name. Never its title, summary, reason or arguments."""
+    if row["status"] != "final":
+        return
+    try:
+        from row_bot.company import audit
+
+        audit.tool_called(tool=row["tool"], outcome=row["outcome"], decided_by=row["decided_by"],
+                          approval_level=row["level"], surface=row["surface"], risk=row["risk"],
+                          app=row["app_id"] or None, rule_id=row["rule_id"] or None)
+    except Exception as error:  # noqa: BLE001 - the person's log is written all the same
+        # The contract's own words say which field broke its form, never a value; anything else by its type.
+        why = error if type(error).__name__ == "InvalidAuditEvent" else type(error).__name__
+        logger.warning("A tool action couldn't be recorded for the company (%s)", why)
 
 
 # ── One row ──────────────────────────────────────────────────────────────────

@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "description": "A share for a company space's review queue (B4a's limits): a one-line title, the text, an optional note.",
+  "properties": {
+    "source_note": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Source Note",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "text"
+  ],
+  "title": "CompanyShareRequest",
+  "type": "object"
+}

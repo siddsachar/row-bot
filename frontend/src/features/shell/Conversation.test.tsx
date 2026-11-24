@@ -211,6 +211,8 @@ vi.mock('../../ui/overlays', () => ({
     dismiss: mock.dismiss,
     notify: mock.notify,
   }),
+  // Share to company (Row-Bot for Teams) offers nothing without a joined company here.
+  useOptionalOverlay: () => null,
 }));
 beforeEach(() => {
   vi.clearAllMocks();

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -9,6 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
 import { AgentAvatar } from '../../ui/AgentAvatar';
+import { OverlayProvider } from '../../ui/overlays';
 import { TranscriptMessage } from './TranscriptMessage';
 import { TeachContext } from '../learning/chat-learning';
 import { SpeakersContext, type Speakers } from './TurnMarker';
@@ -724,4 +726,86 @@ it('Fork from here sits in a reply’s actions and its long-press menu, only whe
   expect(
     within(menu).queryByRole('menuitem', { name: 'Edit and resend' }),
   ).toBeNull();
+});
+
+it('offers Share to company on a reply only while joined and the company allows it (B4b)', async () => {
+  const reply = {
+    id: 'assistant:share',
+    message_id: 'reply-9',
+    role: 'assistant',
+    blocks: [
+      {
+        id: 'b',
+        type: 'markdown',
+        text: 'Orion Foods renews its contract every March.',
+      },
+    ],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  const shares = {
+    schema_version: 1,
+    state: 'ready',
+    company: 'rowbot.example.test',
+    reason: null,
+    allowed: true,
+    spaces: [
+      { id: 'space-sales', name: 'Sales', kind: 'group', is_owner: true },
+    ],
+    shares: [],
+    truncated: false,
+    outcome: null,
+    words: null,
+  };
+  async function show(view: unknown) {
+    const company = vi.fn(async () => view);
+    runtime.controller = {
+      ...mock,
+      company,
+      companyShares: vi.fn(async () => shares),
+      shareToCompany: vi.fn(),
+    };
+    const shown = render(
+      <MemoryRouter>
+        <OverlayProvider>
+          <TranscriptMessage row={reply} conversationId="conversation-a" />
+        </OverlayProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(company).toHaveBeenCalledWith('status'));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return shown;
+  }
+  const labels = () =>
+    within(screen.getByRole('toolbar', { name: 'Row-Bot message actions' }))
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+
+  // No company joined; joined with sharing turned off by the company: no action.
+  for (const view of [
+    { state: 'not_joined', limits: null },
+    { state: 'joined', limits: { share_to_company: false } },
+  ]) {
+    const { unmount } = await show(view);
+    expect(labels()).toEqual(['Copy message', 'Read aloud']);
+    unmount();
+  }
+
+  await show({ state: 'joined', limits: { share_to_company: true } });
+  expect(labels()).toEqual(['Copy message', 'Read aloud', 'Share to company']);
+  fireEvent.click(screen.getByRole('button', { name: 'Share to company' }));
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Share to company',
+  });
+  expect(
+    await within(dialog).findByText(
+      'Owners of Sales review this before anyone else sees it.',
+    ),
+  ).toBeVisible();
+  expect(within(dialog).getByLabelText(/^Text/)).toHaveValue(
+    'Orion Foods renews its contract every March.',
+  );
+  runtime.controller = null;
 });

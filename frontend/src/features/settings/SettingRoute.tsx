@@ -36,6 +36,9 @@ import {
 import Preferences from './Preferences';
 import LearningSettings from '../learning/LearningSettings';
 import ProactiveSettings from './ProactiveSettings';
+import CompanyDocuments from '../company/CompanyDocuments';
+import CompanySettings from '../company/CompanySettings';
+import { useCompanyLimits } from '../company/limits';
 import ActivitySettings from './ActivitySettings';
 import ApprovalRulesSettings from './ApprovalRulesSettings';
 import { useLearning, useLearningPreview } from '../learning/learning-state';
@@ -153,6 +156,11 @@ export default function SettingRoute() {
     knowledgeOwner,
   } = useRuntime();
   const state = useClientState();
+  // Tools the person's company switched off (C3b), read only on the Tools page.
+  const companyLimits = useCompanyLimits(
+    leaf?.id === 'tools' ? controller : null,
+  );
+  const companyOff = companyLimits?.tools_off ?? [];
   const learningPreview = useLearningPreview();
   const learningIo = useLearning();
   const importIO = useMemo(() => memoryImportIO(controller), [controller]);
@@ -576,6 +584,8 @@ export default function SettingRoute() {
           )
         ) : leaf.id === 'proactive' ? (
           <ProactiveSettings />
+        ) : leaf.id === 'company' ? (
+          <CompanySettings controller={controller} />
         ) : leaf.id === 'activity' ? (
           <>
             <ApprovalRulesSettings />
@@ -805,10 +815,12 @@ export default function SettingRoute() {
                 <ToolConfigurationSnapshot
                   snapshot={settingsSnapshot.tools}
                   mutation={mutation}
+                  companyOff={companyOff}
                 />
                 <UtilitiesSnapshotPanel
                   snapshot={settingsSnapshot.utilities}
                   mutation={mutationFor('utilities')!}
+                  companyOff={companyOff}
                 />
               </>
             ) : (
@@ -942,6 +954,8 @@ export default function SettingRoute() {
                 }}
               />
             </SettingsGroup>
+            {/* Row-Bot for Teams (B3): the spaces the person owns; nothing without one. */}
+            <CompanyDocuments controller={controller} />
             {settingsSnapshot && mutation ? (
               <DocumentEmbeddingSnapshot
                 snapshot={settingsSnapshot.documents}

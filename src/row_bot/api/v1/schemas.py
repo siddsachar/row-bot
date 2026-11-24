@@ -126,6 +126,9 @@ class ConversationApprovalView(WireModel):
     full_autonomy_confirmed: bool
     # False where other people share the conversation (a channel thread): Auto at most.
     full_autonomy_available: bool
+    # The highest level the person's company allows (C3b): the levels above it show "Set by your company" and
+    # the chat runs at most at it. None with no company joined.
+    company_max_level: ApprovalLevel | None = None
 
 
 class ConversationAppPayload(WireModel):
@@ -2876,6 +2879,260 @@ class LocalModelInstallRequest(WireModel):
 class LocalModelRemoveRequest(WireModel):
     # One model; absent: the runtime and every model.
     model_id: LocalModelId | None = None
+
+
+# Row-Bot for Teams (C1b): why the last Join or Sign in again didn't join, or why the server can't be used now.
+CompanyFailure = Literal["not_https", "invalid_address", "not_company_server", "unreachable", "busy", "browser",
+                         "cancelled", "denied", "timed_out", "failed", "storage_unavailable"]
+
+
+class CompanyRule(WireModel):
+    """One company policy setting in plain words (C3a): its title and help from the shared model, its value."""
+
+    setting: str = Field(max_length=64)
+    title: str = Field(max_length=128)
+    help: str = Field(max_length=512)
+    value: str = Field(max_length=2048)
+
+
+class CompanyLock(WireModel):
+    """A setting the company's policy restricts, which Settings shows as "Set by your company" (C3a)."""
+
+    setting: str = Field(max_length=64)
+    title: str = Field(max_length=128)
+    value: str = Field(max_length=256)
+    # The quiet line shown where it applies ("Your company turned off personal API keys").
+    words: str = Field(max_length=256)
+
+
+class CompanyAppLimit(WireModel):
+    """Which apps of one kind the company lets people add and run (C3b): none, only the allowed ones, or any."""
+
+    mode: Literal["none", "allow-list", "any"]
+    allowed: list[Annotated[str, StringConstraints(max_length=200)]] = Field(max_length=512)
+
+
+class CompanyLimits(WireModel):
+    """What Settings and the pickers show as "Set by your company" beyond models (C3b)."""
+
+    # Row-Bot's tools (registry names) the company switched off, with every tool each offers.
+    tools_off: list[Annotated[str, StringConstraints(max_length=64)]] = Field(max_length=512)
+    # The highest approval level anyone may choose.
+    max_level: ApprovalLevel
+    chat_export: bool
+    # Share to company (B4b): its message action shows only while this is on.
+    share_to_company: bool = True
+    plugins: CompanyAppLimit
+    mcp_servers: CompanyAppLimit
+    skills_hub: CompanyAppLimit
+    channels: CompanyAppLimit
+
+
+class CompanyView(WireModel):
+    """Settings › Company (C1b): this Row-Bot's company, read without contacting it."""
+
+    schema_version: Literal[1]
+    state: Literal["not_joined", "waiting", "joined", "disconnected", "unreachable"]
+    # The company as Row-Bot names it (its server's host), also after Leave for the notice.
+    company: str | None = Field(max_length=256)
+    origin: str | None = Field(max_length=512)
+    # Who signed in (the company's /api/me), once known.
+    name: str | None = Field(max_length=200)
+    email: str | None = Field(max_length=320)
+    joined_at: str | None = Field(max_length=64)
+    # This computer's name as the company's server shows it.
+    computer_name: str = Field(max_length=200)
+    # Waiting on a Sign in again as the same device.
+    rejoining: bool
+    failure: CompanyFailure | None
+    notice: Literal["left", "left_offline"] | None
+    # False on another device (a phone): Join and Sign in again open this computer's browser.
+    on_this_computer: bool
+    # Company models (C2): how many the company offers this person, None until its catalog is read; and the
+    # one it suggests to a person who hasn't chosen a model.
+    model_count: int | None = Field(default=None, ge=0, le=512)
+    suggested_model_ref: str | None = Field(default=None, max_length=280)
+    suggested_model_name: str | None = Field(default=None, max_length=256)
+    # The company's policy (C3a): in force (current), kept from the last confirmation while the server can't
+    # be reached (cached), or locked down to models on this computer; why, and since when.
+    policy_state: Literal["not_joined", "current", "cached", "locked_down"] = "not_joined"
+    policy_reason: Literal["lease_expired", "disconnected", "not_confirmed", "unreachable"] | None = None
+    policy_since: str | None = Field(default=None, max_length=64)
+    # The settings the policy restricts, shown as "Set by your company", and every setting in plain words.
+    locked: list[CompanyLock] = Field(default_factory=list, max_length=64)
+    rules: list[CompanyRule] = Field(default_factory=list, max_length=128)
+    limits: CompanyLimits | None = None
+    # The company server this computer's IT department set (C5), as an origin: Join goes only there and Leave
+    # isn't offered, unless the Row-Bot is joined to another server (IT moved it). And whether IT set an
+    # address that isn't valid (it is ignored).
+    pinned_server: str | None = Field(default=None, max_length=512)
+    pin_invalid: bool = False
+
+
+class CompanyJoinRequest(WireModel):
+    address: str = Field(min_length=1, max_length=512)
+    # This computer's name for the company's server; empty: the computer's own name.
+    device_name: str = Field(default="", max_length=200)
+
+
+# Row-Bot for Teams (B8): whether the company's knowledge could be read. Not joined; disconnected; locked down
+# (C3a: nothing is asked); unreachable (its reason "busy" or "storage_unavailable" when known); or not found (an
+# entity).
+CompanyKnowledgeState = Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable", "not_found"]
+CompanyKnowledgeReason = Literal["lease_expired", "not_confirmed", "busy", "storage_unavailable"]
+
+
+class CompanyGraphSpace(WireModel):
+    """A company knowledge space the person may read (B8), and whether they own it (owners curate it in the
+    admin console)."""
+
+    id: OpaqueId
+    name: str = Field(max_length=160)
+    kind: Literal["company", "group"]
+    is_owner: bool
+
+
+class CompanyGraphView(WireModel):
+    """Knowledge home's Company scope (B8): the company's knowledge graph, filtered by its server to what the
+    person may read, as the personal graph's nodes and edges. Read only."""
+
+    schema_version: Literal[1]
+    state: Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable"]
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    nodes: list[KnowledgeGraphNode] = Field(max_length=1000)
+    edges: list[KnowledgeGraphEdge] = Field(max_length=3000)
+    # Every space the person may read; and the ones shown (empty: all of them).
+    spaces: list[CompanyGraphSpace] = Field(max_length=512)
+    space_ids: list[OpaqueId] = Field(max_length=64)
+    total_entities: int = Field(ge=0, le=9007199254740991)
+    total_relations: int = Field(ge=0, le=9007199254740991)
+    shown_entities: int = Field(ge=0, le=1000)
+    shown_relations: int = Field(ge=0, le=3000)
+    truncated: bool
+    entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(max_length=64)
+
+
+class CompanyEntity(WireModel):
+    id: OpaqueId
+    subject: str = Field(max_length=256)
+    entity_type: str = Field(max_length=64)
+    description: str = Field(max_length=1024)
+    aliases: list[Annotated[str, StringConstraints(max_length=160)]] = Field(max_length=16)
+    status: Literal["active", "archived"]
+    space_id: OpaqueId
+    space_name: str = Field(max_length=160)
+    updated_at: str = Field(max_length=128)
+    # When an owner last curated it in the admin console; None when it is as extraction found it.
+    edited_at: str | None = Field(max_length=128)
+
+
+class CompanyEntityRelation(WireModel):
+    relation_type: str = Field(max_length=64)
+    direction: Literal["outgoing", "incoming"]
+    peer_id: OpaqueId
+    peer_subject: str = Field(max_length=256)
+    peer_type: str = Field(max_length=64)
+
+
+class CompanyCitation(WireModel):
+    """Where the company's knowledge mentions an entity: "From <space>: <document>", and the words there."""
+
+    kind: Literal["document", "fact"]
+    space: str = Field(max_length=160)
+    document: str | None = Field(max_length=300)
+    excerpt: str = Field(max_length=2000)
+
+
+class CompanyEntityView(WireModel):
+    """One entity of the company's knowledge graph (B8), read only."""
+
+    schema_version: Literal[1]
+    state: CompanyKnowledgeState
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    entity: CompanyEntity | None
+    relations: list[CompanyEntityRelation] = Field(max_length=200)
+    mentions: list[CompanyCitation] = Field(max_length=50)
+    mention_count: int = Field(ge=0, le=9007199254740991)
+
+
+class CompanyDocument(WireModel):
+    """One of a company space's documents (B3): its status and why it waits or failed (B1a), and how far its
+    knowledge got (B7). The reasons are the server's plain words."""
+
+    id: OpaqueId
+    title: str = Field(max_length=300)
+    file_name: str = Field(max_length=255)
+    byte_count: int = Field(ge=0, le=9007199254740991)
+    status: Literal["queued", "processing", "ready", "failed"]
+    status_reason: str | None = Field(max_length=500)
+    graph_status: Literal["pending", "extracting", "done", "waiting", "failed"] | None
+    graph_reason: str | None = Field(max_length=500)
+    version: int = Field(ge=1, le=9007199254740991)
+    uploaded_at: str = Field(max_length=64)
+
+
+class CompanyDocumentsView(WireModel):
+    """Settings › Documents' company documents (B3): the spaces the person owns, one space's documents, the
+    upload limits, and how the last upload, replace or delete went (``outcome``, None for a read)."""
+
+    schema_version: Literal[1]
+    state: Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable"]
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    spaces: list[CompanyGraphSpace] = Field(max_length=512)
+    space_id: OpaqueId | None
+    documents: list[CompanyDocument] = Field(max_length=500)
+    max_upload_bytes: int = Field(ge=1, le=9007199254740991)
+    supported_types: list[Annotated[str, StringConstraints(max_length=16)]] = Field(max_length=16)
+    outcome: Literal["uploaded", "replaced", "removed", "too_large", "unsupported_type", "invalid_file",
+                     "not_owner", "not_found"] | None
+
+
+class CompanyShare(WireModel):
+    """One of the person's shares to a company space (B4b; B4a's review queue): waiting, approved (a fact in
+    ``space_name`` now) or rejected with the reviewer's reason. ``moved``: a reviewer approved it into another
+    space than the one it was sent to, ``space_id``/``space_name`` (None when the person no longer reads it)."""
+
+    id: OpaqueId
+    title: str = Field(max_length=200)
+    text: str = Field(max_length=8000)
+    source_note: str | None = Field(max_length=500)
+    space_id: OpaqueId
+    space_name: str | None = Field(max_length=160)
+    moved: bool
+    status: Literal["pending", "approved", "rejected"]
+    submitted_at: str = Field(max_length=64)
+    decided_at: str | None = Field(max_length=64)
+    reason: str | None = Field(max_length=500)
+    fact_id: OpaqueId | None
+
+
+class CompanySharesView(WireModel):
+    """Share to company (B4b): the spaces the person may share to, their shares, whether the company lets them
+    share (``allowed``), and how the last share or withdraw went (``outcome``, with plain ``words`` for a
+    refusal; None for a read)."""
+
+    schema_version: Literal[1]
+    state: Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable"]
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    allowed: bool
+    spaces: list[CompanyGraphSpace] = Field(max_length=512)
+    shares: list[CompanyShare] = Field(max_length=200)
+    truncated: bool
+    outcome: Literal["sent", "withdrawn", "share_to_company_off", "too_many_pending", "too_many_shares_today",
+                     "space_not_found", "not_found", "decided", "invalid"] | None
+    words: str | None = Field(max_length=512)
+
+
+class CompanyShareRequest(WireModel):
+    """A share for a company space's review queue (B4a's limits): a one-line title, the text, an optional note."""
+
+    title: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=8000)
+    source_note: str = Field(default="", max_length=500)
 
 
 SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
@@ -8738,6 +8995,8 @@ class TaskSettingsSnapshot(WireModel):
     conversation_id: OpaqueId | None
     # The person turned Hands-off on once on this install: choosing it needs no dialog again.
     full_autonomy_confirmed: bool = False
+    # The highest level the person's company allows (C3b): the workflow runs at most at it. None with no company.
+    company_max_level: ApprovalLevel | None = None
     # The saved folder's name (kept when it is removed) and whether it is still a code folder.
     workspace_name: str | None = Field(default=None, max_length=256)
     workspace_available: bool = True

@@ -13,6 +13,7 @@ import type { CapabilityResult, SavedFile } from '../../platform';
 import { parseTimestamp, relativeTime } from '../../ui/format';
 import { useOverlay } from '../../ui/overlays';
 import { announceSaved } from '../shell/save-file';
+import CompanyLock from '../company/CompanyLock';
 import {
   Button,
   Input,
@@ -712,24 +713,37 @@ export default function ConversationActions({
             <SettingRow
               className="conversation-actions-export"
               label="Export"
-              description="Saves a copy as a file."
+              description={
+                // The person's company turned chat export off (C3b).
+                snapshot.capabilities.export.code === 'company_policy'
+                  ? 'Your company turned off chat export.'
+                  : 'Saves a copy as a file.'
+              }
               control={
-                <>
-                  <Button
-                    disabled={locked || !snapshot.capabilities.export.available}
-                    onClick={() => void exportAs('markdown')}
-                  >
-                    <FileText size={16} aria-hidden />
-                    Markdown
-                  </Button>
-                  <Button
-                    disabled={locked || !snapshot.capabilities.export.available}
-                    onClick={() => void exportAs('pdf')}
-                  >
-                    <FileDown size={16} aria-hidden />
-                    PDF
-                  </Button>
-                </>
+                snapshot.capabilities.export.code === 'company_policy' ? (
+                  <CompanyLock detail="Allow chat export: Off" />
+                ) : (
+                  <>
+                    <Button
+                      disabled={
+                        locked || !snapshot.capabilities.export.available
+                      }
+                      onClick={() => void exportAs('markdown')}
+                    >
+                      <FileText size={16} aria-hidden />
+                      Markdown
+                    </Button>
+                    <Button
+                      disabled={
+                        locked || !snapshot.capabilities.export.available
+                      }
+                      onClick={() => void exportAs('pdf')}
+                    >
+                      <FileDown size={16} aria-hidden />
+                      PDF
+                    </Button>
+                  </>
+                )
               }
             />
           </>

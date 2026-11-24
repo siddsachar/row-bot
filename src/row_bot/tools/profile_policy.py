@@ -42,6 +42,7 @@ _READ_OPERATIONS = {
     "weather": {"get_current_weather", "get_weather_forecast"},
     "pages": {"page_read"},
     "x": {"x_accounts"},
+    "company_brain": {"company_brain_search"},  # Row-Bot for Teams (B3): the company brain's recall.
 }
 _RETRIEVAL_PARENTS = {
     "arxiv",
