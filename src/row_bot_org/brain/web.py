@@ -82,8 +82,9 @@ def manager_connection(request: Request, principal: RequestPrincipal = Depends(r
         yield caller
 
 
-def _error(status: int, error: str, **extra: Any) -> JSONResponse:
-    return JSONResponse({"error": error, **extra}, status_code=status)
+def _error(status_code: int, error: str, /, **extra: Any) -> JSONResponse:
+    # Positional-only, so an extra field may be called `status` (a share's status, say).
+    return JSONResponse({"error": error, **extra}, status_code=status_code)
 
 
 def _uuid(value: str) -> str | None:
