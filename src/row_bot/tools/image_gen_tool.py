@@ -482,10 +482,10 @@ def _minimax_image(provider_id: str, model: str, prompt: str, size: str, quality
 
     if model in H3_IMAGE_MODELS:
         # H3 bills each generation. Send one request and allow the full server wait.
-        data = _request_json(provider_id, "POST", "/images/generations", {
-            "model": model, "prompt": prompt, "size": size, "n": 1, "response_format": "b64_json",
-            "output_format": "png",
-        }, timeout=600)
+        body = {"model": model, "prompt": prompt, "n": 1, "response_format": "b64_json", "output_format": "png"}
+        if size != "auto":  # "auto" is Row-Bot's word for the model's own default size
+            body["size"] = size
+        data = _request_json(provider_id, "POST", "/images/generations", body, timeout=600)
         items = data.get("data")
         if isinstance(items, list) and items and isinstance(items[0], dict):
             error = items[0].get("error")
