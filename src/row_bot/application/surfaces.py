@@ -629,6 +629,8 @@ def _sources(raw: dict[str, Any]) -> dict[str, Any]:
     checked: dict[str, Any] = {}
     for path, call in list(raw.items())[:MAX_SOURCES]:
         call = _healed_value(call)
+        if isinstance(path, str) and path and not path.startswith("/"):
+            path = f"/{path}"  # Healed: a source named by its key ("rows") rather than its path.
         if not isinstance(path, str) or not path.startswith("/") or not _PATH.match(path) or path == "/":
             continue
         if not isinstance(call, dict) or call.get("@call") not in SOURCES:
@@ -687,6 +689,27 @@ def _healed_chart(chart: dict[str, Any], sources: dict[str, Any], data: Any) -> 
 
     return {**chart, "rows": {"@path": parent}, "x": column,
             "series": [{**item, "values": named(item["values"])} for item in chart["series"]]}
+
+
+def _healed_rows(component: dict[str, Any], sources: dict[str, Any], data: Any) -> dict[str, Any]:
+    """Healed: a table's or chart's rows, x or values written as a source's path in plain text ("/rows",
+    "/rows/date") read that source, then a chart over rows gets its columns (``_healed_chart``). Only a
+    path into one of the surface's own sources is read: any other text stays as written."""
+
+    if component["component"] not in {"Table", "Chart"}:
+        return component
+
+    def bound(value: Any) -> Any:
+        if isinstance(value, str) and any(value == path or value.startswith(path + "/") for path in sources):
+            return {"@path": value}
+        return value
+
+    healed = {**component, **({"rows": bound(component["rows"])} if "rows" in component else {})}
+    if component["component"] == "Table":
+        return healed
+    healed["x"] = bound(component["x"])
+    healed["series"] = [{**item, "values": bound(item["values"])} for item in component["series"]]
+    return _healed_chart(healed, sources, data)
 
 
 def read_surface(source: str) -> dict[str, Any]:
@@ -748,8 +771,7 @@ def read_surface(source: str) -> dict[str, Any]:
     }
     if sources := _sources(raw_sources):
         surface["sources"] = sources
-    surface["components"] = [_healed_chart(component, sources, data) if component["component"] == "Chart"
-                             else component for component in surface["components"]]
+    surface["components"] = [_healed_rows(component, sources, data) for component in surface["components"]]
     if not surface["title"]:
         # No title given: the surface's first words name it.
         first = next((line for line in surface_text(surface).splitlines() if line.strip()), "")

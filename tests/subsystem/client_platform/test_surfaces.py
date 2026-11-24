@@ -233,3 +233,23 @@ def test_a_chart_bound_to_a_column_inside_rows_reads_the_rows():
         "components": [{"id": "root", "component": "Chart", "kind": "bar", "x": {"@path": "/chart/days"},
                         "series": [{"name": "Km", "values": {"@path": "/chart/km"}}]}]}))
     assert "rows" not in drawn["components"][0]
+
+
+def test_paths_into_a_source_written_as_text_read_that_source():
+    # As qwen3.8:27b wrote it: the source named by its key, the rows and columns as plain-text paths.
+    surface = surfaces.read_surface(json.dumps({
+        "title": "October", "surfaceId": "october", "dataModel": {},
+        "sources": {"rows": {"@call": "rowbot.file", "args": {"path": "bank/oct.csv"}}},
+        "components": [
+            {"id": "root", "component": "Column", "children": ["chart", "table", "note"]},
+            {"id": "chart", "component": "Chart", "kind": "line", "x": "/rows/date",
+             "series": [{"name": "Spending", "values": "/rows/amount"}]},
+            {"id": "table", "component": "Table", "rows": "/rows", "columns": [{"key": "date", "label": "Date"}]},
+            {"id": "note", "component": "Text", "text": "/rows is read on this computer"}]}))
+    by_id = {component["id"]: component for component in surface["components"]}
+
+    assert list(surface["sources"]) == ["/rows"]
+    assert (by_id["chart"]["rows"], by_id["chart"]["x"], by_id["chart"]["series"][0]["values"]) == (
+        {"@path": "/rows"}, "date", "amount")
+    assert by_id["table"]["rows"] == {"@path": "/rows"}
+    assert by_id["note"]["text"] == "/rows is read on this computer"  # other text stays as written
