@@ -8,7 +8,7 @@ pages at the site root.
 Do not edit generated files under `docs/docs`, `docs/assets`, `docs/img`,
 `docs/pagefind`, or `docs/search` by hand. Change this source and use the
 documented build/synchronization workflow. The root marketing files
-(`index.html`, `features.html`, `architecture.html`, `contact.html`,
+(`index.html`, `features.html`, `architecture.html`, `research.html`, `contact.html`,
 `404.html`, `site.css`, `site.js`, and their media) are deliberately outside
 the synchronization script's ownership.
 

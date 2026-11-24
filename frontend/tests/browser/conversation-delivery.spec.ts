@@ -110,16 +110,19 @@ test('sending to your devices shows the download here and on your phone, with a 
     await send(page, 's5 devices fixture');
 
     const transcript = page.getByRole('log', { name: 'Conversation' });
+    // The chat's own file (#1051): it shows in the card for as long as the
+    // chat keeps it, so no week runs out on this card.
     const card = transcript.getByRole('group', {
-      name: 'Sent to your devices: Ready to download',
+      name: 'Sent to your devices: Sent',
     });
     await expect(card).toBeVisible();
-    await expect(card).toContainText(
-      'On all your signed-in devices · 7 days left',
-    );
-    await expect(card).toContainText('q3-report.pdf');
+    await expect(card).toContainText('On all your signed-in devices');
+    await expect(card).not.toContainText('days left');
     await expect(
-      card.getByRole('button', { name: 'Download q3-report.pdf' }),
+      card.getByRole('group', { name: 'q3-report.pdf' }),
+    ).toBeVisible();
+    await expect(
+      card.getByRole('link', { name: 'Download q3-report.pdf' }),
     ).toBeVisible();
     await expect(
       transcript.getByText(/Sent: q3-report.pdf is on your devices/),
@@ -144,14 +147,21 @@ test('sending to your devices shows the download here and on your phone, with a 
 
     const onPhone = phone
       .getByRole('log', { name: 'Conversation' })
-      .getByRole('group', { name: 'Sent to your devices: Ready to download' });
+      .getByRole('group', { name: 'Sent to your devices: Sent' });
     await expect(onPhone).toBeVisible();
     await views(phone, info, 'device-download-phone', () =>
       onPhone.scrollIntoViewIfNeeded(),
     );
+    // The card's inline PDF preview is a frame, and headless Chromium has no
+    // PDF viewer: the frame's blob downloads on its own, named by the blob's
+    // id. That download isn't the link's, so it's skipped here.
+    const fromPreviewFrame =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/;
     const [download] = await Promise.all([
-      phone.waitForEvent('download'),
-      onPhone.getByRole('button', { name: 'Download q3-report.pdf' }).click(),
+      phone.waitForEvent('download', {
+        predicate: (item) => !fromPreviewFrame.test(item.suggestedFilename()),
+      }),
+      onPhone.getByRole('link', { name: 'Download q3-report.pdf' }).click(),
     ]);
     expect(download.suggestedFilename()).toBe('q3-report.pdf');
     const saved = await fs.readFile(await download.path());
@@ -223,12 +233,16 @@ test('a file too big for Telegram says so, and goes to your devices instead in o
   await card
     .getByRole('button', { name: 'Send to your devices instead' })
     .click();
+  // 63 MB fits a chat, so it goes as the chat's own file and shows in the card.
   const instead = transcript.getByRole('group', {
-    name: 'Sent to your devices: Ready to download',
+    name: 'Sent to your devices: Sent',
   });
   await expect(instead).toBeVisible();
   await expect(
-    instead.getByRole('button', { name: 'Download demo-recording.mp4' }),
+    instead.getByRole('group', { name: 'demo-recording.mp4' }),
+  ).toBeVisible();
+  await expect(
+    instead.getByRole('link', { name: 'Download demo-recording.mp4' }),
   ).toBeVisible();
   await expect(
     card.getByRole('button', { name: 'Send to your devices instead' }),

@@ -7,6 +7,8 @@
  * Escape would.
  */
 
+import { holdBack } from './back-stack';
+
 /** Where menus and popovers are drawn as bottom sheets (responsive.css). */
 export const PHONE_SHEETS = '(max-width: 767px) and (pointer: coarse)';
 
@@ -103,14 +105,7 @@ export function installSheetSwipe(doc: Document = document): () => void {
         Math.min(CLOSE_DISTANCE, sheet.offsetHeight / 3 || CLOSE_DISTANCE) ||
       (dy >= FLICK_DISTANCE && speed >= FLICK_SPEED);
     if (closes) {
-      sheet.dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'Escape',
-          code: 'Escape',
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
+      pressEscape(sheet);
       // A sheet that stays open (a form that refuses to close) settles back.
       if (sheet.isConnected) release(sheet);
       return;
@@ -136,5 +131,122 @@ export function installSheetSwipe(doc: Document = document): () => void {
     doc.removeEventListener('touchmove', move);
     doc.removeEventListener('touchend', end);
     doc.removeEventListener('touchcancel', cancel);
+  };
+}
+
+/** Closes a sheet the way Escape would; true when a layer took the key. */
+function pressEscape(sheet: Element): boolean {
+  return !sheet.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+/**
+ * What platform Back closes on a phone besides the overlay primitives' own
+ * tasks (which hold their entries themselves, `data-back-held`): the menus
+ * and popovers drawn as bottom sheets, and any other Radix dialog (an
+ * inspector drawer, the memory editor).
+ */
+const BACK_SHEETS = [
+  '[data-radix-popper-content-wrapper] > :is(.menu, .popover, .model-picker, .combobox-popover):not(.buddy-peek)',
+  ':is([role="dialog"], [role="alertdialog"])[id^="radix-"]:not([data-back-held])',
+].join(', ');
+
+const shown = new Set<() => void>();
+let sheetsOpen = false;
+/**
+ * Whether a menu or popover is open as a phone sheet now: notices wait while
+ * one is (a notice would cover it, and its Escape would close the notice
+ * first). A dialog keeps its notices, which may report what it just did.
+ */
+export const phoneSheets = {
+  subscribe(listener: () => void) {
+    shown.add(listener);
+    return () => shown.delete(listener);
+  },
+  open: () => sheetsOpen,
+};
+
+/**
+ * Gives every phone sheet in `BACK_SHEETS` its own history entry while it is
+ * open, so Back closes it (by Escape, as the swipe does) before leaving the
+ * page. A sheet whose Escape goes up a level (the + sheet) stays open and gets
+ * a new entry: one level per Back. One that ignores Escape gets none, so Back
+ * never stops working.
+ */
+export function installSheetBack(doc: Document = document): () => void {
+  const view = doc.defaultView;
+  if (!view?.MutationObserver) return () => {};
+  const media = view.matchMedia?.(PHONE_SHEETS);
+  const held = new Map<Element, () => void>();
+  const isOpen = (sheet: Element) =>
+    sheet.isConnected && sheet.getAttribute('data-state') !== 'closed';
+  const publish = () => {
+    const open = [...held.keys()].some((sheet) =>
+      sheet.parentElement?.hasAttribute('data-radix-popper-content-wrapper'),
+    );
+    if (sheetsOpen === open) return;
+    sheetsOpen = open;
+    shown.forEach((listener) => listener());
+  };
+  // A sheet that ignored Escape: Back does not stop at it again.
+  const ignored = new WeakSet<Element>();
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  const scan = () => {
+    const open =
+      media?.matches === true
+        ? [...doc.querySelectorAll(BACK_SHEETS)].filter(
+            (sheet) => isOpen(sheet) && !ignored.has(sheet),
+          )
+        : [];
+    for (const [sheet, release] of held)
+      if (!open.includes(sheet)) {
+        held.delete(sheet);
+        release();
+      }
+    for (const sheet of open)
+      if (!held.has(sheet))
+        held.set(
+          sheet,
+          holdBack(() => {
+            held.delete(sheet);
+            if (pressEscape(sheet))
+              // Still open after its Escape (a level up): a new entry.
+              pending ??= setTimeout(() => {
+                pending = undefined;
+                scan();
+              }, 0);
+            else ignored.add(sheet);
+            publish();
+          }),
+        );
+    publish();
+  };
+  const observer = new view.MutationObserver(scan);
+  const watch = () => {
+    observer.disconnect();
+    if (media?.matches)
+      observer.observe(doc.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-state'],
+      });
+    scan();
+  };
+  media?.addEventListener?.('change', watch);
+  watch();
+  return () => {
+    media?.removeEventListener?.('change', watch);
+    observer.disconnect();
+    if (pending !== undefined) clearTimeout(pending);
+    for (const release of held.values()) release();
+    held.clear();
+    publish();
   };
 }

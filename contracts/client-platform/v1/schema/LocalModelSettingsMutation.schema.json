@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "LocalModelSamplingValues": {
+      "additionalProperties": false,
+      "description": "Sampling values for a local model's replies; a value left out is the engine's own.",
+      "properties": {
+        "min_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min P"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": -2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Presence Penalty"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top P"
+        }
+      },
+      "title": "LocalModelSamplingValues",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "context": {
+      "anyOf": [
+        {
+          "maximum": 4194304,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context"
+    },
+    "model_ref": {
+      "maxLength": 647,
+      "minLength": 1,
+      "title": "Model Ref",
+      "type": "string"
+    },
+    "reply_limit": {
+      "anyOf": [
+        {
+          "maximum": 262144,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reply Limit"
+    },
+    "sampling": {
+      "anyOf": [
+        {
+          "enum": [
+            "auto",
+            "engine",
+            "custom"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sampling"
+    },
+    "sampling_values": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalModelSamplingValues"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "thinking": {
+      "default": "auto",
+      "enum": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "title": "Thinking",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model_ref"
+  ],
+  "title": "LocalModelSettingsMutation",
+  "type": "object"
+}

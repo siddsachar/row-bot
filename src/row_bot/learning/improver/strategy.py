@@ -9,7 +9,10 @@ A strategy is a small, versioned set of choices about **how the improvement loop
 - **example selection**: how many cases a diagnosis is shown, which first, how much of each, and whether the
   redo the person accepted is shown;
 - **budget split**: how many issues a night diagnoses and how many drafts it tests, and how big each test is;
-- **its own prompts**: its own words for finding and drafting fixes, added to the diagnosis instructions.
+- **its own prompts**: its own words for finding and drafting fixes, added to the diagnosis instructions;
+- **practice selection** (L4b): how many practice tasks it makes up from each issue and how many each idea's
+  test runs, in a build with practice on (``learning.practice_enabled``); otherwise it has no effect, isn't
+  described and is never what a new method changes.
 
 **The fixed points are absent by construction** (E4): no field can say anything about the objective, the
 limits (the monthly token limit, the trials' 20% share, a task's budget, the repeats), approvals, tools,
@@ -19,7 +22,7 @@ closed list of fields with bounds: an unknown key at any level, a value out of b
 about those things is refused (:class:`StrategyError`). Every part a strategy changes is read by the loop where
 it already had a value (``diagnosis``, ``changes``); nothing in the loop reads a fixed point from a strategy.
 
-Practice selection joins the schema with practice tasks (L4b); none exist yet.
+Schema v2 adds practice selection; a v1 text reads with the first method's practice choices.
 
 The first strategy (:data:`FIRST`) is the loop as L3a and L3b built it, so a person who never had a trial runs
 exactly that.
@@ -34,7 +37,7 @@ from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 SCHEMA = "row_bot.learning.strategy"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: The kinds of change a strategy may draft (the diagnosis's draftable picks; "needs more examples" and "wait"
 #: are always open).
@@ -113,6 +116,15 @@ class BudgetSplit:
 
 
 @dataclass(frozen=True)
+class PracticeSelection:
+    """Practice tasks it makes up from each issue it looks into (one call), and how many of them each idea's test
+    runs besides the sample tasks (L4b)."""
+
+    made: int = field(default=2, metadata=_number(0, 6, integer=True))
+    tested: int = field(default=2, metadata=_number(0, 6, integer=True))
+
+
+@dataclass(frozen=True)
 class Prompts:
     """Its own words for finding and drafting fixes, added to the diagnosis's instructions."""
 
@@ -129,6 +141,7 @@ class Strategy:
     examples: ExampleSelection = ExampleSelection()
     budget: BudgetSplit = BudgetSplit()
     prompts: Prompts = Prompts()
+    practice: PracticeSelection = PracticeSelection()
 
     def __post_init__(self) -> None:
         check(self)
@@ -169,6 +182,8 @@ class Strategy:
             words.append(f"tries {tried[0]} before {tried[1]}")
         elif tried:
             words.append(f"only tries {tried[0]}")
+        if practising(self):
+            words.append("practises on made-up tasks like the ones it got wrong")
         words.append(f"shows itself up to {examples.shown} examples of each mistake")
         diagnose, test = budget.issues, budget.tests
         words.append(f"looks into up to {diagnose} {'issue' if diagnose == 1 else 'issues'} a night and tests "
@@ -178,7 +193,15 @@ class Strategy:
 
 
 _PARTS: dict[str, type] = {"issues": IssuePriority, "methods": MethodChoice, "examples": ExampleSelection,
-                           "budget": BudgetSplit, "prompts": Prompts}
+                           "budget": BudgetSplit, "prompts": Prompts, "practice": PracticeSelection}
+
+
+def practising(strategy: Strategy) -> bool:
+    """Whether this method practises: practice is on in this build and it makes up tasks or tests on them."""
+
+    from row_bot import learning as gate
+
+    return gate.practice_enabled() and bool(strategy.practice.made or strategy.practice.tested)
 
 
 def field_paths() -> list[str]:
@@ -305,6 +328,8 @@ CHANGE_WORDS: dict[str, str] = {
     "budget.hidden_own": "tests each idea on more or fewer held-back sample tasks",
     "budget.harder_own": "tests each idea on more or fewer harder sample tasks",
     "prompts.diagnosis": "words its own instructions differently",
+    "practice.made": "makes up more or fewer practice tasks from each mistake",
+    "practice.tested": "tests each idea on more or fewer practice tasks",
 }
 
 
@@ -334,6 +359,7 @@ __all__ = [
     "METHODS",
     "MethodChoice",
     "PROMPT_LIMIT",
+    "PracticeSelection",
     "Prompts",
     "SCHEMA",
     "SCHEMA_VERSION",
@@ -345,4 +371,5 @@ __all__ = [
     "field_paths",
     "from_dict",
     "from_json",
+    "practising",
 ]

@@ -55,10 +55,17 @@
           "type": "string"
         },
         "monthly_token_limit": {
-          "maximum": 1000000000,
-          "minimum": 0,
-          "title": "Monthly Token Limit",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 1000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Monthly Token Limit"
         },
         "sources": {
           "$ref": "#/$defs/LearningSourcesSnapshot"
@@ -167,6 +174,8 @@
         "test_lesson",
         "delete_lesson",
         "undo_method",
+        "answer_question",
+        "dismiss_question",
         "hf_sign_in",
         "hf_cancel_sign_in",
         "hf_sign_out",
@@ -175,6 +184,9 @@
         "hf_set_cap",
         "hf_start",
         "hf_cancel",
+        "check_model",
+        "stop_model_check",
+        "forget_model",
         "hf_check_now"
       ],
       "title": "Action",
@@ -309,6 +321,18 @@
       ],
       "default": null,
       "title": "Kind"
+    },
+    "licence_ok": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Licence Ok"
     },
     "message_id": {
       "default": "",

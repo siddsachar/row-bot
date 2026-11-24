@@ -2,9 +2,11 @@ import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   MessageSquareShare,
+  BadgeCheck,
   BookOpen,
   BookmarkCheck,
   BookmarkPlus,
+  Copy,
   CornerDownRight,
   Cpu,
   Eye,
@@ -17,6 +19,7 @@ import {
   LoaderCircle,
   Scissors,
   SendHorizontal,
+  TextCursor,
   TriangleAlert,
   Volume2,
   VolumeX,
@@ -24,7 +27,11 @@ import {
   MoreHorizontal,
   X,
 } from 'lucide-react';
-import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
+import type {
+  ClientError,
+  TranscriptRow,
+  TranscriptTraceGroup,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import {
@@ -38,15 +45,23 @@ import { useLongPress } from './long-press';
 import { AgentStubs } from './AgentStubs';
 import ApprovalCard from './ApprovalCard';
 import { MediaPreview } from './MediaPreview';
+import { madeTitle } from './outputs';
+import ErrorFix from './ErrorFix';
 import {
-  speak,
-  speakableText,
-  stopSpeaking,
-  useLocalSpeechAvailable,
+  noteReadAloud,
+  startReading,
+  stopReading,
+  useReadAloudReadiness,
+  useReading,
 } from './read-aloud';
 import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
-import { TranscriptCards, type TranscriptCard } from './TranscriptCards';
+import {
+  TranscriptCards,
+  WorkingFilesRow,
+  type TranscriptCard,
+} from './TranscriptCards';
+import type { WorkingFiles } from './transcript-model';
 import type { TracedAgent } from './transcript-model';
 import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
@@ -66,7 +81,101 @@ export type GeneratedMedia = {
   caption?: string;
   /** What it is, when it isn't a generated result ("Page screenshot"). */
   label?: string;
+  /** What it is to the person (finals first); none in chats from before. */
+  role?: 'final' | 'draft' | 'working';
+  /** Presented by the agent (`present`): shown large as the reply's final. */
+  presented?: boolean;
+  /** Shown before and presented since: marked final where it already shows. */
+  final?: boolean;
 };
+
+function downloadName(item: GeneratedMedia) {
+  return item.presented
+    ? item.label
+    : item.label === 'Page screenshot'
+      ? 'screenshot.png'
+      : item.label === 'Contact sheet'
+        ? 'contact-sheet.jpg'
+        : undefined;
+}
+
+function FinalChip() {
+  return (
+    <span className="final-chip">
+      <BadgeCheck aria-hidden />
+      Final
+    </span>
+  );
+}
+
+/**
+ * A reply's media (finals first): what it made to show along the way (AI
+ * pictures and videos) in a grid, a final presented since marked where it
+ * already shows; then what it presents, large, each with its name and
+ * caption, where the reply ends.
+ */
+export function MessageMedia({ media }: { media: GeneratedMedia[] }) {
+  if (!media.length) return null;
+  const finals = media.filter((item) => item.presented);
+  const others = media.filter((item) => !item.presented);
+  return (
+    <>
+      {others.length > 0 && (
+        <div className="message-media-grid" data-count={others.length}>
+          {others.map((item) => {
+            const preview = (
+              <MediaPreview
+                key={item.reference}
+                reference={item.reference}
+                mime={item.mime}
+                caption={item.caption}
+                label={item.label}
+                downloadName={downloadName(item)}
+              />
+            );
+            return item.final ? (
+              <div key={item.reference} className="message-media-final">
+                <FinalChip />
+                {preview}
+              </div>
+            ) : (
+              preview
+            );
+          })}
+        </div>
+      )}
+      {finals.length > 0 && (
+        <div className="message-finals">
+          {finals.map((item) => {
+            // Its title, as its Outputs tile names it; its file name downloads.
+            const title = item.label ? madeTitle(item.label, item.mime) : '';
+            return (
+              <figure
+                key={item.reference}
+                className="message-final"
+                aria-label={`Final: ${title || 'result'}`}
+              >
+                <figcaption className="message-final-head">
+                  <FinalChip />
+                  <strong title={item.label}>{title}</strong>
+                </figcaption>
+                {item.caption && (
+                  <p className="message-final-caption">{item.caption}</p>
+                )}
+                <MediaPreview
+                  reference={item.reference}
+                  mime={item.mime}
+                  label={title || item.label}
+                  downloadName={downloadName(item)}
+                />
+              </figure>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
 
 // The runtime appends a marker such as "⏹️ *[Stopped]*" to interrupted text.
 const STOPPED =
@@ -270,7 +379,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   embeds = NO_BLOCKS,
   media = NO_MEDIA,
   cards = NO_CARDS,
-  earlierCards = NO_CARDS,
+  working,
   agents = NO_AGENTS,
   turnStart = false,
   latest = false,
@@ -282,6 +391,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   onFork,
   onRecover,
   toolbar = true,
+  pressOnly = false,
   usedTools = false,
   copyText,
   children,
@@ -296,8 +406,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   media?: GeneratedMedia[];
   /** A design or code folder the turn created, a connection it needs. */
   cards?: TranscriptCard[];
-  /** Earlier versions of the reply's newest video, folded under it. */
-  earlierCards?: TranscriptCard[];
+  /** What the turn made on the way (finals first), folded under its steps. */
+  working?: WorkingFiles;
   /** Agents the turn started, shown as live stubs (B241). */
   agents?: TracedAgent[];
   /** This row begins a speaker's turn: it carries their marker (B271). */
@@ -319,6 +429,11 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   onRecover?: (action: RecoveryAction) => void;
   /** Actions show once per turn: on user rows and at an assistant turn's end. */
   toolbar?: boolean;
+  /**
+   * A phone's older message (D14): no icon row; a long-press, a right-click
+   * or the context-menu key opens the same actions as a sheet.
+   */
+  pressOnly?: boolean;
   /** What Copy copies: the whole assistant turn at its last row. */
   copyText?: string;
   /** This row ends an assistant turn that used tools: it can be saved as a skill (C1). */
@@ -335,15 +450,18 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [readFailure, setReadFailure] = useState<ClientError | null>(null);
   const [editing, setEditing] = useState(false);
   const [forking, setForking] = useState(false);
   const [previous, setPrevious] = useState<Array<string | undefined>>([]);
   const pageStart = useRef<string | undefined>(undefined);
   const speechOwner = `${conversationId}:${row.id}`;
-  // Read aloud stays visible without an on-device voice; pressing it says
-  // what is missing instead of the button silently vanishing (U28).
-  const canSpeak = useLocalSpeechAvailable();
+  // Read aloud speaks with the Voice settings' speech output (Kokoro). It
+  // stays visible while that voice isn't installed, and says so (U28).
+  const reading = useReading(speechOwner);
+  const speaking = reading !== 'idle';
+  const readiness = useReadAloudReadiness(controller);
+  const voiceMissing = readiness === 'kokoro_model_missing';
   const author =
     row.role === 'user'
       ? 'You'
@@ -360,7 +478,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     const timer = window.setTimeout(() => setCopied(false), 1600);
     return () => window.clearTimeout(timer);
   }, [copied]);
-  useEffect(() => () => stopSpeaking(speechOwner), [speechOwner]);
+  useEffect(() => () => stopReading(speechOwner), [speechOwner]);
   async function copy() {
     try {
       const result = await platform.writeClipboard(copyText || text);
@@ -385,13 +503,33 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   }
   function readAloud() {
     if (speaking) {
-      stopSpeaking(speechOwner);
-      setSpeaking(false);
+      stopReading(speechOwner);
       return;
     }
-    if (speak(speechOwner, speakableText(text), () => setSpeaking(false)))
-      setSpeaking(true);
-    else setError('Read aloud needs a voice installed on this device.');
+    setReadFailure(null);
+    const message = row.message_id;
+    if (!conversationId || !message) {
+      setReadFailure(clientError({ code: 'not_found' }));
+      return;
+    }
+    startReading(speechOwner, (part, signal) =>
+      controller.readAloud(conversationId, message, part, signal),
+    ).then(
+      () => noteReadAloud(controller, 'available'),
+      (cause: unknown) => {
+        const failure =
+          cause instanceof Error && cause.message === 'audio_playback_failed'
+            ? {
+                code: cause.message,
+                message: "This browser couldn't play the reply.",
+                recovery: 'retry' as const,
+              }
+            : clientError(cause);
+        if (failure.code === 'kokoro_model_missing')
+          noteReadAloud(controller, failure.code);
+        setReadFailure(failure);
+      },
+    );
   }
   async function more() {
     const identity = conversationId;
@@ -491,36 +629,78 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       selection.addRange(range);
     });
   }
+  // The toolbar's actions with its icons, so the sheet reads the same.
   const pressActions: MenuAction[] = [
-    { label: 'Copy message', onSelect: () => void copy() },
+    {
+      label: 'Copy message',
+      icon: <Copy size={16} />,
+      onSelect: () => void copy(),
+    },
     ...(hasText
-      ? [{ label: 'Select text', onSelect: () => {}, afterClose: selectText }]
+      ? [
+          {
+            label: 'Select text',
+            icon: <TextCursor size={16} />,
+            onSelect: () => {},
+            afterClose: selectText,
+          },
+        ]
       : []),
     ...(row.role === 'assistant'
       ? [
           {
-            label: speaking ? 'Stop reading' : 'Read aloud',
+            label: speaking
+              ? 'Stop reading'
+              : voiceMissing
+                ? 'Read aloud · needs the Kokoro voice'
+                : 'Read aloud',
+            icon: speaking ? <VolumeX size={16} /> : <Volume2 size={16} />,
             onSelect: readAloud,
           },
         ]
       : []),
     ...(row.role === 'assistant' && onRetry
-      ? [{ label: 'Retry', onSelect: onRetry }]
+      ? [{ label: 'Retry', icon: <RotateCcw size={16} />, onSelect: onRetry }]
       : []),
     ...(canFork
-      ? [{ label: 'Fork from here', onSelect: () => void fork() }]
+      ? [
+          {
+            label: 'Fork from here',
+            icon: <GitBranch size={16} />,
+            onSelect: () => void fork(),
+          },
+        ]
       : []),
-    ...(canSaveSkill ? [{ label: saveSkillLabel, onSelect: saveSkill }] : []),
+    ...(canSaveSkill
+      ? [
+          {
+            label: saveSkillLabel,
+            icon: savedSkill ? (
+              <BookmarkCheck size={16} />
+            ) : (
+              <BookmarkPlus size={16} />
+            ),
+            onSelect: saveSkill,
+          },
+        ]
+      : []),
     ...(row.role === 'assistant' && teach && row.message_id
       ? [
           {
             label: 'Teach Row-Bot',
+            icon: <GraduationCap size={16} />,
             onSelect: () => teach({ messageId: row.message_id ?? '' }),
           },
         ]
       : []),
     ...(canEdit
-      ? [{ label: 'Edit and resend', onSelect: () => setEditing(true) }]
+      ? [
+          {
+            label: 'Edit and resend',
+            icon: <Pencil size={16} />,
+            onSelect: () => setEditing(true),
+          },
+        ]
       : []),
   ];
   if (row.note === 'continuation')
@@ -643,6 +823,16 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       data-streaming={streaming ? 'true' : undefined}
       data-empty={hasText ? undefined : 'true'}
       tabIndex={-1}
+      onContextMenu={
+        pressOnly && actionable
+          ? (event) => {
+              // Text the person selected keeps the browser's own menu.
+              if (selecting || window.getSelection()?.toString()) return;
+              event.preventDefault();
+              setPressed(true);
+            }
+          : undefined
+      }
     >
       {turnStart && row.role !== 'tool' && <TurnMarker role={row.role} />}
       <div className="transcript-content">
@@ -726,37 +916,17 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             offerBrowser={offerBrowser}
           />
         )}
+        {working && (
+          <WorkingFilesRow working={working} conversation={conversationId} />
+        )}
         <AgentStubs agents={agents} />
         {!!embeds.length && (
           <div className="message-embeds">
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />
           </div>
         )}
-        <TranscriptCards
-          cards={cards}
-          earlier={earlierCards}
-          conversation={conversationId}
-        />
-        {!!media.length && (
-          <div className="message-media-grid" data-count={media.length}>
-            {media.map((item) => (
-              <MediaPreview
-                key={item.reference}
-                reference={item.reference}
-                mime={item.mime}
-                caption={item.caption}
-                label={item.label}
-                downloadName={
-                  item.label === 'Page screenshot'
-                    ? 'screenshot.png'
-                    : item.label === 'Contact sheet'
-                      ? 'contact-sheet.jpg'
-                      : undefined
-                }
-              />
-            ))}
-          </div>
-        )}
+        <TranscriptCards cards={cards} conversation={conversationId} />
+        <MessageMedia media={media} />
         {stop.label && (
           <span className="turn-chip" data-tone="neutral">
             <CircleStop aria-hidden />
@@ -826,7 +996,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             )}
           </div>
         )}
-        {actionable && (
+        {actionable && !pressOnly && (
           <div
             className="message-toolbar"
             role="toolbar"
@@ -843,8 +1013,14 @@ export const TranscriptMessage = memo(function TranscriptMessage({
               <IconButton
                 size="sm"
                 label={speaking ? 'Stop reading' : 'Read aloud'}
+                title={
+                  voiceMissing && !speaking
+                    ? 'Read aloud needs the Kokoro voice'
+                    : undefined
+                }
                 pressed={speaking}
-                data-unavailable={canSpeak ? undefined : 'true'}
+                aria-busy={reading === 'loading' || undefined}
+                data-unavailable={voiceMissing ? 'true' : undefined}
                 onClick={readAloud}
               >
                 {speaking ? (
@@ -923,8 +1099,9 @@ export const TranscriptMessage = memo(function TranscriptMessage({
           <SkillOfferHint offer={skillOffer} />
         )}
         {actionable && (
-          // Opened by a long-press on the message; out of the tab order,
-          // since the toolbar's buttons are the same actions.
+          // Opened by a long-press on the message (or a right-click on a
+          // phone's older one); out of the tab order, since the toolbar's
+          // buttons are the same actions.
           <Menu
             label="More for this message"
             iconOnly
@@ -948,6 +1125,26 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             {error}
           </p>
         )}
+        {readFailure &&
+          (readFailure.code === 'kokoro_model_missing' ? (
+            // A voice still to install is a setup step, not an error.
+            <p role="status" className="message-fix-line">
+              <span className="status-indicator" data-tone="warning">
+                <span className="status-indicator-dot" aria-hidden />
+                <span>{readFailure.message}</span>
+              </span>
+              {readFailure.action?.kind === 'open_setting' && (
+                <ErrorFix action={readFailure.action} />
+              )}
+            </p>
+          ) : (
+            <p role="alert" className="message-error message-fix-line">
+              <span>{readFailure.message}</span>
+              {readFailure.action?.kind === 'open_setting' && (
+                <ErrorFix action={readFailure.action} />
+              )}
+            </p>
+          ))}
       </div>
     </article>
   );

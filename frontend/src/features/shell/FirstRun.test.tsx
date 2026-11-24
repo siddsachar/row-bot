@@ -771,6 +771,7 @@ it('Use on a model of a found server connects it and makes the model the default
   expect(mock.controller.connectLocalServer).toHaveBeenCalledWith(
     'lmstudio',
     1234,
+    'qwen3.8-27b',
   );
 });
 

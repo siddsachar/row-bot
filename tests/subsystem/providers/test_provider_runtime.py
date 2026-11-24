@@ -25,14 +25,16 @@ class _FakeChatOpenAI:
         self.calls.append(kwargs)
 
 
-def test_openai_gpt5_family_uses_responses_api(monkeypatch):
+# GPT-6 went to Chat Completions and failed with the wrong endpoint: only "gpt-5" names took Responses.
+@pytest.mark.parametrize("model_name", ["gpt-5.5-pro", "gpt-6.1-sol", "gpt-6", "gpt-10-nova"])
+def test_openai_gpt5_and_later_families_use_responses_api(monkeypatch, model_name):
     _FakeChatOpenAI.calls.clear()
     monkeypatch.setattr(openai_direct, "DirectChatOpenAI", _FakeChatOpenAI)
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "sk-test")
 
-    model = runtime.create_chat_model("gpt-5.5-pro", provider_id="openai")
+    model = runtime.create_chat_model(model_name, provider_id="openai")
 
-    assert model.kwargs["model"] == "gpt-5.5-pro"
+    assert model.kwargs["model"] == model_name
     assert model.kwargs["use_responses_api"] is True
     assert model.kwargs["output_version"] == "responses/v1"
     # Stateless: nothing stored at OpenAI, encrypted reasoning travels in the thread.
@@ -43,14 +45,15 @@ def test_openai_gpt5_family_uses_responses_api(monkeypatch):
     assert isinstance(model.kwargs["http_client"], httpx.Client)
 
 
-def test_openai_legacy_chat_model_keeps_chat_completions_path(monkeypatch):
+@pytest.mark.parametrize("model_name", ["gpt-4o", "gpt-4.1-mini", "gpt-4", "o4-mini"])
+def test_openai_legacy_chat_model_keeps_chat_completions_path(monkeypatch, model_name):
     _FakeChatOpenAI.calls.clear()
     monkeypatch.setattr(openai_direct, "DirectChatOpenAI", _FakeChatOpenAI)
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "sk-test")
 
-    model = runtime.create_chat_model("gpt-4o", provider_id="openai")
+    model = runtime.create_chat_model(model_name, provider_id="openai")
 
-    assert model.kwargs["model"] == "gpt-4o"
+    assert model.kwargs["model"] == model_name
     assert "use_responses_api" not in model.kwargs
     assert "store" not in model.kwargs and "include" not in model.kwargs
     assert "reasoning" not in model.kwargs
@@ -1024,8 +1027,8 @@ def test_minimax_model_facade_fetches_live_catalog_and_capabilities(monkeypatch)
         }
         count = models.fetch_cloud_models("minimax")
 
-        # Its three listed models, and the image and video models its docs name beside them (I24).
-        assert count == 8
+        # Its three listed models, three image models and four video models.
+        assert count == 10
         assert calls[0]["url"] == "https://api.minimax.io/anthropic/v1/models"
         assert calls[0]["params"] == {"limit": 100}
         assert calls[1]["params"] == {"limit": 100, "after_id": "MiniMax-M2.7"}
@@ -1115,7 +1118,7 @@ def test_minimax_live_catalog_does_not_rewrite_current_default(monkeypatch):
 
         count = models.fetch_cloud_models("minimax")
 
-        assert count == 6  # MiniMax-M3 and the five media models its docs name
+        assert count == 8  # One listed model plus the documented image and video models
         assert "MiniMax-M2.7" not in models._cloud_model_cache
         assert models._current_model == "model:minimax:MiniMax-M2.7"
     finally:

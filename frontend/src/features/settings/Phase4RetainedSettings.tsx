@@ -20,6 +20,7 @@ export default function Phase4RetainedSettings({
   selectedConversationId,
   pickFolder,
   writeClipboard,
+  accessConnect,
   accessNetwork,
   privacy,
 }: {
@@ -29,6 +30,8 @@ export default function Phase4RetainedSettings({
   selectedConversationId: string | null;
   pickFolder?: SettingsFolderPicker;
   writeClipboard?: ClientPlatform['writeClipboard'];
+  /** Access › Advanced, first on a phone: Connect a phone or computer. */
+  accessConnect?: ReactNode;
   /** Access › Advanced › Network: the live network controls. */
   accessNetwork?: ReactNode;
   /** System › Privacy: install stats and what else Row-Bot contacts. */
@@ -61,6 +64,7 @@ export default function Phase4RetainedSettings({
       pickFolder={pickFolder}
       writeClipboard={writeClipboard}
       part={setting === 'access' ? 'access' : 'system'}
+      connect={accessConnect}
       network={accessNetwork}
       privacy={privacy}
     />

@@ -41,3 +41,53 @@ def test_fixture_build_is_isolated_and_explicit(
     assert all(call[2]["VITE_ENABLE_FIXTURES"] == "1" for call in calls)
     assert all(call[3] is True for call in calls)
     assert "VITE_ENABLE_FIXTURES" not in environment
+
+
+
+def test_a_failed_runs_summary_names_the_tests_that_did_not_pass_and_why() -> None:
+    from tests.browser.client_foundation.run_browser import failure_summary
+
+    log = "\n".join([
+        "Running 3 tests using 1 worker",
+        "  ✓  1 [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens (2.1s)",
+        "  ✘  2 [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens (9.0s)",
+        "",
+        "  1) [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens ──────",
+        "    Error: Unexplained console errors",
+        "",
+        "  1 failed",
+        "    [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens",
+        "  1 flaky",
+        "    [chromium-desktop] › tests/browser/b.spec.ts:7:1 › saves",
+        "  1 passed (21.3s)",
+    ])
+
+    summary = failure_summary(log)
+
+    assert summary[0].startswith("  1) [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1")
+    assert "    Error: Unexplained console errors" in summary
+    assert "    [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens" in summary
+    assert summary[-1] == "  1 passed (21.3s)"
+
+
+def test_a_long_failure_keeps_its_first_error_and_its_closing_summary() -> None:
+    from tests.browser.client_foundation.run_browser import failure_summary
+
+    errors = [f"    at frame {n}" for n in range(500)]
+    log = "\n".join(["  1) [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens", *errors,
+                     "  1 failed", "    [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens", "  2 passed (3.0s)"])
+
+    summary = failure_summary(log, limit=40)
+
+    assert len(summary) <= 40
+    assert summary[0] == "  1) [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens"
+    assert summary[-3:] == ["  1 failed", "    [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens",
+                            "  2 passed (3.0s)"]
+
+
+def test_a_run_that_died_without_a_summary_shows_its_last_lines() -> None:
+    from tests.browser.client_foundation.run_browser import failure_summary
+
+    log = "\n".join(f"line {n}" for n in range(100))
+
+    assert failure_summary(log) == [f"line {n}" for n in range(70, 100)]

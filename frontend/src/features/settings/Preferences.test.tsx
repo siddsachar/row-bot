@@ -13,6 +13,7 @@ import { ThemeProvider } from '../../ui/theme';
 import AppearanceSettings from './Appearance';
 import Preferences from './Preferences';
 import type { SettingsSnapshot } from '../../api/types';
+import type { MemoryReviewIO } from '../knowledge/memory-review-io';
 import {
   SettingsDraftOwner,
   type SettingsMutationIO,
@@ -274,4 +275,69 @@ it('moves Learn new skills to Settings › Learning in a Learning preview build 
   rerender(view(true));
   expect(screen.queryByRole('switch', { name: 'Learn new skills' })).toBeNull();
   expect(screen.getByRole('switch', { name: 'Dream Cycle' })).toBeVisible();
+});
+
+/** The phone layout (C3): below 768px. */
+function onPhoneWidth() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query === '(max-width: 767px)',
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+}
+
+it('on a phone shows the theme first, as one System, Light and Dark control (C3)', () => {
+  onPhoneWidth();
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <OverlayProvider>
+          <AppearanceSettings onReset={vi.fn()} />
+        </OverlayProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
+  );
+  const theme = screen.getByRole('radiogroup', { name: 'Theme' });
+  // First on the page, and the only control for it (U37): no preview cards.
+  expect(
+    theme.compareDocumentPosition(
+      screen.getByRole('combobox', { name: /^Colour theme/ }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(document.querySelectorAll('.appearance-mini')).toHaveLength(0);
+  expect(screen.getByText(/^Follows your device/)).toBeVisible();
+  fireEvent.click(within(theme).getByRole('radio', { name: 'Dark' }));
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  expect(within(theme).getByRole('radio', { name: 'Dark' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+});
+
+it('offers Review memory beside the Dream Cycle on a computer, not on a phone, where clean-up is on the computer (B4)', () => {
+  const view = () =>
+    render(
+      <MemoryRouter>
+        <ThemeProvider>
+          <OverlayProvider>
+            <Preferences
+              snapshot={SNAPSHOT}
+              mutation={savingMutation()}
+              reviewIO={{} as MemoryReviewIO}
+            />
+          </OverlayProvider>
+        </ThemeProvider>
+      </MemoryRouter>,
+    );
+  const desktop = view();
+  expect(screen.getByRole('button', { name: 'Review memory' })).toBeVisible();
+  desktop.unmount();
+  onPhoneWidth();
+  view();
+  expect(screen.getByRole('switch', { name: /Dream Cycle/ })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Review memory' })).toBeNull();
 });

@@ -100,6 +100,47 @@ describe('browser capabilities', () => {
     await single;
   });
 
+  it("offers the phone tiles' types and camera to the file input (B2)", async () => {
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
+      () => undefined,
+    );
+    const adapter = createBrowserPlatform(media());
+    const intent = {
+      intentId: 'intent-b',
+      intent: 'attachment',
+      conversationId: 'conversation-a',
+      destination: 'composer',
+    };
+    const pick = async (
+      picker: Parameters<typeof adapter.selectFile>[2],
+    ): Promise<{ accept: string; capture: string | null }> => {
+      const picked = adapter.selectFile(undefined, intent, picker);
+      const input = document.querySelector('input')!;
+      const seen = {
+        accept: input.accept,
+        capture: input.getAttribute('capture'),
+      };
+      const photo = new File(['png'], 'photo.png', { type: 'image/png' });
+      Object.defineProperty(input, 'files', { value: [photo] });
+      input.dispatchEvent(new Event('change'));
+      expect(await picked).toEqual({
+        status: 'ok',
+        value: { kind: 'file', files: [photo] },
+      });
+      return seen;
+    };
+    // Camera, Photos, Files.
+    expect(await pick({ accept: 'image/*', capture: 'environment' })).toEqual({
+      accept: 'image/*',
+      capture: 'environment',
+    });
+    expect(await pick({ accept: 'image/*' })).toEqual({
+      accept: 'image/*',
+      capture: null,
+    });
+    expect(await pick(undefined)).toEqual({ accept: '', capture: null });
+  });
+
   it('bounds pending selection and supports abort without a file or OS window', async () => {
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
       () => undefined,
@@ -665,6 +706,36 @@ describe('desktop Buddy operations', () => {
       {},
     );
     expect(hostless.moveWindow(1, 1)).toBe(false);
+  });
+
+  it('arms and disarms only the listed push-to-talk hotkeys, and only in the desktop app', async () => {
+    const dispatch = vi.fn().mockResolvedValue({ status: 'ok', value: null });
+    const adapter = createPyWebViewPlatform(
+      { dispatch },
+      media(),
+      'a'.repeat(32),
+      {},
+    );
+    expect(await adapter.voiceHotkey('ctrl+alt+space')).toEqual({
+      status: 'ok',
+      value: null,
+    });
+    expect(dispatch).toHaveBeenLastCalledWith('voice_hotkey', {
+      key: 'ctrl+alt+space',
+    });
+    await adapter.voiceHotkey(null);
+    expect(dispatch).toHaveBeenLastCalledWith('voice_hotkey', { key: null });
+    dispatch.mockClear();
+    expect(
+      await adapter.voiceHotkey('alt+f4' as unknown as 'f13'),
+    ).toMatchObject({ status: 'unavailable', reason: 'invalid_request' });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(
+      await createBrowserPlatform(media()).voiceHotkey('f13'),
+    ).toMatchObject({
+      status: 'unavailable',
+      reason: 'voice_hotkey_requires_native',
+    });
   });
 
   it('is unavailable in browsers and scripted in the fake', async () => {

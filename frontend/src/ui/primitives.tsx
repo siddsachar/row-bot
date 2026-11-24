@@ -440,7 +440,8 @@ export function Menu({
           }}
         >
           {orderMenuActions(actions).map((action, index) => (
-            <Fragment key={action.label}>
+            // Two rows may share a label (a headset is a microphone and a speaker).
+            <Fragment key={`${index}:${action.label}`}>
               {action.separatorBefore && index > 0 && (
                 <Dropdown.Separator className="menu-separator" />
               )}
@@ -598,12 +599,57 @@ export function ErrorState({
     </div>
   );
 }
-export function Skeleton({ label = 'Loading' }: { label?: string }) {
+/** A load that ends within 150 ms shows no placeholder at all. */
+function useShownAfterAMoment() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 150);
     return () => clearTimeout(timer);
   }, []);
+  return visible;
+}
+const SKELETON_WIDTHS = [72, 54, 64, 46, 80, 58, 68, 50];
+/**
+ * A list's loading state in its rows' own shape (an icon, a title, a date),
+ * so the rows take its place without moving anything. The list's container
+ * class gives the rows their height and spacing.
+ */
+export function ListSkeleton({
+  label,
+  rows = 8,
+  className,
+}: {
+  label: string;
+  rows?: number;
+  className?: string;
+}) {
+  const visible = useShownAfterAMoment();
+  return (
+    <div
+      className={['skeleton-list', className].filter(Boolean).join(' ')}
+      role="status"
+      aria-label={label}
+      aria-busy="true"
+    >
+      <span className="visually-hidden">{label}</span>
+      {visible &&
+        Array.from({ length: rows }, (_, index) => (
+          <div key={index} aria-hidden className="skeleton-row">
+            <span className="skeleton skeleton-icon" />
+            <span
+              className="skeleton skeleton-line"
+              style={{
+                maxWidth: `${SKELETON_WIDTHS[index % SKELETON_WIDTHS.length]}%`,
+              }}
+            />
+            <span className="skeleton skeleton-meta" />
+          </div>
+        ))}
+    </div>
+  );
+}
+export function Skeleton({ label = 'Loading' }: { label?: string }) {
+  const visible = useShownAfterAMoment();
   if (!visible)
     return (
       <span role="status" className="visually-hidden">

@@ -11,10 +11,10 @@ import time
 import re
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Iterator
 
-from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, get_cloud_provider, set_active_model_override, _active_model_override
+from row_bot.models import get_llm, get_llm_for, get_context_policy, get_context_size, get_current_model, is_model_local, is_cloud_model, is_local_custom_endpoint, get_cloud_provider, set_active_model_override, _active_model_override
 from row_bot.api_keys import apply_keys
 from row_bot.prompts import get_agent_system_prompt, get_chat_only_system_prompt
 from row_bot.prompt_cache import (
@@ -1121,6 +1121,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "isn't available with your chatgpt plan" in s:
         # The ChatGPT transport already says it in plain words (B394).
         return f"⚠️ {exc_str}"
+    from row_bot.providers.transports.local_silence import is_local_silence
+
+    if is_local_silence(exc_str):
+        # A local model that sent nothing or ran to its reply limit: already in plain words.
+        return f"⚠️ {exc_str}"
     if "recursion" in s or "recursion limit" in s:
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:
@@ -1273,18 +1278,10 @@ def _is_browser_tool_name(tool_name: str) -> bool:
     return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
 
 
-# How many browser actions one turn may take before it is stopped as a runaway loop; filming a demo (its browser
-# recording) is a long run of deliberate page actions, so it may take more.
-BROWSER_TOOL_LIMIT = 80
-RECORDING_BROWSER_TOOL_LIMIT = 400
-
-
-def _browser_tool_limit(thread_id: str) -> int:
-    """The browser actions this turn may take: more while this chat's browser is being recorded."""
-    from row_bot import recordings
-
-    recording = bool(thread_id) and recordings.active_for(thread_id, "browser") is not None
-    return RECORDING_BROWSER_TOOL_LIMIT if recording else BROWSER_TOOL_LIMIT
+# How many browser actions one turn may take before it is stopped as a runaway loop. A long task (a growth
+# workflow, filming a demo) takes a hundred or more deliberate page actions; a real loop is caught sooner by the
+# stuck check (only looking, many times in a row).
+BROWSER_TOOL_LIMIT = 400
 
 
 def _browser_action_name(tool_name: str) -> str:
@@ -1487,6 +1484,7 @@ def _runtime_turn_fields(tool_names: list[str]) -> list:
         ContextField("tools", tool_line),
         ContextField("turn_scope", scope_line, "NOT IN THIS TURN: nothing; every tool listed can be used."),
         ContextField("device_zone", _device_zone_line(), "The person's device is in this computer's time zone."),
+        ContextField("voice", VOICE_TURN_LINE if _current_voice_mode_var.get() else "", TYPED_TURN_LINE),
     ]
     off: list[str] = []
     switched_off: list[str] = []
@@ -1934,8 +1932,13 @@ def _summarize_tool_result(name: str, content: str) -> str:
         return f"[{name}]: (empty result)"
     # Strip leading/trailing whitespace
     content = content.strip()
+    lines = content.split("\n")
+    # A result's leading "Approval: …" lines say how it was allowed; the line after them names what it did (a
+    # media result's output, W4), so that line is kept, unless the result is nothing but approval lines.
+    start = next((index for index, line in enumerate(lines)
+                  if line.strip() and not line.lstrip().startswith("Approval: ")), 0)
     # Try first meaningful line (skip blank lines)
-    for line in content.split("\n"):
+    for line in lines[start:]:
         line = line.strip()
         if line:
             candidate = f"[{name}]: {line}"
@@ -4030,9 +4033,10 @@ def _size_is_a_guess(prepared: PreparedModelInput) -> bool:
     """No source knows the model's context: its limit is Row-Bot's own cautious guess (I33).
 
     Row-Bot still compacts at the guess, but never refuses on it: the provider takes the request or
-    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models.
+    says why not. A refusal on a guessed 128K or 200K blocked chats with 1M models. A custom
+    endpoint's profile fallback (32K for a server that doesn't say) is a guess too.
     """
-    return prepared.usage.capacity_source == "app_fallback"
+    return prepared.usage.capacity_source in {"app_fallback", "profile_default"}
 
 
 def _terminal_compaction_failure(
@@ -4756,6 +4760,7 @@ def _prepare_agent_request(
     # ``messages`` update (LangGraph's add_messages reducer appends it after the turn's message),
     # and found in the checkpoint by every later call of the turn.
     budget = state.get("execution_budget")
+    _current_voice_mode_var.set(bool(((config or {}).get("configurable") or {}).get("voice_mode")))
     messages, created = _with_turn_context(list(state.get("messages") or []), budget)
     if created:
         state = {**state, "messages": messages}
@@ -4829,9 +4834,64 @@ def _silent_rounds(messages: list) -> int:
     return rounds
 
 
+# The line a model writes in answer to the progress note often comes with no tool call, which would end the turn
+# mid-work (lane E's τ²-bench traces, 19 Nov: 24-30% of turns ended after exactly three tool calls). Such a line
+# is shown as it is, and the turn goes on once (_post_model_hook); the next request ends on this note, never on
+# the assistant's line (no assistant prefill), and it is request-only like PROGRESS_NOTE.
+PROGRESS_LINE_KEY = "row_bot_progress_line"
+PROGRESS_CONTINUE_NOTE = ("Row-Bot note, not from the person: your line was shown to the person. Carry on with "
+                          "the work now. If it's done, or you need the person, say so in a line.")
+
+
+def _text_of(message: Any) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content.strip()
+    return "".join(str(block.get("text") or "") for block in content or []
+                   if isinstance(block, dict) and block.get("type") == "text").strip()
+
+
+def _continues_after_progress_line(state: Mapping[str, Any]) -> AIMessage | None:
+    """The model's reply, marked as a progress line, when the turn should go on after it, else None.
+
+    Only a text-only reply to the progress note itself (so at most once per note) that says what it does next
+    and asks the person nothing: a question, a hand-over or a finished piece of work ends the turn as before."""
+    messages = list(state.get("messages") or [])
+    request = list(state.get("llm_input_messages") or [])
+    if not messages or not request:
+        return None
+    last, sent = messages[-1], request[-1]
+    if not isinstance(last, AIMessage) or getattr(last, "tool_calls", None) or PROGRESS_LINE_KEY in (
+            last.additional_kwargs or {}):
+        return None
+    if not isinstance(sent, HumanMessage) or (sent.additional_kwargs or {}).get("row_bot_note") != "progress":
+        return None
+    text = _text_of(last)
+    from row_bot.application.conversation_followups import stopped_on_next_step
+
+    if not text or not stopped_on_next_step(text):
+        return None
+    return last.model_copy(update={"additional_kwargs": {**(last.additional_kwargs or {}), PROGRESS_LINE_KEY: True}})
+
+
+def _post_model_hook(state: dict, config: dict | None = None) -> Any:
+    """After each model call: charge the turn's budget, then go on after a progress line that ended the reply."""
+    update = post_model_budget_hook(state, config)
+    line = _continues_after_progress_line(state)
+    if line is None:
+        return update
+    from langgraph.types import Command
+
+    return Command(update={**update, "messages": [line]}, goto="pre_model_hook")
+
+
 def _with_progress_note(messages: list, conversation: list) -> list:
     """*messages* (the request) with the progress note at its end when *conversation*'s silent rounds call for
-    one."""
+    one, or with the carry-on note after a progress line the turn went on from."""
+    if conversation and isinstance(conversation[-1], AIMessage) and PROGRESS_LINE_KEY in (
+            conversation[-1].additional_kwargs or {}):
+        return [*messages, HumanMessage(content=PROGRESS_CONTINUE_NOTE,
+                                        additional_kwargs={"ephemeral": True, "row_bot_note": "progress_continue"})]
     rounds = _silent_rounds(conversation)
     if rounds < SILENT_ROUNDS or (rounds - SILENT_ROUNDS) % _SILENT_AGAIN:
         return messages
@@ -5268,6 +5328,22 @@ def current_device_zone() -> str:
     return _current_device_zone_var.get("")
 
 
+# Whether the person hears this turn's answer (Talk, Realtime): its turn context then says to answer for
+# listening (VD7). Read from the request's config on every Agent call; a child Agent's config never has it.
+# The line is part of the turn's saved context message (never the person's own message), so it costs no
+# cache: every later call of the turn and every later turn replays the same bytes, and the system prompt is
+# the same for spoken and typed turns.
+_current_voice_mode_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar("current_voice_mode", default=False)
+VOICE_TURN_LINE = (
+    "This turn is spoken: the person hears your answer read aloud and sees it on screen. Answer "
+    "conversationally, in plain spoken sentences, with no markdown, lists, headings or emoji in what you say. "
+    "Keep it as short as you would out loud. Anything better read than heard (code, tables, long lists, links) "
+    "still goes in your answer in full, formatted as usual; it's shown, not read aloud, so say in a few words "
+    "that it's on screen."
+)
+TYPED_TURN_LINE = "This turn is typed: format your answer as usual."
+
+
 # ── Learning (preview) seams ────────────────────────────────────────────────────────────────────
 # Each seam checks learning.is_enabled() first: while Learning is off it does nothing else and
 # imports nothing else of Learning. On, it hands cheap references to learning.capture, which
@@ -5315,7 +5391,11 @@ def _learning_begin_turn(configurable: dict | None, *, resumed: bool = False) ->
             generation_id=str(values.get("generation_id") or ""),
             surface=surface,
             agent_run_id=str(values.get("agent_run_id") or ""),
-            goal=bool(values.get("internal_goal_continuation")),
+            # A goal step: goals.py's own turns (no follow-up kind) or a conversation's "goal" follow-up. Row-Bot's
+            # other follow-ups (a wait, a linked reply, a carry-on) belong to their conversation, as the person
+            # scoped it (My chats, not Workflows and goals).
+            goal=bool(values.get("internal_goal_continuation"))
+            and str(values.get("followup_kind", "goal")) == "goal",
             person_message=surface in _LEARNING_PERSON_SURFACES and not started_by_row_bot,
             resumed=resumed,
         ))
@@ -5570,6 +5650,7 @@ def _set_active_runtime_context(
     _current_device_zone_var.set(str(device_zone or ""))
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
+    _current_on_demand_tools_var.set({})
     _current_bound_tool_schema_tokens_var.set(0)
     _current_canonical_tools_var.set(())
     _current_last_preparation_var.set(None)
@@ -6241,8 +6322,10 @@ def _collect_agent_tool_candidates(
 # profile limits and guides unchanged). On every window, Developer tools come with a code folder (WP A5):
 # without one each of them fails, and their 22 schemas and guide went with every call of every chat.
 SMALL_CONTEXT_TOKENS = 65_536
-# A local model (Ollama and other on-device runtimes) up to this window gets the middle tier too: its
-# whole prompt is processed on this computer, so every token costs time to the first word.
+# A local model up to this window gets the middle tier too: its whole prompt is processed on this
+# computer, so every token costs time to the first word. Local is Ollama's own models and a custom
+# endpoint saved as local (Run on this computer, a found server, one added by hand), not Learning's
+# personal models, which keep the tier they were trained in (models.is_local_custom_endpoint).
 LOCAL_MIDDLE_CONTEXT_TOKENS = 131_072
 # The middle tier (64K or less, or local up to 128K) also offers Row-Bot's self-management on demand.
 ON_DEMAND_TOOL_GROUPS = frozenset({"row_bot_status"})
@@ -6263,6 +6346,96 @@ RARELY_USED_TOOLS = frozenset({
     "link_memories", "explore_connections", "list_memories", "task_run_now", "task_delete", "export_to_pdf",
     "list_conversations",
 })
+# M7: a chat that makes media keeps its media tools bound for the rest of it. Deferred, one video chat
+# reached them through 552 tool_invoke calls, and the delivery step was the one forgotten.
+MEDIA_TOOLS = frozenset({
+    "generate_video", "animate_image", "generate_image", "edit_image", "edit_video", "video", "speak",
+    "make_music", "browser_record", "computer_record", "send_file", "present",
+})
+STICKY_MEDIA_GROUPS = frozenset({"video_editing", "sound", "file_delivery", "media"})
+STICKY_MEDIA_TOOLS = frozenset({"browser_record", "computer_record", "present"})
+
+
+@dataclass(frozen=True)
+class StickyMedia:
+    """The tool groups and tools a chat keeps bound because it makes media (``sticky_media_tools``)."""
+
+    groups: frozenset[str] = frozenset()
+    tools: frozenset[str] = frozenset()
+
+    def binds(self, parent: str, name: str) -> bool:
+        return parent in self.groups or name in self.tools
+
+
+def sticky_media_for(called: Iterable[str], *, small: bool) -> StickyMedia:
+    """What a chat binds, beyond its window's own set, once it makes media (M7): the whole rule.
+
+    *called* are the names of the tools the chat has called; one of ``MEDIA_TOOLS`` among them makes
+    it a media chat. Then a large window binds the video-editing, sound, file-delivery and media
+    groups and the recorders (each only when its group is enabled). A *small* one (the middle tier
+    and the small profile: 64K or less, or a local model up to 128K) binds only the media tools the
+    chat has called, and ``present``. A turn's @mention or media scope still refuses a call it
+    leaves out. Learning's training shape calls this too, so the tools it rebuilds are the ones served.
+    """
+    used = frozenset(called) & MEDIA_TOOLS
+    if not used:
+        return StickyMedia()
+    if small:
+        return StickyMedia(tools=used | {"present"})
+    return StickyMedia(groups=STICKY_MEDIA_GROUPS, tools=STICKY_MEDIA_TOOLS)
+
+
+def sticky_media_tools(messages: Any, *, small: bool) -> StickyMedia:
+    """``sticky_media_for`` over a conversation's saved messages (LangChain messages or their dicts):
+    the tools they call, by name or through ``tool_invoke``."""
+    return sticky_media_for(_tools_called(messages), small=small)
+
+
+def _tools_called(messages: Any) -> set[str]:
+    called: set[str] = set()
+    for message in messages or ():
+        calls = message.get("tool_calls") if isinstance(message, Mapping) else getattr(message, "tool_calls", None)
+        for call in calls or ():
+            name = str(call.get("name") or "") if isinstance(call, Mapping) else ""
+            if name == "tool_invoke":
+                args = call.get("args")
+                name = str(args.get("name") or "") if isinstance(args, Mapping) else ""
+            called.add(name)
+    return called
+
+
+def _sticky_media_for_this_chat(*, small: bool) -> StickyMedia:
+    """This chat's sticky media tools from its recorded list: one row read, not its history. A chat from
+    before the list is read from its history once, and the list saved."""
+    thread_id = _current_thread_id_var.get("")
+    if not thread_id:
+        return StickyMedia()
+    from row_bot import threads
+
+    used = threads.load_media_tools(thread_id)
+    if used is None:
+        used = frozenset(_tools_called(threads.get_latest_checkpoint_messages(thread_id))) & MEDIA_TOOLS
+        threads.save_media_tools(thread_id, used)
+    return sticky_media_for(used, small=small)
+
+
+def _note_media_tool_call(call: Any) -> None:
+    """Add the media tool a call runs to the chat's recorded list, as its saved call would add it to the
+    history: the tool list built next (the next turn, or a resume) binds it."""
+    used = frozenset(_tools_called([{"tool_calls": [call]}])) & MEDIA_TOOLS
+    thread_id = _current_thread_id_var.get("")
+    if not used or not thread_id:
+        return
+    try:
+        from row_bot import threads
+
+        known = threads.load_media_tools(thread_id)
+        if known is not None and not used <= known:
+            threads.save_media_tools(thread_id, known | used)
+    except Exception as exc:
+        logger.debug("The chat's media tools were not recorded (%s)", type(exc).__name__)
+
+
 _current_on_demand_tools_var: _contextvars.ContextVar[dict[str, tuple[str, Any]]] = _contextvars.ContextVar(
     "current_on_demand_tools", default={}
 )
@@ -6721,18 +6894,24 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     effective_context = get_context_size(model_label)
     small_window = normalized_allowlist is None and (
         0 < int(effective_context or 0) <= SMALL_CONTEXT_TOKENS
-        or (0 < int(effective_context or 0) <= LOCAL_MIDDLE_CONTEXT_TOKENS and not is_cloud_model(model_label))
+        or (0 < int(effective_context or 0) <= LOCAL_MIDDLE_CONTEXT_TOKENS
+            and (not is_cloud_model(model_label) or is_local_custom_endpoint(model_label)))
     )
     # A profile's own tool list is bound as chosen; otherwise rarely used tools are offered on demand.
     defer_rarely_used = normalized_allowlist is None
     # 32K or less: core tools bound, the rest through tool search (WP A5, F43).
     small_profile = _small_context_profile(effective_context)
     defer_to_core = small_profile and normalized_allowlist is None
+    # Once this chat makes media its media tools stay bound (M7): one tool-list change, then stable.
+    sticky_media = _sticky_media_for_this_chat(small=small_window) if defer_rarely_used else StickyMedia()
     has_code_folder = _has_code_folder()
     if not has_code_folder and "developer" in enabled_tool_names:
         # Developer tools work only on a code folder (F34); one bound mid-turn is used by the turn after,
         # a configuration change like any other (one new tool list).
         enabled_tool_names = [name for name in enabled_tool_names if name != "developer"]
+    if "presentation" in enabled_tool_names and _current_runtime_surface_var.get("") == "channel":
+        # present shows a final in a Row-Bot chat; a chat app's turn delivers files with send_file.
+        enabled_tool_names = [name for name in enabled_tool_names if name != "presentation"]
     eager_core_entries, external_entries, destructive_names = _collect_agent_tool_candidates(
         enabled_tool_names,
         allow_set,
@@ -6856,6 +7035,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"skills:{skill_fingerprint}",
         f"apps_off:{sorted(app_scope.get('off_servers') or [])}:{sorted(app_scope.get('off_tools') or [])}",
         f"small_window:{small_window}:{small_profile}:{defer_to_core}:{has_code_folder}",
+        f"sticky_media:{sorted(sticky_media.groups)}:{sorted(sticky_media.tools)}",
     })
     # Designer tool schemas are scoped to the captured project, not whichever
     # project a client currently shows.
@@ -6980,10 +7160,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             # Wrapped already (approvals, profile limits, repeat guard), so tool search keeps every boundary.
             on_demand_entries = [
                 entry for entry in eager_core_entries
-                if (small_window and entry["parent"] in ON_DEMAND_TOOL_GROUPS)
-                or (defer_to_core and entry["parent"] not in SMALL_PROFILE_CORE_GROUPS)
-                or (defer_rarely_used and (entry["parent"] in RARELY_USED_TOOL_GROUPS
-                                           or str(getattr(entry["tool"], "name", "")) in RARELY_USED_TOOLS))
+                if not sticky_media.binds(str(entry["parent"]), str(getattr(entry["tool"], "name", "")))
+                and ((small_window and entry["parent"] in ON_DEMAND_TOOL_GROUPS)
+                     or (defer_to_core and entry["parent"] not in SMALL_PROFILE_CORE_GROUPS)
+                     or (defer_rarely_used and (entry["parent"] in RARELY_USED_TOOL_GROUPS
+                                                or str(getattr(entry["tool"], "name", "")) in RARELY_USED_TOOLS)))
             ]
             if on_demand_entries:
                 eager_core_entries = [entry for entry in eager_core_entries if entry not in on_demand_entries]
@@ -7006,6 +7187,14 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     ]
                     bridges = list(build_tool_discovery_tools(
                         bridge_records,
+                        # A media tool bound once the chat makes media still runs through tool_invoke: a
+                        # call made before it was bound (an approval's resume) or out of habit (M7).
+                        invokable=[
+                            ExternalToolRecord.from_tool(entry["tool"], source=entry["source"],
+                                                         parent=entry["parent"])
+                            for entry in eager_core_entries
+                            if sticky_media.binds(str(entry["parent"]), str(getattr(entry["tool"], "name", "")))
+                        ],
                         context_tokens=effective_context,
                         in_turn=lambda record: _turn_scope_refusal(
                             record.name, source=record.source, parent=record.parent) is None,
@@ -7103,7 +7292,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 tools=tool_node if tool_node is not None else [],
                 prompt=None,
                 pre_model_hook=_pre_model_trim,
-                post_model_hook=post_model_budget_hook,
+                post_model_hook=_post_model_hook,
                 checkpointer=checkpointer,
                 name="row_bot_agent",
                 state_schema=RowBotAgentState,
@@ -7837,8 +8026,10 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
     if handle is not None:
         generation_registry.check_dispatch(handle)
         handle.external_outcome = "uncertain"
-    from row_bot.tools.approval_gate import collect_activity
-    with tool_attachment_scope() as caches, collect_activity() as decisions:
+    _note_media_tool_call(request.tool_call or {})
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY, collect_quoted_conversations
+    from row_bot.tools.approval_gate import NO_PERSON_REFUSAL, collect_activity, refused_for_nobody
+    with tool_attachment_scope() as caches, collect_activity() as decisions, collect_quoted_conversations() as quoted:
         try:
             result = execute(request)
         except BaseException as exc:
@@ -7851,6 +8042,9 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
             handle.external_outcome = "sent"
         if not isinstance(result, ToolMessage):
             return result
+        if refused_for_nobody(decisions):
+            # A headless run: nobody was there to ask, and the result says so in place of the person's no.
+            result = result.model_copy(update={"content": NO_PERSON_REFUSAL})
         # Bounded once, when created (D1); the stamp below is computed on the capped text, and the
         # fence is rendered around it per request, so the tags are never cut.
         from row_bot.tool_outputs import cap_tool_message
@@ -7861,9 +8055,9 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         media_failed = False
         if caches is not None:
             # A made picture or video becomes a chat file here, so the result names it the way every
-            # media tool finds it, never by its private path (R2).
+            # media tool finds it, never by its private path (R2), on its first line (W4).
             from row_bot.application.generated_media import capture_generated_media, name_saved_files
-            names: list[str] = []
+            names: list[dict] = []
             try:
                 media = capture_generated_media(caches.conversation_id, caches, names=names,
                                                 label=_media_label(request.tool_call or {}))
@@ -7883,6 +8077,11 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
         if stamp is not None:
             result = result.model_copy(update={
                 "additional_kwargs": {**dict(result.additional_kwargs), _UNTRUSTED_RESULT_KEY: stamp},
+            })
+        if quoted:
+            # Past conversations the result quotes: Learning keeps none of an excluded chat's words.
+            result = result.model_copy(update={
+                "additional_kwargs": {**dict(result.additional_kwargs), QUOTED_CONVERSATIONS_KEY: sorted(set(quoted))},
             })
         if learning_turn is not None:
             # Undecided counts as untrusted for Learning: the request fences it anyway.
@@ -7904,7 +8103,8 @@ def _media_label(call: dict[str, Any]) -> str:
     args = call.get("args") if isinstance(call.get("args"), dict) else {}
     if str(call.get("name") or "") == "tool_invoke" and isinstance(args.get("arguments"), dict):
         args = args["arguments"]
-    words = re.findall(r"[a-z0-9]+", str(args.get("prompt") or "").lower())[:6]
+    # Letters of any language, digits and currency signs: "£480" and "café" stay as written (W4).
+    words = re.findall(r"[^\W_]+(?:[£€$¥][^\W_]*)*|[£€$¥][^\W_]+", str(args.get("prompt") or "").lower())[:6]
     return "-".join(words)[:48].strip("-")
 
 
@@ -8823,11 +9023,14 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
                                config: dict | None = None,
                                *, agent_graph=None,
                                orphan_message: str = "[Cancelled by user]",
-                               marker_message: str = "\u23f9\ufe0f *[Stopped]*") -> int | None:
+                               marker_message: str | None = "\u23f9\ufe0f *[Stopped]*",
+                               as_node: str | None = None) -> int | None:
     """Patch the checkpoint so every AIMessage tool_call has a ToolMessage.
 
     Called after stop-generation to prevent
-    ``INVALID_CHAT_HISTORY`` errors on the next query.
+    ``INVALID_CHAT_HISTORY`` errors on the next query. ``marker_message=None`` adds no stop marker, so the
+    conversation ends on the patched results; ``as_node`` saves them as that node's output (``"tools"``: the
+    model runs next, as after any tool step).
     """
     if config is None:
         return 0
@@ -8868,11 +9071,10 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
             logger.warning("Repairing %d orphaned tool_call(s): %s",
                            len(patches),
                            [p.tool_call_id for p in patches])
-            agent.update_state(config, {"messages": patches})
-            # Add a visible stop marker so the conversation reloads correctly
-            agent.update_state(config, {"messages": [
-                AIMessage(content=str(marker_message or "\u23f9\ufe0f *[Stopped]*"))
-            ]})
+            agent.update_state(config, {"messages": patches}, as_node=as_node)
+            if marker_message is not None:
+                # Add a visible stop marker so the conversation reloads correctly
+                agent.update_state(config, {"messages": [AIMessage(content=str(marker_message))]})
             logger.warning("repair_orphaned_tool_calls: checkpoint patched successfully")
         else:
             logger.debug("repair_orphaned_tool_calls: no orphaned tool_calls in %d messages", len(msgs))
@@ -8880,6 +9082,24 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
     except Exception:
         logger.warning("repair_orphaned_tool_calls failed", exc_info=True)
         return None
+
+
+def _save_stopped_browser_step(agent, config: dict, stream_iter) -> None:
+    """Save a turn stopped at its browser limit so the conversation ends on the stopped step's result.
+
+    The turn broke out of its stream as soon as the model asked for the step, before LangGraph saved that
+    model step: the request is only a pending write of the open run. Ending the run first lets its background
+    checkpoint writes land; settling keeps the finished request and drops the step that would run next; the
+    result is then saved as the tools' output, so Resume runs the model on a history every provider accepts.
+    """
+    from langgraph.graph import END
+
+    stream_iter.close()
+    agent.update_state(config, None, as_node=END)
+    # Its unfinished step says why it stopped: not the person.
+    repair_orphaned_tool_calls(config=config, agent_graph=agent,
+                               orphan_message="[Stopped: too many browser actions in one turn]",
+                               marker_message=None, as_node="tools")
 
 
 def _resume_value(approved: bool, interrupt_ids: list[str] | None,
@@ -9352,9 +9572,15 @@ def _learning_finalization_call(messages: list, answer: str, reasoning: str, sta
                          latency_ms=(time.perf_counter() - started) * 1000)
 
 
+# A headless run's wrap-up at the round ceiling (Learning reviewed, 23 Nov); the app's own stays as it is.
+HEADLESS_WRAP_UP = "Summarize useful partial results and say what is left undone; nobody can reply in this run."
+
+
 def _terminal_surface(config: dict) -> str:
     configurable = dict(config.get("configurable") or {})
     surface = str(configurable.get("runtime_surface") or "interactive").lower()
+    if configurable.get("headless"):
+        return "headless"  # ``row-bot run``: nobody can send Continue
     # A workflow's run is a chat turn in its own conversation (F31): Continue works there too.
     if configurable.get("agent_run_id") or "child" in surface:
         return "child"
@@ -9410,6 +9636,7 @@ def _handle_agent_terminal(
             "child": "Provide a parent-safe partial summary and state that the child run is incomplete.",
             "interactive": "Summarize useful partial results, then ask whether to keep going: the user may "
                            "send Continue.",
+            "headless": HEADLESS_WRAP_UP,
         }[surface]
         try:
             model_label, _ = _selected_model_label_from_config(config)
@@ -9631,7 +9858,6 @@ def _stream_graph(agent, input_data, config: dict,
     # (a multi-step form) takes dozens of page actions; this only stops a
     # runaway loop.
     _loop_detected = False
-    _browser_thread = str((config.get("configurable") or {}).get("thread_id") or "")
     _browser_tool_count = 0
     _recent_browser_actions: list[str] = []
     _browser_budget_exceeded = False
@@ -9804,8 +10030,7 @@ def _stream_graph(agent, input_data, config: dict,
                                     action in {"snapshot", "take_screenshot", "screenshot"}
                                     for action in _recent_browser_actions[-8:]
                                 )
-                                if _snapshot_heavy or (_browser_tool_count >= BROWSER_TOOL_LIMIT and _browser_tool_count
-                                                       >= _browser_tool_limit(_browser_thread)):
+                                if _snapshot_heavy or _browser_tool_count >= BROWSER_TOOL_LIMIT:
                                     _browser_budget_exceeded = True
 
                     # Tool result returned
@@ -10092,11 +10317,9 @@ def _stream_graph(agent, input_data, config: dict,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
-            # Its unfinished step says why it stopped: not the person.
-            repair_orphaned_tool_calls(config=config, agent_graph=agent,
-                                       orphan_message="[Stopped: too many browser actions in one turn]")
+            _save_stopped_browser_step(agent, config, stream_iter)
         except Exception:
-            pass
+            logger.warning("The stopped browser step was not saved", exc_info=True)
         _browser_msg = (
             "⚠️ I took a long run of browser steps in this turn without settling, so I stopped to check "
             "with you before going round again. Say carry on and I'll pick up from here, or tell me what to change."

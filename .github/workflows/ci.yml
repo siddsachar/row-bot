@@ -98,7 +98,7 @@ jobs:
       - name: Install Linux runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0
 
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
@@ -157,10 +157,6 @@ jobs:
           version: "0.13.8"  # pinned: uv 0.13.9 writes requirements.txt markers differently
           python-version: ${{ steps.python.outputs.python-path }}
 
-      - name: Install macOS runtime libraries
-        if: runner.os == 'macOS'
-        run: brew install portaudio
-
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
 
@@ -171,11 +167,11 @@ jobs:
     name: Browser smoke (${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # The whole set takes about 26 minutes on one runner; two shards take about 13 each.
+    # The whole set takes about 50 minutes on one runner; three shards take about 17 each (two had reached the limit).
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1/2", "2/2"]
+        shard: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v7
 
@@ -195,7 +191,7 @@ jobs:
       - name: Install Linux runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0
 
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test

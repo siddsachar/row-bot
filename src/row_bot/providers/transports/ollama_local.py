@@ -48,7 +48,8 @@ backstops for runs nobody is watching:
   request's ``num_ctx`` unless the caller sets one): a reply that long no
   longer fits beside the model's own prompt, nor in the next step's request;
 - a request that receives nothing for ``LOCAL_CHAT_IDLE_SECONDS`` ends with
-  ``OllamaSilentError``, which says so in plain words, and so does a reply
+  ``LocalModelSilentError`` (``local_silence.py``, shared with the other local
+  engines), which says so in plain words, and so does a reply
   that reached its length limit with nothing of it shown (it isn't asked
   again: a model stuck in a tool call fills the window again).
 """
@@ -71,17 +72,13 @@ from langchain_ollama.chat_models import _parse_arguments_from_tool_call
 from ollama import ResponseError
 from pydantic import Field, model_validator
 
+from row_bot.providers.transports import local_silence
 from row_bot.cancellation import CancellationScope, current_cancellation_scope
-from row_bot.providers import deferred_tools
+from row_bot.providers import deferred_tools, sampling_presets
 
 logger = logging.getLogger(__name__)
 
 OLLAMA_CHAT_KEEP_ALIVE = "30m"
-# The longest a local chat request may receive nothing. Ollama is silent while it loads the model (it gives up on a
-# load that stalls for 5 minutes), reads the prompt and writes a tool call, which it holds back until the call is
-# complete. 10 minutes leaves room for all three on slow hardware, while a model stuck in a tool call it never
-# closes no longer holds the GPU for half an hour.
-LOCAL_CHAT_IDLE_SECONDS = 600.0
 # One connection per request, so Stop can find the request's own socket (connections are local and cheap).
 _ONE_REQUEST_PER_CONNECTION = httpx.Limits(max_keepalive_connections=0)
 _REQUEST_ENDED = frozenset({
@@ -105,22 +102,6 @@ EMPTY_REPLY_NOTE = (
 EMPTY_REPLY_NOTE_WITHOUT_BRIDGE = (
     "(Row-Bot: your last reply came back empty. Answer, or call one of the tools in your list.)"
 )
-
-
-class OllamaSilentError(RuntimeError):
-    """The local model's reply never came: Ollama sent nothing for longer than the request's idle limit, or the
-    model wrote until the reply's length limit without any of it showing (a tool call it never closed)."""
-
-    @classmethod
-    def idle(cls, seconds: float | None) -> OllamaSilentError:
-        span = "too long" if not seconds else f"{seconds / 60:g} minutes" if seconds >= 60 else f"{seconds:g} seconds"
-        return cls(f"The local model sent nothing for {span}, so Row-Bot stopped waiting for it. "
-                   "Try again, or try another model.")
-
-    @classmethod
-    def filled_window(cls) -> OllamaSilentError:
-        return cls("The local model filled its whole context window without sending a reply, so Row-Bot stopped it. "
-                   "Try again, or try another model.")
 
 
 def ollama_chat_keep_alive() -> str | None:
@@ -430,6 +411,7 @@ class _Asking:
 
 class RowBotChatOllama(ChatOllama):
     """``ChatOllama`` that sends its ``num_ctx`` and ``keep_alive`` on every request,
+    with its model family's sampling values (``sampling_presets``) where the caller set none,
     passes text tool arguments through as text, asks the model once more when
     Ollama can't hand back its tool call, and can be stopped mid-request."""
 
@@ -450,9 +432,18 @@ class RowBotChatOllama(ChatOllama):
             hooks["request"] = [*(known for known in hooks.get("request", ()) if known is not hook), hook]
             own.update(event_hooks=hooks, limits=_ONE_REQUEST_PER_CONNECTION)
             if "timeout" not in own and "timeout" not in shared:
-                own["timeout"] = LOCAL_CHAT_IDLE_SECONDS
+                own["timeout"] = local_silence.LOCAL_CHAT_IDLE_SECONDS
             data[key] = own
         return data
+
+    @model_validator(mode="after")
+    def _personal_models_as_trained(self) -> RowBotChatOllama:
+        # Learning's personal models, and models saved as non-thinking, never think, whatever a chat chose.
+        from row_bot.models import local_model_never_thinks
+
+        if self.reasoning is not False and local_model_never_thinks(self.model):
+            self.reasoning = False
+        return self
 
     def _chat_params(
         self,
@@ -466,7 +457,18 @@ class RowBotChatOllama(ChatOllama):
         params = super()._chat_params(messages, stop, **kwargs)
         options = params.get("options")
         if isinstance(options, dict) and options.get("num_ctx") and "num_predict" not in options:
-            params["options"] = {**options, "num_predict": options["num_ctx"]}
+            # A reply may fill the window, unless the person gave this model a reply limit (U1).
+            from row_bot.models import local_reply_limit
+
+            limit = local_reply_limit("ollama", self.model)
+            params["options"] = {**options, "num_predict": min(limit, options["num_ctx"]) if limit
+                                 else options["num_ctx"]}
+        options = params.get("options")
+        if options is None or isinstance(options, dict):
+            filled = dict(options or {})
+            sampling_presets.apply_to_ollama(filled, str(params.get("model") or ""), params.get("think"))
+            if filled:
+                params["options"] = filled
         return params
 
     def _create_chat_stream(
@@ -487,13 +489,13 @@ class RowBotChatOllama(ChatOllama):
             except Exception as error:
                 _raise_if_stopped(scope, error)
                 if isinstance(error, httpx.ReadTimeout):
-                    raise OllamaSilentError.idle(_silent_for(error)) from error
+                    raise local_silence.LocalModelSilentError.idle(_silent_for(error)) from error
                 if asking.again_after_error(error, attempt):
                     continue
                 raise
             _raise_if_stopped(scope)
             if attempt.ran_out():
-                raise OllamaSilentError.filled_window()
+                raise local_silence.LocalModelSilentError.filled_window()
             if asking.again_after_empty(attempt):
                 continue
             for ready in attempt.held:
@@ -518,13 +520,13 @@ class RowBotChatOllama(ChatOllama):
             except Exception as error:
                 _raise_if_stopped(scope, error)
                 if isinstance(error, httpx.ReadTimeout):
-                    raise OllamaSilentError.idle(_silent_for(error)) from error
+                    raise local_silence.LocalModelSilentError.idle(_silent_for(error)) from error
                 if asking.again_after_error(error, attempt):
                     continue
                 raise
             _raise_if_stopped(scope)
             if attempt.ran_out():
-                raise OllamaSilentError.filled_window()
+                raise local_silence.LocalModelSilentError.filled_window()
             if asking.again_after_empty(attempt):
                 continue
             for ready in attempt.held:

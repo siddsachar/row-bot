@@ -53,7 +53,7 @@ import { Drawer } from '../../ui/overlays';
 import KnowledgeGraphCanvas, {
   type KnowledgeGraphHandle,
 } from './KnowledgeGraphCanvas';
-import KnowledgeList, { sourceWords } from './KnowledgeList';
+import KnowledgeList, { PhoneMemoryList, sourceWords } from './KnowledgeList';
 import KnowledgeReview, {
   type KnowledgeLifecycleAction,
 } from './KnowledgeReview';
@@ -61,6 +61,7 @@ import KnowledgeActivity from './KnowledgeActivity';
 import { typeSlot } from './knowledge-palette';
 import { When, plural } from './home-format';
 import { humanizeToken, relativeTime } from '../../ui/format';
+import { usePhone } from '../../ui/on-your-computer';
 
 /** Recall tiers from memory_policy.py, in words people use (B8). */
 const MEMORY_TIERS: Record<string, string> = {
@@ -125,6 +126,8 @@ export type KnowledgeGraphNode = {
   is_user: boolean;
   status: KnowledgeStatus;
   tier: KnowledgeTier;
+  /** The app an imported memory came from ("ChatGPT"). */
+  source_label?: string;
 };
 
 export type KnowledgeGraphEdge = {
@@ -177,6 +180,7 @@ export type KnowledgeNodeDetail = {
   relations?: KnowledgeNodeRelation[];
   source_context?: string[];
   source_bucket?: string;
+  source_label?: string;
   created_at?: string;
   last_user_modified_at?: string;
   last_evolved_at?: string;
@@ -253,7 +257,7 @@ type DetailRecord = {
 };
 
 type SourceFilter =
-  '' | 'manual' | 'extraction' | 'document' | 'wiki' | 'other';
+  '' | 'manual' | 'extraction' | 'document' | 'wiki' | 'import' | 'other';
 
 type KnowledgeView = 'graph' | 'list' | 'review' | 'activity';
 
@@ -542,6 +546,10 @@ export default function KnowledgeHome({
   dreamLastRun,
   onDream,
 }: KnowledgeHomeProps) {
+  // A phone lists memories to search, open, edit and delete (D12 A); the
+  // graph, filters, import, clean-up and Dream Cycle stay on the computer.
+  // The desktop's choices are kept for when the window widens again.
+  const phone = usePhone();
   const [view, setView] = useState<KnowledgeView>('graph');
   const [hiddenTypes, setHiddenTypes] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -829,6 +837,50 @@ export default function KnowledgeHome({
             : 'idle';
   const hasGraph =
     snapshot?.availability === 'available' && snapshot.total_entities > 0;
+
+  if (phone)
+    return (
+      <section
+        className="knowledge-home phone-memory"
+        aria-labelledby="knowledge-home-title"
+      >
+        <h2 id="knowledge-home-title" className="visually-hidden">
+          Knowledge
+        </h2>
+        {error && (
+          <div className="phone-memory-empty" role="alert">
+            <strong>Memories could not be refreshed</strong>
+            <p>{error}</p>
+            <Button onClick={reload}>Try again</Button>
+          </div>
+        )}
+        {loading && !snapshot && !error && (
+          <p className="phone-memory-empty" role="status">
+            Loading memories…
+          </p>
+        )}
+        {snapshot && snapshot.availability !== 'available' && (
+          <div className="phone-memory-empty">
+            <strong>Memories unavailable</strong>
+            <p>{availabilityCopy(snapshot.availability)}</p>
+            <Button onClick={reload}>Try again</Button>
+          </div>
+        )}
+        {snapshot?.availability === 'available' && (
+          <PhoneMemoryList
+            nodes={allNodes}
+            total={snapshot.total_entities}
+            sources={snapshot.sources}
+            onOpen={onEdit}
+            onAdd={onAdd}
+            onDelete={onDelete && ((id, subject) => void onDelete(id, subject))}
+            onShowAll={
+              snapshot.truncated && !showingAll ? onShowAll : undefined
+            }
+          />
+        )}
+      </section>
+    );
 
   return (
     <section
@@ -1320,7 +1372,7 @@ export default function KnowledgeHome({
             }
             description={
               selectedNode
-                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedValue?.source_bucket ?? selectedNode.source)}`
+                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedValue?.source_bucket ?? selectedNode.source, selectedValue?.source_label ?? selectedNode.source_label)}`
                 : undefined
             }
             closeLabel="Close memory detail"

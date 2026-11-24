@@ -178,6 +178,60 @@ def test_turning_on_saves_every_setup_choice_creates_the_store_and_is_admitted_o
     assert receipt_read.status_code == 200 and receipt_read.json()["summary"] == "Learning is on."
 
 
+def test_with_no_limit_this_months_spending_still_shows_and_the_limit_is_never_reached(api, no_channels):
+    from row_bot.learning import spending
+    from row_bot.prompt_cache import ModelUsage
+    from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+
+    client, headers, data, _ = api
+    _turn_on(client, headers)
+    assert record_model_usage(UsageRecord(purpose="learning_test", provider="openai", model="m",
+                                          created_at=spending.month_start() + 1,
+                                          usage=ModelUsage(input_tokens=2_900_000, output_tokens=100_000)))
+    limited = _snapshot(client, headers)["spending"]
+    assert (limited["used_tokens"], limited["limit_tokens"], limited["limit_reached"]) == (3_000_000, 2_000_000, True)
+
+    save_learning_settings(data, monthly_token_limit=None)
+
+    unlimited = _snapshot(client, headers)["spending"]
+    assert (unlimited["used_tokens"], unlimited["limit_tokens"], unlimited["limit_reached"]) == (3_000_000, None, False)
+
+
+def test_the_limit_is_reached_for_learnings_other_work_when_only_comparing_methods_share_is_left(api, no_channels):
+    from row_bot.learning import spending
+    from row_bot.prompt_cache import ModelUsage
+    from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+
+    client, headers, _, _ = api
+    _turn_on(client, headers)
+
+    def used(tokens: int) -> None:
+        assert record_model_usage(UsageRecord(purpose="learning_test", provider="openai", model="m",
+                                              created_at=spending.month_start() + 1,
+                                              usage=ModelUsage(input_tokens=tokens, output_tokens=0)))
+
+    used(1_500_000)
+    before = _snapshot(client, headers)["spending"]
+    assert (before["limit_tokens"], before["kept_for_comparing"], before["limit_reached"]) == (2_000_000, 400_000,
+                                                                                              False)
+    used(200_000)  # 1.7M: past the 1.6M the 400K kept for comparing methods leaves
+    after = _snapshot(client, headers)["spending"]
+    assert (after["used_tokens"], after["kept_for_comparing"], after["limit_reached"]) == (1_700_000, 400_000, True)
+
+
+def test_turning_on_with_no_limit_saves_it_and_a_setup_without_a_limit_is_refused(api, no_channels):
+    client, headers, data, _ = api
+    without = {key: value for key, value in SETUP.items() if key != "monthly_token_limit"}
+    refused = _command(client, headers, "turn_on", setup=without)
+    assert refused.status_code >= 400 and learning_files(data) == []
+
+    receipt = _turn_on(client, headers, monthly_token_limit=None)
+
+    assert receipt["snapshot"]["spending"]["limit_tokens"] is None
+    saved = json.loads((data / learning.SETTINGS_FILE).read_text(encoding="utf-8"))
+    assert "monthly_token_limit" in saved and saved["monthly_token_limit"] is None
+
+
 def test_a_command_with_a_stale_revision_is_refused_and_changes_nothing(api, no_channels):
     client, headers, data, _ = api
     stale = _snapshot(client, headers)["revision"]
@@ -405,7 +459,7 @@ def test_only_delete_data_ever_deletes_learning_data(api, no_channels, chats, mo
     fields = {"version": 1, "kind": "document_lookups", "job_id": "job_unknown", "runtime": "ollama",
               "folder": "C:/nowhere", "item_id": "item_unknown", "model": "qwen3.5-9b", "download": "not_now",
               "conversation_id": "chat-b", "message_id": "run-msg-3", "signal_id": "sig_unknown",
-              "category": "wrong_answer", "change_id": "proposal_unknown", "text": "Use the ID", "cap_usd": 20,
+              "category": "wrong_answer", "change_id": "proposal_unknown", "text": "Use the ID", "answer": "The newest", "cap_usd": 20,
               "quote_cost_cents": 100, "flavor": "a100-large"}
     # Hugging Face (C1) is a fake here: its commands reach their own checks, never the network.
     from row_bot.learning.remote import training as remote_training
@@ -415,12 +469,21 @@ def test_only_delete_data_ever_deletes_learning_data(api, no_channels, chats, mo
     monkeypatch.setattr(remote_training, "_trainer", remote_training.RemoteTrainer(
         data, hub=hub, sign_in=FakeSignIn(signed_in=False), card_mib=lambda: 32_607, start_threads=False,
         flavors=lambda: []))
+    # Any open model (C1 Part 4): Hugging Face's card can't be read here, so a check stops at its own refusal.
+    from row_bot.learning.training import open_models
+
+    def unreadable(repo, **_kwargs):
+        raise open_models.HubError("not_found")
+
+    monkeypatch.setattr(open_models, "inspect", unreadable)
+    other = {"model": "hf:Qwen/Qwen3-14B"}
     extra = {"turn_on": {"setup": SETUP},
-             "save_advanced": {"advanced": {"rank": 16, "learning_rate": 0.0002, "epochs": 3, "context": 16384}}}
+             "save_advanced": {"advanced": {"rank": 16, "learning_rate": 0.0002, "epochs": 3, "context": 16384}},
+             "check_model": other, "stop_model_check": other, "forget_model": other}
 
     reached = 0
     for action in actions:
-        response = _command(client, headers, action, **fields, **extra.get(action, {}))
+        response = _command(client, headers, action, **{**fields, **extra.get(action, {})})
         reached += response.status_code != 422  # the API took it (it reached Learning's own checks)
 
     assert len(actions) >= 30 and reached == len(actions) and deleted == []
@@ -615,3 +678,52 @@ def test_how_row_bot_learns_shows_the_method_its_trials_and_history_and_undoes_a
     assert undone["snapshot"]["method"]["version"] == 1 and not undone["snapshot"]["method"]["can_undo"]
     refused = _command(client, headers, "undo_method")
     assert refused.status_code == 409 and refused.json()["code"] == "learning_method_changed"
+
+
+def test_the_quick_question_shows_on_every_device_and_one_answer_settles_it(api, no_channels, monkeypatch):
+    # L4b (designs/learning-ux.md §3): the question is in the snapshot every client reads; answering it on one
+    # device takes it away everywhere, and a second answer (another device, a stale page) is told it moved on.
+    from row_bot.learning import question
+
+    client, headers, data, _ = api
+    _turn_on(client, headers)
+    store = LearningStore(data)
+    waiting = {"id": "qq_1", "issue": "document_lookups:corrected", "kind": "document_lookups",
+               "question": "When two rota policies share a name, which should I use?",
+               "answers": ["The newest", "Ask me"], "asked_at": START}
+    store.set_meta_values({question.OPEN_KEY: json.dumps(waiting)})
+    assert _snapshot(client, headers)["quick_question"] is None  # a build without the quick question shows none
+
+    monkeypatch.setenv(learning.QUICK_QUESTION_ENV, "1")
+    assert _snapshot(client, headers)["quick_question"] == {
+        "id": "qq_1", "question": waiting["question"], "answers": ["The newest", "Ask me"], "kind": "document_lookups"}
+    answered = _ok(_command(client, headers, "answer_question", item_id="qq_1", answer="The newest"))
+
+    assert answered["summary"] == "Thanks. Row-Bot will learn from this."
+    assert answered["snapshot"]["quick_question"] is None
+    assert question.answers_for(store)["document_lookups:corrected"][0]["answer"] == "The newest"
+    stale = _command(client, headers, "dismiss_question", item_id="qq_1")
+    assert stale.status_code == 409 and stale.json()["code"] == "learning_question_changed"
+
+
+def test_how_row_bot_learns_shows_who_does_each_job_only_in_a_build_with_the_jobs_switch(api, no_channels,
+                                                                                       monkeypatch):
+    # L4c (designs/learning-ux.md §6, "Jobs your personal model does"): who does drafting, since when, its latest
+    # test with its denominators and this month's use; nothing without the switch.
+    from row_bot.learning.improver import jobs
+
+    client, headers, data, _ = api
+    _turn_on(client, headers)
+    store = LearningStore(data)
+    assert _snapshot(client, headers)["method"]["jobs"] == []
+
+    monkeypatch.setenv(learning.JOBS_ENV, "1")
+    monkeypatch.setattr(jobs, "newest_ready", lambda root=None: (3, "model:ollama:row-bot-personal-v3:abcd"))
+    jobs.apply(store, jobs.Qualification(jobs.DRAFTING, 3, "model:ollama:row-bot-personal-v3:abcd", store.now(),
+                                         24, 22, 23, 24, verdict="qualified"))
+    [drafting] = _snapshot(client, headers)["method"]["jobs"]
+
+    assert (drafting["job"], drafting["by"], drafting["version"]) == ("drafting", "personal", 3)
+    assert drafting["since"] and drafting["reason"] == ""
+    assert {key: drafting["last"][key] for key in ("asked", "personal_passed", "main_passed", "verdict")} == {
+        "asked": 24, "personal_passed": 22, "main_passed": 23, "verdict": "qualified"}

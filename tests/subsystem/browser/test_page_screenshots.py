@@ -228,25 +228,27 @@ def test_back_to_desktop_is_a_desktop_window_again_and_bad_sizes_are_refused(eng
     assert session.set_viewport("phone", 5, "chat") == "The device scale must be a number from 1 to 3."
 
 
-def test_the_screenshot_tool_shows_the_picture_in_the_chat_without_asking(engines, monkeypatch):
-    shown: list[tuple[str, str]] = []
+def test_the_screenshot_tool_keeps_the_picture_as_a_working_file_without_asking(engines, monkeypatch):
+    shown: list[tuple[str, str, str]] = []
     asked: list[dict] = []
     manager = BrowserSessionManager()
     monkeypatch.setattr(browser_tool, "_session_manager", manager)
     monkeypatch.setattr(browser_tool, "_get_thread_id", lambda: "chat")
     monkeypatch.setattr("row_bot.tools.image_gen_tool._set_pending_image",
-                        lambda value, name="": shown.append((value, name)))
+                        lambda value, name="", role="final": shown.append((value, name, role)))
     monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: "block")  # Even on Block.
     monkeypatch.setattr("langgraph.types.interrupt", lambda payload: asked.append(payload) or True)
     page = _Page("http://localhost:5173/")
     engines(page, manager.get_session("chat"))
 
     result = browser_tool.browser_screenshot(full_page=False)
-    [(value, name)] = shown
+    [(value, name, role)] = shown
     assert base64.b64decode(value) == _PNG
     # Its own name, so a later step can attach this screenshot and not another.
     assert re.fullmatch(r"screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png", name)
-    assert result.endswith(f"Saved to this chat's files as {name} and shown to the person.")
+    # A working file (finals first): the person sees it once it's presented, and the result says so.
+    assert role == "working"
+    assert result.endswith(f"Saved to this chat's files as {name}, a working file: present shows it to the person.")
     assert browser_tool.browser_viewport("tablet").startswith("The page now shows at tablet size")
     assert asked == []
 

@@ -216,34 +216,26 @@ def _browser_steps(count: int, name: str = "browser_click"):
     return FakeGraph()
 
 
-def test_a_turn_that_films_its_browser_may_take_many_more_page_actions(monkeypatch):
-    """5.3.2: filming a demo stopped at 80 browser actions, shown as "Cancelled by user"; a recording is a long run
-    of deliberate page actions, so it may take more. Without one the runaway guard is unchanged."""
+def test_a_long_browser_task_may_take_hundreds_of_page_actions_in_one_turn():
+    """5.3.5: a growth workflow (about 100 page actions a turn) stopped at the old 80. Every turn, filmed or not,
+    may take 400 page actions; the stuck check still catches a real loop sooner."""
     import row_bot.agent as agent
-    from row_bot import recordings
 
     def stopped(events) -> bool:
         return any("long run of browser steps" in str(payload) for _event, payload in events)
 
     config = {"configurable": {"thread_id": "conversation-a"}}
-    monkeypatch.setattr(recordings, "active_for", lambda thread, kind: None)
-    assert stopped(list(agent._stream_graph(_browser_steps(agent.BROWSER_TOOL_LIMIT + 5), {}, config)))
-
-    monkeypatch.setattr(recordings, "active_for",
-                        lambda thread, kind: object() if (thread, kind) == ("conversation-a", "browser") else None)
-    assert not stopped(list(agent._stream_graph(_browser_steps(agent.BROWSER_TOOL_LIMIT + 5), {}, config)))
-    assert stopped(list(agent._stream_graph(_browser_steps(agent.RECORDING_BROWSER_TOOL_LIMIT + 5), {}, config)))
+    assert not stopped(list(agent._stream_graph(_browser_steps(399), {}, config)))
+    assert stopped(list(agent._stream_graph(_browser_steps(405), {}, config)))
 
 
-def test_waiting_for_a_long_job_in_the_browser_is_not_being_stuck(monkeypatch):
+def test_waiting_for_a_long_job_in_the_browser_is_not_being_stuck():
     """R6 (12 Nov): eight 30-second waits in a row read as "only looking" and stopped a video production."""
     import row_bot.agent as agent
-    from row_bot import recordings
 
     def stopped(events) -> bool:
         return any("long run of browser steps" in str(payload) for _event, payload in events)
 
     config = {"configurable": {"thread_id": "conversation-a"}}
-    monkeypatch.setattr(recordings, "active_for", lambda thread, kind: None)
     assert not stopped(list(agent._stream_graph(_browser_steps(12, "browser_wait_for"), {}, config)))
     assert stopped(list(agent._stream_graph(_browser_steps(12, "browser_snapshot"), {}, config)))

@@ -1,0 +1,23 @@
+/*
+ * Sheets and the app shell in an installed app or a native shell (A3). The
+ * desktop is unchanged.
+ */
+
+/* A sheet or a full-screen task with no footer (the workflow sheet, Search)
+   keeps its last row clear of the home indicator. One with a footer already
+   pads the footer. */
+@media (max-width: 767px) {
+  .dialog > .dialog-body:last-child {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+}
+
+/* No pull-to-refresh and no rubber band on the app itself: a pull at the top
+   of the page would reload the workspace. Lists and sheets keep scrolling
+   (and keep their own overscroll-behavior: contain). */
+@media (pointer: coarse) {
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+}

@@ -19,7 +19,9 @@ context (:func:`envelope_for`):
   TASKS and MEMORY guidance for the groups still bound.
 - **Turn context**: the "Current state:" block the small profile leaves out is removed.
 - **Tools**: the tools the profile binds stay; the rest go behind ``tool_search`` /
-  ``tool_invoke``, built by Row-Bot's own bridge over them (its catalog and its search).
+  ``tool_invoke``, built by Row-Bot's own bridge over them (its catalog and its search). A chat that
+  has made media keeps the media tools it called, and ``present``, bound, as Row-Bot does (M7,
+  :func:`kept_media`).
 - **Calls**: a call to a tool now behind the bridge becomes ``tool_invoke(name, arguments)`` with
   the same id, so its tool result is kept as it was. Where the conversation hasn't found that tool
   yet, a ``tool_search`` step comes first, answered by the bridge's own search (fenced as Row-Bot
@@ -53,6 +55,12 @@ Profile = Literal["small", "window", "full"]
 #: Tools every serving profile binds when they're there: the bridges and the saved-output reader.
 BRIDGES = ("tool_search", "tool_invoke")
 ALWAYS_BOUND = frozenset({*BRIDGES, "skill_search", "skill_load", "read_tool_output"})
+#: Row-Bot's own tools a later build retired, as a captured call reads today: old name -> (the group, today's
+#: tool, its arguments' new names). Only while that group has the new tool and not the old one (B1, #942).
+RETIRED_TOOLS: dict[str, tuple[str, str, dict[str, str]]] = {
+    "workspace_list_directory": ("filesystem", "workspace_find", {"dir_path": "path"}),
+    "workspace_file_search": ("filesystem", "workspace_find", {"dir_path": "path"}),
+}
 #: How many results a synthesized search asks for (``tool_search``'s default), then more.
 SEARCH_LIMITS = (3, 5)
 #: The live-state block the small profile leaves out of the turn context (``self_knowledge``).
@@ -90,10 +98,16 @@ class Envelope:
     guide_index: Callable[[Sequence[str], bool], str] = field(default=lambda groups, loadable: "", repr=False)
     # Texts the profile leaves out of the system prompt (the static self-knowledge block's parts).
     dropped_texts: tuple[str, ...] = ()
+    # How the system sections it leaves out begin, whatever their text was when the row was captured: the
+    # static self-knowledge block changes between versions.
+    dropped_headers: tuple[str, ...] = ()
     # Where a deferred tool comes from, for its search result ("core" when unknown).
     sources: Mapping[str, str] = field(default_factory=dict)
     # The group a deferred built-in tool belongs to (its record's parent).
     parents: Mapping[str, str] = field(default_factory=dict)
+    # Retired tools as this build reads them: old name -> (today's tool, arguments' new names, its schema).
+    retired: Mapping[str, tuple[str, Mapping[str, str], Mapping[str, Any]]] = field(default_factory=dict,
+                                                                               repr=False)
 
     @property
     def name(self) -> str:
@@ -124,11 +138,13 @@ class Stats:
     state_removed: int = 0
     # The browser's or the computer's picture after an action (5.3): a text-only model is served without it.
     pictures_removed: int = 0
+    # Calls to a retired tool written as today's tool (RETIRED_TOOLS).
+    calls_renamed: int = 0
 
     @property
     def changed(self) -> bool:
         return bool(self.tools_deferred or self.calls_bridged or self.searches_added or self.system_changed
-                    or self.state_removed or self.pictures_removed)
+                    or self.state_removed or self.pictures_removed or self.calls_renamed)
 
 
 # ── Row-Bot's own envelope for a context ────────────────────────────────────
@@ -147,6 +163,25 @@ def _tool_names(group: str) -> set[str]:
     except Exception:  # noqa: BLE001 - a group that can't build here (Developer without a folder)
         logger.debug("Learning couldn't list the %s tools for the serving shape", group, exc_info=True)
         return set()
+
+
+def _retired() -> dict[str, tuple[str, dict[str, str], dict[str, Any]]]:
+    """The retired tools this build has replaced (``RETIRED_TOOLS``): old name -> (today's tool, the arguments'
+    new names, today's schema)."""
+
+    from row_bot.tools import registry
+
+    found: dict[str, tuple[str, dict[str, str], dict[str, Any]]] = {}
+    for old, (group, new, moved) in RETIRED_TOOLS.items():
+        tool = registry.get_tool(group)
+        try:
+            today = {str(item.name): item for item in tool.as_langchain_tools()} if tool is not None else {}
+        except Exception:  # noqa: BLE001 - a group that can't build here
+            logger.debug("Learning couldn't list the %s tools for the serving shape", group, exc_info=True)
+            continue
+        if new in today and old not in today:
+            found[old] = (new, dict(moved), _openai_tool(today[new]))
+    return found
 
 
 def _sources() -> dict[str, str]:
@@ -228,15 +263,21 @@ def _build(serve_context: int) -> Envelope:
     parents: dict[str, str] = {}
     bound: set[str] = set()
     deferred: set[str] = set()
+    # Serving offers the rarely used tools on demand on every window, inside the core groups too (B1).
+    rare_groups = set(getattr(agent, "RARELY_USED_TOOL_GROUPS", ()))
+    rare_tools = set(getattr(agent, "RARELY_USED_TOOLS", ()))
     if profile == "small":
-        for group in sorted(agent.SMALL_PROFILE_CORE_GROUPS):
+        for group in sorted(set(agent.SMALL_PROFILE_CORE_GROUPS) - rare_groups):
             names = _tool_names(group)
-            bound |= names
-    for group in sorted(agent.ON_DEMAND_TOOL_GROUPS):
+            parents.update({name: group for name in names & rare_tools})
+            bound |= names - rare_tools
+    for group in sorted(set(agent.ON_DEMAND_TOOL_GROUPS) | (rare_groups if profile == "window" else set())):
         names = _tool_names(group)
         parents.update({name: group for name in names})
         if profile == "window":
             deferred |= names
+    if profile == "window":
+        deferred |= rare_tools
     root_guides = []
     for group, text in prompts.ROOT_TOOL_GUIDES:
         root_guides.append((group, frozenset(_tool_names(group)), text))
@@ -247,10 +288,12 @@ def _build(serve_context: int) -> Envelope:
                    and str(item.instructions or "").strip())
     removed, follows = _difference(prompts.get_agent_system_prompt(), prompts.get_agent_system_prompt(small_context=True))
     dropped: list[str] = []
+    headers: tuple[str, ...] = ()
     try:
         from row_bot.self_knowledge import ABOUT_ROW_BOT, SKILL_CREATION_GUIDANCE
 
         dropped += [str(ABOUT_ROW_BOT).strip(), str(SKILL_CREATION_GUIDANCE).strip()]
+        headers = (str(ABOUT_ROW_BOT).strip().split("\n", 1)[0],)  # "ABOUT YOU (SELF-KNOWLEDGE):"
     except Exception:  # noqa: BLE001
         logger.debug("Learning couldn't read the self-knowledge block for the serving shape", exc_info=True)
 
@@ -262,7 +305,8 @@ def _build(serve_context: int) -> Envelope:
         root_removed=removed if profile == "small" else "", root_follows=follows if profile == "small" else "",
         root_guides=tuple(root_guides) if profile == "small" else (), guides=guides if profile == "small" else (),
         guide_index=index, dropped_texts=tuple(item for item in dropped if item) if profile == "small" else (),
-        sources=_sources(), parents=parents,
+        dropped_headers=headers if profile == "small" else (),
+        sources=_sources(), parents=parents, retired=_retired(),
     )
 
 
@@ -344,7 +388,8 @@ def _render_system(parts: list[str], envelope: Envelope, bound_names: set[str], 
     if envelope.profile != "small" or not parts:
         return parts
     text = "\n\n".join(part for part in parts if part)
-    out = text
+    # The full prompt's self-knowledge section goes whole, in whichever version the row was captured with.
+    out = "\n\n".join(part for part in parts if part and not part.lstrip().startswith(envelope.dropped_headers))
     # The root's own TASKS and MEMORY guidance (the copy followed by the root's last part) goes.
     marker = envelope.root_removed + envelope.root_follows
     root_changed = bool(envelope.root_removed and envelope.root_follows and marker in out)
@@ -425,13 +470,57 @@ def _catalog(deferred: Sequence[Mapping[str, Any]], messages: Sequence[Mapping[s
     return records, known_ids
 
 
+def _today_s_tools(messages: list[dict[str, Any]], tools: list[dict[str, Any]], envelope: Envelope,
+                   stats: Stats) -> list[dict[str, Any]]:
+    """A captured row's calls to a retired tool, and its tool list, as today's tools (``RETIRED_TOOLS``)."""
+
+    retired = envelope.retired
+    if not retired:
+        return tools
+    used: set[str] = set()
+    for message in messages:
+        for call in message.get("tool_calls") or () if message.get("role") == "assistant" else ():
+            function = call.get("function") or {}
+            old = str(function.get("name") or "")
+            if old not in retired:
+                continue
+            new, moved, _ = retired[old]
+            arguments = _arguments(call)
+            arguments = {moved.get(key, key): value for key, value in arguments.items()} if isinstance(
+                arguments, Mapping) else arguments
+            call["function"] = {**function, "name": new, "arguments": json.dumps(arguments, ensure_ascii=False)}
+            used.add(new)
+            stats.calls_renamed += 1
+    kept = [tool for tool in tools if _name(tool) not in retired]
+    had = {_name(tool) for tool in kept}
+    if len(kept) < len(tools):  # the row offered a retired tool: it offers today's instead
+        used |= {retired[_name(tool)][0] for tool in tools if _name(tool) in retired}
+    schemas = {new: schema for new, _, schema in retired.values()}
+    return kept + [dict(schemas[name]) for name in sorted(used - had)]
+
+
+def kept_media(envelope: Envelope, saved: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """The media tools a chat keeps bound in this envelope once it makes media (M7): Row-Bot's own rule
+    (``agent.sticky_media_tools``) over the messages saved when the row's tool list was built. The small
+    and window profiles serve at 64K or less, Row-Bot's small tier, which keeps the media tools the chat
+    has called, and ``present``, bound by name. Full defers nothing."""
+
+    if envelope.profile == "full":
+        return frozenset()
+    from row_bot import agent
+
+    return agent.sticky_media_tools(list(saved), small=True).tools
+
+
 def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str, Any]] | None,
-           envelope: Envelope, *, agent: bool = True) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]] | None,
-                                                               Stats]:
+           envelope: Envelope, *, agent: bool = True,
+           keep: frozenset[str] = frozenset()) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]] | None,
+                                                         Stats]:
     """One row (its system sections, messages and tools, OpenAI format) in the serving shape.
 
     Raises :class:`RenderError` when a call goes to a deferred tool the bridge's search can't
     find. ``agent``: the row is an Agent request (its system sections are Row-Bot's agent prompt).
+    ``keep``: tools the chat keeps bound that the envelope would defer (:func:`kept_media`).
     """
 
     stats = Stats()
@@ -439,10 +528,14 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
     out_system = list(system)
     if envelope.profile == "full":
         return out_system, out_messages, None if tools is None else [dict(tool) for tool in tools], stats
-    captured = [dict(tool) for tool in tools or ()]
+
+    def defers(name: str) -> bool:
+        return envelope.defers(name) and name not in keep
+
+    captured = _today_s_tools(out_messages, [dict(tool) for tool in tools or ()], envelope, stats)
     names = [_name(tool) for tool in captured]
-    deferred = [tool for tool in captured if envelope.defers(_name(tool))]
-    bound_names = {name for name in names if not envelope.defers(name)}
+    deferred = [tool for tool in captured if defers(_name(tool))]
+    bound_names = {name for name in names if not defers(name)}
     loadable = "skill_load" in names
     if agent:
         out_system = _render_system(out_system, envelope, bound_names, loadable, stats)
@@ -455,7 +548,7 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
     records, known_ids = _catalog(deferred, out_messages, envelope)
     search_tool, invoke_tool = _bridge(list(records.values()), envelope.serve_context)
     stats.tools_deferred = len(deferred)
-    kept = [tool for tool in captured if not envelope.defers(_name(tool)) and _name(tool) not in ALWAYS_BOUND]
+    kept = [tool for tool in captured if not defers(_name(tool)) and _name(tool) not in ALWAYS_BOUND]
     later = [tool for tool in captured if _name(tool) in ALWAYS_BOUND - set(BRIDGES)]
     out_tools = kept + [_openai_tool(search_tool), _openai_tool(invoke_tool)] + later
 
@@ -476,7 +569,7 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
         if message.get("role") == "tool" and known_ids.get(str(message.get("tool_call_id") or "")) == "tool_search":
             found |= _found_in(message.get("content"))
         calls = message.get("tool_calls") or []
-        targets = [call for call in calls if envelope.defers(str((call.get("function") or {}).get("name") or ""))]
+        targets = [call for call in calls if defers(str((call.get("function") or {}).get("name") or ""))]
         if message.get("role") != "assistant" or not targets:
             rendered.append(message)
             continue
@@ -505,7 +598,7 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
         for call in calls:
             function = call.get("function") or {}
             name = str(function.get("name") or "")
-            if envelope.defers(name):
+            if defers(name):
                 arguments = {"name": name, "arguments": _arguments(call)}
                 call = {**call, "function": {"name": "tool_invoke",
                                              "arguments": json.dumps(arguments, ensure_ascii=False)}}
@@ -531,13 +624,17 @@ class ServedProblem:
 
 def serve_problem(system: Sequence[str], messages: Sequence[Mapping[str, Any]],
                   tools: Sequence[Mapping[str, Any]] | None, reference_calls: Iterable[str], envelope: Envelope, *,
-                  agent: bool = True) -> ServedProblem:
+                  agent: bool = True, keep: frozenset[str] = frozenset()) -> ServedProblem:
     """A replayed decision's prefix (system sections, OpenAI-format messages and tools) in the
     serving shape, with the tools its reference calls (``reference_calls``, direct names) that the
-    served model must first find. Raises :class:`RenderError` as :func:`render` does."""
+    served model must first find. ``keep`` as for :func:`render`. Raises :class:`RenderError` as
+    :func:`render` does."""
 
-    out_system, out_messages, out_tools, _ = render(system, messages, tools, envelope, agent=agent)
-    deferred = [dict(tool) for tool in tools or () if envelope.defers(_name(tool))]
+    def defers(name: str) -> bool:
+        return envelope.defers(name) and name not in keep
+
+    out_system, out_messages, out_tools, _ = render(system, messages, tools, envelope, agent=agent, keep=keep)
+    deferred = [dict(tool) for tool in tools or () if defers(_name(tool))]
     if envelope.profile == "full" or not deferred:
         return ServedProblem(out_system, out_messages, out_tools)
     records, _ = _catalog(deferred, [dict(message) for message in messages], envelope)
@@ -548,7 +645,7 @@ def serve_problem(system: Sequence[str], messages: Sequence[Mapping[str, Any]],
     for message in out_messages:
         if message.get("role") == "tool" and ids.get(str(message.get("tool_call_id") or "")) == "tool_search":
             found |= _found_in(message.get("content"))
-    need = frozenset(name for name in reference_calls if envelope.defers(name) and name not in found)
+    need = frozenset(name for name in reference_calls if defers(name) and name not in found)
 
     def search(arguments: Mapping[str, Any]) -> set[str]:
         try:
@@ -582,6 +679,7 @@ __all__ = [
     "bound_tool_names",
     "describe",
     "envelope_for",
+    "kept_media",
     "render",
     "serve_problem",
 ]

@@ -25,6 +25,11 @@ PROVIDER_NAMES = {
     "pasted": "Pasted text",
 }
 
+
+def source_words(source: str) -> str:
+    """Where imported memories came from, in words: the app's name, or "a pasted answer"."""
+    return "a pasted answer" if source == "pasted" else PROVIDER_NAMES.get(source, source)
+
 _HEADING_CATEGORIES: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = tuple(
     (re.compile(pattern, re.IGNORECASE), category, tags) for pattern, category, tags in (
         (r"instruction|how (?:to|you should) (?:respond|answer)|rules|corrections", "preference", ("instruction",)),

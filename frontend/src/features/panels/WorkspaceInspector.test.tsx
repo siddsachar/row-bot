@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import { createWorkspaceEditSessions } from './workspace-edit-sessions';
@@ -23,6 +24,7 @@ import {
   requestWorkspaceFile,
   takeWorkspaceFile,
 } from './workspace-file-requests';
+import { PHONE_LAYOUT } from '../../ui/use-media';
 
 const fixture: Inspector = {
   resource_id: 'workspace',
@@ -1550,5 +1552,74 @@ describe('checksStatus', () => {
     expect(checksStatus([{ ...check, result: 'failed' }], []).label).toBe(
       'Checks failed',
     );
+  });
+});
+
+/** A phone-width window, as `usePhone` reads it. */
+function onPhoneWidth() {
+  const media = vi.mocked(window.matchMedia);
+  const original = media.getMockImplementation();
+  media.mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === PHONE_LAYOUT,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  return () => media.mockImplementation(original!);
+}
+
+describe('on a phone', () => {
+  it('reads Changes and Files only; the branch and checks chips say Git and Run are on the computer', async () => {
+    const restore = onPhoneWidth();
+    try {
+      const renderGit = vi.fn(() => <p>Git owner</p>);
+      const renderRun = vi.fn(() => <p>Run owner</p>);
+      render(
+        <MemoryRouter>
+          <WorkspaceInspector
+            {...props()}
+            renderGit={renderGit}
+            renderRun={renderRun}
+            editableFile={vi.fn()}
+            saveFile={vi.fn()}
+          />
+        </MemoryRouter>,
+      );
+      const tabs = await screen.findByRole('tablist', {
+        name: 'Developer inspector',
+      });
+      expect(
+        within(tabs)
+          .getAllByRole('tab')
+          .map((tab) => tab.textContent),
+      ).toEqual(['Changes1003', 'Files']);
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Branch fixture. Open Git' }),
+      );
+      const git = screen.getByRole('region', { name: 'Git' });
+      expect(git).toHaveTextContent('Open this on your computer');
+      expect(git).toHaveTextContent(
+        'Branches, commits and pushes need a bigger screen.',
+      );
+      expect(screen.queryByText('Git owner')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: /Checks/ }));
+      expect(screen.getByRole('region', { name: 'Run' })).toHaveTextContent(
+        'Running commands and checks needs a bigger screen.',
+      );
+      expect(screen.queryByText('Run owner')).toBeNull();
+      expect(renderGit).not.toHaveBeenCalled();
+      expect(renderRun).not.toHaveBeenCalled();
+
+      // A file reads; editing it stays on the computer.
+      await openFile();
+      expect(screen.queryByRole('button', { name: 'Edit file' })).toBeNull();
+    } finally {
+      restore();
+    }
   });
 });

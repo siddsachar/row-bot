@@ -409,10 +409,12 @@ def _check_events(events: Any) -> Any:
             return
 
 
-def agent_tool_turn(model_ref: str, *, timeout: float = CHECK_SECONDS) -> dict[str, Any]:
+def agent_tool_turn(model_ref: str, *, timeout: float = CHECK_SECONDS, prompt: str = CHECK_PROMPT,
+                    tools: tuple[str, ...] = CHECK_TOOLS, expected: str = CHECK_ANSWER) -> dict[str, Any]:
     """One real Agent turn with the model: Row-Bot's own prompt, runtime and the calculator tool, on a
     throwaway conversation that is never saved (no chat appears, Learning records nothing of it) and
-    is removed afterwards. Passes when a tool was called and the answer holds its result."""
+    is removed afterwards. Passes when a tool was called and the answer holds its result. A model's check
+    (C1 Part 4) asks its own small sample the same way (``prompt``, ``tools``, ``expected``)."""
 
     from row_bot import agent
     from row_bot import threads
@@ -435,7 +437,7 @@ def agent_tool_turn(model_ref: str, *, timeout: float = CHECK_SECONDS) -> dict[s
     timer.start()
     try:
         with use_cancellation_scope(scope):
-            turn = list(_check_events(agent.stream_agent(CHECK_PROMPT, list(CHECK_TOOLS), config, stop_event=stop)))
+            turn = list(_check_events(agent.stream_agent(prompt, list(tools), config, stop_event=stop)))
         for event, payload in turn:
             if event == "tool_call":
                 name = getattr(payload, "runtime_name", "") or getattr(payload, "raw_name", "") or (
@@ -462,8 +464,8 @@ def agent_tool_turn(model_ref: str, *, timeout: float = CHECK_SECONDS) -> dict[s
         except Exception:
             logger.debug("Learning couldn't tidy its check conversation", exc_info=True)
     digits = "".join(ch for ch in answer if ch.isdigit())
-    passed = bool(calls) and CHECK_ANSWER in digits and not errors
-    return {"ok": passed, "tool_calls": len(calls), "tools": calls[:5], "answered": CHECK_ANSWER in digits,
+    passed = bool(calls) and expected in digits and not errors
+    return {"ok": passed, "tool_calls": len(calls), "tools": calls[:5], "answered": expected in digits,
             "errors": errors[:3], "timed_out": stop.is_set(), "seconds": round(time.monotonic() - started, 1)}
 
 
@@ -528,7 +530,10 @@ def serve(
             logger.warning("Learning couldn't refresh the local model catalog", exc_info=True)
         if save_model_settings is None:
             from row_bot.models import set_local_model_settings as save_model_settings
-        save_model_settings(served, context=int(serve_context), reasoning="off")
+        from row_bot.models import LEARNING_OWNER
+
+        # Marked Learning's (#1045): the person's settings sheet and the family presets leave it as trained.
+        save_model_settings(served, context=int(serve_context), reasoning="off", owner=LEARNING_OWNER)
         reference = make_ref("ollama", served)
         probe = dict(verifier.probe(reference, runtime=runtime, model_id=served))
     else:

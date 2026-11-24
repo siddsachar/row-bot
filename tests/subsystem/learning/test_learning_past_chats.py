@@ -30,12 +30,14 @@ class FakeChats:
     def __init__(self) -> None:
         self.created: dict[str, float] = {}
         self.saved: dict[str, list] = {}
+        self.forked_from: dict[str, str] = {}
         self.checkpoints: dict[str, list[tuple[float, int]]] = {}
         self.reads: list[str] = []
         self.checkpoint_reads: list[int] = []
 
     def add(self, thread_id: str, created_at: float, messages: list,
-            checkpoints: list[tuple[float, int]] | None = None) -> None:
+            checkpoints: list[tuple[float, int]] | None = None, forked_from: str = "") -> None:
+        self.forked_from[thread_id] = forked_from
         self.created[thread_id] = created_at
         self.saved[thread_id] = list(messages)
         self.checkpoints[thread_id] = list(checkpoints or [(created_at, len(messages))])
@@ -47,7 +49,10 @@ class FakeChats:
 
     def messages(self, thread_id: str) -> list:
         self.reads.append(thread_id)
-        return list(self.saved[thread_id])
+        return list(self.saved.get(thread_id, []))  # a deleted conversation has none
+
+    def fork_source(self, thread_id: str) -> str:
+        return self.forked_from.get(thread_id, "")
 
     def window_start(self, thread_id: str, since: float, created_at: float) -> tuple[int, float]:
         if created_at >= since:
@@ -118,6 +123,60 @@ def test_past_chats_in_the_window_become_partial_historical_episodes(learning_on
     assert tool.untrusted is True and tool.tool_name == "read_file"
     assert FAKE_KEY not in str(read_json_blob(store, tool.arguments_blob))
     assert store.find("signal") == []
+
+
+def test_live_voices_own_lines_are_never_read_as_replies_and_an_answer_to_one_follows_none(learning_on, clock,
+                                                                                         chats, source):
+    store = LearningStore(learning_on, clock=clock)
+    chats.chat("talk")
+    front = {"voice_front": True}  # a line Live voice's speech model said itself (V4)
+    source.add("talk", clock() - 2 * DAY, [
+        HumanMessage(content="Hi there", id="h1"),
+        AIMessage(content="Hi! What can I do?", id="f1", additional_kwargs=front),
+        HumanMessage(content="What's on my calendar today?", id="h2"),
+        AIMessage(content="A dentist at 10.", id="a2"),
+        HumanMessage(content="Thanks", id="h3"),
+        AIMessage(content="You're welcome.", id="f3", additional_kwargs=front),
+        HumanMessage(content="No, I meant tomorrow", id="h4"),
+        AIMessage(content="Tomorrow is free.", id="a4"),
+    ])
+
+    _run(store, source, chats, clock)
+
+    greeting, calendar, thanks, tomorrow = sorted(store.find("episode"), key=lambda item: item.started_at)
+    replies = {item.episode_id: item for item in store.find("decision") if item.kind == "model_call"}
+    # Only Row-Bot's model's replies are read as replies to learn from.
+    assert set(replies) == {calendar.id, tomorrow.id}
+    # A message after a voice line answered that line; one after Row-Bot's reply follows the reply.
+    assert (calendar.follows_decision_id, tomorrow.follows_decision_id) == (None, None)
+    assert thanks.follows_decision_id == replies[calendar.id].id
+    assert greeting.follows_decision_id is None
+
+
+def test_an_imported_chat_that_quoted_another_goes_when_that_one_is_excluded(learning_on, clock, chats, source):
+    from row_bot.learning import scope
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY
+    from tests.fixtures.learning import all_blob_text
+
+    store = LearningStore(learning_on, clock=clock)
+    secret = "the boat is moored at pier nine"
+    quoting = _chat("Where did I moor the boat?")
+    quoting[2] = ToolMessage(content=f'[Match 1] Thread: "Sailing" | Person: {secret}', tool_call_id="c1",
+                             name="search_conversations", id="t-quote",
+                             additional_kwargs={QUOTED_CONVERSATIONS_KEY: ["sailing"]})
+    chats.chat("asks").chat("plain")
+    source.add("asks", clock() - 5 * DAY, quoting)
+    source.add("plain", clock() - 4 * DAY, _chat())
+    _run(store, source, chats, clock)
+    # Each imported step names the whole stored conversation, so each holds the quoted chat's words.
+    asked = [item for item in store.find("decision") if item.thread_id == "asks"]
+    assert asked and {item.quoted_thread_ids for item in asked} == {("sailing",)}
+    assert secret in all_blob_text(learning_on)
+
+    scope.set_chat_opt_out("sailing", True, store=store)
+
+    assert {item.thread_id for item in store.find("decision")} == {"plain"}
+    assert secret not in all_blob_text(learning_on)
 
 
 def test_the_import_resumes_where_it_stopped_and_never_imports_a_conversation_twice(learning_on, clock, chats, source):
@@ -384,3 +443,55 @@ def test_a_paused_learning_reads_no_past_chats_and_pausing_stops_the_import(lear
     assert result == past_chats.ImportProgress(total=2, done=1, state="stopped")
     save_learning_settings(learning_on, paused=False)
     assert _run(store, source, chats, clock) == past_chats.ImportProgress(total=2, done=2, state="ready")
+
+
+def test_a_fork_s_copied_turns_are_read_once_with_its_source_and_its_own_turns_with_it(learning_on, clock, chats,
+                                                                                       source):
+    # Edit and resend / Fork from here copy the source's messages (same ids) into a new conversation.
+    store = LearningStore(learning_on, clock=clock)
+    chats.chat("original").chat("fork")
+    original = _chat()
+    source.add("original", clock() - 5 * DAY, original)
+    new_turn = [HumanMessage(content="And the third?", id="h3-fork"), AIMessage(content="Call Ana.", id="c3-fork")]
+    source.add("fork", clock() - 2 * DAY, [*original[:4], *new_turn], forked_from="original")
+
+    _run(store, source, chats, clock)
+
+    by_chat = {}
+    for item in store.find("episode"):
+        by_chat[item.thread_id] = by_chat.get(item.thread_id, 0) + 1
+    assert by_chat == {"original": 2, "fork": 1}  # the copied first turn isn't read twice
+
+
+def test_a_fork_whose_source_was_deleted_keeps_its_copied_turns(learning_on, clock, chats, source):
+    store = LearningStore(learning_on, clock=clock)
+    chats.chat("fork")
+    copied = _chat()
+    source.add("fork", clock() - 2 * DAY, copied, forked_from="gone")
+
+    _run(store, source, chats, clock)
+
+    assert len(store.find("episode")) == 2  # it holds the only copy
+
+
+def test_a_real_fork_names_its_source_and_its_copied_turns_are_read_once(learning_on, clock):
+    original = f"past-{uuid.uuid4().hex[:10]}"
+    threads.create_thread("A chat", thread_id=original, seed_default_skills=False)
+    assert threads.append_checkpoint_messages(original, [
+        HumanMessage(content="Plan my week", id=f"{original}-h"),
+        AIMessage(content="Here is a plan.", id=f"{original}-a"),
+        HumanMessage(content="Add a gym day", id=f"{original}-h2"),
+        AIMessage(content="Added Thursday.", id=f"{original}-a2"),
+    ])
+    forked = threads.fork_conversation(original, at_message_id=f"{original}-a", include_message=True)
+    source = past_chats.SavedChats()
+    assert (source.fork_source(forked.conversation_id), source.fork_source(original)) == (original, "")
+
+    class OnlyThese(past_chats.SavedChats):
+        def conversations(self, since):
+            return [item for item in super().conversations(since) if item[0] in (original, forked.conversation_id)]
+
+    store = LearningStore(learning_on)
+    past_chats.run_import(store=store, source=OnlyThese(), busy=lambda: False, wait=lambda s: None)
+    assert len(store.find("episode", thread_id=original)) == 2
+    assert store.find("episode", thread_id=forked.conversation_id) == []  # only copies so far

@@ -6,6 +6,7 @@ import type {
   LearningComparison,
   LearningDownload,
   LearningHardware,
+  LearningModelSearch,
   LearningMethod,
   LearningOvernight,
   LearningPersonalModel,
@@ -34,6 +35,7 @@ export function learningSnapshot(
       limit_tokens: 2_000_000,
       resets_on: '2026-11-01',
       model_name: 'GPT-5.6 Sol',
+      kept_for_comparing: 0,
       limit_reached: false,
     },
     quiet_hours: { window_start: 1, window_end: 5, next_look_at: null },
@@ -259,6 +261,7 @@ export function fakeIO(
   snapshot: LearningSnapshot | null,
   options: {
     hardware?: LearningHardware;
+    models?: LearningModelSearch;
     after?: (
       action: string,
       fields: Record<string, unknown>,
@@ -288,6 +291,10 @@ export function fakeIO(
       return receipt;
     }),
     hardware: vi.fn(async () => options.hardware ?? GPU_16GB),
+    models: vi.fn(
+      async (search: string) =>
+        options.models ?? { query: search, models: [], failure: null },
+    ),
     lessons: vi.fn(async () => ({ items: [], total: 0 })),
     conversation: vi.fn(async (id: string) => ({
       conversation_id: id,

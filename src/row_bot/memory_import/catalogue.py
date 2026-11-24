@@ -66,12 +66,14 @@ SOURCES: tuple[SourceInfo, ...] = (
     SourceInfo(
         "chatgpt", "ChatGPT", "history", True,
         "In ChatGPT open Settings › Data controls › Export data; the emailed link lasts 24 hours. "
-        "The zip holds your chats and custom instructions but not saved memories, so also paste the prompt.",
+        "Row-Bot reads your chats and custom instructions from the zip. ChatGPT shows its saved memories in "
+        "Settings › Personalization › Memory: to bring them too, also paste the prompt.",
     ),
     SourceInfo(
         "gemini", "Gemini", "history", True,
         "At takeout.google.com choose only My Activity › Gemini Apps, switch its format from HTML to JSON, "
-        "and add the zip. Saved info is not in it, so also paste the prompt.",
+        "and add the zip; Row-Bot reads your chats from it. To bring what Gemini has saved about you too, "
+        "also paste the prompt.",
     ),
     SourceInfo(
         "copilot", "Microsoft Copilot", "history", True,

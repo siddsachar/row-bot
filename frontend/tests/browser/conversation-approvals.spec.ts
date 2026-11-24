@@ -91,15 +91,16 @@ test('Hands-off is turned on once, on purpose, and reads in words while on', asy
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
 });
 
-test('on a phone the levels sit under + and Hands-off still shows', async ({
+test('on a phone the levels sit under + › Chat settings and Hands-off still shows', async ({
   page,
 }, info) => {
   await forgetFullAutonomy(page);
   await page.setViewportSize(PHONE);
   await newConversation(page);
   await page.getByRole('button', { name: 'Add files and more' }).click();
-  await page.getByRole('menuitem', { name: /^Approvals/ }).press('ArrowRight');
-  const levels = page.getByRole('menu').last();
+  await page.getByRole('menuitem', { name: /^Chat settings/ }).press('Enter');
+  await page.getByRole('menuitem', { name: /^Approvals/ }).press('Enter');
+  const levels = page.getByRole('menu', { name: 'Approvals' });
   await expect(levels.getByRole('menuitemradio')).toHaveText([
     /^Ask/,
     /^Auto/,

@@ -160,24 +160,33 @@ test('Train now, progress, pause on use, it continues, Stop; Row-Bot closing mid
   await shoot(page, info, 'model-training');
 
   await page.goto('/app-v2/?tab=monitor');
-  const row = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Personal model v1' });
-  await expect(row.getByText('Training · step 340 of 1,000')).toBeVisible();
-  await expect(
-    row.getByRole('button', { name: 'Stop training personal model v1' }),
-  ).toBeVisible();
-  await row.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-  await shoot(page, info, 'monitor-training');
-
   if (phone(info))
-    await page.getByRole('button', { name: 'Toggle navigation' }).click();
-  const buddy = page.getByRole('complementary', { name: 'Buddy companion' });
-  await expect(buddy.getByRole('status')).toHaveText(LINE, {
-    timeout: 15_000,
-  });
-  await shoot(page, info, 'buddy-training');
-  if (phone(info)) await page.keyboard.press('Escape');
+    // Monitor is on the computer (D5): a phone says so.
+    await expect(
+      page.getByRole('region', { name: 'System Monitor' }),
+    ).toContainText('Open this on your computer');
+  else {
+    const row = page
+      .getByRole('listitem')
+      .filter({ hasText: 'Personal model v1' });
+    await expect(row.getByText('Training · step 340 of 1,000')).toBeVisible();
+    await expect(
+      row.getByRole('button', { name: 'Stop training personal model v1' }),
+    ).toBeVisible();
+    await row.evaluate((element) =>
+      element.scrollIntoView({ block: 'center' }),
+    );
+    await shoot(page, info, 'monitor-training');
+  }
+
+  // Buddy's line shows in the sidebar; a phone has no sidebar or drawer (D1).
+  if (!phone(info)) {
+    const buddy = page.getByRole('complementary', { name: 'Buddy companion' });
+    await expect(buddy.getByRole('status')).toHaveText(LINE, {
+      timeout: 15_000,
+    });
+    await shoot(page, info, 'buddy-training');
+  }
 
   // Pause on use: "Pausing after this step…" until it really has paused.
   await openModel(page);

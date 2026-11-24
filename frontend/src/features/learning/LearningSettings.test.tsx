@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { SettingsSnapshot } from '../../api/types';
@@ -268,6 +269,34 @@ it('a card too small to train says so plainly and offers Hugging Face (O124)', a
   expect(screen.queryByRole('dialog', { name: /^Download/ })).toBeNull();
 });
 
+it('the setup sheet turns Learning on with no monthly limit and says what that means', async () => {
+  const io = fakeIO(learningSnapshot(), {
+    hardware: SMALL_GPU,
+    after: (action) => (action === 'turn_on' ? { state: 'on' } : {}),
+  });
+  show(io);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Turn on Learning' }));
+  const sheet = await screen.findByRole('dialog', { name: 'Turn on Learning' });
+  fireEvent.change(
+    within(sheet).getByRole('combobox', { name: 'Monthly limit' }),
+    { target: { value: 'none' } },
+  );
+  expect(
+    within(sheet).getByText(
+      "No monthly cap: nothing limits Learning's spending, comparing methods included. What it spends still shows each month. Local models don't count.",
+    ),
+  ).toBeVisible();
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Turn on Learning' }),
+  );
+
+  expect(await screen.findByText('Learning is on.')).toBeVisible();
+  expect(io.run).toHaveBeenCalledWith('turn_on', {
+    setup: expect.objectContaining({ monthly_token_limit: null }),
+  });
+});
+
 it('on: its settings, and turning Learning off asks with what stays', async () => {
   const io = fakeIO(
     learningSnapshot({
@@ -301,7 +330,7 @@ it('on: its settings, and turning Learning off asks with what stays', async () =
   expect(screen.getAllByText('Not downloaded')).toHaveLength(2);
   const limit = screen.getByRole('combobox', { name: 'Monthly limit' });
   expect(limit).toHaveDisplayValue('2M tokens');
-  // A large subscription can give Learning up to 50M tokens a month.
+  // A large subscription can give Learning up to 50M tokens a month, any amount up to 1,000M, or no limit.
   expect(
     within(limit)
       .getAllByRole('option')
@@ -314,6 +343,8 @@ it('on: its settings, and turning Learning off asks with what stays', async () =
     '10M tokens',
     '20M tokens',
     '50M tokens',
+    'Custom amount…',
+    'No limit',
     'No model calls',
   ]);
 
@@ -322,11 +353,171 @@ it('on: its settings, and turning Learning off asks with what stays', async () =
     name: 'Turn off Learning?',
   });
   expect(confirm).toHaveAccessibleDescription(
-    'Row-Bot stops recording, testing and training. Changes and models in use stay in use (undo them in Learning). Your learning data is kept until you delete it.',
+    'Row-Bot stops recording, testing and training. Changes and models in use stay in use: to take one out, undo it in Learning first, or turn Learning on again later. Your learning data is kept until you delete it.',
   );
   fireEvent.click(within(confirm).getByRole('button', { name: 'Turn off' }));
   await act(async () => undefined);
   expect(io.run).toHaveBeenCalledWith('turn_off');
+});
+
+it('a Pause or Resume that takes a while says so, and is not sent twice', async () => {
+  const io = fakeIO(learningSnapshot({ state: 'on' }), {
+    after: (action) => ({ state: action === 'pause' ? 'paused' : 'on' }),
+  });
+  // Each command waits until the test lets it finish, as on a large profile.
+  const answer = io.run;
+  let finish = () => {};
+  io.run = vi.fn(
+    (...args: Parameters<LearningIO['run']>) =>
+      new Promise<Awaited<ReturnType<LearningIO['run']>>>((resolve) => {
+        finish = () => resolve(answer(...args));
+      }),
+  );
+  show(io);
+  const user = userEvent.setup();
+  const more = () => screen.getByRole('button', { name: 'More for Learning' });
+
+  await user.click(more());
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Pause Learning' }),
+  );
+  expect(screen.getByText('Pausing Learning…')).toBeVisible();
+  await user.click(more());
+  expect(
+    await screen.findByRole('menuitem', { name: 'Pause Learning' }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await user.keyboard('{Escape}');
+  await act(async () => finish());
+  expect(screen.getByText('Learning paused')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Resume' }));
+  expect(screen.getByText('Resuming Learning…')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
+  await act(async () => finish());
+  expect(screen.getByText('Learning on')).toBeVisible();
+  expect(io.run).toHaveBeenCalledTimes(2);
+});
+
+/** A Learning settings mutation whose reviews and saves complete. */
+function savingMutation(): SettingsMutationIO {
+  return {
+    ...mutation('learning'),
+    review: vi.fn<SettingsMutationIO['review']>(async (request) => ({
+      schema_version: 1,
+      operation: 'settings.update',
+      settings_revision: request.settings_revision,
+      page: request.page,
+      field: request.field,
+      value_summary: String(request.value),
+      secret: false,
+      action_digest: 'd'.repeat(64),
+      review_id: 'review-limit',
+    })),
+    execute: vi.fn<SettingsMutationIO['execute']>(
+      async (_request, _review, commandId) => ({
+        command_id: commandId,
+        status: 'completed',
+        settings_revision: 'c'.repeat(64),
+        snapshot: { revision: 'c'.repeat(64) } as SettingsSnapshot,
+      }),
+    ),
+  };
+}
+
+it('the monthly limit takes a custom amount at once and asks before No limit', async () => {
+  const learningMutation = savingMutation();
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <LearningSettings
+          io={fakeIO(learningSnapshot({ state: 'on' }))}
+          preferences={preferences}
+          preferencesMutation={mutation('preferences')}
+          learning={{ ...learningSettings, enabled: true }}
+          learningMutation={learningMutation}
+          onSettingsChanged={vi.fn()}
+          onOpenLearning={vi.fn()}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+  const limit = screen.getByRole('combobox', { name: 'Monthly limit' });
+
+  fireEvent.change(limit, { target: { value: 'custom' } });
+  const amount = screen.getByRole('textbox', {
+    name: 'Custom monthly limit, in millions of tokens',
+  });
+  fireEvent.change(amount, { target: { value: '75' } });
+  fireEvent.keyDown(amount, { key: 'Enter' });
+  expect(
+    await screen.findByText('Monthly limit set to 75M tokens'),
+  ).toBeVisible();
+  expect(learningMutation.review).toHaveBeenLastCalledWith(
+    {
+      settings_revision: 'b'.repeat(64),
+      page: 'learning',
+      field: 'monthly_token_limit',
+      value: 75_000_000,
+    },
+    expect.anything(),
+  );
+
+  fireEvent.change(limit, { target: { value: 'none' } });
+  const ask = screen.getByRole('group', { name: 'Confirm Monthly limit' });
+  expect(ask).toHaveTextContent(
+    "With no limit, nothing caps what Learning spends each month, comparing methods included: it can use as many of your default model's tokens as it needs. What it spends still shows here each month.",
+  );
+  expect(learningMutation.review).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(ask).getByRole('button', { name: 'Change it' }));
+  expect(
+    await screen.findByText('Learning has no monthly limit now'),
+  ).toBeVisible();
+  expect(learningMutation.review).toHaveBeenLastCalledWith(
+    expect.objectContaining({ field: 'monthly_token_limit', value: null }),
+    expect.anything(),
+  );
+});
+
+it('with no monthly limit, what this month used still shows', () => {
+  const io = fakeIO(
+    learningSnapshot({
+      state: 'on',
+      spending: {
+        ...learningSnapshot().spending,
+        used_tokens: 3_000_000,
+        limit_tokens: null,
+      },
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <LearningSettings
+          io={io}
+          preferences={preferences}
+          preferencesMutation={mutation('preferences')}
+          learning={{
+            ...learningSettings,
+            enabled: true,
+            monthly_token_limit: null,
+          }}
+          learningMutation={mutation('learning')}
+          onSettingsChanged={vi.fn()}
+          onOpenLearning={vi.fn()}
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByText('3M tokens this month (no limit)')).toBeVisible();
+  expect(
+    screen.getByText('3M tokens used this month (no limit)'),
+  ).toBeVisible();
+  const limit = screen.getByRole('combobox', { name: 'Monthly limit' });
+  expect(limit).toHaveDisplayValue('No limit');
+  expect(limit).toHaveAccessibleDescription(
+    /No monthly cap: nothing limits Learning's spending, comparing methods included\. What it spends still shows each month\./,
+  );
 });
 
 it('an earlier Download answer reads as Ready to download, and a pairing-only channel is explained', () => {

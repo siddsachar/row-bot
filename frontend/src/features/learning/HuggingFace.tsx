@@ -222,8 +222,17 @@ export function HuggingFaceModels({
           <span>
             <span>
               {model.name} · {model.licence}
-              {model.recommended ? ' · Recommended' : ''}
+              {model.recommended
+                ? ' · Recommended'
+                : model.certified
+                  ? ''
+                  : ' · Not certified'}
             </span>
+            {!model.certified && (
+              <small>
+                Checked on this computer. Its time and price are estimates.
+              </small>
+            )}
             {model.runs_here_gb ? (
               <small>
                 Runs on this computer after: needs about{' '}
@@ -530,6 +539,19 @@ export function HuggingFaceCard({
                     : last.cleanup_failed
                       ? ' · deleting its files on Hugging Face didn’t work yet; Row-Bot tries again'
                       : ''}
+                  {last.model_kept && (
+                    <>
+                      {
+                        ' · the model it trained stays in your Hugging Face account, to download or delete there'
+                      }
+                      {last.model_url && (
+                        <>
+                          {' · '}
+                          <External href={last.model_url}>Open it</External>
+                        </>
+                      )}
+                    </>
+                  )}
                 </dd>
               </div>
             )}

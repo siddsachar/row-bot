@@ -886,7 +886,7 @@ def browser_download(ref: str) -> str:
 
 
 def browser_screenshot(full_page: bool = False) -> str:
-    """Show the person a picture of this chat's page (saved to the chat's files)."""
+    """A picture of this chat's page, saved to the chat's files as a working file."""
 
     thread_id = _get_thread_id()
     session = _session_manager.get_session(thread_id)
@@ -904,10 +904,10 @@ def browser_screenshot(full_page: bool = False) -> str:
         return words
     # Its own name, so a later step (x_post, media_find) can tell one screenshot from another.
     name = f"screenshot-{datetime.now():%Y-%m-%d-%H%M%S}" + (".png" if image.startswith(b"\x89PNG") else ".jpg")
-    if not _show_image(image, name):
-        return "The screenshot was taken but couldn't be shown in the chat."
+    if not _keep_image(image, name):
+        return "The screenshot was taken but couldn't be saved in the chat."
     _keep_picture(session, thread_id)
-    return f"{words} Saved to this chat's files as {name} and shown to the person."
+    return f"{words} Saved to this chat's files as {name}, a working file: present shows it to the person."
 
 
 def browser_viewport(preset: str, device_scale: float | None = None) -> str:
@@ -926,15 +926,15 @@ def browser_viewport(preset: str, device_scale: float | None = None) -> str:
         return _failure(exc)
 
 
-def _show_image(image: bytes, name: str = "") -> bool:
-    """Show a picture in the chat and save it to the conversation's files, as a generated image is."""
+def _keep_image(image: bytes, name: str = "") -> bool:
+    """Save a picture to the conversation's files as a working file (``present`` shows it to the person)."""
 
     import base64
 
     try:
         from row_bot.tools.image_gen_tool import _set_pending_image
 
-        _set_pending_image(base64.b64encode(image).decode("ascii"), name)
+        _set_pending_image(base64.b64encode(image).decode("ascii"), name, "working")
         return True
     except Exception:
         return False
@@ -964,15 +964,7 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         capture = _recording(thread_id)
         if capture is None:
             return "Row-Bot's browser isn't being recorded in this chat: start a recording first."
-        from row_bot.sound import speaking_seconds
-
-        at = capture.beat(beat, note, line)
-        said = speaking_seconds(line)
-        return (f"Marked {beat} at {recordings.clock_words(at)}"
-                + {"live": ": shown as it happens.", "work": ": sped up in the video.",
-                   "cut": ": left out of the video."}[beat]
-                + (f" Its line takes about {said:.0f} s to say: stay on this step about that long." if beat == "live"
-                   and said >= 1 else ""))
+        return recordings.beat_words(beat, capture.beat(beat, note, line), line)
     if action == "stop":
         record = recordings.active_for(thread_id, "browser")
         if record is None:
@@ -1168,7 +1160,7 @@ _TOOLS: tuple[tuple[Any, str, str, type[BaseModel] | None], ...] = (
     (browser_download, "browser_download", "Download a file by clicking its link; it's kept in this chat's files.",
      _DownloadInput),
     (browser_screenshot, "browser_screenshot",
-     "Show the person a picture of the page in the chat (saved to its files).", _ScreenshotInput),
+     "Take a picture of the page, saved to this chat's files (present shows it to the person).", _ScreenshotInput),
     (browser_viewport, "browser_viewport",
      "Show the page at a phone, tablet or desktop size to check a responsive layout.", _ViewportInput),
     (browser_record, "browser_record",

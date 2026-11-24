@@ -766,6 +766,20 @@ def test_review_save_receipt_and_retry_preserve_unrelated_values(api):
     assert observed.status_code == 200 and observed.json() == receipt
 
 
+def test_the_wake_word_is_off_until_turned_on_and_the_host_reads_the_saved_choice(api):
+    from row_bot.voice.wake import wake_word_enabled
+
+    client, headers, _, _ = api
+    before = client.get(BASE, headers=headers).json()
+    assert before["voice"]["runtime"]["wake_word"] is False and wake_word_enabled() is False
+    request = {"settings_revision": before["revision"], "page": "voice",
+               "field": "runtime.wake_word", "value": True}
+    response = _execute(client, headers, request, _review(client, headers, request))
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["voice"]["runtime"]["wake_word"] is True
+    assert wake_word_enabled() is True
+
+
 def test_secret_review_and_receipt_never_echo_plaintext(api):
     client, headers, _, secret_state = api
     before = client.get(BASE, headers=headers).json()
@@ -1029,6 +1043,30 @@ def test_voice_test_is_no_longer_a_settings_action_on_the_host(api, monkeypatch)
     assert refused.status_code == 409, refused.text
     assert refused.json()["code"] == "settings_action_unavailable"
     assert not calls
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("runtime.talk_auto_start", True),
+    ("runtime.realtime_fallback_to_local", False),
+    ("runtime.speech_output_voice", "af_bella"),
+    ("tts.enabled", True),
+    ("tts.auto_speak", False),
+])
+def test_removed_voice_settings_are_neither_shown_nor_saved(api, field, value):
+    """Nothing read these: Talk never auto-started or fell back, Kokoro's voice is tts.voice, and Read aloud
+    is a button on each reply, not a switch."""
+    client, headers, data, _ = api
+    snapshot = client.get(BASE, headers=headers).json()
+    voice = snapshot["voice"]
+    assert set(voice["runtime"]).isdisjoint({"talk_auto_start", "realtime_fallback_to_local", "speech_output_voice"})
+    assert set(voice["tts"]) == {"installed", "voice", "speed", "language_voices"}
+    assert field not in snapshot["defaults"]["voice"]
+    before = _tree(data)
+    refused = client.post(BASE + "/review", headers=headers, json={
+        "settings_revision": snapshot["revision"], "page": "voice", "field": field, "value": value})
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "settings_action_unavailable"
+    assert _tree(data) == before
 
 
 @pytest.mark.parametrize(
@@ -2161,3 +2199,70 @@ def test_resetting_tool_settings_unreadable_since_start_says_the_workspace_is_th
     assert not path.exists()
     assert registry.get_tool_config("filesystem", "workspace_root") == ""
     assert [item.read_text(encoding="utf-8") for item in data.glob("tools_config.unreadable-*.json")] == [unreadable]
+
+
+def _set_voice(client, headers, field: str, value):
+    snapshot = client.get(BASE, headers=headers).json()
+    request = {"settings_revision": snapshot["revision"], "page": "voice", "field": field, "value": value}
+    response = _execute(client, headers, request, _review(client, headers, request))
+    assert response.status_code == 200 and response.json()["status"] == "completed", response.text
+    return client.get(BASE, headers=headers).json()["voice"]
+
+
+def test_the_voice_language_and_a_voice_per_language_are_saved_and_read_back(api):
+    """V8: Settings › Voice › Language for Talk, Dictate and voice notes, and the voice for each other language."""
+    client, headers, data, _ = api
+    voice = client.get(BASE, headers=headers).json()["voice"]
+    assert voice["runtime"]["speech_language"] == "auto"
+    assert voice["language"]["options"][0] == {"value": "auto", "label": "Detect automatically"}
+    assert {"value": "ar", "label": "Arabic"} in voice["language"]["options"]
+    assert voice["language"]["spoken"] == ["en", "es", "fr", "hi", "it", "pt"]
+    voice = _set_voice(client, headers, "runtime.speech_language", "fr")
+    assert voice["runtime"]["speech_language"] == "fr"
+    assert json.loads((data / "voice_runtime_settings.json").read_text("utf-8"))["speech_language"] == "fr"
+    voice = _set_voice(client, headers, "tts.language_voices.es", "em_alex")
+    assert voice["tts"]["language_voices"] == {"es": "em_alex", "fr": "ff_siwis", "hi": "hf_alpha",
+                                               "it": "if_sara", "pt": "pf_dora"}
+    saved = json.loads((data / "tts_settings.json").read_text("utf-8"))
+    assert saved["language_voices"] == {"es": "em_alex"} and saved["voice"] == "af_bella"
+    snapshot = client.get(BASE, headers=headers).json()
+    before = _tree(data)
+    for field, value in (("runtime.speech_language", "xx"), ("tts.language_voices.es", "ff_siwis"),
+                         ("tts.language_voices.de", "ff_siwis")):
+        refused = client.post(BASE + "/review", headers=headers, json={
+            "settings_revision": snapshot["revision"], "page": "voice", "field": field, "value": value})
+        assert refused.status_code == 422 and refused.json()["code"] == "invalid_settings_command", field
+    assert _tree(data) == before
+
+
+def test_an_english_only_talk_model_says_so_for_another_language_and_offers_whisper(api):
+    """No silent switch: Settings names the engine, what it understands and the engines that would."""
+    from row_bot.voice import languages
+
+    client, headers, data, _ = api
+    _write(data / "voice_runtime_settings.json", {"talk_model": "local-moonshine-base-en", "speech_language": "fr"})
+    voice = client.get(BASE, headers=headers).json()["voice"]
+    assert voice["language"]["notices"] == [{
+        "use": "talk", "engine": "Moonshine Base", "understands": ["English"], "language": "fr",
+        "language_label": "French", "heard": False, "alternatives": ["Whisper"],
+        "switch_field": "runtime.talk_model", "switch_value": "local-whisper",
+    }]
+    assert voice["runtime"]["talk_model"] == "local-moonshine-base-en"
+    voice = _set_voice(client, headers, "runtime.talk_model", "local-whisper")
+    assert voice["language"]["notices"] == []
+    # Detect automatically: the notice appears once another language is heard often.
+    _write(data / "voice_runtime_settings.json", {"talk_model": "local-nemotron-streaming-en"})
+    languages.forget_heard()
+    try:
+        before = client.get(BASE, headers=headers).json()
+        assert before["voice"]["language"]["notices"] == []
+        for _ in range(languages.HEARD_OFTEN):
+            languages.note_heard("de")
+        after = client.get(BASE, headers=headers).json()
+        notice, = after["voice"]["language"]["notices"]
+        assert (notice["engine"], notice["language_label"], notice["heard"]) == (
+            "Nemotron Speech Streaming", "German", True)
+        # What was heard is not a setting: a change being made elsewhere stays current.
+        assert after["revision"] == before["revision"]
+    finally:
+        languages.forget_heard()

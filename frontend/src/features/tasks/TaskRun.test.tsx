@@ -13,7 +13,7 @@ import type {
   TaskRunReview,
   TaskRunSummary,
 } from '../../api/types';
-import TaskRun, { type TaskRunProps } from './TaskRun';
+import TaskRun, { runTime, type TaskRunProps } from './TaskRun';
 
 // The card a waiting run waits on is the chat's own approval card, tested with it.
 vi.mock('../shell/ApprovalCard', () => ({
@@ -522,4 +522,113 @@ it('says in words when a person said no, a run expired or its action was not con
     screen.getByRole('button', { name: 'Show run run-a' }),
   ).toHaveTextContent('Not sure it went through');
   expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull();
+});
+
+// The phone's workflow sheet (C2, D11 A): Run now and Open chat, then the
+// recent runs, each opening to its answer, its card and Stop.
+it('on a phone lists recent runs with their answers, each opening to its detail', async () => {
+  const quiet = {
+    ...runSummary('run-quiet'),
+    notice: 'Quiet day, nothing new',
+    started_at: '2026-01-01T08:00:00',
+  };
+  const brief = {
+    ...runSummary('run-brief'),
+    notice: '3 items for today',
+    started_at: '2026-01-02T08:00:00',
+  };
+  const callbacks = props({
+    layout: 'phone',
+    loadReview: vi
+      .fn()
+      .mockResolvedValue({ ...review, conversation_id: 'conversation-a' }),
+    loadHistory: vi.fn().mockResolvedValue(history([brief, quiet])),
+  });
+  render(<TaskRun {...callbacks} />);
+  const runs = await screen.findByRole('list', { name: 'Recent runs' });
+  // Each row says its answer; none is open while every run has ended.
+  const rows = within(runs).getAllByRole('button');
+  expect(rows.map((row) => row.textContent)).toEqual([
+    expect.stringContaining('3 items for today'),
+    expect.stringContaining('Quiet day, nothing new'),
+  ]);
+  expect(rows[0]).toHaveAttribute('aria-expanded', 'false');
+  // The drawer's facts, Refresh and History are not on the phone.
+  expect(screen.queryByText('Profile Workflow default')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Refresh runs' })).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'History' })).toBeNull();
+
+  fireEvent.click(rows[1]);
+  expect(rows[1]).toHaveAttribute('aria-expanded', 'true');
+  expect(within(runs).getByText('Completed')).toBeVisible();
+  fireEvent.click(rows[1]);
+  expect(rows[1]).toHaveAttribute('aria-expanded', 'false');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open chat' }));
+  expect(callbacks.openConversation).toHaveBeenCalledWith('conversation-a');
+  expect(callbacks.run).not.toHaveBeenCalled();
+});
+
+it('on a phone opens a run that waits for you, with its card, and runs now once', async () => {
+  const waiting = {
+    ...runSummary('run-waiting', 'waiting'),
+    approval_id: 'approval-1',
+  };
+  const callbacks = props({
+    layout: 'phone',
+    chatId: 'conversation-from-row',
+    loadHistory: vi.fn().mockResolvedValue(history([waiting])),
+    run: vi.fn().mockResolvedValue({
+      run: runSummary('run-new', 'running'),
+      replayed: false,
+    }),
+  });
+  render(<TaskRun {...callbacks} />);
+  await screen.findByRole('list', { name: 'Recent runs' });
+  expect(
+    screen.getByRole('complementary', { name: 'Approval card approval-1' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: /Waiting for you/ }),
+  ).toHaveAttribute('aria-expanded', 'true');
+  // The review names no chat yet: Open chat uses the workflow's own.
+  fireEvent.click(screen.getByRole('button', { name: 'Open chat' }));
+  expect(callbacks.openConversation).toHaveBeenCalledWith(
+    'conversation-from-row',
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
+  });
+  expect(callbacks.run).toHaveBeenCalledTimes(1);
+  expect(callbacks.run).toHaveBeenCalledWith(review);
+  // A new run needs a fresh review: Run now waits until the run ends.
+  expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
+});
+
+it('on a phone hides Open chat until the workflow has a chat', async () => {
+  render(<TaskRun {...props({ layout: 'phone' })} />);
+  await screen.findByText(EMPTY_HISTORY);
+  expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Open chat' })).toBeNull();
+});
+
+it('names a run by its day and time', () => {
+  const now = new Date(2026, 10, 21, 12, 0);
+  expect(runTime(new Date(2026, 10, 21, 8, 0).toISOString(), now)).toMatch(
+    /^Today 8:00/,
+  );
+  expect(runTime(new Date(2026, 10, 20, 8, 0).toISOString(), now)).toMatch(
+    /^Yesterday 8:00/,
+  );
+  expect(runTime(new Date(2026, 10, 17, 8, 0).toISOString(), now)).toMatch(
+    /^Tue 8:00/,
+  );
+  const october = new Date(2026, 9, 3, 8, 0);
+  expect(runTime(october.toISOString(), now)).toBe(
+    new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+    }).format(october),
+  );
+  expect(runTime('', now)).toBe('Unknown time');
 });

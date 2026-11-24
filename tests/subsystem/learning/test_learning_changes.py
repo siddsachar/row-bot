@@ -491,3 +491,25 @@ def test_a_reply_whose_turn_recalled_a_lesson_in_use_says_used_a_lesson(learning
 
     assert rows["a1"].get("used_lesson") is True
     assert "used_lesson" not in rows["a2"] and "used_lesson" not in rows["h1"]
+
+
+def test_a_lesson_whose_memory_was_removed_elsewhere_shows_removed_until_the_removal_is_undone(store, memories):
+    from row_bot.application import client_learning
+
+    change = _tested(store)
+    memory_id = changes.block(changes.use(change))["memory_id"]
+    saved = memories.get_entity(memory_id)
+
+    def lesson() -> tuple[str, int]:
+        [item] = [item for item in client_learning.read_learning_lessons(validate=lambda: None)["items"]
+                  if item["origin"] == "learning"]
+        return item["status"], item["used"]
+
+    changes.note_recalled([memory_id])
+    assert lesson() == ("in_use", 1)
+
+    assert memories.delete_entity(memory_id)  # Memory's own delete, not Lessons'
+    assert lesson() == ("removed", 0)
+
+    memories.restore_entities([saved])  # its Undo
+    assert lesson() == ("in_use", 1)

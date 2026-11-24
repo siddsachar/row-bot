@@ -1,0 +1,226 @@
+/*
+ * Settings on a phone (C3, D6 A, D7 A, D13 A): one header row ("‹ Models",
+ * or "Settings" with Search), a grouped list (This phone, Row-Bot, More
+ * settings) in A2's phone rows, and each page under that one row with no
+ * second search field. These rules only apply below 768px (the shell's
+ * data-mode is set only there); desktop and tablets are unchanged.
+ */
+
+/* The header row: a place's name as the phone header names it (A1). */
+.settings-shell[data-mode] .settings-shell-header {
+  min-height: 56px;
+  padding-block: 6px;
+}
+.settings-shell[data-mode] .settings-shell-header h1 {
+  overflow: hidden;
+  font-size: var(--text-20);
+  line-height: var(--leading-20);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-shell[data-mode] .settings-shell-header h1:focus {
+  outline: none;
+}
+.settings-shell[data-mode] .settings-shell-header .settings-back {
+  margin-inline-start: -4px;
+}
+/* The list's name lines up with its rows, as the phone header's does. */
+.settings-shell[data-mode='list'] .settings-shell-header {
+  padding-inline-start: 20px;
+}
+
+/* The lists and a page: the header row, then what scrolls under it. */
+.settings-shell[data-mode='list'],
+.settings-shell[data-mode='more'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'head'
+    'nav';
+}
+.settings-shell[data-mode='page'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'head'
+    'content';
+}
+.phone-settings-frame {
+  grid-area: nav;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.phone-settings {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  min-width: 0;
+  padding: 8px 16px 24px;
+}
+.phone-settings-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.phone-settings-group > h2 {
+  margin: 0 4px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-semibold);
+}
+.phone-settings-chevron {
+  flex: none;
+  color: var(--text-muted);
+}
+.phone-settings .phone-row-main {
+  min-height: 52px;
+}
+
+/* This phone: the notifications switch, then the theme under its name. */
+.phone-settings-notify {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 14px 8px 10px;
+}
+.phone-settings-notify .phone-row-meta {
+  white-space: normal;
+}
+.phone-settings-notify .toggle-control {
+  flex: none;
+}
+.phone-settings-notify .toggle-track {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+}
+.phone-settings-notify .toggle-track::after {
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+}
+.phone-settings-notify input:checked + .toggle-track::after {
+  transform: translateX(18px);
+}
+.phone-settings-notify + [role='alert'] {
+  margin: 0;
+  padding: 0 14px 12px 58px;
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}
+.phone-settings-theme-row {
+  display: grid;
+  gap: 10px;
+  padding: 10px 14px 14px 10px;
+}
+.phone-settings-theme-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* System · Light · Dark, as A2's Chats | Files switch. */
+.segmented.phone-settings-theme {
+  display: flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+.segmented.phone-settings-theme .segmented-option {
+  flex: 1;
+  justify-content: center;
+  min-height: 40px;
+  border-radius: 9px;
+  font-size: var(--text-15);
+}
+.segmented.phone-settings-theme .segmented-option[aria-checked='true'] {
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
+}
+
+/* A page: its line under the header row, no icon tile or second title. */
+.settings-shell[data-mode='page'] .settings-page-content {
+  padding: 4px 16px 32px;
+}
+.settings-shell[data-mode='page'] .settings-pane-header {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 12px;
+}
+.settings-shell[data-mode='page'] .settings-pane-title p {
+  margin: 0 2px;
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+}
+.settings-shell[data-mode='page'] .settings-pane-summary {
+  grid-column: auto;
+  justify-content: flex-start;
+}
+
+/* Appearance: the theme first. */
+.phone-settings-appearance-theme {
+  display: grid;
+  gap: 8px;
+}
+.phone-settings-appearance-theme > p {
+  margin: 0 4px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+
+/* Buddy & Proactive: Buddy's status, then the way to Proactive. */
+.phone-buddy-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface-raised);
+}
+.phone-buddy-status-face {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+}
+.phone-buddy-status-face .buddy-avatar-frame,
+.phone-buddy-status-face .buddy-avatar {
+  max-width: 56px;
+  max-height: 56px;
+}
+.phone-buddy-status-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.phone-buddy-status-text > strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  line-height: var(--leading-15);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phone-buddy-status-text .status-dot-label,
+.phone-buddy-status-text [role='status'] {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.phone-settings-proactive .phone-row-main {
+  min-height: 60px;
+}
+.phone-settings-proactive .phone-row-meta {
+  white-space: normal;
+}

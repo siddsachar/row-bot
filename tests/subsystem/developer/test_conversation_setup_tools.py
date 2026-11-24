@@ -242,7 +242,8 @@ def test_the_follow_up_turn_works_in_the_folder_the_reply_created(creation, monk
         if text.startswith("[Continue in the new code folder]"):
             context = current_execution_context()
             seen.append(("follow-up", context.resolve("workspace").resource_id,
-                         config["configurable"].get("internal_goal_continuation")))
+                         config["configurable"].get("internal_goal_continuation"),
+                         config["configurable"].get("followup_kind")))
             yield commit("Built it.")
             yield "done", "Built it."
             return
@@ -264,7 +265,7 @@ def test_the_follow_up_turn_works_in_the_folder_the_reply_created(creation, monk
     created = seen[0][1]
     binding = list_bindings(conversation).bindings[0]
     assert created["binding_id"] == binding.binding_id
-    assert seen[1] == ("follow-up", binding.resource_id, True)
+    assert seen[1] == ("follow-up", binding.resource_id, True, "resource")
     notes = [row for row in service.snapshot(conversation)["rows"] if row.get("note") == "continuation"]
     assert [row["blocks"][0]["text"] for row in notes] == ["Continuing in Tiny date app"]
 

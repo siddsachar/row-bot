@@ -53,6 +53,7 @@ import {
   UsedByItself,
 } from './ChangesView';
 import { MethodSheet, MethodSummary, MethodSwitched } from './HowRowBotLearns';
+import { QuickQuestion } from './QuickQuestion';
 import { StrongerModelNotice } from './StrongerModelNotice';
 import { HuggingFaceCard } from './HuggingFace';
 import { TrainingProgress } from './TrainingProgress';
@@ -68,6 +69,7 @@ import {
   plural,
   quietHoursWords,
   sizeWords,
+  spendingWords,
   timesWords,
   tokenWords,
 } from './words';
@@ -98,7 +100,7 @@ function headerLine(snapshot: LearningSnapshot) {
   const when = hours.next_look_at
     ? nextLookWords(hours.next_look_at)
     : `Quiet hours ${quietHoursWords(hours.window_start, hours.window_end)}`;
-  return `${when} · ${tokenWords(spending.used_tokens)} of ${tokenWords(spending.limit_tokens)} tokens this month`;
+  return `${when} · ${spendingWords(spending)}`;
 }
 
 /** Paused, limit reached and reading past chats: one line each, with the way out. */
@@ -132,7 +134,9 @@ function Banners({
           <p>
             {snapshot.spending.limit_tokens === 0
               ? 'Your monthly limit is 0, so Learning makes no model calls. Local training continues.'
-              : `Monthly limit reached. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`}
+              : (snapshot.spending.kept_for_comparing ?? 0) > 0
+                ? `Monthly limit reached, apart from ${tokenWords(snapshot.spending.kept_for_comparing ?? 0)} tokens kept for comparing methods. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`
+                : `Monthly limit reached. Testing resumes on ${dayWords(snapshot.spending.resets_on)}. Local training continues.`}
           </p>
           <Button className="small" onClick={onRaiseLimit}>
             Raise limit
@@ -178,6 +182,7 @@ function Overview({
   const uses = io.snapshot?.personal_model.uses ?? [];
   const night = io.snapshot?.overnight;
   const method = io.snapshot?.method;
+  const question = io.snapshot?.quick_question;
   const lines = night ? overnightLines(night) : [];
   const learning = io.snapshot?.kinds_learning ?? [];
   const kinds = [
@@ -202,8 +207,9 @@ function Overview({
         </div>
       )}
       <Section title="Needs you">
-        {needs.length || changeNeeds ? (
+        {needs.length || changeNeeds || question ? (
           <>
+            <QuickQuestion io={io} question={question} />
             <ChangeNeeds changes={changes} onReview={onReviewChange} />
             {needs.length > 0 && (
               <PersonalModelNeeds io={io} onReview={onReview} />
@@ -290,6 +296,8 @@ function lessonMeta(item: LearningLessonView): string {
     return `Saved by Row-Bot during a chat${item.updated_at ? ` · ${relativeTime(item.updated_at)}` : ''}`;
   const kind =
     item.kind && item.kind !== 'other' ? kindLabel(item.kind) : 'Your work';
+  if (item.status === 'removed')
+    return `${kind} · its memory was removed, so Row-Bot doesn’t use it`;
   return item.status === 'in_use'
     ? `${kind} · ${item.used ? `used ${timesWords(item.used)} this month` : 'not used yet this month'}`
     : kind;
@@ -721,7 +729,9 @@ export default function LearningHome({
   onOpenSettings: (anchor?: string) => void;
 }) {
   const notify = useNotify();
-  const [busy, setBusy] = useState(false);
+  // The command under way: on a large profile it takes seconds, and the header says so.
+  const [pending, setPending] = useState<'pause' | 'resume' | null>(null);
+  const busy = pending !== null;
   const [reviewing, setReviewing] = useState(false);
   const [changeOpen, setChangeOpen] = useState<string | null>(null);
   const [methodOpen, setMethodOpen] = useState(false);
@@ -729,13 +739,13 @@ export default function LearningHome({
   const snapshot = io.snapshot;
   const comparison = snapshot?.personal_model.comparison;
   async function command(action: 'pause' | 'resume') {
-    setBusy(true);
+    setPending(action);
     try {
       notify((await io.run(action)).summary);
     } catch (cause) {
       notify(clientError(cause).message, 'danger');
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
   if (!snapshot)
@@ -758,8 +768,17 @@ export default function LearningHome({
       <header className="home-page-header">
         <h2>Learning</h2>
         <StatusDot
-          tone={paused ? 'neutral' : 'success'}
-          label={paused ? 'Paused' : 'On'}
+          tone={paused || pending ? 'neutral' : 'success'}
+          label={
+            pending === 'pause'
+              ? 'Pausing…'
+              : pending === 'resume'
+                ? 'Resuming…'
+                : paused
+                  ? 'Paused'
+                  : 'On'
+          }
+          pulse={busy}
           showLabel
         />
         <p className="home-caption">{headerLine(snapshot)}</p>
@@ -771,8 +790,16 @@ export default function LearningHome({
           className="icon-action"
           actions={[
             paused
-              ? { label: 'Resume', onSelect: () => void command('resume') }
-              : { label: 'Pause', onSelect: () => void command('pause') },
+              ? {
+                  label: 'Resume',
+                  disabled: busy,
+                  onSelect: () => void command('resume'),
+                }
+              : {
+                  label: 'Pause',
+                  disabled: busy,
+                  onSelect: () => void command('pause'),
+                },
             { label: 'Learning settings', onSelect: () => onOpenSettings() },
             {
               label: 'Delete learning data…',

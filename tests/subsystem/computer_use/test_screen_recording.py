@@ -129,7 +129,9 @@ def test_it_asks_records_into_a_private_folder_and_saves_the_video_to_the_chat(s
 
     stopped = _computer("stop_recording")
 
-    assert stopped.startswith(f"Recording {record.recording_id}: saved ")
+    # Its output first (W4): history masking keeps a result's first line.
+    assert stopped.startswith(f'Recording {record.recording_id}: Output "screen-recording" v1 (working) · '
+                              "generated-screen-recording.mp4\nSaved 0:")
     assert (record.status, record.stopped_by) == ("saved", "agent")
     assert read_attachment(record.media_ref)[1] == _MP4
     assert screen.transport.closed is True
@@ -237,3 +239,45 @@ def test_a_channel_chat_never_records_the_screen(screen, monkeypatch, context):
     assert _computer("start_recording").startswith("Recording the screen works in Row-Bot on this computer, "
                                                    "not from a channel chat")
     assert screen.asked == [] and screen.transport.calls == []
+
+
+def test_beats_marked_while_the_screen_records_are_kept_with_it_for_its_video(screen):
+    """C9: a screen recording takes beats as a browser recording does, and its video's scenes come from them."""
+    assert _computer("beat", note="Open the report").startswith("The screen isn't being recorded in this chat")
+    _computer("start_recording")
+
+    marked = _computer("beat", beat="live", note="Open the report", line="Here is this week's report.")
+    worked = _computer("beat", beat="work", note="Waiting for the export")
+    stopped = _computer("stop_recording")
+
+    assert marked.startswith("Marked live at 0:00: shown as it happens.") and "Its line takes about" in marked
+    assert worked.startswith("Marked work at 0:00: sped up in the video.")
+    record = recordings.latest_for(screen.chat, "screen")
+    assert [(kind, note) for _at, kind, note, _line in record.beats] == [
+        ("live", "Open the report"), ("work", "Waiting for the export")]
+    assert f"The video tool makes scenes from them (recording={record.recording_id})." in stopped
+
+
+def test_what_row_bot_does_on_the_screen_while_it_records_is_logged_where_it_is_on_the_main_display(
+        turn, monkeypatch, tmp_path):
+    """C9: each click is logged with its control's box on the main display (the screen recorded), typing goes into
+    the control clicked, and a click on another monitor isn't in the recording, so it isn't logged."""
+    from row_bot.computer_use.recording import ScreenRecording
+    from tests.subsystem.computer_use.test_task_suite import click
+
+    capture = ScreenRecording(tmp_path / "rec", max_seconds=60, size_limit=10 ** 9, on_end=lambda *_args: None)
+    monkeypatch.setattr(recordings, "active_for", lambda _chat, kind: SimpleNamespace(capture=capture)
+                        if kind == "screen" else None)
+    monkeypatch.setattr("row_bot.computer_use.display.main_display_size", lambda: (2560.0, 1440.0))
+    turn.mode = "full"
+
+    click(turn, turn.call("screenshot", app="Calculator"), "Seven")
+    turn.call("type", text="12")
+    click(turn, turn.call("screenshot", app="Microsoft Edge"), "Sign out")  # On the monitor left of the main one.
+
+    assert [action[2] for action in capture.actions] == ["click", "type"]
+    seven = (1321 / 2560, 501 / 1440, 80 / 2560, 60 / 1440)  # Calculator's "Seven", on screen at 1321,501, 80×60.
+    for action in capture.actions:
+        assert action[3:7] == pytest.approx(seven, abs=1e-3)
+    assert capture.trail and capture.trail[-1][1:] == pytest.approx((seven[0] + seven[2] / 2, seven[1] + seven[3] / 2),
+                                                                    abs=1e-3)

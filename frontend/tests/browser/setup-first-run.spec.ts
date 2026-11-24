@@ -34,8 +34,12 @@ async function openFresh(page: Page, runtime = 'not_installed') {
 }
 
 async function expectHome(page: Page) {
+  // A phone's Home has no capability tabs (C1); its docked ask box says Home.
+  const phone = (page.viewportSize()?.width ?? 1280) < 768;
   await expect(
-    page.getByRole('tablist', { name: 'Home capabilities' }),
+    phone
+      ? page.getByRole('textbox', { name: 'Ask Row-Bot' })
+      : page.getByRole('tablist', { name: 'Home capabilities' }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/app-v2\/?$/);
 }

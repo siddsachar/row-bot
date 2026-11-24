@@ -57,7 +57,7 @@ def engine_measure(rows: Sequence[Mapping[str, Any]], max_seq: int, *, root: Pat
 
     found = engine_status or engine.status(root)
     if weights_folder is None:
-        model = weights.MODELS.get(learning.read_settings(root).starting_model, weights.QWEN35_9B)
+        model = weights.model_for(learning.read_settings(root).starting_model, root, weights.QWEN35_9B)
         weights_folder = weights.status(model, root).folder
     if found.python is None or found.site is None or weights_folder is None:
         raise dataset_module.DatasetError("no_engine")

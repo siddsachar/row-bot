@@ -89,6 +89,8 @@ MAX_MEDIA_PROMPT_CHARS = 1000
 # The tools that make a picture or video from a prompt: that prompt names their output in the chat's
 # Outputs (5.3.3). Only it is read, never their other arguments.
 MEDIA_PROMPT_TOOLS: frozenset[str] = frozenset({"generate_image", "edit_image", "generate_video", "animate_image"})
+# A presented final's caption is carried with its media, as a media tool's prompt is.
+_CAPTION_TOOLS = MEDIA_PROMPT_TOOLS | {"present"}
 SAFE_TOOL_CALL_ARG_KEYS: frozenset[str] = frozenset(
     {
         "category",
@@ -138,6 +140,10 @@ class MediaReference:
     media_ref: str
     mime_type: str
     prompt: str = ""
+    # What it is to the person (finals first): final, draft or working; "" in chats from before.
+    role: str = ""
+    # A presented final's name in the chat's files.
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -271,7 +277,7 @@ def safe_tool_call_args(args: Any) -> dict[str, Any]:
 def media_prompt(name: Any, prompt: Any) -> str:
     """The prompt a media tool made its picture or video from, on one bounded line; empty for any other tool."""
 
-    if str(name or "") not in MEDIA_PROMPT_TOOLS or not isinstance(prompt, str):
+    if str(name or "") not in _CAPTION_TOOLS or not isinstance(prompt, str):
         return ""
     return " ".join(_clean_text(prompt, MAX_MEDIA_PROMPT_CHARS).split())
 
@@ -461,7 +467,8 @@ def classify_tool_result(
         return "uncertain"
     if text.startswith(("blocked:", "tool blocked:")):
         return "blocked"
-    if text.startswith(("cancelled:", "canceled:", "tool cancelled:")):
+    if text.startswith(("cancelled:", "canceled:", "tool cancelled:", "[stopped:")):
+        # "[Stopped: too many browser actions in one turn]": a step the turn stopped before it ran.
         return "cancelled"
     if text.startswith(("tool error:", "error:")) or (
         "traceback (most recent call last)" in text
@@ -605,8 +612,13 @@ def _media_specialization(result: Any, prompt: str) -> TraceSpecialization | Non
             payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else raw
             media_ref = _clean_text(payload.get("media_ref"), 256)
             mime_type = _clean_text(payload.get("mime_type"), 128)
+            role = _clean_text(payload.get("role"), 16)
             if media_ref and mime_type:
-                references.append(MediaReference(media_ref=media_ref, mime_type=mime_type, prompt=prompt))
+                references.append(MediaReference(
+                    media_ref=media_ref, mime_type=mime_type,
+                    prompt=media_prompt("present", payload.get("prompt")) or prompt,
+                    role=role if role in {"final", "draft", "working"} else "",
+                    name=_clean_text(payload.get("name"), 240)))
     if references and not kind:
         kind = "attachment"
     error_code = _clean_text(wrapper.get("media_error"), 80)
@@ -998,7 +1010,9 @@ def _public_specialization(
         "media_kind": specialization.media_kind,
         "media": [
             {"media_ref": item.media_ref, "mime_type": item.mime_type,
-             **({"prompt": item.prompt} if item.prompt else {})}
+             **({"prompt": item.prompt} if item.prompt else {}),
+             **({"role": item.role} if item.role else {}),
+             **({"name": item.name} if item.name else {})}
             for item in specialization.media
         ],
         "error_code": specialization.error_code,

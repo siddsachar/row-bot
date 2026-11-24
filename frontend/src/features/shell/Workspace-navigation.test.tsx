@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -49,7 +50,7 @@ function HistoryControls() {
   );
 }
 
-it.each([1440, 900, 390])(
+it.each([1440, 900])(
   'Home adds one history entry and Back restores the same composer and draft at width %i',
   async (width) => {
     vi.stubGlobal('innerWidth', width);
@@ -73,18 +74,12 @@ it.each([1440, 900, 390])(
     );
     expect(rendered.container.querySelector('.app-header')).toBeNull();
     // A conversation carries the workspace controls in its own single header
-    // row; phones fold them into the header's ⋯.
+    // row (a phone goes back instead: see below).
     expect(rendered.container.querySelector('.compact-controls')).toBeNull();
-    if (width >= 768) {
-      expect(
-        screen.getByRole('button', { name: 'Workspace commands' }),
-      ).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Open panel' })).toBeVisible();
-    } else {
-      expect(
-        screen.getByRole('button', { name: 'Conversation menu' }),
-      ).toBeVisible();
-    }
+    expect(
+      screen.getByRole('button', { name: 'Workspace commands' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open panel' })).toBeVisible();
     const composer = screen.getByRole('textbox', {
       name: 'Message',
     });
@@ -209,9 +204,9 @@ function GoToSettings() {
   );
 }
 
-it('closes the phone navigation drawer when something in it changes the route', async () => {
-  vi.stubGlobal('innerWidth', 390);
-  vi.stubGlobal('innerHeight', 844);
+it('closes the tablet navigation drawer when something in it changes the route', async () => {
+  vi.stubGlobal('innerWidth', 900);
+  vi.stubGlobal('innerHeight', 1180);
   const transport = new FixtureTransport({ conversationCount: 2 });
   const controller = new ClientController(transport, () => 1);
   clients.push(controller);
@@ -246,7 +241,7 @@ it('closes the phone navigation drawer when something in it changes the route', 
   );
 });
 
-it('returns focus to the phone header menu after Workspace commands opened from it', async () => {
+it('keeps Search out of a phone chat menu', async () => {
   vi.stubGlobal('innerWidth', 390);
   vi.stubGlobal('innerHeight', 844);
   const user = userEvent.setup();
@@ -268,20 +263,10 @@ it('returns focus to the phone header menu after Workspace commands opened from 
   );
   const menu = screen.getByRole('button', { name: 'Conversation menu' });
   await user.click(menu);
-  await user.click(
-    await screen.findByRole('menuitem', { name: 'Workspace commands' }),
-  );
   expect(
-    await screen.findByRole('dialog', { name: 'Workspace commands' }),
+    await screen.findByRole('menuitem', { name: 'Find in conversation' }),
   ).toBeVisible();
-  await user.keyboard('{Escape}');
-  await waitFor(() =>
-    expect(
-      screen.queryByRole('dialog', { name: 'Workspace commands' }),
-    ).toBeNull(),
-  );
-  // The menu item that opened it is gone; its trigger takes focus back.
-  await waitFor(() => expect(menu).toHaveFocus());
+  expect(screen.queryByRole('menuitem', { name: 'Search' })).toBeNull();
 });
 
 it('goes Home and says so when the open conversation is deleted in another window', async () => {
@@ -529,4 +514,121 @@ it('keeps what was typed on Home while a slow New chat opens (M12)', async () =>
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(
     'Suggest a name for a second cat',
   );
+});
+
+async function onPhone(entries: string[]) {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  render(
+    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+}
+
+const route = () => screen.getByLabelText('Current route').textContent;
+
+function swipeFromLeftEdge() {
+  for (const [type, x] of [
+    ['touchstart', 6],
+    ['touchmove', 70],
+    ['touchmove', 140],
+    ['touchend', 140],
+  ] as const) {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, 'touches', {
+      value: type === 'touchend' ? [] : [{ clientX: x, clientY: 300 }],
+    });
+    act(() => {
+      document.body.dispatchEvent(event);
+    });
+  }
+}
+
+it('goes back from a phone chat to the tab it came from, by â€¹ or a swipe from the left edge, and has no drawer', async () => {
+  await onPhone(['/library', '/conversations/conversation-a']);
+  expect(
+    screen.queryByRole('button', { name: 'Toggle navigation' }),
+  ).toBeNull();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Back' })),
+  );
+  expect(route()).toBe('/library');
+  // On a tab the swipe does nothing: there is nowhere further back.
+  swipeFromLeftEdge();
+  expect(route()).toBe('/library');
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Browser Forward' })),
+  );
+  expect(route()).toBe('/conversations/conversation-a');
+  swipeFromLeftEdge();
+  await waitFor(() => expect(route()).toBe('/library'));
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('goes back to Chats from a phone chat opened straight from a link', async () => {
+  await onPhone(['/conversations/conversation-a']);
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Back' })),
+  );
+  expect(route()).toBe('/library');
+});
+
+// Back from what Search opened is covered in phone-shell.spec.ts: the
+// palette's history step lives in the browser's history, not a MemoryRouter's.
+it('searches chats and settings on a phone, with no commands', async () => {
+  const user = userEvent.setup();
+  await onPhone(['/library']);
+  await user.click(await screen.findByRole('button', { name: 'Search' }));
+  const search = await screen.findByRole('dialog', { name: 'Search' });
+  expect(search).toBeVisible();
+  expect(screen.queryByRole('group', { name: 'Commands' })).toBeNull();
+  const field = screen.getByRole('searchbox', {
+    name: 'Search chats, files and settings',
+  });
+  await user.type(field, 'models');
+  expect(
+    within(screen.getByRole('group', { name: 'Settings' })).getByRole(
+      'option',
+      {
+        name: /^Models settings/,
+      },
+    ),
+  ).toBeVisible();
+  await user.clear(field);
+  await user.type(field, 'place for your ideas');
+  await user.click(
+    within(screen.getByRole('group', { name: 'Chats' })).getByRole('option', {
+      name: 'A place for your ideas',
+    }),
+  );
+  await waitFor(() => expect(route()).toBe('/conversations/conversation-a'));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('closes phone Search with its back arrow', async () => {
+  const user = userEvent.setup();
+  await onPhone(['/']);
+  const opener = await screen.findByRole('button', { name: 'Search' });
+  await user.click(opener);
+  await user.click(
+    within(await screen.findByRole('dialog', { name: 'Search' })).getByRole(
+      'button',
+      { name: 'Close search' },
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(route()).toBe('/');
+  await waitFor(() => expect(opener).toHaveFocus());
 });

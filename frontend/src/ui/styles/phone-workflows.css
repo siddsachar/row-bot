@@ -1,0 +1,211 @@
+/*
+ * Workflows on the phone (C2, D11 A): rows with a status line and a switch
+ * under labelled filter chips (A2's phone-row and phone-chips, so Chats and
+ * Workflows match), and a sheet per workflow with Run now, Open chat and its
+ * recent runs. These classes only render below 768px; desktop and tablets
+ * keep the workflow library as it was.
+ */
+/* The page sits right under the header: Home's page padding is the page's own. */
+@media (max-width: 767px) {
+  .home-view[data-home-tab='workflows'] .home-tabs > .tab-content {
+    padding: 0;
+  }
+}
+.phone-workflows {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+  padding: 12px 16px 16px;
+}
+.phone-workflows > * {
+  min-width: 0;
+}
+
+/* A row: the tappable name and line, then the switch at the end. */
+.phone-workflow-row {
+  display: flex;
+  align-items: center;
+}
+.phone-workflow-row > .phone-row-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 64px;
+  padding-right: 8px;
+}
+.phone-workflow-row[data-state='running'] .phone-row-icon {
+  background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
+  color: var(--accent-solid);
+}
+.phone-workflow-row[data-state='failed'] .phone-row-icon {
+  background: color-mix(in srgb, var(--status-danger-text) 12%, transparent);
+  color: var(--status-danger-text);
+}
+.phone-workflow-row[data-state='failed'] .phone-row-meta {
+  color: var(--status-danger-text);
+}
+.phone-workflow-row[data-state='off'] .phone-row-title {
+  color: var(--text-secondary);
+}
+.phone-workflow-row .phone-row-icon .workflow-emoji {
+  font-size: 19px;
+}
+.phone-workflow-live {
+  display: inline-block;
+  margin: 0 6px 1px 0;
+  vertical-align: middle;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .phone-workflow-live {
+    animation: phone-workflow-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes phone-workflow-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A finger-sized switch; its invisible input is 44px on touch. */
+.phone-workflow-switch,
+.phone-workflow-state .toggle-control {
+  flex: none;
+  margin: 0 14px 0 6px;
+}
+.phone-workflow-switch .toggle-track,
+.phone-workflow-state .toggle-track {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+}
+.phone-workflow-switch .toggle-track::after,
+.phone-workflow-state .toggle-track::after {
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+}
+.phone-workflow-switch input:checked + .toggle-track::after,
+.phone-workflow-state input:checked + .toggle-track::after {
+  transform: translateX(18px);
+}
+
+.phone-workflows-note {
+  margin: 4px 4px 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+
+/* The sheet. */
+.dialog.sheet.phone-workflow-sheet .dialog-title {
+  font-size: var(--text-17);
+  font-weight: var(--weight-semibold);
+}
+.phone-workflow-sheet-body {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.phone-workflow-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.phone-workflow-state .toggle-control {
+  margin: 0 4px 0 0;
+}
+.phone-workflow-state-line {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+}
+.phone-task-run {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.phone-workflow-actions {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 10px;
+}
+.phone-workflow-actions > .button {
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.phone-workflow-runs-title {
+  margin: 6px 4px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-semibold);
+}
+.phone-workflow-run > .phone-row-main {
+  padding-left: 16px;
+}
+.phone-workflow-run .task-run-row-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+.phone-workflow-run-chevron {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.phone-workflow-run[data-open] .phone-workflow-run-chevron {
+  transform: rotate(180deg);
+}
+.phone-workflow-run[data-open] .phone-row-meta {
+  white-space: normal;
+}
+.phone-workflow-run-detail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 16px 14px 42px;
+}
+.phone-workflow-run-detail > .button {
+  justify-self: start;
+}
+.phone-workflow-run-detail > .button {
+  min-height: 44px;
+}
+.phone-workflow-note {
+  display: flex;
+  gap: 8px;
+  margin: 0 4px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.phone-workflow-note > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* The editor and settings on a phone: the way back, then the notice. */
+.phone-workflow-away {
+  display: grid;
+  align-content: start;
+}
+.phone-workflow-run-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+}

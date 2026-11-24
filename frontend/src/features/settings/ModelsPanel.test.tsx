@@ -629,7 +629,7 @@ it('updates media toggles, defaults, camera, context, and delegation through the
       camera_index: 1,
     }),
   );
-  fireEvent.click(screen.getByText('Advanced context'));
+  fireEvent.click(screen.getByText('Cloud models'));
   expect(
     screen.getByText(
       'GPT-6-Astra can read about 272,000 tokens at once, roughly 820 pages. Row-Bot uses all of it.',
@@ -641,14 +641,12 @@ it('updates media toggles, defaults, camera, context, and delegation through the
   fireEvent.blur(limit);
   await waitFor(() =>
     expect(controller.updateModelContext).toHaveBeenCalledWith({
-      policy_kind: 'provider',
       cap: 65536,
     }),
   );
   fireEvent.click(screen.getByRole('radio', { name: 'Automatic' }));
   await waitFor(() =>
     expect(controller.updateModelContext).toHaveBeenLastCalledWith({
-      policy_kind: 'provider',
       cap: null,
     }),
   );

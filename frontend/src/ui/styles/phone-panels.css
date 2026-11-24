@@ -1,0 +1,54 @@
+/*
+ * Working on, on a phone (B3, D5 A): a design is previewed and paged
+ * through, a code folder's Changes and Files are read. Editing, zoom, size,
+ * Run and Git stay on the computer. These rules only apply below 768px
+ * (`data-layout='phone'` is set from usePhone); desktop and tablets keep the
+ * panels as they were.
+ */
+
+/* The design's name and its two actions (Share, ⋯) share one row (G16). */
+.design-panel[data-layout='phone'] .design-topbar {
+  flex-wrap: nowrap;
+  padding-inline: 12px 6px;
+}
+.design-panel[data-layout='phone'] .design-topbar-title {
+  flex: 1 1 auto;
+}
+.design-panel[data-layout='phone'] .design-name {
+  max-width: none;
+  padding-inline: 0;
+  font-size: var(--text-15);
+}
+.design-panel[data-layout='phone'] .design-topbar-actions {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 0;
+  margin-left: auto;
+}
+
+/* Paging: ‹ 1 / 2 › in one row of thumb-sized targets, never wrapping. */
+.design-panel[data-layout='phone'] .design-dock {
+  gap: 4px;
+  margin-bottom: 4px;
+  padding: 4px;
+  border-radius: 14px;
+}
+.design-panel[data-layout='phone'] .design-dock-page {
+  min-width: 72px;
+  max-width: none;
+  min-height: 44px;
+  white-space: nowrap;
+  font-size: var(--text-15);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A disabled ‹ or › (the first or last page) fades; it gets no box. */
+.design-panel[data-layout='phone'] .design-dock .icon-action:disabled {
+  border-color: transparent;
+}
+
+/* "Open this on your computer" in place of Edit, Run or Git. */
+:is(.design-panel[data-layout='phone'] .design-side-body, .dev-tab-panel)
+  > .on-your-computer {
+  padding-block: 24px;
+}

@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, onTestFinished, vi } from 'vitest';
 import type { AccessClient, AccessDevice } from '../../api/access';
 import { placeWords } from '../../api/place';
 import { OverlayProvider } from '../../ui/overlays';
@@ -151,4 +151,41 @@ it('says when and where a device was last seen in words, never raw timestamps (U
   expect(addressInWords('127.0.0.1', placeWords({ kind: 'server' }))).toBe(
     'via your Row-Bot server',
   );
+});
+
+it('with no devices says where Connect is: above on a computer, under Advanced on a phone (C3)', async () => {
+  const empty = { ...fixture(), devices: vi.fn().mockResolvedValue([]) };
+  const desktop = render(
+    <OverlayProvider>
+      <AccessDevices client={empty} />
+    </OverlayProvider>,
+  );
+  expect(
+    await screen.findByText('No devices yet. Connect one above.'),
+  ).toBeVisible();
+  desktop.unmount();
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  onTestFinished(() => {
+    vi.mocked(window.matchMedia).mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+  });
+  show(empty);
+  expect(
+    await screen.findByText('No devices yet. Connect one under Advanced.'),
+  ).toBeVisible();
 });

@@ -126,6 +126,25 @@ def test_closest_matches_need_half_the_keywords_and_rank_rarer_words_first(chats
     assert search("alpha beta gamma research").startswith("No messages matching")  # 1 of 4 is too few
 
 
+def test_a_search_notes_the_chats_its_shown_matches_quote(chats) -> None:
+    from row_bot.tool_outputs import collect_quoted_conversations
+
+    threads, search, current, _tool = chats
+    _chat(threads, "trip", ["Book the ferry to Skye.", "Booked for Friday."])
+    _chat(threads, "secret", ["The ferry tickets are under the mat."], incognito=True)
+    _chat(threads, "work", ["No ferry talk here."])
+    _chat(threads, "today", ["Hello."])
+
+    with collect_quoted_conversations() as quoted:
+        result = search("ferry")
+
+    # What Learning keeps with the result: the chats the model read, never an incognito one or this chat.
+    assert sorted(quoted) == sorted(_matches(result)) == ["trip", "work"]
+    with collect_quoted_conversations() as none_quoted:
+        search("lighthouse")
+    assert none_quoted == []
+
+
 def test_closest_matches_keep_incognito_hidden_and_others_chats_fenced(chats, monkeypatch) -> None:
     threads, search, _current, tool = chats
     _chat(threads, "secret", ["The date of my birthday is a secret."], incognito=True)

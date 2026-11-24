@@ -102,16 +102,96 @@ Each file comes from `https://huggingface.co/<repo>/resolve/<revision>/<file>` (
 to Hugging Face's storage, `*.hf.co`). Qwen3.8 27B has the same architecture as Qwen3.5
 (`qwen3_5_text`: 64 layers, 16 of them full attention), which llama.cpp b12359 runs.
 
-**Which model.** The best that fits the graphics card's memory (Apple silicon: about 70 % of the
-computer's memory, which the card shares), in this order: Qwen3.8 27B 4-bit, 3-bit, 2-bit, then
-Qwen3.5 9B, 4B. A model needs its file, its context's cache (32K tokens; the 27B builds keep it in
-8-bit, which halves it to about 1.1 GB) and about 0.7 GB of working memory. So a 20 GB or larger card
-gets the 4-bit build (about 18.4 GB loaded), 16 GB the 3-bit (15.0 GB), 12 GB the 2-bit (11.8 GB),
-8 GB Qwen3.5 9B and 6 GB Qwen3.5 4B. A Mac shares that memory with macOS and its apps, so a 27B build
+**Which model.** The best that fits the graphics card's memory (the card less 512 MiB the system keeps;
+Apple silicon: about 70 % of the computer's memory, which the card shares), in this order: Qwen3.8 27B
+4-bit, 3-bit, 2-bit, then Qwen3.5 9B, 4B, picked at a 32K window. A model needs its file, its context
+cache and working memory (`Model.need_bytes`):
+
+- **The context cache** is 8-bit (`q8_0`, 34 bytes per 32 values) for every model: per token, the
+  full-attention layers (16 for the 27B, 8 for Qwen3.5 9B and 4B) x 2 x 4 key-value heads x head size
+  256, so 34,816 bytes for the 27B and 17,408 for the small ones. llama.cpp's own KV buffer lines match
+  it exactly (4,352 MiB for the 27B at 128K).
+- **Compute buffers** grow by 6,144 bytes a token: 5,120 on the card and 1,024 in host memory, both
+  counted, since a Mac's memory is one (Qwen3.5 9B on Metal: 305, 497 and 881 MiB at 32K, 64K and 128K).
+- **A fixed part**, 256 MiB per model and 768 MiB for Qwen3.5 4B. It covers the runtime itself and the
+  recurrent state, less the embedding table llama.cpp keeps in host memory (682 MiB for the 27B, so
+  its file overstates the card). Qwen3.5 4B's output layer is its embedding table, held in both places,
+  so its weights come to 487 MiB more than its file.
+
+These are fitted to llama.cpp b12359's buffer lines and the memory measured on an RTX 5090 and a 16 GB
+M4 Mac mini (below). Every measured case is predicted at or above what it used, by 170 MiB or more.
+
+So a 20 GB or larger card gets the 4-bit build (about 18.2 GB loaded at 32K), 16 GB the 3-bit
+(14.8 GB), 12 GB the 2-bit (11.6 GB), 8 GB Qwen3.5 9B and 6 GB Qwen3.5 4B. A Mac shares that memory with macOS and its apps, so a 27B build
 is recommended only on a Mac with room to spare: 24 GB gets the 2-bit, 32 GB the 3-bit, 48 GB or more the
 4-bit, and a 16 GB Mac Qwen3.5 9B (a 27B build that fits can still be chosen). Without a card that fits one, a computer with 32 GB of memory is offered Qwen3.5 9B on the
 processor and one with 16 GB Qwen3.5 4B; with less, none is recommended, but every model that fits
 can still be chosen.
+
+**The window it reads** (D1, `models.context_for`). Once the model is picked, it is served at the largest of
+128K, 64K and 32K tokens at which it still runs entirely on the card with llama.cpp's own `--fit` margin
+(1024 MiB of each card kept free) to spare, never above its native 262K. The pick comes first, so a larger
+window never costs a quality level. A model that runs partly on the card or on the processor stays at
+32K (a longer prompt there makes the first word too slow), and so does every model on a Mac (below). With
+the published sizes:
+
+| Card | Model | Window | Loaded |
+|---|---|---|---|
+| 24 GB or more | Qwen3.8 27B 4-bit | 128K | 20.7 GiB |
+| 20 GB | Qwen3.8 27B 4-bit | 64K | 18.2 GiB |
+| 16 GB | Qwen3.8 27B 3-bit | 32K | 13.7 GiB (64K would need 15.0 GiB plus the margin) |
+| 12 GB | Qwen3.8 27B 2-bit | 32K | 10.8 GiB |
+| 10 GB | Qwen3.5 9B | 128K | 8.4 GiB |
+| 8 GB | Qwen3.5 9B | 32K | 6.3 GiB |
+| 6 GB | Qwen3.5 4B | 32K | 4.0 GiB (64K would need 4.7 GiB plus the margin) |
+| none | Qwen3.5 9B or 4B on the processor | 32K | |
+| Mac, any memory | the model picked for it | 32K | |
+
+**A Mac reads 32K**, whatever its memory holds, because its first word comes too slowly at more. On an M4 Mac
+mini (16 GB, b12359 Metal), Qwen3.5 9B read a prompt at about 200 tokens a second, falling to 101 at 110K:
+
+| Prompt | First word, cold |
+|---|---|
+| 12K | 58 s |
+| 27K | 148 s |
+| 60K | 407 s |
+| 110K | 1,095 s, past the 600 s silence limit; 128K went into swap |
+
+A follow-up turn's first word took about 0.5 s from the prompt cache. Pro and Max chips get measured before
+a larger window is automatic on a Mac; a person may choose one in the model's settings, which say
+"slow first reply on long chats" above 32K there (U1).
+
+**On an RTX 5090** (32 GB, b12359 CUDA 13) every case loaded all its layers on the card, and the larger
+windows are quick. A cold 110K prompt's first word took 49 s on the 27B 4-bit and 17 s on Qwen3.5 9B; the
+next turn's took 0.15 to 0.27 s from the prompt cache. Memory measured vs predicted, in GiB:
+
+| Model | 128K | 64K | 32K |
+|---|---|---|---|
+| Qwen3.8 27B 4-bit | 20.05 vs 20.68 | 17.63 vs 18.18 | 16.41 vs 16.93 |
+| Qwen3.5 9B | 8.13 vs 8.42 | 6.75 vs 6.98 | 6.06 vs 6.26 |
+| Qwen3.5 4B | | 4.54 vs 4.74 | 3.85 vs 4.02 |
+
+Each model on the endpoint has its own window: on a 16 GB card a downloaded
+Qwen3.5 4B reads 128K beside the 3-bit's 32K. Setup and Settings › Models › Local say it ("reads 64K").
+The presets file, the endpoint (`save_endpoint`, one window per model and none for the whole endpoint),
+`fit` and Setup all take it from `context_for`, with this computer's hardware as read once per run
+(Repair reads it again).
+
+**The person's window** (U1). A model's settings sheet offers the windows that fit
+(`models.context_choices`: each of 32K, 64K, 128K and 256K up to the native window that runs the model the
+way 32K does, so a model on the card keeps the `--fit` margin) with what each one's cache takes, and saves
+the choice in the per-model store (`row_bot.models.local_model_settings`, key
+`model:custom_openai_llamacpp:<id>`). `context_for(model, hardware, chosen)` serves it while it fits (else the
+largest choice below it). Saving rewrites the endpoint's windows at once; a running server stops when
+nothing is being answered, or as soon as the reply finishes, and the next request starts it with the new
+presets.
+
+**Thinking.** Every request says whether the model thinks (`chat_template_kwargs.enable_thinking`),
+rather than leaving it to the template. Every model thinks for now, as its template does by default;
+Qwen3.5 9B and 4B are to answer straight away instead once a local measurement confirms that small
+models do better that way in a 32K window. A chat's
+Thinking choice (On or Off, also `/reasoning on|off`) overrides that for its own requests
+(`Model.thinks` in `local_runtime/models.py`).
 
 ## Network behaviour
 
@@ -136,8 +216,26 @@ flags that keep them off:
 | `--offline` | "Prevents network access": no Hugging Face downloads even if asked. |
 | `--no-webui` | No web page, so no Discover downloads and no MCP proxy. |
 | `--cors-origins localhost` | A web page in the person's browser can't call it. |
-| `--models-preset <file>` `--models-max 1` | Router mode: the downloaded model files by their catalog id, from a presets file Row-Bot writes (`model = <file>`, `ctx-size = 32768`, `jinja = true`, `parallel = 1`, and for the 27B builds `cache-type-k = q8_0`, `cache-type-v = q8_0`), one loaded at a time; nothing is looked up by name online. |
+| `--models-preset <file>` `--models-max 1` | Router mode: the downloaded model files by their catalog id, from a presets file Row-Bot writes (each model's `model = <file>` and `ctx-size` = its window above, and the settings below), one loaded at a time; nothing is looked up by name online. |
 | `LLAMA_API_KEY` (environment) | A key made at each start, in the process environment only (never on its command line or on disk), so other programs on this computer can't use the server. |
+
+The presets file's shared settings (each is a llama-server argument of b12359; the file and line are in
+`tools/server/README.md` and `common/arg.cpp` at that tag):
+
+| Setting | Why |
+|---|---|
+| `jinja = true` | The model's own chat template, so its tool calls parse. |
+| `parallel = 1` | One request at a time. |
+| `flash-attn = on` | Flash attention (`-fa`, `common/arg.cpp:1726`); an 8-bit cache needs it (`src/llama-context.cpp:4541`). |
+| `cache-type-k = q8_0`, `cache-type-v = q8_0` | The context cache in 8-bit for every model (`common/arg.cpp:2409,2422`): half of the 16-bit default, which the memory sums above count. |
+| `cache-ram = 2048` | The prompt cache in the computer's memory capped at 2 GiB per loaded model, as Learning's server keeps it; llama.cpp's default is 8 GiB (`common/arg.cpp:1687`, `common/common.h:657`). |
+
+Left at llama.cpp's defaults, on purpose: `--fit on` with `-ngl auto` (`common/common.h:494,497`) puts as
+many layers on the card as fit and the rest on the processor, so a model that half-fits uses the card;
+setting `-ngl` would switch that off (`common/fit.cpp:550`). Prompt caching is on by default
+(`--cache-prompt`, `common/common.h:652`). `--cache-reuse` is not passed: it shifts the cache, which
+Qwen3.5's architecture (multi-section positions, `src/llama-kv-cache.cpp:1245`) can't, so the server would
+turn it off (`tools/server/server-context.cpp:1420`).
 
 Its environment is built from nothing: no keys, no `HF_TOKEN`, no `LLAMA_ARG_*` settings of the
 person's. `--tools`, `--agent`, `--mcp-servers-*`, `--webui-mcp-proxy`, `-hf` and `--docker-repo`
@@ -146,9 +244,14 @@ are never passed.
 ## When it runs
 
 `llama-server` starts only when a chat (or the Setup test) asks for one of its models, and stops
-after 5 minutes without a request and with nothing being answered, so the graphics card's memory
-goes back (5 minutes is Ollama's own keep-alive: a person reading an answer and replying doesn't wait
-for the model to load again). One model is loaded at a time. When a model finishes downloading,
+after 30 minutes without a request and with nothing being answered, so the graphics card's memory
+goes back (30 minutes is the `keep_alive` Row-Bot sends Ollama). The prompt cache lives in the server, so
+a shorter stop would make any reply after a pause read the whole conversation again: two and a half
+minutes for a 32K prompt on a 16 GB Mac. Row-Bot stops the process itself rather than passing llama.cpp's
+`--sleep-idle-seconds`: sleeping unloads the model but keeps the process, its port and its key, while
+Learning's `release_gpu` and the "running" state need it gone. One model is loaded at a time. Each start
+writes the presets file and the endpoint again from the windows above, so a new card counts from the
+next start after Repair or a restart of Row-Bot; Repair stops a running server whose windows changed. When a model finishes downloading,
 Row-Bot checks it once on this computer with the probe it runs for any endpoint (a reply, a tool
 call and a tool-result round trip), which loads it once. On Windows a kill-on-close job object holds it, so Row-Bot quitting or crashing ends it; on
 macOS and Linux it runs in its own process group and is recorded (`owned_processes`), so a later
@@ -160,7 +263,11 @@ work doesn't start the server; the person's own chat does (Learning's lease then
 It is the custom endpoint `llamacpp` (provider id `custom_openai_llamacpp`, model refs such as
 `model:custom_openai_llamacpp:qwen3.8-27b-q2`), saved with `execution_location: local` and a
 loopback address (kept while the server is stopped), so every "is this model local?" check treats it
-as a model on this computer, Learning's `spending.is_local_provider` included.
+as a model on this computer, Learning's `spending.is_local_provider` included, and so do the prompt
+tiers: up to 128K it gets the local middle tier, as Ollama's models do (`models.is_local_custom_endpoint`,
+which counts any custom endpoint saved as local except Learning's personal models). It is still
+reached over the OpenAI-compatible transport, and Settings' context control still treats its window
+as the server's.
 
 A caller outside chat that needs the server running, such as Learning's evaluation worker (another
 process), calls `local_runtime.server.ensure_started(model_ref)`: it starts the server if needed,

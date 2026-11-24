@@ -115,13 +115,32 @@ def _message_dict(message: Any) -> Any:
     return message
 
 
+def _quoted(messages: Iterable[Any], own: Iterable[str]) -> tuple[str, ...]:
+    """The other conversations these messages quote: a past-conversation search's matches, stamped on its
+    stored result (``tool_outputs.QUOTED_CONVERSATIONS_KEY``). They own the record too, so it is never kept
+    from a chat the person excluded, and excluding one later purges it."""
+
+    from row_bot.tool_outputs import QUOTED_CONVERSATIONS_KEY
+
+    found: set[str] = set()
+    for message in messages:
+        extra = getattr(message, "additional_kwargs", None)
+        quoted = extra.get(QUOTED_CONVERSATIONS_KEY) if isinstance(extra, Mapping) else None
+        if isinstance(quoted, (list, tuple)):
+            found.update(str(thread) for thread in quoted if valid_thread_id(str(thread)))
+    return tuple(sorted(found - set(own)))
+
+
 def _is_untrusted(message: Any) -> bool:
-    """A tool or web result stamped untrusted when it was stored, or fenced as external content."""
+    """A tool or web result stamped untrusted when it was stored, or fenced as external content: a tool's
+    result, or a message Row-Bot sends as the turn's prompt that quotes outside text in the fence (a goal
+    check's output, a watch's change, a delegated agent's answer). The system prompt's fenced project notes
+    are the person's own files."""
 
     extra = getattr(message, "additional_kwargs", None)
     if isinstance(extra, Mapping) and extra.get(UNTRUSTED_KEY):
         return True
-    if str(getattr(message, "type", "") or "") == "tool":
+    if str(getattr(message, "type", "") or "") in ("tool", "human"):
         content = getattr(message, "content", "")
         return _EXTERNAL_FENCE in content if isinstance(content, str) else _EXTERNAL_FENCE in str(content)
     return False
@@ -133,18 +152,12 @@ def _persons_id(message: Any) -> str | None:
     page's picture or a compaction summary (they have no id), an event Row-Bot added or a delegated agent's
     task."""
 
-    from row_bot.learning.corrections import is_row_bot_note
+    from row_bot.learning.corrections import is_row_bot_note, is_row_bot_prompt
     from row_bot.turn_context import MESSAGE_ID_PREFIX, is_person_message
 
     message_id = str(getattr(message, "id", "") or "")
     if (not message_id or message_id.startswith(MESSAGE_ID_PREFIX) or not is_person_message(message)
-            or is_row_bot_note(message)):
-        return None
-    extra = getattr(message, "additional_kwargs", None)
-    extra = extra if isinstance(extra, Mapping) else {}
-    ui = extra.get("row_bot_ui")
-    if extra.get("row_bot_internal_event") or extra.get("platform_note") or (
-            isinstance(ui, Mapping) and ui.get("thread_event")):
+            or is_row_bot_note(message) or is_row_bot_prompt(message)):
         return None
     return message_id
 
@@ -869,6 +882,12 @@ class Capture:
 
     def _model_call_records(self, item: _ModelCall, sink: _Sink) -> None:
         turn = item.turn
+        if turn.follows_decision_id and turn.last_model_decision_id is None:
+            from row_bot.learning.corrections import follows_voice_front
+
+            if follows_voice_front(item.messages):
+                # The person answered a Live voice line (V4), not the reply Learning recorded before it.
+                turn.follows_decision_id = None
         if self._read_mid_turn(turn, item.messages):
             # 5.3.1: the person's message read at this step starts the turn's next episode, after the step
             # before it, as the turn of its own it used to start did (the episode before it is complete).
@@ -926,6 +945,7 @@ class Capture:
             conversation_id=turn.conversation_id,
             fidelity=fidelity,
             untrusted=any(_is_untrusted(message) for message in item.messages),
+            quoted_thread_ids=_quoted(item.messages, (turn.thread_id, turn.conversation_id)),
             status=item.status,
             model_ref=model_ref,
             tool_schema_hash=tools_sha,
@@ -1002,6 +1022,8 @@ class Capture:
             conversation_id=turn.conversation_id,
             fidelity=fidelity,
             untrusted=item.untrusted or (item.result is not None and _is_untrusted(item.result)),
+            quoted_thread_ids=_quoted([item.result] if item.result is not None else [],
+                                      (turn.thread_id, turn.conversation_id)),
             status=item.status,
             tool_name=_text(item.runtime_name or name) or "tool",
             tool_call_id=_text(item.call.get("id")),

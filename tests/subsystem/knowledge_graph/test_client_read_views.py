@@ -274,6 +274,36 @@ def test_entity_filters_are_normalized_combined_and_cursor_bound(saved):
             views.list_saved_entities(**{key: value})
 
 
+def test_imported_memories_name_the_app_they_came_from(saved):
+    """5.3.5: memories imported from ChatGPT showed their source as "Other"."""
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute(
+            "UPDATE entities SET properties=?, source=? WHERE id='entity-0001'",
+            (
+                json.dumps({"source_context": {"kind": "import", "display_name": "ChatGPT custom instructions",
+                                               "batch_id": "batch-1"}}),
+                "import:chatgpt",
+            ),
+        )
+        # A memory the person saved, that an import later added to, is still theirs.
+        conn.execute(
+            "UPDATE entities SET properties=?, source='manual' WHERE id='entity-0002'",
+            (json.dumps({"source_context": {"kind": "import", "display_name": "Pasted answer"}}),),
+        )
+
+    graph = views.read_knowledge_graph(limit=250)
+    nodes = {node.id: node for node in graph.nodes}
+    detail = views.read_saved_entity_detail("entity-0001")
+    imported = views.list_saved_entities(source="import")
+
+    assert (nodes["entity-0001"].source, nodes["entity-0001"].source_label) == ("import", "ChatGPT")
+    assert (detail.source_bucket, detail.source_label) == ("import", "ChatGPT")
+    assert [item.id for item in imported.items] == ["entity-0001"]
+    assert "import" in graph.sources
+    assert (nodes["entity-0002"].source, nodes["entity-0002"].source_label) == ("manual", "")
+    assert (nodes["entity-0003"].source, nodes["entity-0003"].source_label) == ("document", "")
+
+
 def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved):
     with sqlite3.connect(saved.DB_PATH) as conn:
         conn.execute(

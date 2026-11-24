@@ -161,6 +161,23 @@ def test_a_limit_of_zero_makes_no_model_calls_and_local_models_never_count(learn
     assert ran.note.startswith("Testing used 0 tokens (and 9K on this computer)")
 
 
+def test_with_no_limit_nothing_is_refused_and_every_token_still_counts(learning_on):
+    from tests.fixtures.learning import save_learning_settings
+
+    save_learning_settings(learning_on, monthly_token_limit=None)
+    meter = TokenMeter.for_month()
+    assert meter.limit is None
+    # Far more than any fixed limit was used this month already: nothing is refused.
+    meter = TokenMeter(limit=None, used=5_000_000_000)
+    tasks = _docs(6)
+    client = ScriptedClient(oracle(tasks), tokens=(3_000, 200))
+    result = compare([Arm("a"), Arm("b")], tasks=tasks, client=client, meter=meter)
+
+    assert result.stopped == "" and len(client.calls) == 12
+    assert meter.spent == 12 * 3_200 and not meter.exhausted
+    assert result.tokens == 12 * 3_200
+
+
 def test_the_meter_counts_this_months_learning_calls_from_the_ledger(learning_on, monkeypatch):
     from row_bot.learning import spending
     from row_bot.prompt_cache import ModelUsage
@@ -175,9 +192,43 @@ def test_the_meter_counts_this_months_learning_calls_from_the_ledger(learning_on
         assert record_model_usage(UsageRecord(purpose=purpose, provider=provider, model="m", created_at=at,
                                               usage=ModelUsage(input_tokens=tokens_in, output_tokens=tokens_out)))
     assert spending.used_this_month(now=now) == 1_750  # last month's, local and non-Learning calls left out
-    meter = TokenMeter.for_month(now=now, limit=2_000)
-    assert (meter.limit, meter.used_before, meter.remaining) == (2_000, 1_750, 250)
+    meter = TokenMeter.for_month(now=now, limit=10_000)
+    # Comparing methods' 20% is kept back (no trial ran this month: last month's ``learning_meta`` doesn't count).
+    assert (meter.limit, meter.used_before, meter.kept_back, meter.remaining) == (10_000, 1_750, 2_000, 6_250)
     assert TokenMeter(1_000_000, 0, share=0.2).remaining == 200_000  # the recursive layer's share (E13)
+
+
+def test_comparing_methods_keeps_its_share_of_the_limit_from_the_rest_of_learnings_work(learning_on):
+    from row_bot.learning import spending
+    from row_bot.learning.improver import meta
+    from row_bot.prompt_cache import ModelUsage
+    from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+    from tests.fixtures.learning import save_learning_settings
+
+    save_learning_settings(learning_on, monthly_token_limit=1_000_000)
+
+    def used(purpose: str, tokens: int) -> None:
+        assert record_model_usage(UsageRecord(purpose=purpose, provider="openai", model="m",
+                                              created_at=spending.month_start() + 1,
+                                              usage=ModelUsage(input_tokens=tokens, output_tokens=0)))
+
+    # Testing changes used 790K: the other work may use 800K of the 1M, the trials keep their 200K.
+    used("learning_test", 790_000)
+    meter = TokenMeter.for_month()
+    assert (meter.kept_back, meter.remaining) == (200_000, 10_000)
+    assert meter.allows(10_000) and not meter.allows(10_001)
+    assert meter.note() == ("Stopped: Learning reached this month's token limit (1,000,000 tokens), apart from the "
+                            "200,000 kept for comparing methods.")
+    assert meta.trial_room(LearningStore()) == 200_000
+
+    # What the trials use comes out of their own share: the other work's room doesn't change.
+    used("learning_meta", 150_000)
+    assert (TokenMeter.for_month().kept_back, TokenMeter.for_month().remaining) == (50_000, 10_000)
+    assert meta.trial_room(LearningStore()) == 50_000
+
+    # With no limit nothing is kept back.
+    save_learning_settings(learning_on, monthly_token_limit=None)
+    assert TokenMeter.for_month().kept_back == 0 and spending.kept_for_trials(None) == 0
 
 
 def test_learning_calls_are_tagged_in_the_usage_ledger_on_the_default_model_at_the_lowest_effort(learning_on,

@@ -11,6 +11,7 @@ import KnowledgeHome, {
   type KnowledgeNodeDetail,
 } from './KnowledgeHome';
 import type { KnowledgeGraphHandle } from './KnowledgeGraphCanvas';
+import { PHONE_LAYOUT } from '../../ui/use-media';
 
 type CanvasProps = {
   nodes: KnowledgeGraphNode[];
@@ -1776,5 +1777,235 @@ describe('the saved library in Knowledge', () => {
     expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
     expect(loadChangeLog).toHaveBeenCalledOnce();
     expect(loadRecalls).toHaveBeenCalledOnce();
+  });
+});
+
+/** The window's width as `usePhone` reads it; changing it tells listeners. */
+function windowWidth(initial: number) {
+  const media = vi.mocked(window.matchMedia);
+  const original = media.getMockImplementation();
+  const listeners = new Set<() => void>();
+  let width = initial;
+  media.mockImplementation(
+    (query: string) =>
+      ({
+        get matches() {
+          return query === PHONE_LAYOUT && width < 768;
+        },
+        media: query,
+        addEventListener: (_: string, listener: () => void) =>
+          listeners.add(listener),
+        removeEventListener: (_: string, listener: () => void) =>
+          listeners.delete(listener),
+      }) as unknown as MediaQueryList,
+  );
+  onTestFinished(() => {
+    media.mockImplementation(original!);
+  });
+  return (next: number) =>
+    act(() => {
+      width = next;
+      listeners.forEach((listener) => listener());
+    });
+}
+
+/** The phone list's rows, by memory name, in order. */
+function phoneRows() {
+  const list = screen.getByRole('list', { name: 'Memories' });
+  return within(list)
+    .getAllByRole('listitem')
+    .map((row) => row.querySelector('.phone-row-title')?.textContent);
+}
+
+const imported: KnowledgeGraphSnapshot = {
+  ...populated,
+  nodes: [
+    ...populated.nodes,
+    {
+      id: 'metric',
+      revision,
+      subject: 'Prefers metric units',
+      description: 'Kilometres and Celsius',
+      entity_type: 'preference',
+      source: 'import',
+      source_label: 'ChatGPT',
+      updated_at: '2026-09-20T10:00:00Z',
+      relation_count: 0,
+      orphan: true,
+      is_user: false,
+      status: 'active',
+      tier: 'semantic',
+    },
+  ],
+  total_entities: 4,
+  sources: ['document', 'extraction', 'import', 'manual'],
+};
+
+describe('on a phone', () => {
+  it('lists memories to search, filter by type, open and delete; the graph, filters, import, clean-up and Dream Cycle are not there', async () => {
+    windowWidth(390);
+    const user = userEvent.setup();
+    const onEdit = vi.fn();
+    const onAdd = vi.fn();
+    const onDelete = vi.fn(async () => true);
+    render(
+      <KnowledgeHome
+        {...props({
+          snapshot: imported,
+          onEdit,
+          onAdd,
+          onDelete,
+          onImport: vi.fn(),
+          onReview: vi.fn(),
+          onDeleteMany: vi.fn(),
+          onLifecycle: vi.fn(),
+          listMemories: vi.fn(),
+          loadRecalls: vi.fn(),
+        })}
+      />,
+    );
+    const search = screen.getByRole('searchbox', { name: 'Search memories' });
+    expect(search).toHaveAttribute('placeholder', 'Search 4 memories');
+    // Newest first; each row says its kind, any status, an import's app.
+    expect(phoneRows()).toEqual([
+      'Prefers metric units',
+      'User',
+      'Alpha project',
+      'Quiet preference',
+    ]);
+    expect(
+      screen.getByRole('button', { name: /^Prefers metric units/ }),
+    ).toHaveTextContent(
+      'Preference · Imported from ChatGPT · Kilometres and Celsius',
+    );
+    expect(
+      screen.getByRole('button', { name: /^Alpha project/ }),
+    ).toHaveTextContent('Fact · Needs review · A saved project fact');
+    // Labelled chips, the most common kind first, and Imported.
+    const chips = screen.getByRole('radiogroup', { name: 'Memory type' });
+    expect(
+      within(chips)
+        .getAllByRole('radio')
+        .map((chip) => chip.textContent),
+    ).toEqual(['All', 'Preferences', 'Facts', 'People', 'Imported']);
+    for (const name of [
+      'Filters',
+      'Import memories',
+      'Review memory',
+      'Run Dream Cycle',
+      'Refresh knowledge',
+    ])
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Knowledge view' }),
+    ).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Memory types' })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByLabelText('Knowledge statistics')).toBeNull();
+    expect(
+      screen.getByText('The graph, import and clean-up are on your computer.'),
+    ).toBeVisible();
+
+    await user.click(within(chips).getByRole('radio', { name: 'Preferences' }));
+    expect(phoneRows()).toEqual(['Prefers metric units', 'Quiet preference']);
+    await user.click(within(chips).getByRole('radio', { name: 'Imported' }));
+    expect(phoneRows()).toEqual(['Prefers metric units']);
+    await user.click(within(chips).getByRole('radio', { name: 'All' }));
+
+    // Search reads names, descriptions, kinds and an import's app.
+    await user.type(search, 'chatgpt');
+    expect(phoneRows()).toEqual(['Prefers metric units']);
+    expect(screen.getByRole('status')).toHaveTextContent('1 memory');
+    await user.clear(search);
+    await user.type(search, 'project');
+    expect(phoneRows()).toEqual(['Alpha project']);
+    await user.clear(search);
+    await user.type(search, 'nothing like it');
+    expect(screen.queryByRole('list', { name: 'Memories' })).toBeNull();
+    expect(
+      screen.getByText('No memory matches “nothing like it”.'),
+    ).toBeVisible();
+    await user.clear(search);
+
+    // A tap opens the editor; the bin asks the usual reviewed deletion.
+    await user.click(screen.getByRole('button', { name: /^Alpha project/ }));
+    expect(onEdit).toHaveBeenCalledWith('alpha');
+    await user.click(
+      screen.getByRole('button', { name: 'Delete Alpha project' }),
+    );
+    expect(onDelete).toHaveBeenCalledWith('alpha', 'Alpha project');
+    await user.click(screen.getByRole('button', { name: 'Add memory' }));
+    expect(onAdd).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the desktop view chosen, and its chip falls back to All when its last memory goes', async () => {
+    const setWidth = windowWidth(1280);
+    const user = userEvent.setup();
+    const { rerender } = render(<KnowledgeHome {...props()} />);
+    await user.click(screen.getByRole('radio', { name: 'List' }));
+    expect(listedMemories()).toHaveLength(3);
+
+    setWidth(390);
+    expect(screen.queryByRole('table')).toBeNull();
+    await user.click(screen.getByRole('radio', { name: 'Facts' }));
+    expect(phoneRows()).toEqual(['Alpha project']);
+    rerender(
+      <KnowledgeHome
+        {...props({
+          snapshot: {
+            ...populated,
+            nodes: populated.nodes.filter((node) => node.id !== 'alpha'),
+            total_entities: 2,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByRole('radio', { name: 'All' })).toBeChecked();
+    expect(screen.queryByRole('radio', { name: 'Facts' })).toBeNull();
+    expect(phoneRows()).toEqual(['User', 'Quiet preference']);
+
+    // Wider again: the List chosen there is back, not reset to the graph.
+    setWidth(1280);
+    expect(screen.getByRole('radio', { name: 'List' })).toBeChecked();
+    expect(listedMemories()).toHaveLength(2);
+  });
+
+  it('says when there are no memories yet, or they cannot be read, and shows only some with a way to all', async () => {
+    windowWidth(375);
+    const user = userEvent.setup();
+    const onAdd = vi.fn();
+    const reload = vi.fn();
+    const onShowAll = vi.fn();
+    const { rerender } = render(
+      <KnowledgeHome {...props({ snapshot: empty, onAdd })} />,
+    );
+    expect(screen.getByText('No memories yet')).toBeVisible();
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Add memory' }));
+    expect(onAdd).toHaveBeenCalledOnce();
+
+    rerender(
+      <KnowledgeHome
+        {...props({
+          snapshot: { ...populated, availability: 'corrupt' },
+          reload,
+        })}
+      />,
+    );
+    expect(screen.getByText('Memories unavailable')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reload).toHaveBeenCalledOnce();
+
+    rerender(
+      <KnowledgeHome
+        {...props({
+          snapshot: { ...populated, truncated: true, total_entities: 2500 },
+          onShowAll,
+        })}
+      />,
+    );
+    expect(screen.getByText(/^Showing 3 of 2,500\./)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Show all' }));
+    expect(onShowAll).toHaveBeenCalledOnce();
   });
 });

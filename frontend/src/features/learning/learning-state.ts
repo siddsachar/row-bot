@@ -6,6 +6,7 @@ import type {
   LearningConversation,
   LearningDownload,
   LearningHardware,
+  LearningModelSearch,
   LearningLessonPage,
   LearningReceipt,
   LearningSnapshot,
@@ -35,6 +36,7 @@ export type LearningIO = {
     fields?: Partial<LearningFields>,
   ) => Promise<LearningReceipt>;
   hardware: (refresh?: boolean) => Promise<LearningHardware>;
+  models: (search: string) => Promise<LearningModelSearch>;
   lessons: () => Promise<LearningLessonPage>;
   conversation: (id: string) => Promise<LearningConversation>;
   /** Experiment details of one personal-model version (absent in some tests). */
@@ -71,6 +73,8 @@ const RETRY_ON_CHANGE = new Set<LearningAction>([
   'review_version',
   'export_version',
   'stop_compare',
+  'answer_question',
+  'dismiss_question',
 ]);
 
 /** How often the training run is read while it runs, and otherwise. */
@@ -431,6 +435,7 @@ export function useLearning(): LearningIO | null {
             run: store.run,
             hardware: (refresh?: boolean) =>
               controller.learningHardware(refresh),
+            models: (search: string) => controller.learningModels(search),
             lessons: () => controller.learningLessons(),
             conversation: (id: string) => controller.learningConversation(id),
             version: (version: number) => controller.learningVersion(version),

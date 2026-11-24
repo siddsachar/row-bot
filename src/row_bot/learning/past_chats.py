@@ -54,10 +54,12 @@ from row_bot.learning.capture import (
     _SAVED_OUTPUT,
     _canonical,
     _is_untrusted,
+    _quoted,
     _message_dict,
     _Sink,
 )
 from row_bot.learning.contracts import Decision, Episode, Job
+from row_bot.learning.corrections import is_voice_front
 from row_bot.learning.store import LearningStore, LearningStoreError
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,9 @@ class PastChatSource(Protocol):
 
         ``(0, created_at)`` for a conversation created in the window."""
 
+    def fork_source(self, thread_id: str) -> str:
+        """The conversation a fork (Edit and resend, Fork from here) was copied from; "" for any other."""
+
 
 def _timestamp(value: Any) -> float | None:
     try:
@@ -126,6 +131,18 @@ class SavedChats:
         from row_bot.threads import get_latest_checkpoint_messages
 
         return list(get_latest_checkpoint_messages(thread_id))
+
+    def fork_source(self, thread_id: str) -> str:
+        import sqlite3
+        from contextlib import closing
+
+        from row_bot import threads
+
+        threads._ensure_thread_db()  # noqa: SLF001 - one read of thread_meta
+        with closing(sqlite3.connect(threads.DB_PATH)) as connection:
+            row = connection.execute("SELECT COALESCE(forked_from_id, '') FROM thread_meta WHERE thread_id = ?",
+                                     (thread_id,)).fetchone()
+        return str(row[0] or "") if row else ""
 
     @staticmethod
     def _checkpoint(thread_id: str, checkpoint_id: str) -> tuple[float | None, int]:
@@ -265,6 +282,8 @@ def _conversation_records(
         untrusted_before.append(seen_untrusted)
         seen_untrusted = seen_untrusted or _is_untrusted(message)
     conversation_sha = sink.blob(_canonical({"format": CONVERSATION_FORMAT, "version": 1, "messages": hashes}))
+    # Every step names the whole stored conversation, so each holds the words any message of it quotes.
+    quoted = _quoted(messages, (thread_id, conversation))
     records: list[contracts.Record] = []
     previous_reply: str | None = None
     for number, (start, end) in enumerate(_turns(messages)):
@@ -279,6 +298,8 @@ def _conversation_records(
         for index in range(start + 1, end):
             message = messages[index]
             kind = str(getattr(message, "type", "") or "")
+            if kind == "ai" and is_voice_front(message):
+                continue  # Live voice's own line (V4): context in the requests after it, never a reply to learn
             if kind == "ai":
                 for call in getattr(message, "tool_calls", None) or []:
                     if isinstance(call, dict) and call.get("id"):
@@ -304,6 +325,7 @@ def _conversation_records(
                     kind="model_call", created_at=turn_at, conversation_id=conversation,
                     fidelity="partial", untrusted=untrusted_before[index],
                     request_blob=request, repaired_output_blob=reply, executed="repaired",
+                    quoted_thread_ids=quoted,
                 ))
                 last_reply = decision_id
                 sequence += 1
@@ -326,6 +348,7 @@ def _conversation_records(
                     status="error" if getattr(message, "status", "success") == "error" else "ok",
                     tool_name=name[:256], tool_call_id=call_id[:256] or None, arguments_blob=arguments_sha,
                     result_blob=result_sha, result_handle=handle.group(1) if handle else None,
+                    quoted_thread_ids=quoted,
                 ))
                 sequence += 1
         records.append(Episode(
@@ -334,8 +357,32 @@ def _conversation_records(
             status="completed", ended_at=turn_at, fidelity="partial", historical=True,
             follows_decision_id=previous_reply if _person_started(messages[start]) else None,
         ))
-        previous_reply = last_reply or previous_reply
+        replies = [message for message in messages[start + 1:end] if str(getattr(message, "type", "") or "") == "ai"]
+        # The person's next message answers a Live voice line the turn ended on, not a reply read here.
+        previous_reply = None if replies and is_voice_front(replies[-1]) else last_reply or previous_reply
     return records
+
+
+def _copied(source: PastChatSource, thread_id: str, messages: Sequence[Any]) -> int:
+    """How many of a fork's first messages are copies of the conversation it was forked from: those turns are
+    that conversation's, read with it (or, outside the window, not at all). A fork whose source is gone keeps
+    them: it holds the only copy."""
+
+    origin = source.fork_source(thread_id)
+    if not origin or origin == thread_id:
+        return 0
+    try:
+        theirs = {str(getattr(message, "id", "") or "") for message in source.messages(origin)}
+    except Exception:
+        logger.debug("Learning could not read a fork's source; its copied turns are read with it", exc_info=True)
+        return 0
+    theirs.discard("")
+    count = 0
+    for message in messages:
+        if str(getattr(message, "id", "") or "") not in theirs:
+            break
+        count += 1
+    return count
 
 
 def _plan(store: LearningStore, source: PastChatSource, now: float) -> Job:
@@ -345,8 +392,10 @@ def _plan(store: LearningStore, source: PastChatSource, now: float) -> Job:
     planned: list[list[Any]] = []
     for thread_id, created_at in source.conversations(since):
         try:
-            length = len(source.messages(thread_id))
+            messages = source.messages(thread_id)
+            length = len(messages)
             first, began = source.window_start(thread_id, since, float(created_at))
+            first = max(first, _copied(source, thread_id, messages))  # a fork's copied turns are its source's
             if first >= length:
                 continue  # nothing of it is from the last 30 days
             planned.append([thread_id, length, float(began), int(first)])

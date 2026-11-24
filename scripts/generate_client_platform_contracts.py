@@ -45,7 +45,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "SettingChangeUndoRequest", "SettingChangeUndoResult", "GuidePageView", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "LocalModelContextChoice", "LocalModelContextSettings", "LocalModelThinkingSettings", "LocalModelReplyLimitSettings", "LocalModelSamplingValues", "LocalModelSamplingCard", "LocalModelSamplingSettings", "LocalModelSettingsView", "LocalModelSettingsMutation", "LocalModelReloadRequest", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -83,9 +83,9 @@ MODELS = {name: getattr(schemas, name) for name in (
     "MemoryReviewReceipt", "MemoryReviewOverview", "MemoryReviewRequest", "MemoryReviewCancel", "MemoryReviewRun",
     "MemoryReviewProposals", "MemoryReviewApply", "MemoryReviewUndo",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
-    "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
+    "LearningSnapshot", "LearningTraining", "LearningDownload", "LearningHardware", "LearningModelSearch", "LearningConversation", "LearningLessonPage", "LearningCommand", "LearningReceipt", "LearningVersionDetails",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "BackgroundProcessView", "BackgroundProcessPage", "BackgroundProcessOutput", "RecordingView", "RecordingPage", "VideoEditView", "VideoEditPage", "VideoScene", "VideoSceneWrite", "VideoVersionView", "VideoBrand", "VideoExportView", "RowBotSandboxView", "SandboxPackView", "RowBotSandboxPage", "WatchWorkflowDraft", "WatchView", "WaitView", "WaitPage", "WatchCreate", "WatchControl", "ProactiveAction", "ProactiveMomentView", "ProactiveMomentPage", "ProactiveEvidence", "ProactiveActivityEntry", "ProactiveMomentDetail", "ProactiveFeedback", "ProactiveActivityPage", "ProactiveLevelView", "ProactiveSourceView", "ProactiveKindView", "ProactiveRuleView", "ProactiveSettingsView", "ProactiveSettingsChange", "ProactiveRuleWrite", "ProactiveDraftView", "ProactiveDraftPage", "ProactiveBoundary", "ProactiveBoundaryNoted", "ProactiveKindCounts", "ProactiveDraftSendCard", "ProactiveDraftEdit", "ProactiveDraftSendAnswer", "ProactiveDraftSendOutcome", "ProactivePreviewItem", "ProactivePreviewLevel", "ProactivePreview", "RowBotSandboxCreate", "RowBotSandboxLink", "VideoProjectExport", "VideoProjectView", "VideoProjectChange", "VideoProjectRestore", "VideoSceneApproval", "DeliveryView", "DeliveryPage", "PageDecisionView", "PageView", "PagePage", "MediaItem", "MediaPage", "MediaTagsWrite", "MediaTags", "OutputVersionView", "OutputView", "OutputCounts", "OutputPage", "PageTheme", "PageFrameRequest", "PageFrame", "PageStateWrite", "PageDecisionWrite", "WorkspaceFolderPage", "SandboxJobView", "SandboxJobPage", "SandboxStatusView", "SandboxStartPayload", "LocalAddressGrantView", "LocalAddressPage", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "InstallCountSnapshot", "InstallCountChoice", "InstallCountDeletion", "UpdateRelease", "UpdateEngineView", "UpdateHostRequest", "UpdateHostView", "UpdateHeldBack", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "LocalModelRuntimeView", "LocalModelInstallRequest", "LocalModelRemoveRequest", "SpeechModelsView", "SpeechModelInstallRequest", "SpeechModelRemoveRequest", "LocalServersSnapshot", "LocalServerConnectRequest", "LocalServerConnection", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -114,10 +114,21 @@ MODELS = {name: getattr(schemas, name) for name in (
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
-    "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
+    "TalkStart", "TalkSnapshot", "TalkStarted", "VoiceTicket", "ReadAloudRequest", "RealtimeSnapshot", "RealtimeStart", "DefaultModelSnapshot",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
     "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
+
+# The protocol's WebSockets: path and what it carries. OpenAPI has no WebSocket
+# operation, so they are listed under its ``x-websockets`` extension; the contract
+# tests check this table against the router's WebSocket routes as OPERATIONS is
+# checked against its HTTP routes. Each one is authenticated and origin-checked by
+# the access middleware and bound by a ticket from an authenticated POST.
+WEBSOCKETS = (
+    ("/voice/stream", "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down. "
+     "In its wake mode (desktop only), 16 kHz PCM up and wake events down."),
+    ("/voice/live", "Live voice: the ticket first, then the session's events both ways and a relayed front's audio."),
+)
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
 # drives OpenAPI and is checked against the actual router in the contract tests.
@@ -194,25 +205,21 @@ OPERATIONS = (
     ("delete", "/subscriptions/{subscription_id}", None, "Unsubscribed"),
     ("get", "/choices", None, "Choices"),
     ("get", "/voice/dictation/capability", None, "DictationCapability"),
+    ("post", "/voice/wake", None, "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/dictation", "DictationStart", "DictationSnapshot"),
     ("get", "/conversations/{conversation_id}/voice/dictation/{lease_id}", None, "DictationSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/dictation/{lease_id}/transcribe", "bytes", "DictationResult"),
     ("post", "/conversations/{conversation_id}/voice/dictation/{lease_id}/stop", "DictationIdentity", "DictationSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk", "TalkStart", "TalkSnapshot"),
-    ("get", "/conversations/{conversation_id}/voice/talk/{lease_id}", None, "TalkSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/transcribe", "bytes", "TalkResult"),
+    ("post", "/conversations/{conversation_id}/voice/talk", "TalkStart", "TalkStarted"),
     ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/stop", "DictationIdentity", "TalkSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/heartbeat", "DictationIdentity", "TalkSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/output", "TalkOutputRequest", "bytes"),
+    ("post", "/conversations/{conversation_id}/voice/talk/{lease_id}/ticket", "DictationIdentity", "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/realtime", "TalkStart", "RealtimeStart"),
     ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}", None, "RealtimeSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/stop", "DictationIdentity", "RealtimeSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/heartbeat", "DictationIdentity", "RealtimeSnapshot"),
-    ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/event", "RealtimeEventRequest", "RealtimeEventResult"),
+    ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/ticket", "DictationIdentity", "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/realtime/{lease_id}/exchange", "bytes", "bytes"),
-    ("get", "/conversations/{conversation_id}/voice/talk/{lease_id}/run", None, "VoiceRunView"),
-    ("get", "/conversations/{conversation_id}/voice/realtime/{lease_id}/run", None, "VoiceRunView"),
     ("post", "/settings/voice/speech-test", None, "bytes"),
+    ("post", "/conversations/{conversation_id}/read-aloud/{message_id}", "ReadAloudRequest", "bytes"),
     ("get", "/settings/providers", None, "ProviderStatusSnapshot"),
     ("get", "/settings/providers/live", None, "ProviderLiveSnapshot"),
     ("post", "/settings/providers/live/{provider_id}/refresh", None, "ProviderCatalogRefresh"),
@@ -254,6 +261,8 @@ OPERATIONS = (
     ("post", "/video-projects/{project_id}/restore", "VideoProjectRestore", "VideoProjectView"),
     ("post", "/video-projects/{project_id}/make", None, "VideoProjectView"),
     ("post", "/video-projects/{project_id}/export", "VideoProjectExport", "VideoProjectView"),
+    ("post", "/video-projects/{project_id}/approve", "VideoSceneApproval", "VideoProjectView"),
+    ("get", "/video-projects/{project_id}/scenes/{scene_id}/frame", None, "bytes"),
     ("get", "/video-brand", None, "VideoBrand"),
     ("get", "/waits", None, "WaitPage"),
     ("get", "/activity", None, "ActivityPage"),
@@ -296,6 +305,7 @@ OPERATIONS = (
     ("get", "/pages", None, "PagePage"),
     ("get", "/media", None, "MediaPage"),
     ("put", "/media/tags", "MediaTagsWrite", "MediaTags"),
+    ("get", "/outputs", None, "OutputPage"),
     ("get", "/pages/{page_id}", None, "PageView"),
     ("post", "/pages/{page_id}/frame", "PageFrameRequest", "PageFrame"),
     ("put", "/pages/{page_id}/state", "PageStateWrite", "PageView"),
@@ -339,6 +349,10 @@ OPERATIONS = (
     ("post", "/local-runtime/stop", None, "LocalModelRuntimeView"),
     ("post", "/local-runtime/remove", "LocalModelRemoveRequest", "LocalModelRuntimeView"),
     ("post", "/local-runtime/repair", None, "LocalModelRuntimeView"),
+    ("get", "/voice/speech-models", None, "SpeechModelsView"),
+    ("post", "/voice/speech-models/install", "SpeechModelInstallRequest", "SpeechModelsView"),
+    ("post", "/voice/speech-models/stop", None, "SpeechModelsView"),
+    ("post", "/voice/speech-models/remove", "SpeechModelRemoveRequest", "SpeechModelsView"),
     ("post", "/setup/model-test", None, "ModelTestResult"),
     ("post", "/setup/provider-key/check", "ProviderKeyCheckRequest", "ProviderKeyCheck"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
@@ -450,6 +464,7 @@ OPERATIONS = (
     ("get", "/learning/training", None, "LearningTraining"),
     ("get", "/learning/download", None, "LearningDownload"),
     ("get", "/learning/hardware", None, "LearningHardware"),
+    ("get", "/learning/models", None, "LearningModelSearch"),
     ("get", "/learning/conversations/{conversation_id}", None, "LearningConversation"),
     ("get", "/learning/lessons", None, "LearningLessonPage"),
     ("get", "/learning/versions/{version}", None, "LearningVersionDetails"),
@@ -557,6 +572,9 @@ OPERATIONS = (
     ("get", "/settings/models/state", None, "ModelsSettingsState"),
     ("post", "/settings/models/surface", "ModelSurfaceMutation", "ModelsSettingsState"),
     ("post", "/settings/models/context", "ModelContextMutation", "ModelsSettingsState"),
+    ("get", "/settings/models/local-model", None, "LocalModelSettingsView"),
+    ("post", "/settings/models/local-model", "LocalModelSettingsMutation", "LocalModelSettingsView"),
+    ("post", "/settings/models/local-model/reload", "LocalModelReloadRequest", "LocalModelSettingsView"),
     ("post", "/settings/models/visibility", "ModelVisibilityMutation", "ModelVisibilityState"),
     ("get", "/settings/models/agents", None, "AgentRuntimeSettingsState"),
     ("post", "/settings/models/agents", "AgentRuntimeSettingsState", "AgentRuntimeSettingsState"),
@@ -630,7 +648,7 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/change-sets/{change_set_id}", None, "WorkspaceChangeSetFiles"),
 )
 # Byte responses that carry synthesized speech for the browser to play.
-SPEECH_OUTPUTS = ("/voice/talk/{lease_id}/output", "/settings/voice/speech-test")
+SPEECH_OUTPUTS = ("/settings/voice/speech-test", "/read-aloud/{message_id}")
 
 
 def schema_bundle() -> dict:
@@ -753,8 +771,6 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // Following a computer-use session (about once a second) is observation.
   const observation = path.startsWith('/events') || path.startsWith('/live') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
     || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
-  const voiceEvent = /\/voice\/realtime\/[^/]+\/event$/.test(path);
-  const eventType = body && typeof body === 'object' && 'event' in body && body.event && typeof body.event === 'object' && 'type' in body.event ? body.event.type : undefined;
   const type = body && typeof body === 'object' && 'type' in body ? body.type : undefined;
   const intent = body && typeof body === 'object' && 'payload' in body ? body.payload : body;
   const operation = intent && typeof intent === 'object' && 'operation' in intent ? intent.operation : undefined;
@@ -764,11 +780,11 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
     || method === 'DELETE' && /^\/uploads\/[^/]+$/.test(path);
   // Draft autosaves, uploads and ordinary commands consume one server bucket.
   // Stop/approval/cancel and ACK retain their independent admission paths.
-  if (control || mcpCleanup || type === 'provider.subscription.cancel' || type === 'buddy.cancel' || /\/settings\/providers\/subscriptions\/(?:starts|probes)\/[^/]+\/cancel$/.test(path) || method === 'DELETE' && path === '/settings/providers/subscriptions/flows' || /^\/subscriptions\/[^/]+\/ack$/.test(path) || /\/voice\/(?:talk|realtime)\/[^/]+\/(?:stop|heartbeat)$/.test(path)) return;
+  if (control || mcpCleanup || type === 'provider.subscription.cancel' || type === 'buddy.cancel' || /\/settings\/providers\/subscriptions\/(?:starts|probes)\/[^/]+\/cancel$/.test(path) || method === 'DELETE' && path === '/settings/providers/subscriptions/flows' || /^\/subscriptions\/[^/]+\/ack$/.test(path) || /\/voice\/(?:talk|realtime)\/[^/]+\/stop$/.test(path)) return;
   // The desktop terminal sends each typed key and reads its echo (B248); the Browser pane sends the person's keys.
   const terminal = method !== 'DELETE' && /^\/native\/terminals\/[^/?]+(?:\/(?:input|resize))?(?:\?|$)/.test(path)
     || method === 'POST' && /^\/conversations\/[^/]+\/browser\/input$/.test(path);
-  const lane = terminal ? 'terminal' : observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
+  const lane = terminal ? 'terminal' : observation ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
   let lanes = budgets.get(proof);
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
   const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
@@ -1066,6 +1082,18 @@ export const exportVideoProject = (base: string, proof: SessionProof, project: s
 /** Make the latest version's video again. */
 export const makeVideoProject = (base: string, proof: SessionProof, project: string, signal?: AbortSignal): Promise<VideoProjectView> =>
   jsonRequest(base, `/video-projects/${id(project)}/make`, 'VideoProjectView', proof, 'POST', undefined, undefined, signal);
+export const approveVideoScenes = (base: string, proof: SessionProof, project: string, body: VideoSceneApproval, signal?: AbortSignal): Promise<VideoProjectView> =>
+  jsonRequest(base, `/video-projects/${id(project)}/approve`, 'VideoProjectView', proof, 'POST', validateWire('VideoSceneApproval', body), undefined, signal);
+/** A storyboard card's frame (C1): a small JPEG, loaded as the card shows. */
+export async function readVideoSceneFrame(base: string, proof: SessionProof, project: string, scene: string, version?: number, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/video-projects/${id(project)}/scenes/${id(scene)}/frame` + query({version: version === undefined ? undefined : String(version)}), {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 1048576) throw new Error('protocol_incompatible');
+  return data;
+}
 /** Files sent to the person's devices or a chat app (F7), or one conversation's: newest first. */
 export const getDeliveries = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<DeliveryPage> =>
   jsonRequest(base, '/deliveries' + query({conversation_id}), 'DeliveryPage', proof, 'GET', undefined, undefined, signal);
@@ -1079,6 +1107,9 @@ export const getMedia = (base: string, proof: SessionProof, filter: {query?: str
   jsonRequest(base, '/media' + query(filter), 'MediaPage', proof, 'GET', undefined, undefined, signal);
 export const setMediaTags = (base: string, proof: SessionProof, body: MediaTagsWrite, signal?: AbortSignal): Promise<MediaTags> =>
   jsonRequest(base, '/media/tags', 'MediaTags', proof, 'PUT', validateWire('MediaTagsWrite', body), undefined, signal);
+/** The outputs list (W3): one chat's (its Outputs pane) or every chat's (Library › Media, the phone's Files), newest first. */
+export const getOutputs = (base: string, proof: SessionProof, filter: {conversation_id?: string; show?: 'made' | 'uploads' | 'working'; query?: string; kind?: string; before?: string} = {}, signal?: AbortSignal): Promise<OutputPage> =>
+  jsonRequest(base, '/outputs' + query(filter), 'OutputPage', proof, 'GET', undefined, undefined, signal);
 /** Pages the agent made (N5), or one conversation's: most recently changed first. */
 export const getPages = (base: string, proof: SessionProof, conversation_id?: string, signal?: AbortSignal): Promise<PagePage> =>
   jsonRequest(base, '/pages' + query({conversation_id}), 'PagePage', proof, 'GET', undefined, undefined, signal);
@@ -1170,6 +1201,14 @@ export const removeLocalModelRuntime = (base: string, proof: SessionProof, body:
   jsonRequest(base, '/local-runtime/remove', 'LocalModelRuntimeView', proof, 'POST', validateWire('LocalModelRemoveRequest', body), undefined, signal);
 export const repairLocalModelRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalModelRuntimeView> =>
   jsonRequest(base, '/local-runtime/repair', 'LocalModelRuntimeView', proof, 'POST', undefined, undefined, signal);
+export const getSpeechModels = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models', 'SpeechModelsView', proof, 'GET', undefined, undefined, signal);
+export const installSpeechModel = (base: string, proof: SessionProof, body: SpeechModelInstallRequest, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models/install', 'SpeechModelsView', proof, 'POST', validateWire('SpeechModelInstallRequest', body), undefined, signal);
+export const stopSpeechModelDownload = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models/stop', 'SpeechModelsView', proof, 'POST', undefined, undefined, signal);
+export const removeSpeechModel = (base: string, proof: SessionProof, body: SpeechModelRemoveRequest, signal?: AbortSignal): Promise<SpeechModelsView> =>
+  jsonRequest(base, '/voice/speech-models/remove', 'SpeechModelsView', proof, 'POST', validateWire('SpeechModelRemoveRequest', body), undefined, signal);
 export const testChosenModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelTestResult> =>
   jsonRequest(base, '/setup/model-test', 'ModelTestResult', proof, 'POST', undefined, undefined, signal);
 export const checkProviderKey = (base: string, proof: SessionProof, body: ProviderKeyCheckRequest, signal?: AbortSignal): Promise<ProviderKeyCheck> =>
@@ -1289,6 +1328,12 @@ export const updateModelSurface = (base: string, proof: SessionProof, body: Mode
   jsonRequest(base, '/settings/models/surface', 'ModelsSettingsState', proof, 'POST', body, undefined, signal);
 export const updateModelContext = (base: string, proof: SessionProof, body: ModelContextMutation, signal?: AbortSignal): Promise<ModelsSettingsState> =>
   jsonRequest(base, '/settings/models/context', 'ModelsSettingsState', proof, 'POST', body, undefined, signal);
+export const getLocalModelSettings = (base: string, proof: SessionProof, model_ref: string, signal?: AbortSignal): Promise<LocalModelSettingsView> =>
+  jsonRequest(base, '/settings/models/local-model' + query({model_ref}), 'LocalModelSettingsView', proof, 'GET', undefined, undefined, signal);
+export const saveLocalModelSettings = (base: string, proof: SessionProof, body: LocalModelSettingsMutation, signal?: AbortSignal): Promise<LocalModelSettingsView> =>
+  jsonRequest(base, '/settings/models/local-model', 'LocalModelSettingsView', proof, 'POST', body, undefined, signal);
+export const reloadLocalModelInLmStudio = (base: string, proof: SessionProof, body: LocalModelReloadRequest, signal?: AbortSignal): Promise<LocalModelSettingsView> =>
+  jsonRequest(base, '/settings/models/local-model/reload', 'LocalModelSettingsView', proof, 'POST', body, undefined, signal);
 export const updateModelVisibility = (base: string, proof: SessionProof, body: ModelVisibilityMutation, signal?: AbortSignal): Promise<ModelVisibilityState> =>
   jsonRequest(base, '/settings/models/visibility', 'ModelVisibilityState', proof, 'POST', body, undefined, signal);
 export const getAgentRuntimeSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AgentRuntimeSettingsState> =>
@@ -1499,6 +1544,8 @@ export const getLearningDownload = (base: string, proof: SessionProof, signal?: 
   jsonRequest(base, '/learning/download', 'LearningDownload', proof, 'GET', undefined, undefined, signal);
 export const getLearningHardware = (base: string, proof: SessionProof, refresh = false, signal?: AbortSignal): Promise<LearningHardware> =>
   jsonRequest(base, '/learning/hardware' + query({refresh: refresh ? 'true' : undefined}), 'LearningHardware', proof, 'GET', undefined, undefined, signal);
+export const getLearningModels = (base: string, proof: SessionProof, search: string, signal?: AbortSignal): Promise<LearningModelSearch> =>
+  jsonRequest(base, '/learning/models' + query({query: search}), 'LearningModelSearch', proof, 'GET', undefined, undefined, signal);
 export const getLearningConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<LearningConversation> =>
   jsonRequest(base, `/learning/conversations/${id(conversation)}`, 'LearningConversation', proof, 'GET', undefined, undefined, signal);
 export const getLearningLessons = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LearningLessonPage> =>
@@ -2119,32 +2166,28 @@ export async function transcribeDictation(base: string, proof: SessionProof, han
   if (!response.ok) throw validateWire<Problem>('Problem', value);
   return validateWire<DictationResult>('DictationResult', value);
 }
-export const startTalk = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<TalkSnapshot> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/voice/talk`, 'TalkSnapshot', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
+export const wakeTicket = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<VoiceTicket> =>
+  jsonRequest(base, '/voice/wake', 'VoiceTicket', proof, 'POST', {}, undefined, signal);
+export const startTalk = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<TalkStarted> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/voice/talk`, 'TalkStarted', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
+export const stopTalk = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<TalkSnapshot> => {
+  validateWire('DictationHandle', handle);
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/stop`, 'TalkSnapshot', proof, 'POST',
+    {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
+};
+export const talkTicket = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal, mode: 'talk' | 'realtime' = 'talk'): Promise<VoiceTicket> => {
+  validateWire('DictationHandle', handle);
+  if (mode !== 'talk' && mode !== 'realtime') throw new Error('invalid_command');
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/ticket`, 'VoiceTicket', proof, 'POST',
+    {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
+};
 export const startRealtime = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<RealtimeStart> =>
   jsonRequest(base, `/conversations/${id(conversation)}/voice/realtime`, 'RealtimeStart', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
-export function voiceControl<M extends 'talk' | 'realtime'>(base: string, proof: SessionProof, mode: M, handle: DictationHandle, action: 'stop' | 'heartbeat', signal?: AbortSignal): Promise<M extends 'talk' ? TalkSnapshot : RealtimeSnapshot> {
+export function stopRealtime(base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<RealtimeSnapshot> {
   validateWire('DictationHandle', handle);
-  if (!['talk','realtime'].includes(mode) || !['stop','heartbeat'].includes(action)) throw new Error('invalid_command');
-  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/${action}`,
-    mode === 'talk' ? 'TalkSnapshot' : 'RealtimeSnapshot', proof, 'POST',
+  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/realtime/${id(handle.lease_id)}/stop`,
+    'RealtimeSnapshot', proof, 'POST',
     {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch}, undefined, signal);
-}
-export const realtimeEvent = (base: string, proof: SessionProof, handle: DictationHandle, event: RealtimeEvent, signal?: AbortSignal): Promise<RealtimeEventResult> => {
-  validateWire('DictationHandle', handle);
-  return jsonRequest(base, `/conversations/${id(handle.conversation_id)}/voice/realtime/${id(handle.lease_id)}/event`,
-    'RealtimeEventResult', proof, 'POST', validateWire('RealtimeEventRequest',
-    {voice_session_id: handle.voice_session_id, server_epoch: handle.server_epoch, event}), undefined, signal);
-};
-export async function voiceRun(base: string, proof: SessionProof, mode: 'talk' | 'realtime', handle: DictationHandle, signal?: AbortSignal): Promise<VoiceRunView> {
-  validateWire('DictationHandle', handle);
-  if (!['talk','realtime'].includes(mode)) throw new Error('invalid_command');
-  const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/${mode}/${id(handle.lease_id)}/run`, {
-    credentials:'same-origin', cache:'no-store', signal,
-    headers:{...proofHeaders(proof), 'X-Voice-Session-Id':String(handle.voice_session_id), 'X-Server-Epoch':handle.server_epoch}});
-  const value = await response.json();
-  if (!response.ok) throw validateWire<Problem>('Problem', value);
-  return validateWire('VoiceRunView', value);
 }
 export async function realtimeExchange(base: string, proof: SessionProof, handle: DictationHandle, sdp: string, signal?: AbortSignal): Promise<string> {
   validateWire('DictationHandle', handle);
@@ -2171,32 +2214,21 @@ export async function realtimeExchange(base: string, proof: SessionProof, handle
     return text + decoder.decode();
   } finally { await reader.cancel(); reader.releaseLock(); }
 }
-export async function transcribeTalk(base: string, proof: SessionProof, handle: DictationHandle, utterance: string, audio: Blob, signal?: AbortSignal): Promise<TalkResult> {
-  validateWire('DictationHandle', handle);
-  validateWire('DictationStart', {request_id: utterance});
-  if (!audio.size || audio.size > 8388608) throw new Error(audio.size ? 'payload_too_large' : 'empty_audio');
-  const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/transcribe`, {
-    method:'POST', credentials:'same-origin', cache:'no-store', signal, body:audio,
-    headers:{...proofHeaders(proof), 'Content-Type':audio.type, 'X-Voice-Session-Id':String(handle.voice_session_id),
-      'X-Server-Epoch':handle.server_epoch, 'X-Dictation-Utterance':utterance}});
-  const value = await response.json();
-  if (!response.ok) throw validateWire<Problem>('Problem', value);
-  return validateWire('TalkResult', value);
-}
-export async function talkOutput(base: string, proof: SessionProof, handle: DictationHandle, run_id: string, output_id: string, signal?: AbortSignal): Promise<Blob> {
-  validateWire('DictationHandle', handle);
-  const body = validateWire('TalkOutputRequest', {voice_session_id:handle.voice_session_id, server_epoch:handle.server_epoch, run_id, output_id});
-  const response = await fetch(`${base}/api/v1/conversations/${id(handle.conversation_id)}/voice/talk/${id(handle.lease_id)}/output`, {
-    method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  if (response.headers.get('X-Voice-Run') !== run_id || response.headers.get('X-Voice-Output') !== output_id) throw new Error('protocol_incompatible');
-  return speechAudio(response);
-}
 export async function speechTest(base: string, proof: SessionProof, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(`${base}/api/v1/settings/voice/speech-test`, {
     method:'POST', credentials:'same-origin', cache:'no-store', signal, headers:proofHeaders(proof)});
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
   return speechAudio(response);
+}
+export type ReadAloudSpeech = { audio: Blob; part: number; parts: number };
+export async function readAloud(base: string, proof: SessionProof, conversation_id: string, message_id: string, part: number, signal?: AbortSignal): Promise<ReadAloudSpeech> {
+  const body = validateWire('ReadAloudRequest', {part});
+  const response = await fetch(`${base}/api/v1/conversations/${id(conversation_id)}/read-aloud/${id(message_id)}`, {
+    method:'POST', credentials:'same-origin', cache:'no-store', signal, body:JSON.stringify(body), headers:{...proofHeaders(proof),'Content-Type':'application/json'}});
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const parts = Number(response.headers.get('X-Read-Aloud-Parts'));
+  if (Number(response.headers.get('X-Read-Aloud-Part')) !== part || !Number.isInteger(parts) || parts <= part) throw new Error('protocol_incompatible');
+  return {audio: await speechAudio(response), part, parts};
 }
 async function speechAudio(response: Response): Promise<Blob> {
   if (response.headers.get('Content-Type')?.split(';')[0] !== 'audio/wav') throw new Error('protocol_incompatible');
@@ -2292,7 +2324,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/entities"):
                 query_parameters += [
                     ("status", False, {"type": "string", "enum": ["active", "needs_review", "superseded", "archived"]}),
-                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "other"]}),
+                    ("source", False, {"type": "string", "enum": ["manual", "extraction", "document", "wiki", "import", "other"]}),
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
         elif suffix == "/knowledge/review/overview":
@@ -2379,7 +2411,8 @@ def outputs() -> dict[Path, str]:
             operation["description"] = "One admitted utterance per lease; receive deadline at most30 seconds and remaining lease lifetime. No audio is persisted. Stop retains admission until actual worker quiescence."
         paths.setdefault("/api/v1" + suffix, {})[method] = operation
     openapi = {"openapi": "3.1.0", "info": {"title": "Row-Bot client protocol", "version": "1.0"},
-               "paths": paths}
+               "paths": paths,
+               "x-websockets": [{"path": "/api/v1" + path, "summary": summary} for path, summary in WEBSOCKETS]}
     result[destination / "schema/openapi.json"] = json.dumps(openapi, indent=2, sort_keys=True) + "\n"
     from row_bot.api.v1.routes import public_problem_codes
 

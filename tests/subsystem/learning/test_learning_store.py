@@ -171,6 +171,26 @@ def test_leftovers_of_an_interrupted_blob_write_are_swept(learning_on, clock):
     assert not leftover.exists() and not orphan.exists()
 
 
+def _bytes_on_disk(store: LearningStore) -> int:
+    files = [path for path in store.blobs_dir.rglob("*") if path.is_file()]
+    files += [path for path in (store.path, store.path.with_name(store.path.name + "-wal")) if path.is_file()]
+    return sum(path.stat().st_size for path in files)
+
+
+def test_the_size_learning_reports_is_what_its_files_take_as_blobs_come_and_go(learning_on, clock):
+    store = LearningStore(clock=clock)
+    kept = store.put_blob(b"referenced by chat-1")
+    store.put_blob(b"nothing names this")
+    store.put(decision("chat-1", raw_output_blob=kept, executed="raw"))
+    assert store.storage_bytes() == _bytes_on_disk(store) > 0
+
+    clock.advance(BLOB_GRACE_SECONDS + 1)
+    assert store.gc_blobs() == 1
+    assert store.storage_bytes() == _bytes_on_disk(store)
+    assert store.purge_thread("chat-1").blobs_freed == 1
+    assert store.storage_bytes() == _bytes_on_disk(store)
+
+
 def test_a_fresh_store_is_at_the_current_schema_and_reopening_changes_nothing(learning_on, clock):
     calls: list[int] = []
 

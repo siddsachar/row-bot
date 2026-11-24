@@ -105,6 +105,52 @@ it('Overview at the monthly limit says when testing resumes and offers Raise lim
   expect(onOpenSettings).toHaveBeenCalledWith('monthly_token_limit');
 });
 
+it('Overview says what is kept for comparing methods when the rest of the limit is used', () => {
+  show(
+    fakeIO(
+      on({
+        spending: {
+          used_tokens: 1_700_000,
+          limit_tokens: 2_000_000,
+          resets_on: '2026-11-01',
+          model_name: 'GPT-5.6 Sol',
+          kept_for_comparing: 400_000,
+          limit_reached: true,
+        },
+      }),
+    ),
+  );
+
+  expect(
+    screen.getByText(
+      /^Monthly limit reached, apart from 400K tokens kept for comparing methods\. Testing resumes on (1 Nov|Nov 1)\. /,
+    ),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Raise limit' })).toBeVisible();
+});
+
+it('Overview with no monthly limit still shows what was used and never says the limit was reached', () => {
+  show(
+    fakeIO(
+      on({
+        spending: {
+          used_tokens: 63_400_000,
+          limit_tokens: null,
+          resets_on: '2026-11-01',
+          model_name: 'GPT-5.6 Sol',
+          limit_reached: false,
+        },
+      }),
+    ),
+  );
+
+  expect(
+    screen.getByText(/ · 63\.4M tokens this month \(no limit\)$/),
+  ).toBeVisible();
+  expect(screen.queryByText(/Monthly limit reached/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Raise limit' })).toBeNull();
+});
+
 it('Overview while reading past chats counts them with a real denominator', () => {
   show(fakeIO(on({ past_chats: { state: 'reading', total: 214, done: 61 } })));
 
@@ -114,6 +160,42 @@ it('Overview while reading past chats counts them with a real denominator', () =
   });
   expect(bar).toHaveAttribute('max', '214');
   expect(bar).toHaveAttribute('value', '61');
+});
+
+it('a Pause or Resume that takes a while says so, and is not sent twice', async () => {
+  const io = fakeIO(on(), {
+    after: (action) => ({ state: action === 'pause' ? 'paused' : 'on' }),
+  });
+  // Each command waits until the test lets it finish, as on a large profile.
+  const answer = io.run;
+  let finish = () => {};
+  io.run = vi.fn(
+    (...args: Parameters<LearningIO['run']>) =>
+      new Promise<Awaited<ReturnType<LearningIO['run']>>>((resolve) => {
+        finish = () => resolve(answer(...args));
+      }),
+  );
+  show(io);
+  const user = userEvent.setup();
+  const more = () => screen.getByRole('button', { name: 'More for Learning' });
+
+  await user.click(more());
+  await user.click(await screen.findByRole('menuitem', { name: 'Pause' }));
+  expect(screen.getByText('Pausing…')).toBeVisible();
+  await user.click(more());
+  expect(
+    await screen.findByRole('menuitem', { name: 'Pause' }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await user.keyboard('{Escape}');
+  await act(async () => finish());
+  expect(screen.getByText('Paused')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Resume' }));
+  expect(screen.getByText('Resuming…')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
+  await act(async () => finish());
+  expect(screen.getByText('On')).toBeVisible();
+  expect(io.run).toHaveBeenCalledTimes(2);
 });
 
 it('the … menu pauses, opens settings and deletes learning data after a confirm', async () => {

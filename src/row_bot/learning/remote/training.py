@@ -22,7 +22,9 @@ comparison and the person's OK before use, D24). Only where it trains differs:
    and checked, then the job moves to evaluating; the version's GGUF is downloaded by the release maker
    (:func:`download_gguf`, the last pass first, an earlier one only if needed, O119) through Row-Bot's resumable
    downloader. Once the version is ready (or settled), the uploaded data and the run's files are deleted on
-   Hugging Face (:meth:`_clean_up`), and Learning says so.
+   Hugging Face (:meth:`_clean_up`), and Learning says so. A run that ends after training finished but before
+   its outputs are downloaded here (a stop, a failure) deletes only the uploaded rows: the model it trained, and
+   the person paid for, stays in their account (``RunRecord.model_kept``), never deleted unseen.
 
 **Spend** (O132, O135): each run's cost (Hugging Face bills per minute while a job starts and runs; Row-Bot counts
 the job's own running time at the flavour's price) goes into ``learning_models/remote/spend.json``; a run starts
@@ -73,6 +75,8 @@ TIMEOUT_MARGIN_SECONDS = 1200
 MODEL_BYTES_PER_SECOND = 150_000_000
 # Files up to this size are read whole (Hugging Face serves small files itself, without a storage address).
 SMALL_FILE_BYTES = 20_000_000
+# A finished run's outputs are downloaded and checked here from this phase on: only then may its model go.
+DOWNLOADED_PHASES = frozenset({"downloaded", "cleaning", "cleaned"})
 
 
 class RemoteError(RuntimeError):
@@ -205,14 +209,21 @@ class RunRecord:
     failure: str | None = None
     outputs: tuple[dict[str, Any], ...] = ()
     base_gguf: bool = False
+    # Both repositories deleted (the run leaves nothing on Hugging Face).
     cleaned_at: float | None = None
     cleanup_failed: bool = False
     timings: Mapping[str, Any] = field(default_factory=dict)
+    # What Row-Bot deleted there: {"dataset" | "model": {"at": time, "reason": code}} (never a name or account).
+    deleted: Mapping[str, Any] = field(default_factory=dict)
+    # Training finished (and was paid for) but the run ended before its outputs were downloaded: its model
+    # repository stays in the person's account, to download or delete; only the uploaded rows were deleted.
+    model_kept: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["outputs"] = list(self.outputs)
         data["timings"] = dict(self.timings)
+        data["deleted"] = dict(self.deleted)
         return data
 
     @classmethod
@@ -221,6 +232,7 @@ class RunRecord:
             known = {key: data[key] for key in cls.__dataclass_fields__ if key in data}
             known["outputs"] = tuple(item for item in known.get("outputs") or () if isinstance(item, dict))
             known["timings"] = dict(known.get("timings") or {})
+            known["deleted"] = dict(known.get("deleted") or {})
             return cls(**known)
         except (TypeError, ValueError):
             return None
@@ -369,26 +381,51 @@ class RemoteTrainer:
             return False
 
     def models(self) -> tuple[Any, ...]:
-        from row_bot.learning.training import catalog
+        """What Hugging Face can train for this computer: the certified models first (the strongest it can run),
+        then the models the person checked here that passed (O138, uncertified)."""
 
-        return catalog.for_hugging_face(self.card_mib())
+        from row_bot.learning.training import catalog, open_models
+
+        card = self.card_mib()
+        return (*catalog.for_hugging_face(card), *open_models.hugging_face_choices(card, self._root))
 
     def choice(self) -> Any:
-        """The model the person chose (else the strongest this computer can run), or None."""
+        """The model the person chose (else the strongest certified one this computer can run), or None."""
 
         offered = self.models()
         chosen = gate.read_settings(self._root).hf_model
-        return next((model for model in offered if model.id == chosen), offered[0] if offered else None)
+        return next((model for model in offered if model.id == chosen),
+                    next((model for model in offered if model.certified), None))
+
+    def model(self, model_id: str) -> Any:
+        """The model a run names: a certified one, or one the person checked here (its check passed), or None."""
+
+        from row_bot.learning.training import catalog, open_models
+
+        return catalog.get(model_id) or open_models.checked_choice(model_id, self._root)
+
+    def recipe_of(self, model: Any) -> Any:
+        """The Hugging Face recipe that trains ``model``: a certified model's own, or (O138) the certified recipe
+        nearest a checked model's size, taking that model (``open_models.remote_recipe``)."""
+
+        from row_bot.learning.training import open_models, recipes
+
+        if model is None or not model.remote_recipe:
+            raise RemoteError("no_model")
+        if model.certified:
+            return recipes.load(model.remote_recipe)
+        record = open_models.read(model.repo, self._root)
+        found = open_models.remote_recipe(record) if record is not None else None
+        if found is None:
+            raise RemoteError("no_model")
+        return found
 
     def recipe(self) -> Any:
         """The Hugging Face recipe of the chosen model, with the person's Advanced choices (D9)."""
 
-        from row_bot.learning.training import advanced, recipes
+        from row_bot.learning.training import advanced
 
-        model = self.choice()
-        if model is None or not model.remote_recipe:
-            raise RemoteError("no_model")
-        return advanced.apply(recipes.load(model.remote_recipe), self._root)
+        return advanced.apply(self.recipe_of(self.choice()), self._root)
 
     def measure(self, rows: list[Any], max_seq: int) -> list[tuple[int, int]]:
         """The Hugging Face planner's exact row lengths (``measure_rows``) for the chosen model."""
@@ -590,9 +627,17 @@ class RemoteTrainer:
 
         from row_bot.learning.training import base_model
 
-        state = base_model.read(model_id, self._root)
-        folder = base_model.folder(model_id, self._root)
+        key = self._base_key(model_id)
+        state = base_model.read(key, self._root)
+        folder = base_model.folder(key, self._root)
         return not (state is not None and state.gguf and (folder / state.gguf).is_file())
+
+    def _base_key(self, model_id: str) -> str:
+        """Where the untouched starting model's GGUF is kept: its pinned model's id (a checked model's ``hf:<repo>``
+        becomes a folder's name), as the comparison looks it up."""
+
+        model = self.model(model_id)
+        return model.pinned.id if model is not None and model.pinned is not None else model_id
 
     def _upload_size(self, job: Job) -> tuple[int, int]:
         from row_bot.learning.training import jobs as jobs_module
@@ -609,9 +654,9 @@ class RemoteTrainer:
         return rows, size
 
     def _plan(self, job: Job, record: RunRecord) -> dict[str, Any]:
-        from row_bot.learning.training import catalog, lockfile
+        from row_bot.learning.training import lockfile
 
-        model = catalog.get(record.model_id)
+        model = self.model(record.model_id)
         if model is None or model.pinned is None:
             raise RemoteError("no_model")
         plan = self.jobs.plan_of(job)
@@ -664,7 +709,7 @@ class RemoteTrainer:
             code = getattr(error, "code", "network")
             logger.warning("Learning couldn't upload a Hugging Face run's data (%s)", code)
             self._fail(job.id, "upload_failed" if code == "network" else code, record)
-            self._clean_up(record)
+            self._clean_up(record, "upload_failed")
             return
         record = write_record(replace(record, phase="submitting", submit_started_at=self.clock()), self._root)
         try:
@@ -681,7 +726,7 @@ class RemoteTrainer:
                 self._move(job.id, "unknown_remote", reason="no_answer")
                 return
             self._fail(job.id, error.code, record)
-            self._clean_up(record)
+            self._clean_up(record, "submission_failed")
             return
         except Exception:  # noqa: BLE001 - anything else: treat as unknown, never resubmit
             logger.warning("Learning's Hugging Face submission had no clear answer", exc_info=True)
@@ -694,10 +739,13 @@ class RemoteTrainer:
                    progress_at=self.clock())
 
     def recipe_for(self, record: RunRecord) -> Any:
-        from row_bot.learning.training import catalog, recipes
+        from row_bot.learning.training import recipes
 
-        model = catalog.get(record.model_id)
-        return recipes.load(model.remote_recipe if model is not None and model.remote_recipe else "hf-9b")
+        model = self.model(record.model_id)
+        try:
+            return self.recipe_of(model)
+        except RemoteError:
+            return recipes.load("hf-9b")
 
     # ── Moves ───────────────────────────────────────────────────────────
 
@@ -762,6 +810,11 @@ class RemoteTrainer:
         self._move(job.id, "unknown_remote", reason="no_answer")
 
     def _read_job(self, job: Job, record: RunRecord) -> None:
+        if record.outcome == "completed":
+            # Trained and paid for: the outputs in its model repository are all that's left, and no later answer
+            # about the job (gone from Hugging Face's list, say) makes it an error. Only the download is tried.
+            self._start_download(job.id)
+            return
         hub = self.hub()
         if record.remote_id is None:
             self._reconcile(job, record)
@@ -809,9 +862,7 @@ class RemoteTrainer:
             return
         if remote.stage == "COMPLETED" and stage == "done":
             write_record(replace(record, outcome="completed", phase="downloading"), self._root)
-            with self._lock:
-                if not self.busy():
-                    self._run_work(self._download, job.id)
+            self._start_download(job.id)
             return
         if remote.stage == "CANCELED":
             outcome = "canceled"
@@ -823,7 +874,13 @@ class RemoteTrainer:
         self._move(job.id, "stopped" if outcome == "canceled" else "failed",
                    reason=failure or ("canceled" if outcome == "canceled" else "remote_error"),
                    **({} if outcome == "canceled" else {"error_code": (failure or "remote_error")[:64]}))
-        self._clean_up(read_record(job.id, self._root) or record)
+        self._clean_up(read_record(job.id, self._root) or record,
+                       "remote_canceled" if outcome == "canceled" else "remote_error")
+
+    def _start_download(self, job_id: str) -> None:
+        with self._lock:
+            if not self.busy():
+                self._run_work(self._download, job_id)
 
     def _lost(self, job: Job, record: RunRecord) -> None:
         """No answer from Hugging Face: the run is unknown (never failed) until the next answer."""
@@ -854,15 +911,21 @@ class RemoteTrainer:
         if checks >= NOT_STARTED_CHECKS and self.clock() - began >= NOT_STARTED_SECONDS:
             write_record(replace(record, outcome="not_started", failure="not_started"), self._root)
             self._move(job.id, "failed", reason="not_started", error_code="not_started")
-            self._clean_up(read_record(job.id, self._root) or record)
+            self._clean_up(read_record(job.id, self._root) or record, "not_started")
 
     def cancel(self, job_id: str) -> Job | None:
-        """Cancel the job on Hugging Face (billing stops there), then the run stops and its files are deleted."""
+        """Cancel the job on Hugging Face (billing stops there), then the run stops and its files are deleted. A
+        run whose training already finished has nothing left to cancel or bill: it stops, its uploaded rows are
+        deleted, and its model stays unless it's downloaded and checked here (:meth:`_clean_up`)."""
 
         job = self.jobs.get(job_id)
         record = read_record(job_id, self._root)
         if job is None:
             return None
+        if record is not None and record.outcome == "completed":
+            moved = self._move(job_id, "stopped", reason="you")
+            self._clean_up(record, "canceled_after_completion")
+            return moved
         if record is not None and record.remote_id:
             try:
                 self.hub().cancel(record.remote_id)
@@ -875,7 +938,7 @@ class RemoteTrainer:
                 self.hub().cancel(remote.id)
         moved = self._move(job_id, "stopped", reason="you")
         if record is not None:
-            self._clean_up(write_record(replace(record, outcome="canceled"), self._root))
+            self._clean_up(write_record(replace(record, outcome="canceled"), self._root), "canceled")
         return moved
 
     # ── After ───────────────────────────────────────────────────────────
@@ -906,7 +969,8 @@ class RemoteTrainer:
         except (HubError, fetch.FetchError, ValueError, KeyError, OSError) as error:
             code = getattr(error, "code", "download_failed")
             logger.warning("Learning couldn't download a Hugging Face run's adapters (%s)", code)
-            write_record(replace(record, phase="downloading", failure=str(code)[:64]), self._root)
+            write_record(replace(read_record(job_id, self._root) or record, phase="downloading",
+                                 failure=str(code)[:64]), self._root)
             return  # tried again at the next tick: the files stay on Hugging Face until it works
         passes = report.get("passes")
         if isinstance(passes, dict):
@@ -915,10 +979,12 @@ class RemoteTrainer:
         if isinstance(artifacts, dict):
             (run / "artifacts.json").write_text(json.dumps(artifacts, sort_keys=True), encoding="utf-8")
         timings = {key: report.get(key) for key in ("times", "gpu", "card_peak_mib", "card_mib", "variant")}
-        record = write_record(replace(record, phase="downloaded", outputs=tuple(files), failure=None,
+        # Read again: the run may have been stopped meanwhile, and what its clean-up recorded stays.
+        record = write_record(replace(read_record(job_id, self._root) or record, phase="downloaded",
+                                      outputs=tuple(files), failure=None,
                                       timings=timings), self._root)
         job = self.jobs.get(job_id)
-        if job is not None and job.state == "running":
+        if job is not None and job.state in ("running", "unknown_remote"):
             self._move(job_id, "evaluating", reason="finished", finished_at=self.clock(),
                        steps_done=int(job.steps_total or job.steps_done))
         if record.base_gguf:
@@ -953,49 +1019,80 @@ class RemoteTrainer:
         item = next((entry for entry in record.outputs if entry.get("name") == "gguf/base.gguf"), None)
         if item is None:
             return
-        target = base_model.folder(record.model_id, self._root)
-        name = f"{record.model_id}-{record.quantization}.gguf"
+        key = self._base_key(record.model_id)
+        target = base_model.folder(key, self._root)
+        name = f"{key}-{record.quantization}.gguf"
         try:
             self._fetch(self.hub(), record, item, target, name)
         except (HubError, fetch.FetchError, OSError):
             logger.warning("Learning couldn't download the starting model's file a Hugging Face run built")
             return
-        base_model.write(base_model.BaseState(model_id=record.model_id, phase="exported", gguf=name,
+        base_model.write(base_model.BaseState(model_id=key, phase="exported", gguf=name,
                                               gguf_bytes=int(item["size"]), quantization=record.quantization,
                                               at=self.clock(), runtime="row_bot"), self._root)
 
     def _maybe_clean(self, job: Job, record: RunRecord) -> None:
-        """Once the version is made ready (or settled for good), the uploads and the run's files go (O133)."""
+        """Once the version is made ready (or settled for good), the uploads and the run's files go (O133). A run
+        that ended after training finished loses its uploaded rows; its model goes only if it was downloaded."""
 
         from row_bot.learning.training import releases
 
         if record.outcome != "completed":
             return
         if job.state in ("failed", "stopped"):
-            self._clean_up(record)
+            self._clean_up(record, f"{job.state}_after_completion")
             return
         state = releases.read_state(releases.version_dir(int(job.version or 0), self._root)) if job.version else None
         settled = state is not None and state.job_id == job.id and (
             state.phase in (releases.READY, releases.WAITING) or releases.couldnt_start(state))
         if settled or job.state in ("ready", "trial", "in_use", "not_used"):
-            self._clean_up(record)
+            self._clean_up(record, "after_ready")
 
-    def _clean_up(self, record: RunRecord) -> None:
-        """Delete the run's private dataset and model repositories on Hugging Face (and say so)."""
+    def _clean_up(self, record: RunRecord, reason: str) -> None:
+        """Delete the run's private repositories on Hugging Face, each one logged with its kind and ``reason`` (a
+        stable code, never a repository's name or account) and kept in the record with its time (``deleted``).
 
-        hub = self.hub()
+        The uploaded rows (the dataset) always go. The model goes only when the run never finished training or
+        its outputs are downloaded and checked here: a run that finished, and was paid for, but ended before
+        that keeps its model in the person's account (``model_kept``) to download or delete. Once kept, it stays
+        kept (a download that ends after the stop doesn't make it go unseen).
+
+        ``reason``: ``upload_failed``, ``submission_failed``, ``not_started``, ``remote_error``,
+        ``remote_canceled`` (on Hugging Face), ``canceled`` (by the person, before training finished),
+        ``canceled_after_completion``, ``stopped_after_completion``, ``failed_after_completion``, or
+        ``after_ready`` (the version is ready or settled for good, O133)."""
+
+        from row_bot.learning.remote.auth import SignInError
+
+        current = read_record(record.job_id, self._root) or record
+        keep_model = current.model_kept or (current.outcome == "completed"
+                                            and current.phase not in DOWNLOADED_PHASES)
+        repos = [(repo, kind) for repo, kind in ((current.dataset_repo, "dataset"), (current.output_repo, "model"))
+                 if repo]
+        due = [(repo, kind) for repo, kind in repos
+               if kind not in current.deleted and not (kind == "model" and keep_model)]
+        if not due and current.model_kept == keep_model:
+            return  # nothing more goes (a kept model stays until it's downloaded or the person deletes it)
+        deleted = dict(current.deleted)
         failed = False
-        for repo, kind in ((record.dataset_repo, "dataset"), (record.output_repo, "model")):
-            if not repo:
-                continue
+        hub: Any = self.hub() if due else None
+        for repo, kind in due:
             try:
                 hub.delete_repo(repo, kind)
-            except HubError:
+            except (HubError, SignInError) as error:
                 failed = True
-                logger.warning("Learning couldn't delete a Hugging Face %s repository yet", kind)
-        current = read_record(record.job_id, self._root) or record
-        write_record(replace(current, phase="cleaned" if not failed else current.phase,
-                             cleaned_at=None if failed else self.clock(), cleanup_failed=failed), self._root)
+                logger.warning("Learning couldn't delete a Hugging Face %s repository yet (%s, %s)", kind, reason,
+                               error.code)
+                continue
+            deleted[kind] = {"at": self.clock(), "reason": reason}
+            logger.info("Learning deleted a Hugging Face %s repository (%s)", kind, reason)
+        if keep_model and not current.model_kept:
+            logger.info("Learning kept a Hugging Face model repository: training finished but its outputs "
+                        "aren't downloaded yet (%s)", reason)
+        gone = all(kind in deleted for _repo, kind in repos)
+        write_record(replace(current, deleted=deleted, model_kept=keep_model, cleanup_failed=failed,
+                             phase="cleaned" if gone else current.phase,
+                             cleaned_at=self.clock() if gone else None), self._root)
         _changed()
 
 

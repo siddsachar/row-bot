@@ -12,13 +12,18 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_provider_usage
+from row_bot.providers import sampling_presets
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
+from row_bot.providers.model_visibility import is_personal_model_endpoint
+from row_bot.providers.reasoning import built_in_model_thinks, takes_per_chat_thinking
 from row_bot.providers.tool_schema import gemini_openai_tool, is_gemini_model
+from row_bot.providers.transports import local_silence
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
+from row_bot.providers.transports.local_silence import LocalModelSilentError
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +33,10 @@ OPENAI_COMPATIBLE_CONNECT_TIMEOUT = 10.0
 OPENAI_COMPATIBLE_WRITE_TIMEOUT = 120.0
 OPENAI_COMPATIBLE_POOL_TIMEOUT = 10.0
 OPENAI_COMPATIBLE_STREAM_ATTEMPTS = 2
+# llama-server's own default is no limit, so a local model caught in a loop can write until its window
+# is full (one wrote 49K tokens and the server ran out of memory). Qwen's guidance for its thinking
+# models is 32,768 output tokens for most work; a caller's or the endpoint's own max_tokens wins.
+LLAMA_CPP_REPLY_TOKEN_LIMIT = 32_768
 
 
 def _default_read_timeout() -> float:
@@ -76,6 +85,15 @@ class ChatOpenAICompatible(BaseChatModel):
     reasoning_plan: Any | None = None
     context_captured: bool = False
     captured_context_size: int | None = None
+    # The longest reply, unless a call asks for its own (``runtime.with_reply_limit``).
+    max_tokens: int | None = None
+
+    @model_validator(mode="after")
+    def _personal_models_as_trained(self) -> ChatOpenAICompatible:
+        # Learning's personal models think as their endpoint says (off), whatever the chat chose (its L4 constraint).
+        if self.reasoning_plan is not None and is_personal_model_endpoint(self.endpoint):
+            self.reasoning_plan = None
+        return self
 
     @property
     def _llm_type(self) -> str:
@@ -141,6 +159,17 @@ class ChatOpenAICompatible(BaseChatModel):
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        """The reply as it streams, or through one non-stream request where streaming can't carry it.
+
+        A stream that shows nothing (no text, thinking or tool call) is asked again without streaming, for a
+        server that can't stream what it wrote (a tool call it only returns whole). For a server on this
+        computer (``execution_location: "local"``), asking again generates the whole reply a second time, so
+        it is asked again only while that can help: when the request carried tools, or no event of the
+        stream could be read. A local reply that stopped at its length limit showing nothing ends with
+        ``LocalModelSilentError`` (asked again, it fills its limit again), and one the server finished
+        empty without tools ends empty; a local stream that receives nothing for
+        ``LOCAL_CHAT_IDLE_SECONDS`` ends with the same error, never asked again.
+        """
         tools = kwargs.get("tools") or []
         if not _endpoint_streaming_supported(
             self.endpoint,
@@ -308,6 +337,9 @@ class ChatOpenAICompatible(BaseChatModel):
                     call.get("name"),
                 )
                 yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
+        local = _runs_on_this_computer(self.endpoint)
+        if local and stop_reason == "length" and not (cleaned_content.strip() or reasoning_seen or tool_seen):
+            raise LocalModelSilentError.reply_limit()
         if not content_seen and not reasoning_seen and not tool_seen:
             if payload_seen and atlas_anthropic_route:
                 raise RuntimeError(
@@ -315,14 +347,15 @@ class ChatOpenAICompatible(BaseChatModel):
                     f"{self.model_name}, but Row-Bot could not find supported text, reasoning, or tool-call deltas. "
                     "Skipped non-stream fallback to avoid a long Claude timeout."
                 )
-            logger.warning(
-                "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
-                self.endpoint.get("provider_id") or "custom",
-                self.model_name,
-                payload_seen,
-            )
-            yield from self._stream_via_non_stream(messages, stop=stop, **kwargs)
-            return
+            if not (local and payload_seen and stop_reason and not tools):
+                logger.warning(
+                    "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
+                    self.endpoint.get("provider_id") or "custom",
+                    self.model_name,
+                    payload_seen,
+                )
+                yield from self._stream_via_non_stream(messages, stop=stop, **kwargs)
+                return
         if not content_seen:
             logger.warning(
                 "custom_openai_stream: completed without content provider=%s model=%s reasoning_seen=%s tool_seen=%s",
@@ -368,6 +401,11 @@ class ChatOpenAICompatible(BaseChatModel):
             content = "" if content_text_calls else cleaned_content
         if content_text_calls and not tool_calls:
             tool_calls = content_text_calls
+        metadata = getattr(message, "response_metadata", None) or {}
+        finish_reason = str(metadata.get("finish_reason") or "")
+        if (finish_reason == "length" and not (content.strip() or reasoning or tool_calls)
+                and _runs_on_this_computer(self.endpoint)):
+            raise LocalModelSilentError.reply_limit()
         if reasoning:
             yield ChatGenerationChunk(message=AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
         if content or tool_calls:
@@ -380,10 +418,8 @@ class ChatOpenAICompatible(BaseChatModel):
                 bool(reasoning),
                 bool(tool_calls),
             )
-        metadata = getattr(message, "response_metadata", None) or {}
         token_usage = metadata.get("token_usage")
-        yield _final_usage_chunk(token_usage if isinstance(token_usage, dict) else {},
-                                 str(metadata.get("finish_reason") or ""))
+        yield _final_usage_chunk(token_usage if isinstance(token_usage, dict) else {}, finish_reason)
 
     def _request_body(
         self,
@@ -405,7 +441,10 @@ class ChatOpenAICompatible(BaseChatModel):
         extra_body = self.endpoint.get("extra_body")
         if isinstance(extra_body, dict):
             body.update(extra_body)
-        _apply_reasoning_request_config(body, self.endpoint)
+        _apply_reasoning_request_config(body, self.endpoint, self.model_name)
+        own_limit = _person_reply_limit(self.endpoint, self.model_name)
+        if own_limit:
+            body["max_tokens"] = own_limit  # the person's reply limit for this model (U1); a caller's still wins
         self._apply_context_override(body)
         tools = kwargs.get("tools") or []
         if tools and accepts_tools:
@@ -419,9 +458,14 @@ class ChatOpenAICompatible(BaseChatModel):
         for key in ("temperature", "top_p", "max_tokens", "presence_penalty", "frequency_penalty"):
             if key in kwargs and kwargs[key] is not None:
                 body[key] = kwargs[key]
+        if self.max_tokens:
+            body.setdefault("max_tokens", self.max_tokens)
+        if str(self.endpoint.get("profile") or "").lower() == "llama_cpp":
+            body.setdefault("max_tokens", LLAMA_CPP_REPLY_TOKEN_LIMIT)
         if stream and _endpoint_stream_usage_supported(self.endpoint):
             body.setdefault("stream_options", {"include_usage": True})
         _apply_dynamic_reasoning_plan(body, self.reasoning_plan)
+        sampling_presets.apply_to_openai_compatible(body, self.endpoint, self.model_name)
         if self.endpoint.get("drop_unsupported_params", True):
             _drop_empty_or_unsupported(body, accepts_tools=accepts_tools)
         if self._requests_auto_cache(messages):
@@ -463,6 +507,8 @@ class ChatOpenAICompatible(BaseChatModel):
         return self._post_once(retry)
 
     def _post_once(self, body: dict[str, Any]) -> Any:
+        import httpx
+
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
         request_timeout = _httpx_timeout(self.timeout)
@@ -477,6 +523,10 @@ class ChatOpenAICompatible(BaseChatModel):
             )
             _raise_for_status(response, self.endpoint)
             return response
+        except httpx.ReadTimeout as exc:
+            if _runs_on_this_computer(self.endpoint):
+                raise LocalModelSilentError.idle(self.timeout) from exc
+            raise
         finally:
             if owns_client:
                 client.close()
@@ -511,6 +561,10 @@ class ChatOpenAICompatible(BaseChatModel):
             except (httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
                 if scope is not None and scope.is_cancelled():
                     return
+                if isinstance(exc, httpx.ReadTimeout) and _runs_on_this_computer(self.endpoint):
+                    # Asked again, a local model that went silent generates the whole reply again, and the
+                    # person waits for it twice.
+                    raise LocalModelSilentError.idle(self._stream_idle_seconds()) from exc
                 if produced or attempt >= OPENAI_COMPATIBLE_STREAM_ATTEMPTS:
                     raise
                 logger.warning(
@@ -523,10 +577,19 @@ class ChatOpenAICompatible(BaseChatModel):
                     type(exc).__name__,
                 )
 
+    def _stream_idle_seconds(self) -> float:
+        """The longest a stream may receive nothing: for a server on this computer, at most
+        ``LOCAL_CHAT_IDLE_SECONDS``, as on Ollama (a non-stream request sends nothing until it is done, so it
+        keeps the whole read timeout)."""
+
+        if _runs_on_this_computer(self.endpoint):
+            return min(self.timeout, local_silence.LOCAL_CHAT_IDLE_SECONDS)
+        return self.timeout
+
     def _iter_stream_events_once(self, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
-        request_timeout = _httpx_timeout(self.timeout)
+        request_timeout = _httpx_timeout(self._stream_idle_seconds())
         scope = current_cancellation_scope()
         raw_lines = 0
         data_lines = 0
@@ -877,6 +940,12 @@ def _endpoint_accepts_tools(endpoint: dict[str, Any]) -> bool:
     return True
 
 
+def _runs_on_this_computer(endpoint: dict[str, Any]) -> bool:
+    """A server on this computer (llama.cpp, LM Studio, vLLM, SGLang, Run on this computer, a personal model)."""
+
+    return str(endpoint.get("execution_location") or "").strip().lower() == "local"
+
+
 def _use_native_tool_history(endpoint: dict[str, Any], model_name: str) -> bool:
     if _is_atlascloud_anthropic_route(endpoint, model_name):
         return False
@@ -963,7 +1032,37 @@ def _merge_chat_template_kwargs(body: dict[str, Any], values: dict[str, Any]) ->
     body["chat_template_kwargs"] = merged
 
 
-def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, Any]) -> None:
+def _local_model_of(endpoint: dict[str, Any], model_name: str) -> tuple[str, str] | None:
+    """(provider id, model id) of a model on a server on this computer that the person's per-model settings
+    reach; None for a remote endpoint or one serving Learning's personal models (served as trained)."""
+    if (not isinstance(endpoint, dict) or is_personal_model_endpoint(endpoint)
+            or str(endpoint.get("execution_location") or "").strip().lower() != "local"):
+        return None
+    provider_id = str(endpoint.get("provider_id") or "")
+    return (provider_id, str(model_name or "")) if provider_id and model_name else None
+
+
+def _person_reply_limit(endpoint: dict[str, Any], model_name: str) -> int | None:
+    found = _local_model_of(endpoint, model_name)
+    if found is None:
+        return None
+    from row_bot.models import local_reply_limit
+
+    return local_reply_limit(*found)
+
+
+def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, Any], model_name: str) -> None:
+    """The person's Thinking for this model (U1), else the endpoint's own thinking setting, else a Run on this
+    computer model's (D3); the chat's own choice (``_apply_dynamic_reasoning_plan``) is applied after this and
+    wins."""
+    found = _local_model_of(endpoint, model_name) if takes_per_chat_thinking(endpoint) else None
+    if found is not None:
+        from row_bot.models import local_thinking
+
+        own = local_thinking(*found)
+        if own is not None:
+            _merge_chat_template_kwargs(body, {"enable_thinking": own})
+            return
     mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
     profile = str(endpoint.get("profile") or "").strip().lower()
     template_profiles = {"llama_cpp", "vllm", "sglang"}
@@ -975,6 +1074,10 @@ def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, An
         return
     if mode == "on" and (profile in template_profiles or endpoint.get("supports_reasoning_content")):
         _merge_chat_template_kwargs(body, {"enable_thinking": True})
+    template = body.get("chat_template_kwargs")
+    thinks = built_in_model_thinks(endpoint, model_name) if mode == "auto" else None
+    if thinks is not None and not (isinstance(template, dict) and "enable_thinking" in template):
+        _merge_chat_template_kwargs(body, {"enable_thinking": thinks})
     budget = endpoint.get("thinking_budget")
     if budget not in (None, "", 0):
         try:
@@ -1009,6 +1112,10 @@ def _apply_dynamic_reasoning_plan(body: dict[str, Any], plan: Any | None) -> Non
     if style == "enable_thinking":  # Qwen (Alibaba Cloud)
         if selection.kind in {"on", "off"}:
             body["enable_thinking"] = selection.kind == "on"
+        return
+    if style == "chat_template":  # the model's template on llama.cpp, vLLM or SGLang on this computer
+        if selection.kind in {"on", "off"}:
+            _merge_chat_template_kwargs(body, {"enable_thinking": selection.kind == "on"})
         return
     if selection.kind == "effort":
         body["reasoning_effort"] = selection.effort

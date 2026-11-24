@@ -30,6 +30,7 @@ EVOLVABLE = [
     "issues.chats", "issues.corrections", "issues.failures", "issues.feedback_first", "issues.min_failures",
     "issues.min_feedback", "issues.pushback",
     "methods.prefer",
+    "practice.made", "practice.tested",
     "prompts.diagnosis",
 ]
 #: The fixed points (E4), under the names a strategy would have to use to say anything about them.
@@ -43,7 +44,8 @@ FIXED_POINTS = [
 
 def test_a_strategy_holds_only_the_evolvable_parts():
     assert strategy_module.field_paths() == sorted(EVOLVABLE)
-    assert Strategy.__dataclass_fields__.keys() == {"version", "issues", "methods", "examples", "budget", "prompts"}
+    assert Strategy.__dataclass_fields__.keys() == {"version", "issues", "methods", "examples", "budget", "prompts",
+                                                    "practice"}
 
 
 @pytest.mark.parametrize("name", FIXED_POINTS)
@@ -52,7 +54,7 @@ def test_no_strategy_can_express_a_fixed_point(name):
     with pytest.raises(StrategyError) as top:
         strategy_module.from_dict({**text, name: 1})
     assert top.value.code == "unknown_field"
-    for part in ("issues", "methods", "examples", "budget", "prompts"):
+    for part in ("issues", "methods", "examples", "budget", "prompts", "practice"):
         with pytest.raises(StrategyError) as inside:
             strategy_module.from_dict({**text, part: {**text[part], name: 1}})
         assert inside.value.code == "unknown_field"

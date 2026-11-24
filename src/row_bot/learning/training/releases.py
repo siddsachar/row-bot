@@ -201,7 +201,8 @@ def _size(count: int) -> str:
 _REASONS = {
     "held_out": "kept back as hidden tests", "corrected_or_stopped": "corrected, stopped, retried or denied",
     "not_failed": "failed", "not_stopped": "stopped", "not_cancelled": "cancelled", "not_finished": "unfinished",
-    "reply_failed": "a reply failed", "tool_failed": "a tool failed", "too_long": "too long for the recipe",
+    "reply_failed": "a reply failed", "output_limit": "a reply cut short at its length limit",
+    "tool_failed": "a tool failed", "too_long": "too long for the recipe",
     "opted_out": "from chats you switched off", "conversation_gone": "from deleted chats",
     "someone_else": "from chats with other people", "source_off": "from sources you switched off",
     "purged": "deleted", "personal_model": "answered by a personal model", "tool_content_in_answer":
@@ -418,10 +419,10 @@ class ReleaseMaker:
             return self._weights()
         from row_bot.learning.training import weights
 
-        model = weights.MODELS.get(gate.read_settings(self._root).starting_model, weights.QWEN35_9B)
+        model = weights.model_for(gate.read_settings(self._root).starting_model, self._root, weights.QWEN35_9B)
         remote = _remote_record(job, self._root)
         if remote is not None:  # the model the Hugging Face run trained (C1); its files may not be here
-            model = weights.MODELS.get(remote.model_id, model)
+            model = weights.model_for(remote.model_id, self._root, model)
         found = weights.status(model, self._root)
         return (model, found.folder if found.state == "downloaded" else None,
                 model.weights_bytes or model.download_bytes)

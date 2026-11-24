@@ -117,6 +117,9 @@ class _PastChats:
     def messages(self, thread_id: str) -> list:
         return list(self.chats[thread_id])
 
+    def fork_source(self, thread_id: str) -> str:
+        return ""
+
     def window_start(self, thread_id: str, since: float, created_at: float) -> tuple[int, float]:
         return 0, created_at
 

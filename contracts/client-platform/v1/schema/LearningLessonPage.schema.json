@@ -48,7 +48,8 @@
             "tested_better",
             "tested_not_better",
             "in_use",
-            "off"
+            "off",
+            "removed"
           ],
           "title": "Status",
           "type": "string"

@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expires_in_ms": {
+      "maximum": 30000,
+      "minimum": 0,
+      "title": "Expires In Ms",
+      "type": "integer"
+    },
+    "ticket": {
+      "maxLength": 128,
+      "minLength": 20,
+      "title": "Ticket",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ticket",
+    "expires_in_ms"
+  ],
+  "title": "VoiceTicket",
+  "type": "object"
+}

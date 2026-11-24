@@ -2,6 +2,11 @@
   "additionalProperties": false,
   "description": "One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line.",
   "properties": {
+    "approved": {
+      "default": false,
+      "title": "Approved",
+      "type": "boolean"
+    },
     "at": {
       "anyOf": [
         {
@@ -19,6 +24,20 @@
       "title": "Card",
       "type": "string"
     },
+    "cue": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Cue",
+      "type": "string"
+    },
+    "effects": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Effects",
+      "type": "array"
+    },
     "end": {
       "anyOf": [
         {
@@ -30,6 +49,23 @@
         }
       ],
       "title": "End"
+    },
+    "footage": {
+      "default": "clip",
+      "enum": [
+        "clip",
+        "picture",
+        "ai",
+        "card",
+        "screen"
+      ],
+      "title": "Footage",
+      "type": "string"
+    },
+    "has_frame": {
+      "default": false,
+      "title": "Has Frame",
+      "type": "boolean"
     },
     "length": {
       "anyOf": [
@@ -48,9 +84,25 @@
       "title": "Line",
       "type": "string"
     },
+    "made": {
+      "default": "",
+      "enum": [
+        "",
+        "new",
+        "reused"
+      ],
+      "title": "Made",
+      "type": "string"
+    },
     "scene_id": {
       "pattern": "^s[0-9a-f]{6}$",
       "title": "Scene Id",
+      "type": "string"
+    },
+    "shows": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Shows",
       "type": "string"
     },
     "source": {
@@ -70,6 +122,12 @@
       ],
       "default": null,
       "title": "Source Ref"
+    },
+    "speaker": {
+      "default": "",
+      "maxLength": 40,
+      "title": "Speaker",
+      "type": "string"
     },
     "speed": {
       "maximum": 4,

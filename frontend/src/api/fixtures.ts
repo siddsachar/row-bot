@@ -182,11 +182,12 @@ export class FixtureTransport implements ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
     group: ConversationListGroup = 'all',
+    limit = 50,
   ): Promise<wire.ConversationPage> {
     this.available(signal);
     const listed = this.conversations.filter((row) => inGroup(row, group));
     const start = cursor ? Number(cursor) : 0;
-    const items = listed.slice(start, start + 50);
+    const items = listed.slice(start, start + limit);
     const has_more = start + items.length < listed.length;
     return {
       items,

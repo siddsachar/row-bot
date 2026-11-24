@@ -191,6 +191,9 @@ class CaseResult:
     cause: str = ""
     # It failed only because its final message offered more than one answer (METRIC_VERSION 3's guard).
     guarded: bool = False
+    # A passing practice task run through the real runtime: its last request and reply as sent (L4b, the
+    # training data's practice slice). Never a sample or hidden task's.
+    turn: Mapping[str, Any] | None = field(default=None, compare=False, repr=False)
 
     @property
     def passed(self) -> bool:
@@ -799,13 +802,14 @@ class ReplaySet:
 
 def _last_person_text(messages: Sequence[Mapping[str, Any]]) -> str:
     """The text of the person's last message: its text parts, never image data, and never the page's
-    picture after a browser or computer action (A8), nor a note Row-Bot sent the model itself."""
+    picture after a browser or computer action (A8), nor a note or prompt Row-Bot sent the model itself."""
 
-    from row_bot.learning.corrections import is_row_bot_note
+    from row_bot.learning.corrections import is_row_bot_note, is_row_bot_prompt
     from row_bot.learning.pictures import is_page_picture
 
     for item in reversed(messages):
-        if item.get("type") != "human" or is_page_picture(item) or is_row_bot_note(item):
+        if (item.get("type") != "human" or is_page_picture(item) or is_row_bot_note(item)
+                or is_row_bot_prompt(item)):
             continue
         content = (item.get("data") or {}).get("content")
         if isinstance(content, str):
@@ -881,6 +885,9 @@ def _case_for(saved: Any, decision: Decision, correction: CorrectedAction | None
 
     if decision.status != "ok":
         return "not_ok"
+    if decision.quoted_thread_ids:
+        # It holds another chat's words: no task, held or visible, copies them out of the records.
+        return "quotes_another_chat"
     if decision.untrusted and not include_untrusted:
         return "untrusted"
     check: Check = "exact_action"
@@ -1010,7 +1017,10 @@ def _served(case: ReplayCase, arm: Arm) -> tuple[list[Any], list[dict[str, Any]]
         return None
     system: list[str] = []
     messages: list[dict[str, Any]] = []
-    for item in _as_seen(case, arm):
+    seen = _as_seen(case, arm)
+    # The media tools the chat kept bound (M7). A case keeps no approvals: its list counts from the turn's start.
+    keep = shape.kept_media(envelope, dataset_module.saved_when_built(seen))
+    for item in seen:
         converted = dataset_module.openai_message(item)  # raises ValueError on content it can't send
         if converted is None:
             continue
@@ -1020,7 +1030,7 @@ def _served(case: ReplayCase, arm: Arm) -> tuple[list[Any], list[dict[str, Any]]
             messages.append(converted)
     reference = _unbridged(case.reference)
     problem = shape.serve_problem(system, messages, None if case.tools is None else [dict(item) for item in case.tools],
-                                  [name for name, _ in reference.tool_calls], envelope)
+                                  [name for name, _ in reference.tool_calls], envelope, keep=keep)
     return _langchain(problem.system, problem.messages), problem.tools, problem
 
 
@@ -1406,7 +1416,8 @@ def _save(store: Any, runs: Sequence[tuple[TestRun, dict[str, Any]]],
 
 def fixture_for(task: PackTask, *, created_at: float,
                 origin: Literal["pack", "practice"] = "pack") -> tuple[TaskFixture, bytes, bytes]:
-    """A visible pack task (or a practice task) as a TaskFixture (its input and expected blobs alongside)."""
+    """A visible pack task (or a practice task) as a TaskFixture (its input and expected blobs alongside). A practice
+    task exists only once the vault said it is novel (``practice.generate``)."""
 
     import hashlib
 
@@ -1415,7 +1426,7 @@ def fixture_for(task: PackTask, *, created_at: float,
     fixture = TaskFixture(
         id=f"fix_{task.id}", origin=origin, input_blob=hashlib.sha256(data).hexdigest(),
         verifier=task.verifier.kind, created_at=created_at, pack=task.pack, kind_of_work=task.kind_of_work,
-        expected_blob=hashlib.sha256(expected).hexdigest(),
+        expected_blob=hashlib.sha256(expected).hexdigest(), novelty_checked=origin == "practice",
     )
     return fixture, data, expected
 
@@ -1624,8 +1635,9 @@ def _compare(arms: Sequence[Arm], tasks: list[PackTask], replay: list[ReplayCase
         saved_store = store if store is not None else LearningStore()
         fixtures: list[tuple[TaskFixture, bytes, bytes | None]] = []
         if not aggregate_only:
-            origin = "practice" if suite == "practice" else "pack"
-            fixtures.extend(fixture_for(task, created_at=started, origin=origin) for task in tasks)
+            fixtures.extend(fixture_for(task, created_at=started,
+                                        origin="practice" if suite == "practice" or task.split == "practice" else "pack")
+                            for task in tasks)
             fixtures.extend(replay_fixture_for(case, created_at=started) for case in replay)
         saved_runs = _save(saved_store, runs, fixtures)
         for arm_result, run in zip(arm_results, saved_runs):

@@ -6,13 +6,18 @@ by default, with its standard model list and a short timeout: Ollama (11434, ``/
 but loopback; Row-Bot's own port is never asked. What answers is listed with its models.
 
 **Use** connects one: Ollama through its own provider, the others as an ordinary local custom endpoint
-(the profile of that runtime), whose models are then read from the same loopback address.
+(the profile of that runtime), whose models are then read from the same loopback address. The chosen
+model is then checked with the probe an endpoint added by hand gets (a reply, a tool call, the tool-result
+round trip, streaming and streamed tool calls), so agent mode and streamed tool replies rest on evidence.
+The check can load the model first, so it runs after Use has answered; the endpoint reads Not checked
+until it finishes.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
 import logging
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -139,10 +144,32 @@ def detect() -> dict[str, Any]:
     return {"schema_version": 1, "servers": servers}
 
 
-def connect(kind: str, port: int) -> dict[str, Any]:
+def _in_background(work: Callable[[], None]) -> None:
+    threading.Thread(target=work, name="row-bot-local-server-check", daemon=True).start()
+
+
+# Replaced in tests (the check runs at once).
+in_background: Callable[[Callable[[], None]], None] = _in_background
+
+
+def _check(provider_id: str, model_id: str) -> None:
+    """Probe *model_id* as adding the endpoint by hand does, unless it was already checked and answered."""
+
+    from row_bot.providers import custom
+
+    try:
+        if custom.custom_probe_for_model(provider_id, model_id).get("ok"):
+            return
+        custom.probe_custom_endpoint(provider_id, model_id)
+    except Exception:  # noqa: BLE001 - connected; the check can run again from Settings › Models
+        logger.warning("The check of a connected local server's model didn't finish", exc_info=True)
+
+
+def connect(kind: str, port: int, model: str | None = None) -> dict[str, Any]:
     """**Use** on a found server: connect it and return its models as refs the model picker knows.
 
-    Only a known runtime on its known loopback port can be connected this way."""
+    Only a known runtime on its known loopback port can be connected this way. The model the person chose
+    (*model*, else the first chat model listed) is then checked in the background."""
 
     from row_bot.application.client_platform import ClientPlatformError
 
@@ -170,9 +197,12 @@ def connect(kind: str, port: int) -> dict[str, Any]:
         provider_id = custom.custom_provider_id(endpoint_id)
     infos = custom.refresh_custom_endpoint_models(provider_id)
     chat = set(server["models"])
+    listed = [info.model_id for info in infos if info.model_id in chat][:MAX_MODELS]
+    chosen = model if model in listed else listed[0] if listed else None
+    if chosen:
+        in_background(lambda: _check(provider_id, chosen))
     return {"schema_version": 1, "provider_id": provider_id,
-            "model_refs": [f"model:{provider_id}:{info.model_id}" for info in infos
-                           if info.model_id in chat][:MAX_MODELS]}
+            "model_refs": [f"model:{provider_id}:{name}" for name in listed]}
 
 
 __all__ = ["KNOWN", "Known", "connect", "detect", "known"]

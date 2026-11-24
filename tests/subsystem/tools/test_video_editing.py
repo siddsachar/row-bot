@@ -64,15 +64,29 @@ def test_inputs_are_local_video_files_only_and_the_result_is_an_h264_mp4():
 
 
 def test_trim_cuts_picture_and_sound_together():
-    plan = _plan([{"op": "trim", "start": 1, "end": 4}])
-    assert "trim=start=1:end=4,setpts=PTS-STARTPTS" in plan.graph
-    assert "atrim=start=1:end=4,asetpts=PTS-STARTPTS" in plan.graph
-    assert plan.duration == 3
+    plan = _plan([{"op": "trim", "start": 1, "end": 4}, {"op": "text", "text": "Hi"}])
+    assert plan.args[plan.args.index("-i") - 8:plan.args.index("-i") - 4] == ["-ss", "1", "-t", "3"],         "only the trim is read, found by seeking: nothing before it is decoded"
+    assert "trim=" not in plan.graph
+    assert (plan.duration, plan.summary) == (3, "Trimmed and added a badge")
+    joined = _plan([{"op": "trim", "start": 1, "end": 4}], [InputVideo("input-1.mp4", HD)] * 2)
+    assert "-ss" not in joined.args, "a trim of joined videos cuts the joined film"
+    assert "trim=start=1:end=4,setpts=PTS-STARTPTS" in joined.graph
+    assert "atrim=start=1:end=4,asetpts=PTS-STARTPTS" in joined.graph
 
 
-def test_join_fits_every_video_to_the_first_and_fills_missing_sound_with_silence():
+def test_an_hours_video_trimmed_to_ten_seconds_is_read_from_a_seek_to_the_trim():
+    hour = VideoInfo(duration=3600.0, width=3840, height=2160, fps=30.0, has_audio=True)
+    plan = _plan([{"op": "trim", "start": 1800, "end": 1810}], [InputVideo("C:/footage/day.mov", hour)])
+    before_input = plan.args[:plan.args.index("-i")]
+    assert before_input[before_input.index("-ss") + 1] == "1800" and before_input[before_input.index("-t") + 1] == "10"
+    assert plan.duration == 10
+
+
+def test_join_fills_every_video_to_the_first_and_fills_missing_sound_with_silence():
     plan = _plan([], [InputVideo("input-1.mp4", HD), InputVideo("C:/work/clips/b.mp4", SILENT)])
-    assert "[1:v]scale=640:360:force_original_aspect_ratio=decrease,pad=640:360" in plan.graph
+    # A 4:3 clip joined to a 16:9 one fills its frame, cropped: one film, never black bars.
+    assert "[1:v]scale=640:360:force_original_aspect_ratio=increase:out_color_matrix=bt709:out_range=tv,crop=640:360"         in plan.graph, "and in HD colour, as every input is"
+    assert "pad=" not in plan.graph
     assert "fps=30" in plan.graph
     assert "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=4" in plan.graph
     assert "concat=n=2:v=1:a=1" in plan.graph
@@ -202,8 +216,12 @@ def test_progress_ffmpeg_version_options_and_clock_words():
     assert [clock(value) for value in (0, 42, 1.5, 62.25, 3730)] == ["0:00", "0:42", "0:01.5", "1:02.2", "1:02:10"]
 
 
-def test_voice_lines_and_ducked_music_are_laid_on_the_finished_video_at_one_loudness():
-    """5.3.1 B: a narrated video's sound in one pass: voices at their times, music under them."""
+def test_voice_lines_and_ducked_music_are_mixed_on_the_made_picture_at_one_loudness():
+    """C6: a video given sound is its picture (with the footage's own sound as cut), then its mix laid beside it:
+    voices at their times, music under them, the video's own sound, brought to one loudness."""
+    from row_bot.video_editing import final_arguments
+    from row_bot.video_sound import Track
+
     steps = parse_steps([
         {"op": "trim", "start": 1},
         {"op": "sound", "source": "scene-1.wav", "start": 0.5},
@@ -213,17 +231,19 @@ def test_voice_lines_and_ducked_music_are_laid_on_the_finished_video_at_one_loud
     ])
     plan = build_plan([InputVideo(path="input-1.mp4", info=HD)], steps, "output.mp4",
                       sounds={"scene-1.wav": "sound-1.wav", "scene-2.wav": "sound-2.wav",
-                              "music-calm.wav": "C:/music/calm.wav"})
+                              "music-calm.wav": "C:/music/calm.wav"}, loudness=-16)
 
-    sound_inputs = [plan.args[i + 1] for i, a in enumerate(plan.args) if a == "-i" and "sound" in plan.args[i + 1]]
-    assert sound_inputs == ["file:sound-1.wav", "file:sound-2.wav"] and "file:C:/music/calm.wav" in plan.args
-    assert "wav" in plan.args[plan.args.index("file:sound-1.wav") - 2], "plain audio files open as audio"
-    assert "[1:a]" in plan.graph and "adelay=500|500" in plan.graph and "adelay=3000|3000" in plan.graph
-    assert "[3:a]" in plan.graph and "volume=0.300" in plan.graph and "afade=t=out" in plan.graph
-    assert "sidechaincompress" in plan.graph, "the music dips while a voice speaks"
-    assert "volume=0.200" in plan.graph, "the video's own sound, turned down"
-    assert plan.graph.count("loudnorm=I=-16") == 1 and "atrim=0:5" in plan.graph, "one loudness, the video's length"
+    assert plan.args[-1] == "file:picture.mkv" and plan.args.count("-i") == 1, "the picture's run reads the video only"
+    assert plan.args[plan.args.index("-c:a") + 1] == "pcm_s16le", "its own sound kept as cut, for the mix"
+    assert set(plan.mix.tracks) == {Track("sound-1.wav", 0.5, 1.0, "voice"), Track("sound-2.wav", 3.0, 1.0, "voice"),
+                                    Track("C:/music/calm.wav", 0.0, 0.3, "music"),
+                                    Track("picture.mkv", 0.0, 0.2, "original")}
+    assert (plan.mix.seconds, plan.mix.duck, plan.mix.loudness) == (5.0, True, -16), "the music dips under the voice"
     assert plan.has_audio and describe(steps) == "Trimmed, added a voice, added music and set the sound level"
+    final = final_arguments("C:/kept/picture.mkv", "mix.wav", "output.mp4")
+    assert final[final.index("-c:v") + 1] == "copy", "the picture is used as it was made"
+    assert "file:C:/kept/picture.mkv" in final and "wav" in final[final.index("file:mix.wav") - 2]
+    assert final[-1] == "file:output.mp4" and "aac" in final
 
 
 def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_their_voice_at_each_start():
@@ -242,7 +262,8 @@ def test_a_projects_scenes_are_cut_in_order_with_speed_zoom_card_caption_and_the
     assert "setpts=PTS/2" in plan.graph and "atempo=2" in plan.graph
     assert "crop=" in plan.graph, "the second scene punches in"
     assert len(plan.overlays) == 2, "the card and the first scene's caption; a sped-up scene has no badge (U26)"
-    assert plan.voices == [(2.0, "sound-1.wav")] and "file:narration.wav" in plan.args, "its line starts with it"
+    assert plan.voices == [(2.0, "sound-1.wav")] and plan.mix.tracks[0].path == "narration.wav", \
+        "its line starts with it, in the narration track the mix lays"
     assert (plan.duration, plan.marks) == (4.0, [0.0, 2.0, 4.0])
     assert plan.summary == "Joined 2 videos and cut 2 scenes"
     with pytest.raises(EditError, match="Scene 1: .* outside its video"):
@@ -280,62 +301,36 @@ def test_each_scene_lasts_until_its_voice_line_ends_so_no_line_runs_into_the_nex
     assert _every_stream_is_used(plan)
 
 
-def test_a_project_in_another_shape_reframes_each_scene_on_its_zoom_and_keeps_the_speed_badge_in_frame():
+def test_a_sped_up_scene_carries_no_badge_and_a_gif_is_made_small():
     from row_bot.video_editing import SceneCut, Step, gif_arguments
 
-    scenes = Step(op="scenes", aspect="9:16", scenes=[
-        SceneCut(input=0, end=2, zoom=(0.8, 0.0, 0.1, 1.0)), SceneCut(input=0, start=2, end=6, speed=2)])
+    scenes = Step(op="scenes", scenes=[SceneCut(input=0, end=2), SceneCut(input=0, start=2, end=6, speed=2)])
     plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
 
-    # A tall cut is 1080×1920 whatever the source. The zoom here is tall enough (64×360): cropped on it, 640×360
-    # tall being 202×360 at the right edge; the wide scene without one is shown whole over a blurred copy of
-    # itself, never cropped to its middle third with its words cut in half (31 Oct: the teaser's phone cut was
-    # 606×1080).
-    assert "crop=202:360:438:0,scale=1080:1920" in plan.graph and "crop=202:360:219:0" not in plan.graph
-    assert "boxblur" in plan.graph and "scale=1080:-2" in plan.graph and "overlay=(W-w)/2:(H-h)/2" in plan.graph
-    assert (plan.width, plan.height, plan.marks) == (1080, 1920, [0.0, 2.0, 4.0])
-    assert _every_stream_is_used(plan)
-    # A wide zoom (a heading, a row of cards) is shown whole too: its area, fitted over a blur, not its middle.
-    wide = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="9:16", scenes=[
-        SceneCut(input=0, end=2, zoom=(0.1, 0.4, 0.6, 0.2))])], "output.mp4")
-    assert "crop=384:72:64:144" in wide.graph and "boxblur" in wide.graph and "crop=202:360" not in wide.graph
-    assert _every_stream_is_used(wide)
+    assert (plan.width, plan.height, plan.marks) == (640, 360, [0.0, 2.0, 4.0])
     assert plan.overlays == [], "no speed badge on a sped-up scene (U26)"
-    same = build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="16:9", scenes=[SceneCut(input=0)])],
-                      "output.mp4")
-    assert "crop=" not in same.graph and (same.width, same.height) == (640, 360), "its own shape: as it is"
-    with pytest.raises(EditError, match="16:9, 1:1 or 9:16"):
-        build_plan([InputVideo("input-1.mp4", HD)], [Step(op="scenes", aspect="4:3", scenes=[SceneCut(input=0)])],
-                   "output.mp4")
+    assert _every_stream_is_used(plan)
 
     gif = gif_arguments("input-1.mp4", "output.gif")
     assert gif[gif.index("-filter_complex") + 1].startswith("[0:v]fps=12,scale=480:-2")
     assert "palettegen" in " ".join(gif) and gif[-1] == "file:output.gif" and "file:input-1.mp4" in gif
 
 
-def test_a_caption_reads_the_same_in_a_square_or_tall_cut_as_in_a_wide_one():
-    from row_bot.video_editing import render_text
+def test_a_caption_is_sized_by_the_frames_height_fits_its_width_and_wraps_onto_two_lines_at_most():
+    """C7: captions read on a phone and a TV alike: 4.5% of the height (49 px at 1080p), as a tall short's are,
+    never wider than the frame, and a long one on two lines at most."""
+    from row_bot.video_editing import caption_size, render_text
 
+    assert caption_size("box", 1920, 1080) == 49 and caption_size("box", 1280, 720) == 32
+    short = "Who's coming back for another cup?"
+    wide, tall = render_text(short, "caption", 1280, 720), render_text(short, "caption", 720, 1280)
+    assert tall[2] > 1.4 * wide[2], "a tall frame's caption is larger, as its height is"
     line = ("First, let's see who's coming back for another cup. We ask Row-Bot to check the October "
             "orders file and show customers who ordered more than once.")
-    wide = render_text(line, "caption", 1280, 720)
-    # The same lines at the same size, nothing cut short, whatever the shape of a picture this wide.
-    assert render_text(line, "caption", 1280, 1280)[1:] == wide[1:]
-    assert render_text(line, "caption", 1280, 2276)[1:] == wide[1:]
-    assert render_text(line, "caption", 720, 1280)[1] <= 720
-
-
-def test_a_square_cut_of_a_scene_without_a_zoom_is_centred_where_its_pointer_was():
-    from row_bot.video_editing import SceneCut, Step
-
-    scenes = Step(op="scenes", aspect="1:1", scenes=[
-        SceneCut(input=0, end=2, focus=(0.9, 0.2)), SceneCut(input=0, start=2, end=4)])
-    plan = build_plan([InputVideo("input-1.mp4", HD)], [scenes], "output.mp4")
-
-    # 640×360 square is 360×360: the first scene at the right edge, where the pointer was; the second in the middle;
-    # each at the standard 1080×1080.
-    assert "crop=360:360:280:0,scale=1080:1080" in plan.graph and "crop=360:360:140:0,scale=1080:1080" in plan.graph
-    assert (plan.width, plan.height) == (1080, 1080)
+    for width, height in ((1280, 720), (720, 1280), (1080, 1080)):
+        _png, shown_width, shown_height = render_text(line, "caption", width, height)
+        size = caption_size("box", width, height)
+        assert shown_width <= width * 0.86 + 1 and shown_height < 3.5 * size, (width, height)
 
 
 def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_corner():
@@ -355,7 +350,7 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert plan.voices == [(2.0, "sound-1.wav")], "its line starts with the scene, after the intro"
     pictures = [_picture(png) for png in plan.overlays]
     backdrops = [picture for picture in pictures if picture.size == (640, 360)]
-    card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
+    card, caption, intro, outro, end_logo, mark = (picture for picture in pictures if picture.size != (640, 360))
     assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
     lit, right = card.getpixel((card.width // 3, card.height // 2)), card.getpixel((card.width - 12, card.height // 2))
     assert all(abs(a - b) < 12 for a, b in zip(right[:3], (17, 34, 51))) and sum(lit[:3]) > sum(right[:3]), \
@@ -364,7 +359,10 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
-    assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
+    assert "overlay=x=552:y=308:eof_action=repeat:enable='between(t,0,5)'" in plan.graph, \
+        "in the bottom-right corner, 16 px in, until the end card"
+    assert end_logo.height > 1.5 * mark.height and \
+        f"overlay=x={(640 - end_logo.width) // 2}:" in plan.graph, "C5: the end card has the logo, larger, centred"
     # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
     # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named), and slides in and out.
     [(x, y, begin, end)] = re.findall(r"overlay=x='(\d+)-[^']*':y=(\d+):eof_action=repeat:enable='between\(t,([\d.]+),"
@@ -445,8 +443,9 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
     pictures = [_picture(png) for png in alone.overlays]
     backdrops = [picture for picture in pictures if picture.size == (1080, 1080)]
     titles = [picture for picture in pictures if picture.size != (1080, 1080)]
-    assert len(backdrops) == 2 and len(titles) == 2 and "[0:a]" in alone.graph, \
-        "each card on its backdrop with its title, and the voice is the only input"
+    assert len(backdrops) == 2 and len(titles) == 2 and alone.args.count("-i") == 1 and "-an" in alone.args, \
+        "each card on its backdrop with its title: the picture reads only the pictures it lays"
+    assert [track.path for track in alone.mix.tracks] == ["narration.wav"], "and the voice is all its sound"
     assert titles[0].getpixel((0, 0))[3] == 0, "a plain title: the card's backdrop is its box"
     # The backdrop is the brand's colour, lit from the top left and darker at the edges: a slide, not a flat fill.
     top_left, centre, bottom_right = (backdrops[0].getpixel(at)[:3] for at in ((40, 40), (540, 540), (1040, 1040)))
@@ -467,51 +466,24 @@ def test_a_title_card_scene_needs_no_video_and_shows_its_card_on_the_brand_colou
 
 def test_turning_the_videos_own_sound_off_keeps_only_the_voice_or_leaves_no_sound():
     """A video's own sound at volume 0 once broke the edit, alone or under a voice."""
+    from row_bot.video_sound import Track
+
     muted = _plan([{"op": "sound", "role": "original", "volume": 0}])
-    assert "volume=0.000" in muted.graph and "amix=inputs=0" not in muted.graph and _every_stream_is_used(muted)
+    assert muted.mix.tracks == (Track("picture.mkv", volume=0.0, bus="original"),) and _every_stream_is_used(muted)
 
     voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)],
                         parse_steps([{"op": "sound", "role": "original", "volume": 0},
                                      {"op": "sound", "source": "line.wav"}]), "output.mp4",
                         sounds={"line.wav": "sound-1.wav"})
-    assert voiced.has_audio and "[1:a]" in voiced.graph and _every_stream_is_used(voiced)
-
-
-def test_a_narrated_video_with_long_quiet_gaps_or_a_long_held_picture_needs_attention():
-    """The Release kit's demo said 3 s of each 18 s scene and held the picture for 14 s: "Sound: present" passed it."""
-    from row_bot.video_editing import check_arguments, read_checks
-
-    minute = VideoInfo(duration=60.0, width=1280, height=720, fps=30.0, has_audio=True)
-    assert "silencedetect" in " ".join(check_arguments("output.mp4", has_audio=True, narrated=True))
-    assert "silencedetect" not in " ".join(check_arguments("output.mp4", has_audio=True))
-    heard = ("mean_volume: -25.0 dB\nmax_volume: -3.9 dB\n"
-             "silence_start: 2.87\nsilence_end: 18.04 | silence_duration: 15.17\n"
-             "silence_start: 20.87\nsilence_end: 36.04 | silence_duration: 15.17\n"
-             "silence_start: 57.5\n")
-    gappy = read_checks(heard, minute, narrated=True)
-    assert not gappy.passed
-    assert gappy.lines[3] == "Quiet: 0:02.9–0:18, 0:20.9–0:36 with no voice. Give those parts a line, or cut them shorter."
-    assert read_checks(heard, minute).passed, "a recording's own quiet isn't a gap in a narration"
-
-    held = read_checks("mean_volume: -19.0 dB\nmax_volume: -2.0 dB\n"
-                       "lavfi.freezedetect.freeze_start: 4.4\nlavfi.freezedetect.freeze_duration: 14.2\n", minute)
-    assert not held.passed and held.lines[3].startswith("Still: 0:04.4 for 14 s: too long to watch.")
-    # Under the voice a viewer reads along: a narrated picture may hold up to 20 s (demo run 2, 30 Oct, re-cut its
-    # video twelve times for 11 s holds), not longer.
-    spoken = "mean_volume: -19.0 dB\nmax_volume: -2.0 dB\nlavfi.freezedetect.freeze_start: 4.4\n"
-    assert read_checks(spoken + "lavfi.freezedetect.freeze_duration: 14.2\n", minute, narrated=True).passed
-    assert not read_checks(spoken + "lavfi.freezedetect.freeze_duration: 22.0\n", minute, narrated=True).passed
-
-    voiced = build_plan([InputVideo(path="input-1.mp4", info=HD)], parse_steps([{"op": "sound", "source": "a.wav"}]),
-                        "output.mp4", sounds={"a.wav": "sound-1.wav"})
-    assert voiced.narrated and not _plan([{"op": "trim", "start": 1}]).narrated
+    assert voiced.has_audio and Track("sound-1.wav") in voiced.mix.tracks and _every_stream_is_used(voiced)
 
 
 def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
     plan = build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
                       parse_steps([{"op": "sound", "source": "line.wav"}]), "output.mp4",
                       sounds={"line.wav": "sound-1.wav"})
-    assert plan.has_audio and "-an" not in plan.args and "sidechaincompress" not in plan.graph
+    assert plan.has_audio and "-an" in plan.args, "its picture has no sound of its own: the mix is all of it"
+    assert [track.bus for track in plan.mix.tracks] == ["voice"] and not plan.mix.duck
 
     with pytest.raises(EditError, match="isn't a sound file Row-Bot found"):
         build_plan([InputVideo(path="input-1.mp4", info=SILENT)],
@@ -525,25 +497,6 @@ def test_a_silent_video_gets_its_narration_and_sounds_are_checked():
                        "volume is from 0")):
         with pytest.raises(EditError, match=words):
             parse_steps([bad])
-
-
-def test_checks_pass_a_video_with_sound_and_list_what_needs_attention():
-    from row_bot.video_editing import check_arguments, read_checks
-
-    args = check_arguments("output.mp4", has_audio=True)
-    assert "volumedetect" in args and any("blackdetect" in a and "freezedetect" in a for a in args)
-    assert "volumedetect" not in check_arguments("output.mp4", has_audio=False)
-
-    good = read_checks("[Parsed_volumedetect_0] mean_volume: -18.2 dB\n[Parsed_volumedetect_0] max_volume: -1.0 dB\n"
-                       "black_start:0 black_end:0.6 black_duration:0.6\n"
-                       "lavfi.freezedetect.freeze_start: 12.2\nlavfi.freezedetect.freeze_duration: 4.1\n", HD)
-    assert good.passed and good.lines[1] == "Sound: present (average -18.2 dB, peak -1.0 dB)."
-    assert good.lines[2] == "Black: none.", "a fade-in at the start isn't a problem"
-    assert good.lines[3].startswith("Still: 0:12.2 for 4 s")
-
-    quiet = read_checks("mean_volume: -48.0 dB\nmax_volume: -30.0 dB\nblack_start:2 black_end:4 black_duration:2\n", HD)
-    assert not quiet.passed and "too quiet" in quiet.lines[1] and quiet.lines[2] == "Black: 0:02–0:04."
-    assert read_checks("", SILENT).lines[1].startswith("Sound: none.")
 
 
 def test_a_long_narrated_captioned_project_is_one_short_command_with_each_picture_cut_from_one_sheet():
@@ -561,7 +514,8 @@ def test_a_long_narrated_captioned_project_is_one_short_command_with_each_pictur
                       sounds={f"line-{index}.wav": f"C:/voices/line-{index}.wav" for index in range(60)})
 
     assert len(plan.overlays) > 120 and len(plan.voices) == 60
-    assert len(plan.args) < 60 and plan.args.count("-i") == 3, "the video, its narration and the picture sheet"
+    assert len(plan.args) < 60 and plan.args.count("-i") == 2, "the video and the picture sheet"
+    assert [track.path for track in plan.mix.tracks] == ["narration.wav", "picture.mkv"], "its lines as one track"
     assert plan.voices[1] == (pytest.approx(plan.marks[1]), "C:/voices/line-1.wav")
     assert f"file:{OVERLAYS}" in plan.args and _every_stream_is_used(plan)
     sheet = _picture(plan.overlay_sheet)

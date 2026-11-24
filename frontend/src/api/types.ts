@@ -11,6 +11,8 @@ export function isCommandReceipt(value: unknown): value is Wire.CommandReceipt {
 }
 
 export type * from '../../../contracts/client-platform/v1/typescript/client';
+/** Row-Bot Voice's socket, opened only by the transport. */
+export type VoiceSocket = WebSocket;
 
 /**
  * What a live picture is for: a pane gives its page area in CSS pixels and
@@ -36,6 +38,17 @@ export type ClientError = {
   recovery: 'authenticate' | 'update' | 'retry' | 'review' | 'none';
   /** Absent when the sentence already says what to change. */
   action?: ErrorAction;
+};
+/** One part of a saved reply, spoken by Read aloud, and how many parts it has. */
+export type ReadAloudSpeech = Wire.ReadAloudSpeech;
+/** What the outputs list shows (W3): one chat's or every chat's, made, uploads or working files. */
+export type OutputFilter = {
+  conversation_id?: string;
+  show?: 'made' | 'uploads' | 'working';
+  query?: string;
+  kind?: Wire.OutputView['kind'];
+  /** The page after one read before (its `next`). */
+  before?: string;
 };
 export type DictationScope = Readonly<{
   conversationId: string;
@@ -556,6 +569,10 @@ export interface ClientTransport {
     refresh?: boolean,
     signal?: AbortSignal,
   ): Promise<Wire.LearningHardware>;
+  learningModels?(
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LearningModelSearch>;
   learningConversation?(
     conversation: string,
     signal?: AbortSignal,
@@ -708,47 +725,50 @@ export interface ClientTransport {
     conversation: string,
     body: Wire.TalkStart,
     signal?: AbortSignal,
+  ): Promise<Wire.TalkStarted>;
+  stopTalk?(
+    handle: Wire.DictationHandle,
+    signal?: AbortSignal,
   ): Promise<Wire.TalkSnapshot>;
+  /** A fresh single-use ticket for the Row-Bot Voice socket. */
+  talkTicket?(
+    handle: Wire.DictationHandle,
+    signal?: AbortSignal,
+  ): Promise<Wire.VoiceTicket>;
+  /** The Row-Bot Voice socket on this server's own origin. */
+  openVoiceSocket?(): WebSocket;
+  /** A single-use ticket for the voice socket's wake mode (desktop only). */
+  wakeTicket?(signal?: AbortSignal): Promise<Wire.VoiceTicket>;
   startRealtime?(
     conversation: string,
     body: Wire.TalkStart,
     signal?: AbortSignal,
   ): Promise<Wire.RealtimeStart>;
-  voiceControl?<M extends 'talk' | 'realtime'>(
-    mode: M,
+  stopRealtime?(
     handle: Wire.DictationHandle,
-    action: 'stop' | 'heartbeat',
     signal?: AbortSignal,
-  ): Promise<M extends 'talk' ? Wire.TalkSnapshot : Wire.RealtimeSnapshot>;
-  transcribeTalk?(
+  ): Promise<Wire.RealtimeSnapshot>;
+  /** A fresh single-use ticket for the Live voice socket. */
+  realtimeTicket?(
     handle: Wire.DictationHandle,
-    utterance: string,
-    audio: Blob,
     signal?: AbortSignal,
-  ): Promise<Wire.TalkResult>;
-  talkOutput?(
-    handle: Wire.DictationHandle,
-    run: string,
-    output: string,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
+  ): Promise<Wire.VoiceTicket>;
+  /** The Live voice socket on this server's own origin. */
+  openLiveSocket?(): WebSocket;
   /** The Voice settings test phrase, spoken by the selected output provider. */
   speechTest?(signal?: AbortSignal): Promise<Blob>;
-  realtimeEvent?(
-    handle: Wire.DictationHandle,
-    event: Wire.RealtimeEvent,
+  /** Part *part* of a saved reply, spoken by the selected output provider. */
+  readAloud?(
+    conversationId: string,
+    messageId: string,
+    part: number,
     signal?: AbortSignal,
-  ): Promise<Wire.RealtimeEventResult>;
+  ): Promise<Wire.ReadAloudSpeech>;
   realtimeExchange?(
     handle: Wire.DictationHandle,
     sdp: string,
     signal?: AbortSignal,
   ): Promise<string>;
-  voiceRun?(
-    mode: 'talk' | 'realtime',
-    handle: Wire.DictationHandle,
-    signal?: AbortSignal,
-  ): Promise<Wire.VoiceRunView>;
   startDictation?(
     conversation: string,
     requestId: string,
@@ -1138,6 +1158,11 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.MediaPage>;
   setMediaTags?(ref: string, tags: string[]): Promise<Wire.MediaTags>;
+  /** The outputs list (W3): a chat's, or every chat's. */
+  outputs?(
+    filter: OutputFilter,
+    signal?: AbortSignal,
+  ): Promise<Wire.OutputPage>;
   /** A video project (5.3.1 B3) at one version, the latest by default. */
   videoProject?(
     projectId: string,
@@ -1153,6 +1178,18 @@ export interface ClientTransport {
     number: number,
   ): Promise<Wire.VideoProjectView>;
   makeVideoProject?(projectId: string): Promise<Wire.VideoProjectView>;
+  /** Approve storyboard scenes as they are, or take that back (C1). */
+  approveVideoScenes?(
+    projectId: string,
+    approval: Wire.VideoSceneApproval,
+  ): Promise<Wire.VideoProjectView>;
+  /** A storyboard card's frame, a small JPEG (C1). */
+  videoSceneFrame?(
+    projectId: string,
+    sceneId: string,
+    version?: number,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   videoBrand?(signal?: AbortSignal): Promise<Wire.VideoBrand>;
   /** What conversations wait for (5.3.1); a stopped one starts nothing. */
   waits?(signal?: AbortSignal): Promise<Wire.WaitPage>;
@@ -1351,6 +1388,18 @@ export interface ClientTransport {
   repairLocalModelRuntime?(
     signal?: AbortSignal,
   ): Promise<Wire.LocalModelRuntimeView>;
+  speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
+  installSpeechModel?(
+    body: Wire.SpeechModelInstallRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
+  stopSpeechModelDownload?(
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
+  removeSpeechModel?(
+    body: Wire.SpeechModelRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SpeechModelsView>;
   testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
   checkProviderKey?(
     body: Wire.ProviderKeyCheckRequest,
@@ -1875,6 +1924,18 @@ export interface ClientTransport {
     body: Wire.ModelContextMutation,
     signal?: AbortSignal,
   ): Promise<Wire.ModelsSettingsState>;
+  localModelSettings?(
+    modelRef: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
+  saveLocalModelSettings?(
+    body: Wire.LocalModelSettingsMutation,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
+  reloadLocalModelInLmStudio?(
+    body: Wire.LocalModelReloadRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
   updateModelVisibility?(
     body: Wire.ModelVisibilityMutation,
     signal?: AbortSignal,
@@ -2061,6 +2122,7 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
     group?: ConversationListGroup,
+    limit?: number,
   ): Promise<Wire.ConversationPage>;
   getConversation(
     id: string,

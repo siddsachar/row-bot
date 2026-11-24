@@ -90,6 +90,19 @@ def test_failed_stopped_corrected_and_personal_model_turns_are_left_out(work, le
     assert compiled.corrections_waiting == 1  # counted, never invented into an answer
 
 
+def test_a_reply_cut_short_at_the_output_limit_is_never_a_target(work, learning_on, chats, recipe):
+    work.turn("chat-1", "Write the long report", "Section one, section tw", stop="length")
+    work.turn("chat-2", "Write the short note", "Done: the note.", stop="stop")
+    # A later turn of the cut chat still teaches: the cut reply is only its context.
+    work.turn("chat-1", "Thanks, now just the summary", "The summary.")
+
+    compiled = _compile(learning_on, chats, recipe)
+
+    assert compiled.left_out == {"output_limit": 1}
+    assert sorted(json.dumps(item.row["messages"][-1]) for item in compiled.train) == sorted(
+        json.dumps({"role": "assistant", "content": text, "weight": 1}) for text in ("Done: the note.", "The summary."))
+
+
 def test_a_held_out_reply_is_never_in_a_row_as_target_or_as_context(work, learning_on, chats, recipe):
     first = work.turn("chat-1", "Question one", "Answer one is 42.")
     work.turn("chat-1", "Question two", "Answer two is 48.")

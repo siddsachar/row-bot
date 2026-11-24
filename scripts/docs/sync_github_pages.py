@@ -32,6 +32,7 @@ HAND_CURATED_MARKETING_FILES = (
     "contact.html",
     "features.html",
     "index.html",
+    "research.html",
     "site.css",
     "site.js",
     "favicon.ico",

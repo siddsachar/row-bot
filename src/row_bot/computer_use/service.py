@@ -717,8 +717,11 @@ class ComputerUseService:
         keys: str = "",
         scroll: str = "",
         seconds: float | None = None,
+        before_input: Callable[[Shot, tuple[float, float] | None], None] | None = None,
     ) -> tuple[str, Shot]:
-        """Do one action with real input on the chosen window; what was done, and the window after it."""
+        """Do one action with real input on the chosen window; what was done, and the window after it.
+        ``before_input`` hears the moment the input is sent, with the picture and point it aims at (a screen
+        recording logs it, C9)."""
 
         session = self._current()
         window = self._require_window(session)
@@ -813,6 +816,8 @@ class ComputerUseService:
                 self._revision += 1
             bar.busy(True)
             try:
+                if before_input is not None:
+                    before_input(shot, point)
                 response = self._call(session, tool, arguments)
             finally:
                 bar.busy(False)

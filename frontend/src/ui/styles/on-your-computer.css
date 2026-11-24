@@ -1,0 +1,19 @@
+.on-your-computer {
+  max-width: 40ch;
+}
+.on-your-computer-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-dialog);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.on-your-computer h2 {
+  font-size: var(--type-size-title);
+  line-height: var(--type-line-title);
+}
+.on-your-computer .button {
+  justify-self: stretch;
+}

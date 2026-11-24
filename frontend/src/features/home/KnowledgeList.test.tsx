@@ -158,6 +158,26 @@ describe('KnowledgeList', () => {
     ]);
   });
 
+  it('names the app an imported memory came from', () => {
+    render(
+      <KnowledgeList
+        nodes={[
+          node('imported', {
+            subject: 'Prefers metric units',
+            source: 'import',
+            source_label: 'ChatGPT',
+          }),
+        ]}
+        selectedId={null}
+        onSelect={vi.fn()}
+      />,
+    );
+    const row = screen
+      .getByRole('button', { name: 'Prefers metric units' })
+      .closest('tr') as HTMLElement;
+    expect(within(row).getByText('Imported from ChatGPT')).toBeInTheDocument();
+  });
+
   it('selects a memory by keyboard, row button, or row click, once each', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
@@ -292,6 +312,8 @@ describe('sourceWords', () => {
     expect(sourceWords('extraction')).toBe('From conversations');
     expect(sourceWords('document')).toBe('From documents');
     expect(sourceWords('wiki')).toBe('Wiki and Dream Cycle');
+    expect(sourceWords('import')).toBe('Imported from other assistants');
+    expect(sourceWords('import', 'Gemini')).toBe('Imported from Gemini');
     expect(sourceWords('other')).toBe('Other');
     expect(sourceWords('custom_import')).toBe('Custom import');
   });

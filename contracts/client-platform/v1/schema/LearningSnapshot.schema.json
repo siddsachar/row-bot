@@ -501,6 +501,194 @@
       "title": "LearningChannelNote",
       "type": "object"
     },
+    "LearningCheckedModel": {
+      "additionalProperties": false,
+      "description": "A model the person chose to check on this computer, and what the check found (C1 Part 4).",
+      "properties": {
+        "download_bytes": {
+          "minimum": 0,
+          "title": "Download Bytes",
+          "type": "integer"
+        },
+        "downloaded_bytes": {
+          "minimum": 0,
+          "title": "Downloaded Bytes",
+          "type": "integer"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "hugging_face_flavor": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hugging Face Flavor"
+        },
+        "id": {
+          "maxLength": 200,
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/LearningModelCheckItem"
+          },
+          "maxItems": 4,
+          "title": "Items",
+          "type": "array"
+        },
+        "licence": {
+          "maxLength": 96,
+          "title": "Licence",
+          "type": "string"
+        },
+        "licence_agreed": {
+          "title": "Licence Agreed",
+          "type": "boolean"
+        },
+        "licence_kind": {
+          "enum": [
+            "permissive",
+            "terms",
+            "gated"
+          ],
+          "title": "Licence Kind",
+          "type": "string"
+        },
+        "licence_url": {
+          "maxLength": 512,
+          "title": "Licence Url",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "params_b": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params B"
+        },
+        "repo": {
+          "maxLength": 192,
+          "title": "Repo",
+          "type": "string"
+        },
+        "sample": {
+          "items": {
+            "$ref": "#/$defs/LearningModelSample"
+          },
+          "maxItems": 6,
+          "title": "Sample",
+          "type": "array"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "enum": [
+                "download",
+                "fits",
+                "steps",
+                "export",
+                "tools"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        },
+        "state": {
+          "enum": [
+            "not_checked",
+            "downloading",
+            "checking",
+            "passed",
+            "failed",
+            "stopped"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "terms": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Terms",
+          "type": "array"
+        },
+        "trains_here": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trains Here"
+        }
+      },
+      "required": [
+        "id",
+        "repo",
+        "name",
+        "licence",
+        "licence_kind",
+        "licence_url",
+        "licence_agreed",
+        "state",
+        "items",
+        "download_bytes",
+        "downloaded_bytes"
+      ],
+      "title": "LearningCheckedModel",
+      "type": "object"
+    },
     "LearningComparison": {
       "additionalProperties": false,
       "description": "The newest ready version's comparison (UX \u00a75 \"Versions\"): waiting, running with its real\ndenominator, paused or stopped (it runs again), failed, or done with its counts.",
@@ -1186,6 +1374,24 @@
           "title": "Minutes",
           "type": "integer"
         },
+        "model_kept": {
+          "default": false,
+          "title": "Model Kept",
+          "type": "boolean"
+        },
+        "model_url": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Url"
+        },
         "outcome": {
           "anyOf": [
             {
@@ -1521,6 +1727,152 @@
       "title": "LearningHuggingFaceSignIn",
       "type": "object"
     },
+    "LearningJob": {
+      "additionalProperties": false,
+      "description": "Who does one of Learning's own jobs (L4c; designs \u00a76 \"Jobs your personal model does\").",
+      "properties": {
+        "by": {
+          "enum": [
+            "personal",
+            "main"
+          ],
+          "title": "By",
+          "type": "string"
+        },
+        "job": {
+          "enum": [
+            "drafting",
+            "practice"
+          ],
+          "title": "Job",
+          "type": "string"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LearningJobTest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "main_model": {
+          "maxLength": 128,
+          "title": "Main Model",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "enum": [
+            "",
+            "not_matched",
+            "new_version",
+            "not_served"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "seconds": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Since"
+        },
+        "tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "job",
+        "by",
+        "main_model"
+      ],
+      "title": "LearningJob",
+      "type": "object"
+    },
+    "LearningJobTest": {
+      "additionalProperties": false,
+      "description": "A job's latest test (L4c): the same items for the personal version and the main model, each output checked\nthe way the job's real output is.",
+      "properties": {
+        "asked": {
+          "minimum": 0,
+          "title": "Asked",
+          "type": "integer"
+        },
+        "at": {
+          "maxLength": 64,
+          "title": "At",
+          "type": "string"
+        },
+        "main_passed": {
+          "minimum": 0,
+          "title": "Main Passed",
+          "type": "integer"
+        },
+        "personal_passed": {
+          "minimum": 0,
+          "title": "Personal Passed",
+          "type": "integer"
+        },
+        "verdict": {
+          "enum": [
+            "qualified",
+            "not_matched",
+            "too_few",
+            "limit",
+            "unavailable"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "version",
+        "asked",
+        "personal_passed",
+        "main_passed",
+        "verdict"
+      ],
+      "title": "LearningJobTest",
+      "type": "object"
+    },
     "LearningKindState": {
       "additionalProperties": false,
       "description": "Where Learning stands on a kind of work (UX \u00a73 \"What Row-Bot is learning\"), besides models in use.",
@@ -1574,6 +1926,14 @@
           },
           "maxItems": 30,
           "title": "History",
+          "type": "array"
+        },
+        "jobs": {
+          "items": {
+            "$ref": "#/$defs/LearningJob"
+          },
+          "maxItems": 4,
+          "title": "Jobs",
           "type": "array"
         },
         "kept": {
@@ -1800,6 +2160,64 @@
       "title": "LearningMethodTrial",
       "type": "object"
     },
+    "LearningModelCheckItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "fits",
+            "steps",
+            "export",
+            "tools"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "waiting",
+            "running",
+            "passed",
+            "failed",
+            "skipped"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "words": {
+          "maxLength": 300,
+          "title": "Words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "words"
+      ],
+      "title": "LearningModelCheckItem",
+      "type": "object"
+    },
+    "LearningModelSample": {
+      "additionalProperties": false,
+      "properties": {
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "prompt": {
+          "maxLength": 300,
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt",
+        "passed"
+      ],
+      "title": "LearningModelSample",
+      "type": "object"
+    },
     "LearningNeedsYou": {
       "additionalProperties": false,
       "description": "One line of Overview's Needs you about the personal model (UX \u00a73, \u00a75).",
@@ -1962,6 +2380,41 @@
           "default": 0,
           "minimum": 0,
           "title": "Not Better",
+          "type": "integer"
+        },
+        "practice_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "document_lookups",
+                "structured_transforms",
+                "small_coding",
+                "tool_workflows"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Practice Kind"
+        },
+        "practice_needs_container": {
+          "default": false,
+          "title": "Practice Needs Container",
+          "type": "boolean"
+        },
+        "practised": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Practised",
+          "type": "integer"
+        },
+        "practised_passed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Practised Passed",
           "type": "integer"
         },
         "ready": {
@@ -2146,6 +2599,14 @@
           ],
           "default": null
         },
+        "other_models": {
+          "items": {
+            "$ref": "#/$defs/LearningCheckedModel"
+          },
+          "maxItems": 12,
+          "title": "Other Models",
+          "type": "array"
+        },
         "room": {
           "anyOf": [
             {
@@ -2258,6 +2719,57 @@
         "download_state"
       ],
       "title": "LearningPersonalModel",
+      "type": "object"
+    },
+    "LearningQuickQuestion": {
+      "additionalProperties": false,
+      "description": "The quick question (L4b; UX \u00a73): at most one a day, two answers to tap, \u2715 never asks it again.",
+      "properties": {
+        "answers": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Answers",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "document_lookups",
+                "structured_transforms",
+                "small_coding",
+                "tool_workflows"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "other",
+              "type": "string"
+            }
+          ],
+          "title": "Kind"
+        },
+        "question": {
+          "maxLength": 200,
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "question",
+        "answers",
+        "kind"
+      ],
+      "title": "LearningQuickQuestion",
       "type": "object"
     },
     "LearningQuietHours": {
@@ -2550,15 +3062,29 @@
     "LearningSpending": {
       "additionalProperties": false,
       "properties": {
+        "kept_for_comparing": {
+          "default": 0,
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Kept For Comparing",
+          "type": "integer"
+        },
         "limit_reached": {
           "title": "Limit Reached",
           "type": "boolean"
         },
         "limit_tokens": {
-          "maximum": 1000000000,
-          "minimum": 0,
-          "title": "Limit Tokens",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 1000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Limit Tokens"
         },
         "model_name": {
           "maxLength": 256,
@@ -3376,6 +3902,17 @@
     },
     "personal_model": {
       "$ref": "#/$defs/LearningPersonalModel"
+    },
+    "quick_question": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LearningQuickQuestion"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "quiet_hours": {
       "$ref": "#/$defs/LearningQuietHours"

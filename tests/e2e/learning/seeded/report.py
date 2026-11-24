@@ -31,11 +31,7 @@ LABELS = {"document_lookups": "Document lookups", "structured_transforms": "Stru
           "own_work": "Held-out seeded work"}
 #: Stages of the Learning loop that later work packages build; the report names them, never zeros.
 NOT_BUILT = (
-    {"stage": "Testing the drafted lessons, skills and ways of working, using and undoing them (the drafts wait)",
-     "work_package": "L3b"},
     {"stage": "The harder pack split where the main model fails (O31)", "work_package": "L3b"},
-    {"stage": "Practice tasks from failure patterns, the quick question (D17)", "work_package": "L4b"},
-    {"stage": "The personal model taking over learning jobs (D21)", "work_package": "L4c"},
     {"stage": "Learn from corrections (self-distillation) against SFT", "work_package": "L2e"},
 )
 SURVIVAL = ("crash_mid_training", "pause_on_use", "negative_result", "source_deletion", "version_skew",
@@ -246,6 +242,8 @@ def person_report(result: Mapping[str, Any]) -> dict[str, Any]:
         "gpu_hours": round(float(gpu.get("seconds") or 0) / 3600, 3),
         "gpu_hours_by_phase": {name: round(value / 3600, 3) for name, value in sorted(phases.items())},
         "refused_tool_calls": result.get("refused_tool_calls", 0),
+        # L4b and L4c, when the run switched them on (O179): read from the person's profile at the report.
+        "l4": dict(result.get("l4") or {}),
     }
 
 
@@ -531,6 +529,7 @@ def markdown(report: Mapping[str, Any]) -> str:
                          f"little of their kind to tell; use → Undo {tests['use_undo_survived']} survived, "
                          f"{tests['use_undo_failed']} failed; {tests['tokens']:,} testing tokens.")
         lines += _generation_lines(person.get("generations") or {})
+        lines += _l4_lines(person.get("l4") or {}, report.get("run") or {})
         lines.append("- Survival: " + "; ".join(f"{name.replace('_', ' ')}: {check.get('state')}{_survival_note(check)}"
                                                for name, check in person["survival"].items()))
         lines.append("- Tokens: " + ", ".join(f"{key.replace('_', ' ')} {value:,}" for key, value in
@@ -558,6 +557,31 @@ def markdown(report: Mapping[str, Any]) -> str:
     for item in report.get("not_built") or ():
         lines.append(f"- {item['stage']}: **not built yet** ({item['work_package']}).")
     return "\n".join(lines) + "\n"
+
+
+def _l4_lines(found: Mapping[str, Any], run: Mapping[str, Any]) -> list[str]:
+    """Practice and the quick question (L4b), and who does Learning's own jobs (L4c), for one person."""
+
+    lines = []
+    if not run.get("practice"):
+        lines.append("- Practice and the quick question (L4b): off in this run.")
+    elif found:
+        made = found.get("practice") or {}
+        night = made.get("last_night") or {}
+        lines.append(f"- Practice (L4b): {made.get('tasks', 0)} tasks in use from {made.get('runs', 0)} runs, "
+                     f"{made.get('training_turns', 0)} passing turns in the training data; last night "
+                     f"({night.get('night', '-')}): made {night.get('made', 0)}, ran {night.get('ran', 0)}, passed "
+                     f"{night.get('passed', 0)}, {int(night.get('tokens') or 0):,} tokens; quick questions answered "
+                     f"{found.get('questions_answered', 0)}.")
+    if not run.get("jobs"):
+        lines.append("- Learning's own jobs (L4c): off in this run.")
+    elif found:
+        held = found.get("jobs") or {}
+        words = [f"{job} by the {item.get('by')} model (latest test: {item.get('verdict') or 'none'}, "
+                 f"personal {item.get('personal_passed') or 0} and main {item.get('main_passed') or 0} of "
+                 f"{item.get('items') or 0})" for job, item in sorted(held.items())]
+        lines.append("- Learning's own jobs (L4c): " + ("; ".join(words) if words else "not tested yet") + ".")
+    return lines
 
 
 def _generation_lines(found: Mapping[str, Any]) -> list[str]:

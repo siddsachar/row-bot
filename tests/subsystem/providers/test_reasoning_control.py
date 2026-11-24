@@ -170,6 +170,10 @@ def test_reasoning_command_is_strict_and_persists_for_active_exact_model(tmp_pat
     }
     assert "not supported" in apply_reasoning_command("chat", model, "xhigh")
     assert threads.get_thread_reasoning_selection("chat", model)["effort"] == "high"
+    # "/reasoning status" reads the setting like a bare "/reasoning", as the docs say.
+    assert apply_reasoning_command("chat", model, "status") == (
+        f"Reasoning for {model}: High. Valid choices: default, minimal, low, medium, high."
+    )
     assert apply_reasoning_command("chat", model, "default") == (
         f"Reasoning for {model}: Provider default."
     )

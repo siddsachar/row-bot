@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "model_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$",
+      "title": "Model Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model_id"
+  ],
+  "title": "SpeechModelRemoveRequest",
+  "type": "object"
+}

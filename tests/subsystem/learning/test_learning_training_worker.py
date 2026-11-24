@@ -212,6 +212,25 @@ def test_the_worker_belongs_to_no_conversation_and_gets_only_its_spec_lease_and_
         assert environment[key].startswith(str(run))
 
 
+def test_training_asks_row_bots_local_model_server_for_the_card_but_not_while_row_bot_is_used(training,
+                                                                                                monkeypatch):
+    from types import SimpleNamespace
+
+    asked: list[str] = []
+    # Run on this computer's server (E1), as it is once it ran: it gives the card back when asked.
+    monkeypatch.setitem(sys.modules, "row_bot.local_runtime.server",
+                        SimpleNamespace(release_gpu=lambda: asked.append("release") or True))
+    training.lease.set(chat_cloud=True)
+
+    assert training.supervisor.train_now(training.job.id).state == "waiting"
+    assert asked == []  # the person is using Row-Bot: their local model keeps the card
+
+    training.lease.set()
+    training.supervisor.watch()  # the waiting run starts once nobody uses Row-Bot
+    training.until(lambda job: job.state == "running")
+    assert asked == ["release"]
+
+
 def test_pause_on_use_saves_at_the_next_step_and_the_worker_exits(training):
     training.start()
     training.advance(7)

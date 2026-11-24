@@ -274,6 +274,24 @@ test('a run that needs credit says so; a finished one says its uploads were dele
   await shoot(page, info, 'hf-run-done');
 });
 
+test('a paid run stopped before its download says its model stays in the account, with a link', async ({
+  page,
+}, info) => {
+  await onHuggingFace(page, 'signed_in');
+  await c1(page, 'run', 'kept');
+  await openModel(page);
+  await expect(card(page)).toContainText(
+    'the model it trained stays in your Hugging Face account, to download or delete there',
+  );
+  const link = card(page).getByRole('link', { name: 'Open it' });
+  await expect(link).toHaveAttribute(
+    'href',
+    /^https:\/\/huggingface\.co\/[\w.-]+\/row-bot-personal-/,
+  );
+  await link.scrollIntoViewIfNeeded(); // the shots show the line on a phone too
+  await shoot(page, info, 'hf-run-kept');
+});
+
 test('the monthly cap holds a run back in plain words', async ({
   page,
 }, info) => {
@@ -307,6 +325,7 @@ test('Settings › Learning shows the account, the model and the cap', async ({
 test('Monitor shows a run on Hugging Face with its cost so far; its Cancel asks first', async ({
   page,
 }, info) => {
+  test.skip(phone(info), 'Monitor is on the computer (D5)');
   await onHuggingFace(page, 'signed_in');
   await c1(page, 'run', 'training');
   await page.goto('/app-v2/?tab=monitor');

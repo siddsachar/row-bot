@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "description": "The person approves storyboard scenes of version ``base`` as they are, or takes that back (C1).",
+  "properties": {
+    "approved": {
+      "title": "Approved",
+      "type": "boolean"
+    },
+    "base": {
+      "minimum": 1,
+      "title": "Base",
+      "type": "integer"
+    },
+    "scene_ids": {
+      "items": {
+        "pattern": "^s[0-9a-f]{6}$",
+        "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Scene Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "base",
+    "scene_ids",
+    "approved"
+  ],
+  "title": "VideoSceneApproval",
+  "type": "object"
+}

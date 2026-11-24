@@ -15,6 +15,7 @@ import {
   openConversation,
   clickNewChat,
   headerAction,
+  openCommands,
   revealContextControl,
 } from './unified-helpers';
 import { captureBrowserDownload } from './download-helpers';
@@ -83,17 +84,8 @@ async function openSettingThroughCommands(
   route: { label: string; path: string },
 ) {
   const navigated = page.waitForURL((url) => url.pathname === route.path);
-  await headerAction(page, 'Workspace commands');
-  const commands = page.getByRole('dialog', {
-    name: 'Workspace commands',
-    exact: true,
-  });
-  await commands
-    .getByRole('searchbox', {
-      name: 'Find a workspace command',
-      exact: true,
-    })
-    .fill(`Open ${route.label} settings`);
+  const { field } = await openCommands(page);
+  await field.fill(`Open ${route.label} settings`);
   await page.keyboard.press('Enter');
   await navigated;
   await expect(
@@ -227,12 +219,13 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   await expect(page).toHaveURL(`/app-v2/conversations/${conversation}`);
 
   // Agent profiles live in the sidebar's Agents dialog, which the commands
-  // open too (B260).
-  await headerAction(page, 'Workspace commands');
-  await page
-    .getByRole('dialog', { name: 'Workspace commands', exact: true })
-    .getByRole('searchbox', { name: 'Find a workspace command', exact: true })
-    .fill('Agent profiles');
+  // open too (B260); a phone's Search finds it as Settings does.
+  const { field } = await openCommands(page);
+  await field.fill(
+    page.viewportSize()!.width < 768
+      ? 'Agent profile library'
+      : 'Agent profiles',
+  );
   await page.keyboard.press('Enter');
   const owner = page
     .getByRole('dialog', { name: 'Agents', exact: true })
@@ -586,6 +579,18 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   await expect(
     inspector.getByRole('group', { name: 'Repository status' }),
   ).not.toContainText('not a Git repository');
+  if (page.viewportSize()!.width < 768) {
+    // A phone reads Changes and Files; Git stays on the computer (B3, D5),
+    // and its branch chip says so. Desktop covers the repository owner.
+    await expect(inspector.getByRole('tab', { name: /^Git/ })).toHaveCount(0);
+    await inspector
+      .getByRole('button', { name: /^Branch .+ Open Git$/ })
+      .click();
+    await expect(
+      inspector.getByRole('region', { name: 'Git', exact: true }),
+    ).toContainText('Open this on your computer');
+    return;
+  }
   const repository = await openGit();
   await screenshot(page, info, 'developer-repository-controls');
   const branchMenu = repository.getByRole('button', {
@@ -759,9 +764,10 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   await expect(
     preview.getByRole('toolbar', { name: 'Design preview controls' }),
   ).toBeVisible();
+  // Zoom is a computer's tool; a phone pages through at the fitted size (B3).
   await expect(
     preview.getByRole('combobox', { name: 'Preview zoom' }),
-  ).toBeVisible();
+  ).toHaveCount(page.viewportSize()!.width < 768 ? 0 : 1);
   // Maximize is a focus mode; an Escape that closes a menu stays in it.
   // Below the desktop width the panel is already a full-height sheet.
   if (page.viewportSize()!.width >= 1024) {
@@ -839,11 +845,17 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     .click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(preview.locator('iframe')).toBeVisible();
-  // One short toolbar row on a phone; the rest waits in ⋯.
-  for (const name of ['Undo', 'Redo', 'Share or export', 'More design actions'])
+  // A phone previews (B3): Share and ⋯ in one short row; Edit and undo stay
+  // on the computer.
+  for (const name of ['Share or export', 'More design actions'])
     await expect(
       preview.getByRole('button', { name, exact: true }),
     ).toBeVisible();
+  for (const name of ['Undo', 'Redo'])
+    await expect(
+      preview.getByRole('button', { name, exact: true }),
+    ).toHaveCount(0);
+  await expect(preview.getByRole('radio', { name: 'Edit' })).toHaveCount(0);
   await visualCheck(page, info, 'design-slice8-narrow', async () => {
     await expect(preview.locator('iframe')).toBeVisible();
   });
@@ -962,6 +974,10 @@ test('Conversation actions rename, pin, and export through one recoverable overl
 test('profile library manages profiles and starts a selected chat', async ({
   page,
 }, info) => {
+  test.skip(
+    page.viewportSize()!.width < 768,
+    'A phone has no sidebar or drawer (D1); its Search opens the library.',
+  );
   await openFixture(page);
   if (page.viewportSize()!.width < 1024)
     await page.getByRole('button', { name: 'Toggle navigation' }).click();

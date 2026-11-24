@@ -105,7 +105,7 @@ MALFORMED_DETAIL = "the model's tool call was malformed (the runtime refused it)
 #: Trace events a developer's run keeps per task (only when it asks for them).
 TRACE_EVENTS = 160
 _APP_PREFIXES = ("calendar_", "mail_", "issues_")
-_FILE_WRITERS = frozenset({"workspace_write_file", "write_file", "workspace_edit_file", "edit_file"})
+_FILE_WRITERS = frozenset({"workspace_write_file", "write_file"})
 
 
 def _result_problem(name: str, content: Any) -> str:
@@ -304,6 +304,7 @@ def gather(arms: Sequence[WorkerArm]) -> tuple[list[Credential], dict[str, Any],
     endpoints: dict[str, dict[str, Any]] = {}
     local_settings: dict[str, dict[str, Any]] = {}
     unsupported: list[str] = []
+    learning_server = built_in_server = False
     for arm in arms:
         provider = _provider_of(arm.model_ref)
         model_id = arm.model_ref.split(":", 2)[-1] if arm.model_ref.count(":") >= 2 else ""
@@ -317,6 +318,8 @@ def gather(arms: Sequence[WorkerArm]) -> tuple[list[Credential], dict[str, Any],
             continue
         if provider.startswith("custom_openai_"):
             endpoint = custom.get_custom_endpoint(provider) or {}
+            learning_server = learning_server or endpoint.get("managed") == "learning"
+            built_in_server = built_in_server or endpoint.get("managed") == "local"
             live = custom.managed_connection(endpoint) if endpoint.get("managed") else None
             if not endpoint or (endpoint.get("managed") and live is None):
                 unsupported.append(arm.name)
@@ -363,6 +366,12 @@ def gather(arms: Sequence[WorkerArm]) -> tuple[list[Credential], dict[str, Any],
             unsupported.append(arm.name)
             continue
         credentials[provider] = Credential(provider, "api_key", {"api_key": key})
+    if learning_server and not built_in_server:
+        # The worker loads the personal arms onto Learning's own server: the built-in one gives the card back
+        # first. When an arm runs on the built-in server itself, its server has to keep running for that arm.
+        from row_bot.learning.training.llama_server import release_local_model_server
+
+        release_local_model_server()
     return list(credentials.values()), {"custom_endpoints": list(endpoints.values()),
                                         "local_model_settings": local_settings}, unsupported
 
@@ -712,9 +721,10 @@ class EvalWorker:
     # ── Tasks ───────────────────────────────────────────────────────────
 
     def run(self, task: Mapping[str, Any], arm: str, *, budget: Mapping[str, Any],
-            timeout: float = TASK_SECONDS, trace: bool = False) -> dict[str, Any]:
+            timeout: float = TASK_SECONDS, trace: bool = False, turn: bool = False) -> dict[str, Any]:
         """Run one pack task (its canonical dict) on one arm; the worker's result frame (with the
-        turn's trace when ``trace``: a developer's look at the visible packs)."""
+        turn's trace when ``trace``: a developer's look at the visible packs; with a practice task's last
+        request and reply when ``turn`` and it passed: the training data's practice slice, L4b)."""
 
         if not self.alive:
             raise EvalWorkerError("not_running")
@@ -723,6 +733,8 @@ class EvalWorker:
                    "timeout": timeout}
         if trace:
             message["trace"] = True
+        if turn:
+            message["turn"] = True
         if not self._send(message):
             raise EvalWorkerError("not_running")
         frame = self._wait(lambda item: item.get("type") == "result" and item.get("id") == ident, timeout + 120)
@@ -953,7 +965,8 @@ def _setup_providers(spec: Mapping[str, Any], notes: list[str], endpoint_keys: M
             notes.append(f"endpoint {str(endpoint.get('id') or '')[:40]}: {type(error).__name__}")
     for name, values in dict(providers.get("local_model_settings") or {}).items():
         try:
-            models.set_local_model_settings(str(name), context=values.get("context"), reasoning=values.get("reasoning"))
+            models.set_local_model_settings(str(name), context=values.get("context"), reasoning=values.get("reasoning"),
+                                            owner=values.get("owner"))  # Learning's entries stay Learning's
         except Exception as error:  # noqa: BLE001
             notes.append(f"local settings: {type(error).__name__}")
     if any(str(arm.get("model_ref") or "").startswith("model:ollama:") for arm in spec.get("arms") or ()):
@@ -995,14 +1008,57 @@ class _TaskGate:
         # The failed model calls' own errors (the provider's text, not the turn's friendly line), so
         # a runtime's refusal of the model's malformed tool call is told apart from an outage (O70).
         self.errors: list[str] = []
+        # A practice task asked for its turn (L4b): the last model call's request and reply as sent.
+        self.keep_turn = False
+        self.request: dict[str, Any] | None = None
+        self.reply: Any = None
 
-    def reset(self, allowance: int, cloud_cap: int | None) -> None:
+    def reset(self, allowance: int, cloud_cap: int | None, *, keep_turn: bool = False) -> None:
         self.allowance, self.cloud_cap = int(allowance), cloud_cap
         self.spent = self.cloud_spent = 0
         self.refused = ""
         self.sent = {}
         self.estimated = 0
         self.errors = []
+        self.keep_turn = keep_turn
+        self.request = self.reply = None
+
+    def sending(self, messages: Sequence[Any], tools: Any) -> None:
+        """A model call's request as it is sent: its messages (``message_to_dict``, as capture keeps them) and its
+        tools in OpenAI's form. Kept only for a practice task that asked for its turn."""
+
+        if not self.keep_turn:
+            return
+        from langchain_core.messages import BaseMessage, message_to_dict
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        found = [message_to_dict(item) for item in messages if isinstance(item, BaseMessage)]
+        schemas = []
+        for item in tools or ():
+            try:
+                schemas.append(convert_to_openai_tool(item))
+            except Exception:  # noqa: BLE001 - a tool that can't be named isn't kept: no turn
+                self.keep_turn = False
+                self.request = None
+                return
+        self.request, self.reply = {"messages": found, "tools": schemas or None}, None
+
+    def replied(self, response: Any) -> None:
+        if not self.keep_turn or self.request is None:
+            return
+        try:
+            from langchain_core.messages import message_to_dict
+
+            self.reply = message_to_dict(response.generations[0][0].message)
+        except Exception:  # noqa: BLE001 - no reply that can be kept: no turn
+            self.reply = None
+
+    def turn(self) -> dict[str, Any] | None:
+        """The turn's last request and its reply, when both were kept."""
+
+        if self.request is None or not isinstance(self.reply, dict):
+            return None
+        return {**self.request, "reply": self.reply, "purpose": "agent"}
 
     def failed(self, error: BaseException) -> None:
         self.errors.append(str(error)[:2000])
@@ -1044,6 +1100,7 @@ class _TaskGate:
 
 
 def _install_gate(gate: _TaskGate) -> None:
+    from row_bot.agent import _PREPARED_COMPACTION_KEY as prepared_mark
     from row_bot.learning.evaluation import estimate_tokens
     from row_bot.learning.spending import is_local_provider
     from row_bot.providers import usage_ledger
@@ -1060,8 +1117,14 @@ def _install_gate(gate: _TaskGate) -> None:
         return found
 
     def on_chat_model_start(self: Any, serialized: Any, messages: Any, *, run_id: Any, **kwargs: Any) -> None:
-        estimate = estimate_tokens(flatten(messages), (kwargs.get("invocation_params") or {}).get("tools"))
+        if (kwargs.get("metadata") or {}).get(prepared_mark):
+            # A summary prepared ahead after a task settled (B6) is no task's work: refused before it is sent,
+            # never charged or counted against the task running then; the preparation then stores nothing.
+            raise RuntimeError("learning evaluation: no compaction is prepared ahead")
+        tools = (kwargs.get("invocation_params") or {}).get("tools")
+        estimate = estimate_tokens(flatten(messages), tools)
         gate.admit(run_id, estimate, local=is_local_provider(str(getattr(self, "provider_id", "") or "")))
+        gate.sending(flatten(messages), tools)
         return original_start(self, serialized, messages, run_id=run_id, **kwargs)
 
     def on_llm_end(self: Any, response: Any, *, run_id: Any, **kwargs: Any) -> Any:
@@ -1071,6 +1134,7 @@ def _install_gate(gate: _TaskGate) -> None:
         except Exception:  # noqa: BLE001
             used = 0
         gate.charge(run_id, used, local=is_local_provider(str(getattr(self, "provider_id", "") or "")))
+        gate.replied(response)
         return original_end(self, response, run_id=run_id, **kwargs)
 
     def on_llm_error(self: Any, error: BaseException, *, run_id: Any, **kwargs: Any) -> Any:
@@ -1166,7 +1230,9 @@ def _run_task(message: Mapping[str, Any], spec: Mapping[str, Any], tools: list[s
     names = [*tools, *(APP_TOOLS[app] for app in task.tools if app in APP_TOOLS)]
     max_calls = int(budget.get("max_steps") or task.max_steps) * TOOL_CALL_FACTOR
     seed_arm(arm)
-    gate.reset(int(budget.get("task_tokens") or 150_000), budget.get("cloud_cap"))
+    # Only a practice task's passing turn ever leaves the worker as it was sent (L4b), never a sample or hidden one.
+    gate.reset(int(budget.get("task_tokens") or 150_000), budget.get("cloud_cap"),
+               keep_turn=bool(message.get("turn")) and task.split == "practice")
     _, baseline = _ledger_rows(0)
     thread_id = f"eval-{uuid.uuid4().hex[:16]}"
     threads.create_thread(f"Evaluation {task.id}", thread_id=thread_id, seed_default_skills=False)
@@ -1242,6 +1308,9 @@ def _run_task(message: Mapping[str, Any], spec: Mapping[str, Any], tools: list[s
     frame = {"type": "result", "id": message["id"], "case": case, "usage": rows}
     if record.keep:
         frame["trace"] = record.events
+    turn = gate.turn() if status == "passed" else None
+    if turn is not None:
+        frame["turn"] = turn
     return frame
 
 
@@ -1343,6 +1412,8 @@ class RuntimeRunner:
     #: A developer's look at visible tasks: called with (task, arm name, case, trace). Never set by the
     #: product's comparison, so no hidden task's turn ever leaves the worker (E10).
     on_trace: Callable[[Any, str, Mapping[str, Any], list[dict[str, Any]]], None] | None = None
+    #: The night's practice run (L4b): a passing practice task's case carries its turn as sent.
+    keep_turns: bool = False
 
     def run(self, task: Any, arm: Any, *, budget: Any, meter: Any, arm_left: int | None) -> Any:
         from row_bot.learning.evaluation import CaseResult, LimitReached, estimate_tokens
@@ -1359,7 +1430,9 @@ class RuntimeRunner:
                 raise LimitReached()
             cloud_cap = max(0, int(meter.remaining))
         tracing = self.on_trace is not None and getattr(task, "split", "") == "visible"
-        options = {"trace": True} if tracing else {}
+        options: dict[str, Any] = {"trace": True} if tracing else {}
+        if self.keep_turns and getattr(task, "split", "") == "practice":
+            options["turn"] = True
         frame = self.worker.run(task.to_dict(), arm.name, budget={
             "task_tokens": allowance, "max_steps": budget.max_steps, "cloud_cap": cloud_cap}, timeout=self.seconds,
             **options)
@@ -1383,7 +1456,8 @@ class RuntimeRunner:
                           str(case.get("check") or task.verifier.kind), tokens, local_tokens,
                           int(case.get("steps") or 0), float(case.get("seconds") or 0.0),
                           str(case.get("detail") or "")[:300], cause if cause in CAUSES else "",
-                          bool(case.get("guarded")) and status == "failed")
+                          bool(case.get("guarded")) and status == "failed",
+                          turn=frame.get("turn") if status == "passed" and isinstance(frame.get("turn"), dict) else None)
 
 
 def ledger_recorder(purpose: str = "learning_test") -> Callable[[Sequence[Mapping[str, Any]]], None]:

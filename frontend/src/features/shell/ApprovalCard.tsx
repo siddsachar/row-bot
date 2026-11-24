@@ -440,6 +440,8 @@ export default function ApprovalCard({
     if (!view || busy || resolution) return;
     overlay.open({
       kind: 'sheet',
+      // From an approval's sheet (Home on a phone), Back returns to it.
+      over: true,
       title: 'Always allow this?',
       description: 'Approve it now and from now on, in any of your chats.',
       content: (

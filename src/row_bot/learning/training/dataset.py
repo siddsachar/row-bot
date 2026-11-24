@@ -42,6 +42,14 @@ names the rendering and counts derived rows. ``shape="captured"`` keeps rows exa
 computer action (5.3) is left out of a served row, as the text-only personal model is served without it;
 a captured row can't hold it, so such a turn is left out there (``unsupported_content``).
 
+**Practice** (L4b, D6, only in a build with practice on): the main model's passing practice turns
+(``learning.practice``: tasks Row-Bot made up from its own mistakes, run in throwaway sandboxes through
+the real runtime, kept as Row-Bot sent them) are their own slice of the mix, rendered like captured rows
+(the same ``shape.render``), training only (validation stays the person's own work), and at most
+:data:`PRACTICE_SHARE` of the rows that train. They never hold a hidden or held-out problem: practice is
+made from evidence that leaves those out and each task is checked novel by the audit vault. With practice
+off, nothing here changes: the same rows, DataSpec and manifest.
+
 **Identity**: deterministic and content-addressed: the same records and recipe give the same rows
 and the same ``ds_…`` id. The ``DataSpec`` records which providers' answers it holds (D7) and the
 rendering the rows have.
@@ -79,6 +87,9 @@ MIN_VALIDATION_CONVERSATIONS = 5
 CHARS_PER_TOKEN = 3.5
 # Requests of these purposes are the model answering the person (L0b); synthesis is partial.
 REPLY_PURPOSES = frozenset({"agent", "chat_only", "finalization", "historical"})
+# L4b: practice rows are at most this share of the rows that train (the cap, and the default until a recipe names
+# its own mix: D6 says the recipe mixes practice in).
+PRACTICE_SHARE = 0.25
 # Providers whose terms may limit training on their answers (D7).
 TERMS_PROVIDERS = {
     "openai": "OpenAI", "codex": "OpenAI", "anthropic": "Anthropic", "claude_subscription": "Anthropic",
@@ -202,6 +213,22 @@ def _is_person(message: Mapping[str, Any]) -> bool:
     return is_person_message({**dict(data), "type": kind}) and not is_row_bot_note(message)
 
 
+def saved_when_built(sent: Sequence[Mapping[str, Any]], approved: Iterable[str] = ()) -> list[Mapping[str, Any]]:
+    """The messages of a captured request (their data) that were saved when its tool list was last built, which
+    decides the media tools the chat kept bound (M7, ``shape.kept_media``). The list is built at the turn's start
+    (the person's last message) and again on the resume after the person approves one of the turn's calls
+    (``approved``: their call ids), with the calls saved by then. A call made since binds from the next build."""
+
+    approved = frozenset(approved)
+    built = max((index for index, message in enumerate(sent) if _is_person(message)), default=0)
+    for index, message in enumerate(sent):
+        kind, data = _data(message)
+        if kind == "ai" and any(isinstance(call, Mapping) and str(call.get("id") or "") in approved
+                                for call in data.get("tool_calls") or ()):
+            built = max(built, index + 1)
+    return [_data(message)[1] for message in sent[:built]]
+
+
 # ── Paths (O33) ─────────────────────────────────────────────────────────────
 
 
@@ -289,6 +316,12 @@ class Example:
     tokens: int | None = None
     # Re-rendered into the serving shape (O71): derived, never the model's raw output (E3).
     derived: bool = False
+    # A practice turn (L4b): ``id`` is its task's, and the chats its issue came from are ``sources``.
+    practice: bool = False
+    sources: tuple[str, ...] = ()
+    # Other conversations whose words the row holds (a past-conversation search's matches): forgetting one
+    # forgets the runs and kept rows built on it, like the row's own conversation.
+    quoted: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -317,7 +350,12 @@ class CompiledDataset:
 
     @property
     def conversations(self) -> tuple[str, ...]:
-        return tuple(sorted({item.conversation_id for item in (*self.train, *self.validation)}))
+        return tuple(sorted({thread for item in (*self.train, *self.validation) if not item.practice
+                             for thread in (item.conversation_id, *item.quoted)}))
+
+    @property
+    def practice_rows(self) -> tuple[Example, ...]:
+        return tuple(item for item in self.train if item.practice)
 
     @property
     def terms_note(self) -> bool:
@@ -330,9 +368,11 @@ class CompiledDataset:
         return str(self.rendering.get("name") or "captured")
 
     def data_spec(self) -> DataSpec:
+        sources = ("main_model_work",) if self.train else ()
+        if self.practice_rows:
+            sources = ("main_model_work", "practice")
         return DataSpec(dataset_id=self.id, sha256=self.sha256, examples=self.examples,
-                        sources=("main_model_work",) if self.train else (), providers=self.providers[:64],
-                        rendering=self.rendering_name)
+                        sources=sources, providers=self.providers[:64], rendering=self.rendering_name)
 
     def manifest(self) -> dict[str, Any]:
         """What the dataset is, without its content: counts, ids and providers (for the release)."""
@@ -354,6 +394,9 @@ class CompiledDataset:
             "conversations": list(self.conversations),
             "example_ids": sorted(item.id for item in self.train),
             "validation_ids": sorted(item.id for item in self.validation),
+            # L4b: present only when practice rows train (with practice off the manifest is as before).
+            **({"practice": {"rows": len(self.practice_rows), "conversations": sorted(
+                {source for item in self.practice_rows for source in item.sources})}} if self.practice_rows else {}),
         }
 
 
@@ -517,6 +560,16 @@ def _paragraphs(text: str) -> list[str]:
     return [part for part in text.split("\n\n") if part.strip()]
 
 
+# A code folder's notes (the stable section ``developer.project_notes``): that conversation's own, always between
+# these two lines (a file's own copy of either is replaced before it is sent).
+_PROJECT_NOTES = re.compile(r"<<<PROJECT NOTES>>>.*?<<<END PROJECT NOTES>>>", re.DOTALL)
+
+
+def _without_project_notes(text: str) -> str:
+    kept, found = _PROJECT_NOTES.subn("", text)
+    return "\n\n".join(_paragraphs(kept)) if found else text
+
+
 def past_frame(episodes: Sequence[Episode], book: _Book) -> PastFrame | None:
     """What imported rows are framed with: the newest finished live turn's Agent request's tools and the
     static part of its system prompt, or None (nothing live yet: imported rows wait for it).
@@ -544,6 +597,7 @@ def past_frame(episodes: Sequence[Episode], book: _Book) -> PastFrame | None:
     if newest is None:
         return None
     _episode, text, tools = newest
+    text = _without_project_notes(text)  # two chats in one code folder share them; an imported chat had none
     if shared is not None:
         kept = [part for part in _paragraphs(text) if part in shared]
         text = "\n\n".join(kept) or text
@@ -664,6 +718,10 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
             pictures = sum(1 for message in sent if _page_picture(message))
             sent = [message for message in sent if not _page_picture(message)]
         person = max((index for index, message in enumerate(sent) if _is_person(message)), default=-1)
+        # A reply the model was cut off in (its output token limit) ends mid-action: never a target.
+        targets = [message for message in sent[person + 1:] if message.get("type") == "ai"]
+        if any(_cut_short(message) for message in [*targets, *([output] if held is None else [])]):
+            return None, "output_limit", 0
         messages: list[dict[str, Any]] = []
         starts: list[int] = []  # where each of the person's messages is in ``messages``
         system: list[str] = []
@@ -715,14 +773,53 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
         # O113: framed as the newest live Agent request was (its prompt and tools), then rendered like it.
         system, tools, agent = list(frame.system), [dict(item) for item in frame.tools], True
         _past_steps(messages, frame, past_steps)
+    rendering = envelope if envelope is not None and (not episode.historical or frame is not None) else None
+    keep: frozenset[str] = frozenset()
+    if rendering is not None:
+        approved = {item.tool_call_id for item in decisions if item.kind == "approval" and item.tool_call_id
+                    and item.decided_by == "person" and item.status == "ok"}
+        keep = shape_module.kept_media(rendering, saved_when_built(sent, approved))
+    row, derived, reason, changed = _finish_row(system, messages, tools, envelope=rendering, agent=agent,
+                                                pictures=pictures, stats=stats, roots=roots,
+                                                no_target="held_out" if held is not None else "no_target", keep=keep)
+    if row is None:
+        return None, reason, 0
+    return Example(
+        id=episode.id, conversation_id=episode.conversation_id, thread_id=episode.thread_id,
+        started_at=float(episode.started_at), provider=_provider(model_ref), historical=episode.historical,
+        row=row, estimated_tokens=estimate_tokens(row), derived=derived,
+        quoted=tuple(sorted({thread for item in decisions for thread in item.quoted_thread_ids})),
+    ), "", changed
+
+
+def _cut_short(message: Any) -> bool:
+    """Whether a stored model reply stopped at its output token limit (the stop reason its provider saved in
+    ``response_metadata``, read alike for every provider)."""
+
+    from row_bot.providers.stop_reason import stop_reason, stopped_at_output_limit
+
+    if not isinstance(message, Mapping):
+        return False
+    data = message.get("data") if isinstance(message.get("data"), Mapping) else message
+    return stopped_at_output_limit(stop_reason(data.get("response_metadata")))
+
+
+def _finish_row(system: list[str], messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *,
+                envelope: shape_module.Envelope | None, agent: bool, pictures: int,
+                stats: shape_module.Stats | None, roots: Sequence[str],
+                no_target: str, keep: frozenset[str] = frozenset()) -> tuple[dict[str, Any] | None, bool, str, int]:
+    """A row's last steps, the same for captured and practice rows: rendered in the serving shape when there is an
+    ``envelope`` (O71), one system message first, its targets checked. Returns (row, derived, why not, paths).
+    ``keep``: the media tools the chat kept bound (``shape.kept_media``)."""
+
     derived = False
-    if envelope is not None and (not episode.historical or frame is not None):
+    if envelope is not None:
         # O71: the row as the personal model will be served (its prompt, its tool exposure, its calls).
         try:
             system, messages, tools, rendered = shape_module.render(
-                system, messages, tools, envelope, agent=agent)
+                system, messages, tools, envelope, agent=agent, keep=keep)
         except shape_module.RenderError:
-            return None, "unrenderable", 0
+            return None, False, "unrenderable", 0
         rendered.pictures_removed = pictures
         derived = rendered.changed
         if stats is not None and derived:
@@ -734,18 +831,80 @@ def _example(episode: Episode, book: _Book, *, roots: Sequence[str],
         messages.insert(0, {"role": "system", "content": "\n\n".join(text for text in system if text)})
     targets = [message for message in messages if message.get("role") == "assistant" and message.get("weight")]
     if not targets:
-        return None, "held_out" if held is not None else "no_target", 0
+        return None, False, no_target, 0
     if any(_EXTERNAL_FENCE in str(message.get("content") or "") for message in targets):
-        return None, "tool_content_in_answer", 0
+        return None, False, "tool_content_in_answer", 0
     changed = sum(_relative_calls(message, roots) for message in targets)
     row: dict[str, Any] = {"messages": messages}
     if tools:
         row["tools"] = tools
+    return row, derived, "", changed
+
+
+def _practice_example(item: Mapping[str, Any], *, roots: Sequence[str], envelope: shape_module.Envelope | None,
+                      stats: shape_module.Stats | None) -> tuple[Example | None, str]:
+    """A passing practice turn (``practice.turns``) as a row: its last request and reply as Row-Bot sent them, the
+    turn's own steps and answer as targets, rendered like a captured row."""
+
+    turn = item.get("turn")
+    model_ref = str(item.get("model_ref") or "")
+    if not isinstance(turn, Mapping):
+        return None, "unreadable"
+    if personal_model_ref(model_ref):
+        return None, "personal_model"
+    try:
+        sent = [message for message in turn.get("messages") or () if isinstance(message, Mapping)]
+        pictures = 0
+        if envelope is not None:
+            pictures = sum(1 for message in sent if _page_picture(message))
+            sent = [message for message in sent if not _page_picture(message)]
+        person = max((index for index, message in enumerate(sent) if _is_person(message)), default=-1)
+        messages: list[dict[str, Any]] = []
+        system: list[str] = []
+        for index, message in enumerate(sent):
+            converted = openai_message(message)
+            if converted is None:
+                continue
+            if converted["role"] == "system":
+                system.append(str(converted["content"]))
+                continue
+            if converted["role"] == "assistant":
+                converted["weight"] = 1 if index > person else 0
+            messages.append(converted)
+        answer = openai_message(turn["reply"]) if isinstance(turn.get("reply"), Mapping) else None
+    except _Unsupported:
+        return None, "unsupported_content"
+    except (ValueError, TypeError, KeyError):
+        return None, "unreadable"
+    if answer is None or answer["role"] != "assistant":
+        return None, "unreadable"
+    if not answer.get("content") and not answer.get("tool_calls"):
+        return None, "empty_reply"
+    answer["weight"] = 1
+    messages.append(answer)
+    tools = [dict(tool) for tool in turn.get("tools") or () if isinstance(tool, Mapping)] or None
+    keep = shape_module.kept_media(envelope, saved_when_built(sent)) if envelope is not None else frozenset()
+    row, derived, reason, _changed = _finish_row(system, messages, tools, envelope=envelope, agent=True,
+                                                 pictures=pictures, stats=stats, roots=roots, no_target="no_target",
+                                                 keep=keep)
+    if row is None:
+        return None, reason
     return Example(
-        id=episode.id, conversation_id=episode.conversation_id, thread_id=episode.thread_id,
-        started_at=float(episode.started_at), provider=_provider(model_ref), historical=episode.historical,
-        row=row, estimated_tokens=estimate_tokens(row), derived=derived,
-    ), "", changed
+        id=f"practice_{item.get('task_id')}", conversation_id="", thread_id="", started_at=float(item.get("at") or 0.0),
+        provider=_provider(model_ref), historical=False, row=row, estimated_tokens=estimate_tokens(row),
+        derived=derived, practice=True, sources=tuple(sorted(str(name) for name in item.get("threads") or ())),
+    ), ""
+
+
+def _practice_share(requested: float | None) -> float:
+    """How much of the training rows practice may be: none in a build without practice (L4b)."""
+
+    from row_bot import learning as gate
+
+    if not gate.practice_enabled():
+        return 0.0
+    wanted = PRACTICE_SHARE if requested is None else float(requested)
+    return min(max(wanted, 0.0), PRACTICE_SHARE)
 
 
 def _split(examples: list[Example], share: float) -> tuple[list[Example], list[Example]]:
@@ -784,6 +943,7 @@ def compile_dataset(
     refresh_vault: bool = True,
     shape: str = "serving",
     envelope: shape_module.Envelope | None = None,
+    practice_share: float | None = None,
 ) -> CompiledDataset:
     """The dataset for ``recipe`` from what Learning recorded (see the module's docstring).
 
@@ -791,6 +951,9 @@ def compile_dataset(
     length is estimated. ``refresh_vault`` lets the audit vault take its share first (O18).
     ``shape``: ``serving`` renders rows in the serving envelope of the recipe's ``serve_context``
     (``envelope`` overrides Row-Bot's own, for tests); ``captured`` keeps them as captured.
+    ``practice_share`` (L4b): the most of the training rows practice may be, capped at :data:`PRACTICE_SHARE`
+    and :data:`PRACTICE_SHARE` by default, in a build with practice on; 0 without it (the seam a recipe's own mix
+    will set).
     """
 
     from row_bot import learning as gate
@@ -845,6 +1008,19 @@ def compile_dataset(
                 paths += changed
                 continue
         left_out[reason] += 1
+    share = _practice_share(practice_share)
+    practising = share > 0
+    if practising:
+        from row_bot.learning import practice
+
+        for item in practice.turns(store):
+            stats = shape_module.Stats()
+            example, reason = _practice_example(item, roots=workspace_roots, envelope=envelope, stats=stats)
+            if example is None:
+                left_out[f"practice_{reason}"] += 1
+                continue
+            candidates.append(example)
+            changes[example.id] = stats
     max_seq = int(recipe.max_seq_length)
     measured = measure is not None
     kept: list[Example] = []
@@ -867,7 +1043,17 @@ def compile_dataset(
                 left_out["too_long"] += 1
             else:
                 kept.append(item)
-    train, validation = _split(kept, float(recipe.validation_share))
+    if practising:
+        work = [item for item in kept if not item.practice]
+        drills = [item for item in kept if item.practice]
+        room = math.floor(share * len(work) / (1 - share)) if share < 1 else len(drills)
+        if len(drills) > room:
+            left_out["practice_over_share"] += len(drills) - room
+        train, validation = _split(work, float(recipe.validation_share))
+        train = [*train, *drills[:room]]  # practice only trains; the person's own work validates
+        kept = [*work, *drills[:room]]
+    else:
+        train, validation = _split(kept, float(recipe.validation_share))
     rendering = shape_module.describe(envelope)
     if envelope is not None:
         rendered = [changes[item.id] for item in kept if item.derived and item.id in changes]
@@ -971,7 +1157,8 @@ def runs_holding(thread_ids: Iterable[str], root: Path | None = None) -> list[st
         manifest = read_manifest(entry / "data")
         if manifest is None:
             continue
-        if wanted & set(manifest.get("conversations") or ()):
+        practice = manifest.get("practice") if isinstance(manifest.get("practice"), dict) else {}
+        if wanted & (set(manifest.get("conversations") or ()) | set(practice.get("conversations") or ())):
             found.append(entry.name)
     return found
 
@@ -1023,6 +1210,7 @@ __all__ = [
     "EXAMPLES_FILE",
     "Example",
     "MANIFEST_FILE",
+    "PRACTICE_SHARE",
     "TERMS_PROVIDERS",
     "VALIDATION_FILE",
     "compile_dataset",

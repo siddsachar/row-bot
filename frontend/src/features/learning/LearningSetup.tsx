@@ -10,11 +10,11 @@ import type {
 import { Button, Select } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import type { LearningIO } from './learning-state';
+import { MonthlyLimitPicker } from './MonthlyLimit';
 import {
   ENGINE_SOURCES,
   ENGINE_TELEMETRY,
   limitMeaning,
-  limitOptions,
   memoryAdvice,
   memoryNeedWords,
   quietHoursWords,
@@ -519,22 +519,16 @@ export function LearningSetupSheet({
                 {model ? `${model} (your default model)` : 'your default model'}{' '}
                 to find and test improvements.
               </p>
-              <label className="learning-field" htmlFor={limitId}>
-                <span className="learning-label">Monthly limit</span>
-                <Select
+              <div className="learning-field">
+                <label className="learning-label" htmlFor={limitId}>
+                  Monthly limit
+                </label>
+                <MonthlyLimitPicker
                   id={limitId}
-                  value={String(choices.monthly_token_limit)}
-                  onChange={(event) =>
-                    change({ monthly_token_limit: Number(event.target.value) })
-                  }
-                >
-                  {limitOptions(choices.monthly_token_limit).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </label>
+                  value={choices.monthly_token_limit}
+                  onChange={(limit) => change({ monthly_token_limit: limit })}
+                />
+              </div>
               <p className="learning-muted">
                 {limitMeaning(choices.monthly_token_limit)}
               </p>

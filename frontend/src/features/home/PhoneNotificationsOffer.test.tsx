@@ -19,7 +19,7 @@ const AVAILABLE: AccessPushStatus = {
   showDetails: true,
 };
 const PHONE: OfferDevice = { phone: true, secure: true, homeScreen: false };
-const QUESTION = 'Get a notification when Row-Bot needs you?';
+const QUESTION = 'Notify me when needed';
 
 function client(status: AccessPushStatus = AVAILABLE) {
   return {
@@ -45,14 +45,21 @@ function offer({
   api = client(),
   push = browser(),
   device = PHONE,
+  waiting = 1,
 }: {
   api?: AccessPushClient;
   push?: PushBrowser;
   device?: OfferDevice;
+  waiting?: number;
 } = {}) {
   return render(
     <MemoryRouter>
-      <PhoneNotificationsOffer client={api} browser={push} device={device} />
+      <PhoneNotificationsOffer
+        waiting={waiting}
+        client={api}
+        browser={push}
+        device={device}
+      />
     </MemoryRouter>,
   );
 }
@@ -62,13 +69,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('asks on a phone and Turn on runs the device switch’s own flow', async () => {
+it('waits until something has waited for the person on this phone, then keeps offering (D13)', async () => {
+  const api = client();
+  const quiet = offer({ api, waiting: 0 });
+  await Promise.resolve();
+  expect(screen.queryByText(QUESTION)).toBeNull();
+  expect(api.status).not.toHaveBeenCalled();
+
+  quiet.rerender(
+    <MemoryRouter>
+      <PhoneNotificationsOffer
+        waiting={2}
+        client={api}
+        browser={browser()}
+        device={PHONE}
+      />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(QUESTION)).toBeVisible();
+  quiet.unmount();
+
+  // Answered later, after the approval was: it still offers, once.
+  offer({ waiting: 0 });
+  expect(await screen.findByText(QUESTION)).toBeVisible();
+});
+
+it('asks on a phone in one line and Turn on runs the device switch’s own flow', async () => {
   const api = client();
   const push = browser();
   offer({ api, push });
 
-  expect(await screen.findByText(QUESTION)).toBeVisible();
-  expect(screen.getByText(/only this device can read it/)).toBeVisible();
+  const card = await screen.findByRole('region', {
+    name: 'Phone notifications',
+  });
+  expect(screen.getByText(QUESTION)).toBeVisible();
+  // What it sends is said to assistive technology, not in a second line.
+  expect(card).toHaveAccessibleDescription(/only this device can read it/);
   await userEvent.click(screen.getByRole('button', { name: 'Turn on' }));
 
   expect(push.subscribe).toHaveBeenCalledWith('BServerKey');
@@ -76,9 +112,11 @@ it('asks on a phone and Turn on runs the device switch’s own flow', async () =
   expect(
     await screen.findByText('Notifications are on for this phone'),
   ).toBeVisible();
-  expect(
-    screen.getByRole('link', { name: 'Devices & remote access' }),
-  ).toHaveAttribute('href', '/settings/access#notifications');
+  // Changed later with This phone's switch, at the top of Settings (C3).
+  expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+    'href',
+    '/settings#notifications',
+  );
   expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull();
 });
 
@@ -134,7 +172,11 @@ it('on an iPhone browser tab, says to add Row-Bot to the Home Screen first', asy
   expect(
     await screen.findByText('Add Row-Bot to your Home Screen first'),
   ).toBeVisible();
-  expect(screen.getByText(/tap Share, then Add to Home Screen/)).toBeVisible();
+  expect(
+    screen.getByText(
+      'On iPhone, tap Share, then Add to Home Screen, and open Row-Bot from there.',
+    ),
+  ).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Turn on' })).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
   expect(

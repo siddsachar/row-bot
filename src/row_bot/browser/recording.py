@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from row_bot.recordings import Log
+
 logger = logging.getLogger(__name__)
 
 FPS = 30
@@ -34,10 +36,6 @@ TRAIL_POINTS = 2_000
 # The drawn pointer: how long it takes to reach a target, and how long a click's ring shows.
 MOVE_SECONDS = 0.45
 RING_SECONDS = 0.5
-BEATS = ("live", "work", "cut")
-# What Row-Bot did while recording, for a video's camera to follow: clicks, typing, scrolls, pages opened.
-ACTIONS = ("click", "type", "scroll", "open")
-MAX_ACTIONS = 500
 # Fields whose contents a recording never shows (the same as the live preview's shield).
 PROTECTED_FIELDS = (
     'input[type="password"], input[autocomplete="one-time-code"], '
@@ -65,7 +63,7 @@ def _even(value: float) -> int:
     return max(2, int(value) // 2 * 2)
 
 
-class PageRecorder:
+class PageRecorder(Log):
     """One recording of one conversation's page.
 
     The browser offers frames (``offer_frame``) and sets ``shielded``; the encoder runs on its
@@ -153,34 +151,6 @@ class PageRecorder:
             del self._pointer[:-16]
             self.trail.append((round(now, 2), round(x, 4), round(y, 4)))
             del self.trail[:-TRAIL_POINTS]
-
-    def beat(self, kind: str, note: str = "", line: str = "") -> float:
-        """Mark this moment, with what happens next and the words said over it; its seconds into the recording."""
-        if kind not in BEATS:
-            raise ValueError(f"A beat is {', '.join(BEATS)}.")
-        at = round(self._now(), 2)
-        with self._lock:
-            self.beats.append((at, kind, str(note or "")[:120], str(line or "")[:300]))
-        return at
-
-    def act(self, kind: str, box: tuple[float, float, float, float] | None = None, note: str = "") -> None:
-        """Something is being done now, on this box of the page (x, y, width, height, each 0–1 across it)."""
-        if kind not in ACTIONS:
-            raise ValueError(f"An action is {', '.join(ACTIONS)}.")
-        x, y, width, height = box or (0.0, 0.0, 1.0, 1.0)
-        x, y = min(1.0, max(0.0, float(x))), min(1.0, max(0.0, float(y)))
-        width, height = min(1.0 - x, max(0.0, float(width))), min(1.0 - y, max(0.0, float(height)))
-        now = round(self._now(), 2)
-        with self._lock:
-            self.actions.append([now, now, kind, round(x, 4), round(y, 4), round(width, 4), round(height, 4),
-                                 str(note or "")[:80]])
-            del self.actions[:-MAX_ACTIONS]
-
-    def act_done(self) -> None:
-        """The last action has finished (typing ends after its last key)."""
-        with self._lock:
-            if self.actions:
-                self.actions[-1][1] = round(self._now(), 2)
 
     def offer_frame(self, data: bytes) -> None:
         """The page's latest picture (a JPEG)."""

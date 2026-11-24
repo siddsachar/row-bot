@@ -151,18 +151,29 @@ test('the download: the ask, downloading, Monitor, paused, not enough disk, fail
 
   // Monitor: one row for the download, with Stop.
   await page.goto('/app-v2/?tab=monitor');
-  const row = page.getByRole('listitem').filter({ hasText: 'Training engine' });
-  await expect(row.getByText('Downloading · 5%')).toBeVisible();
-  await expect(
-    row.getByRole('button', { name: 'Stop downloading Training engine' }),
-  ).toBeVisible();
-  await row.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-  await shoot(page, info, 'monitor-download');
-  await row
-    .getByRole('button', { name: 'Stop downloading Training engine' })
-    .click();
-  // Stop pauses it: the row goes (Resume is on the Personal model view).
-  await expect(row).toHaveCount(0);
+  if (phone(info))
+    // Monitor is on the computer (D5): a phone says so.
+    await expect(
+      page.getByRole('region', { name: 'System Monitor' }),
+    ).toContainText('Open this on your computer');
+  else {
+    const row = page
+      .getByRole('listitem')
+      .filter({ hasText: 'Training engine' });
+    await expect(row.getByText('Downloading · 5%')).toBeVisible();
+    await expect(
+      row.getByRole('button', { name: 'Stop downloading Training engine' }),
+    ).toBeVisible();
+    await row.evaluate((element) =>
+      element.scrollIntoView({ block: 'center' }),
+    );
+    await shoot(page, info, 'monitor-download');
+    await row
+      .getByRole('button', { name: 'Stop downloading Training engine' })
+      .click();
+    // Stop pauses it: the row goes (Resume is on the Personal model view).
+    await expect(row).toHaveCount(0);
+  }
 
   // Paused (UX §9's words), with Resume and Cancel.
   await l2b(page, 'state', 'paused');

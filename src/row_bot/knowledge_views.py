@@ -87,7 +87,7 @@ class EntityDetail:
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
     source: str
-    source_bucket: Literal["manual", "extraction", "document", "wiki", "other"]
+    source_bucket: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     confidence: float | None
     aliases: tuple[str, ...]
     alias_count: int
@@ -110,6 +110,7 @@ class EntityDetail:
     can_archive: bool
     can_restore: bool
     can_resolve: bool
+    source_label: str  # The app an imported memory came from ("ChatGPT"); empty for any other source.
 
 
 @dataclass(frozen=True)
@@ -173,13 +174,14 @@ class KnowledgeGraphNode:
     subject: str
     description: str
     entity_type: str
-    source: Literal["manual", "extraction", "document", "wiki", "other"]
+    source: Literal["manual", "extraction", "document", "wiki", "import", "other"]
     updated_at: str
     relation_count: int
     orphan: bool
     is_user: bool
     status: Literal["active", "needs_review", "superseded", "archived"]
     tier: Literal["core", "semantic", "episodic", "resource"]
+    source_label: str  # The app an imported memory came from ("ChatGPT"); empty for any other source.
 
 
 @dataclass(frozen=True)
@@ -251,7 +253,7 @@ _LEGACY_MARKER_BYTES = 1024 * 1024
 _LEGACY_MARKER_ITEMS = 4096
 _AUDIT_FILE_BYTES = 512 * 1024
 _ENTITY_STATUSES = {"active", "needs_review", "superseded", "archived"}
-_ENTITY_SOURCES = {"manual", "extraction", "document", "wiki", "other"}
+_ENTITY_SOURCES = {"manual", "extraction", "document", "wiki", "import", "other"}
 _ENTITY_TIERS = {"core", "semantic", "episodic", "resource"}
 
 
@@ -632,6 +634,7 @@ def list_saved_entities(
               ELSE 'semantic' END normalized_tier,
             CASE
               WHEN source LIKE 'document:%' OR (json_valid(properties) AND lower(COALESCE(json_extract(properties,'$.source_context.kind'),''))='document') THEN 'document'
+              WHEN source LIKE 'import:%' THEN 'import'
               WHEN source LIKE 'wiki%' OR source LIKE 'dream%' OR (json_valid(properties) AND lower(COALESCE(json_extract(properties,'$.source_context.actor'),''))='wiki') THEN 'wiki'
               WHEN source IN ('extraction','background_extraction') OR (json_valid(properties) AND lower(COALESCE(json_extract(properties,'$.source_context.actor'),''))='extraction') THEN 'extraction'
               WHEN source IN ('','live','manual','chat') OR (json_valid(properties) AND lower(COALESCE(json_extract(properties,'$.source_context.actor'),''))='manual') THEN 'manual'
@@ -737,6 +740,9 @@ def _source_bucket(source: str, props: dict[str, Any]) -> str:
     lowered = source.lower()
     if lowered.startswith("document:") or kind == "document":
         return "document"
+    if lowered.startswith("import:"):
+        # Saved by an import; one that only added to a memory leaves that memory's own source.
+        return "import"
     if actor == "wiki" or lowered.startswith(("wiki", "dream")):
         return "wiki"
     if actor == "extraction" or lowered in {"extraction", "background_extraction"}:
@@ -744,6 +750,15 @@ def _source_bucket(source: str, props: dict[str, Any]) -> str:
     if actor == "manual" or lowered in {"", "live", "manual", "chat"}:
         return "manual"
     return "other"
+
+
+def _source_label(source: str, bucket: str) -> str:
+    """The app an imported memory came from, as the import names it: "ChatGPT" for ``import:chatgpt``."""
+    if bucket != "import":
+        return ""
+    from row_bot.memory_import.sink import source_words
+
+    return _bounded_text(source_words(source.removeprefix("import:")), 128)
 
 
 def _status_and_tier(
@@ -798,6 +813,7 @@ def _empty_detail(availability: str) -> EntityDetail:
         False,
         False,
         False,
+        "",
     )
 
 
@@ -973,6 +989,7 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
             entity, sort_keys=True, ensure_ascii=True, separators=(",", ":")
         ).encode()
     ).hexdigest()
+    bucket = _source_bucket(entity["source"], props)
     return EntityDetail(
         1,
         "available",
@@ -984,7 +1001,7 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
         status,
         tier,
         _bounded_text(entity["source"], 4096),
-        _source_bucket(entity["source"], props),
+        bucket,
         confidence,
         aliases,
         alias_count,
@@ -1007,6 +1024,7 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
         status != "archived",
         status == "archived",
         status == "needs_review",
+        _source_label(entity["source"], bucket),
     )
 
 
@@ -1487,6 +1505,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                     "user" in normalized,
                     status,
                     tier,
+                    _source_label(raw["source"], source),
                 )
                 nodes.append(node)
                 node_ids.append(identifier)

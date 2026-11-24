@@ -83,7 +83,11 @@ import {
 import { PanelSubscriptions } from '../panels/subscriptions';
 import { useDeletingConversations } from './delete-with-undo';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
-import CommandPalette, { type PaletteCommand } from './CommandPalette';
+import CommandPalette, {
+  type PaletteCommand,
+  type PaletteFile,
+} from './CommandPalette';
+import { outputTitle } from './outputs';
 import {
   SETTINGS_CHANGED,
   saveSwitch,
@@ -92,7 +96,7 @@ import {
 } from './palette-switches';
 import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
-import PhoneTabBar, { phoneTabFor } from './PhoneTabBar';
+import PhoneTabBar, { phoneTabFor, type PhoneTab } from './PhoneTabBar';
 import { MomentStrip } from '../proactive/MomentStrip';
 import { proactivePaletteCommands } from '../proactive/palette';
 import { useProactive, useProactiveOn } from '../proactive/proactive-state';
@@ -100,6 +104,7 @@ import { installEdgeSwipe } from './edge-swipe';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
+import { WakeWordHost } from '../voice/WakeWord';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import { canAutoOpenDesign } from './design-auto-open';
@@ -129,6 +134,7 @@ import {
 import {
   PAGE_PANEL_KIND,
   onPageRequest,
+  requestPagePanel,
   takeWaitingPage,
   type PageRequest,
 } from '../pages/open-page';
@@ -146,8 +152,17 @@ import { useBackgroundNotices } from './background-notices';
 import { useApprovalNotices } from './InPlaceApproval';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { rememberOutsideSettings } from '../settings/return-path';
+import '../../ui/styles/phone-shell.css';
 
 const subscriptions = new PanelSubscriptions();
+
+/** A phone's header names the place; Home is Row-Bot's own (D1). */
+const PHONE_TITLES: Record<PhoneTab, string> = {
+  home: 'Row-Bot',
+  chats: 'Chats',
+  workflows: 'Workflows',
+  settings: 'Settings',
+};
 
 /** A monochrome glyph per panel kind for the right region's tabs. */
 function panelIcon(descriptor: PanelDescriptor): LucideIcon {
@@ -419,6 +434,14 @@ export default function Workspace() {
     )
       return;
     shortcutVisit.current = location.key;
+    // Back from the new chat (a phone's ‹) lands on plain Home, which a
+    // reload must not take for the shortcut again. The address alone changes:
+    // a route change would stop New chat from opening the chat it makes.
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname,
+    );
     void creation.newChat();
   }, [newChatShortcut, state.status, location.key, creation]);
   // The desktop terminal (B249): a dock under the conversation, a
@@ -486,6 +509,7 @@ export default function Workspace() {
     binding: string;
   } | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
+  const [phoneSlot, setPhoneSlot] = useState<HTMLElement | null>(null);
   const autoOpenDesign = useEffectEvent(
     (
       panel: (typeof samplePanels)[number],
@@ -536,6 +560,14 @@ export default function Workspace() {
       });
   });
   useEffect(() => onResourcePanelRequest(openRequestedPanel), []);
+  // Chats › Files opens a design or code folder with its chat (A2).
+  const requestedResource = (
+    location.state as { openResource?: unknown } | null
+  )?.openResource;
+  useEffect(() => {
+    if (conversationId && typeof requestedResource === 'string')
+      openRequestedPanel({ conversationId, resourceRef: requestedResource });
+  }, [conversationId, requestedResource]);
   // The live browser step or an approval's picture opens the Browser pane (N12-A).
   const openBrowserPane = useEffectEvent((conversation: string) => {
     if (conversation === conversationId)
@@ -936,10 +968,16 @@ export default function Workspace() {
       (document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null);
+    // The route replaces the palette's own history step, so Back from what
+    // it opened returns to where it was opened.
     const go = (to: string) => {
       navigate(to, { replace: true });
       overlay.close();
     };
+    if (phone) {
+      openSearch(opener, go);
+      return;
+    }
     const session = goalProfileOwner?.get();
     const resourcePanels: PanelDescriptor[] = [
       ...(state.workspace?.conversation_id === conversationId
@@ -1203,6 +1241,63 @@ export default function Workspace() {
         />
       ),
     });
+  }
+  /** A phone's Search (D15): chats, files and settings, and no commands. */
+  function openSearch(opener: HTMLElement | null, go: (to: string) => void) {
+    overlay.open({
+      kind: 'palette',
+      className: 'command-palette-dialog phone-search-dialog',
+      returnFocusTo: opener,
+      title: 'Search',
+      description: 'Find a chat, something Row-Bot made, or a setting.',
+      content: (
+        <CommandPalette
+          phone
+          commands={[]}
+          loadFiles={loadFiles}
+          onOpenConversation={(row: ConversationView) => {
+            void controller.selectConversation(row.id);
+            go(`/conversations/${row.id}`);
+          }}
+          onOpenSearchHit={openSearchHit}
+          onOpenSetting={go}
+          onOpenFile={(file) => {
+            if (file.pageId)
+              requestPagePanel({
+                conversationId: file.conversationId,
+                pageId: file.pageId,
+                title: file.label,
+              });
+            go(`/conversations/${encodeURIComponent(file.conversationId)}`);
+          }}
+          onClose={() => overlay.close()}
+        />
+      ),
+    });
+  }
+  /** What Row-Bot made, for Search: its pages, then its pictures, videos and sounds. */
+  async function loadFiles(signal: AbortSignal): Promise<PaletteFile[]> {
+    const [pages, media] = await Promise.all([
+      controller.pages(undefined, signal),
+      controller.outputs({ show: 'made' }, signal),
+    ]);
+    return [
+      ...(pages?.items ?? []).map((page) => ({
+        id: `page:${page.page_id}`,
+        label: page.title,
+        kind: 'page' as const,
+        conversationId: page.conversation_id,
+        conversationTitle: page.conversation_title ?? '',
+        pageId: page.page_id,
+      })),
+      ...(media?.items ?? []).map((item) => ({
+        id: `media:${item.conversation_id}:${item.id}`,
+        label: outputTitle(item),
+        kind: item.kind,
+        conversationId: item.conversation_id,
+        conversationTitle: item.conversation_title ?? '',
+      })),
+    ];
   }
   const shellShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (shortcut(event, 'k')) {
@@ -1668,7 +1763,38 @@ export default function Workspace() {
       </IconButton>
     </Hint>
   );
-  const navigationToggle = navigationButton(false);
+  // A phone's magnifier opens Search: no commands, no shortcut to show.
+  const searchButton = (
+    <IconButton size="sm" label="Search" onClick={() => openCommands()}>
+      <Search size={20} aria-hidden />
+    </IconButton>
+  );
+  const navigationToggle = (
+    <IconButton
+      size="sm"
+      label={
+        desktop && layout.navigation.collapsed
+          ? 'Expand navigation'
+          : 'Toggle navigation'
+      }
+      // Desktop shows and hides the sidebar in place; tablets open it as a drawer.
+      aria-expanded={desktop ? !layout.navigation.collapsed : undefined}
+      aria-haspopup={desktop ? undefined : 'dialog'}
+      onClick={() =>
+        desktop
+          ? update((previous) => toggleRegion(previous, 'navigation'))
+          : openNavigationDrawer()
+      }
+    >
+      <PanelLeft size={16} aria-hidden />
+    </IconButton>
+  );
+  // ‹ in a phone chat goes back to the place it was opened from (D1). A chat
+  // opened straight from a link has nowhere to go back to: Chats lists it.
+  function goBack() {
+    if (location.key === 'default') navigate('/library', { replace: true });
+    else navigate(-1);
+  }
   // What routed views and Home can ask of the workspace (Home's Agents card opens the library).
   const workspaceActions: WorkspaceActions = {
     resetLayout: () => update(resetLayout),
@@ -1688,12 +1814,13 @@ export default function Workspace() {
           onStartProfileChat: (profile) => void creation.newChat('', profile),
         });
     },
+    phoneHeaderSlot: phoneSlot,
+    // A phone has no drawer (D1): its tab bar goes to each place.
     compactControls: desktop
       ? undefined
-      : {
-          navigation: navigationToggle,
-          commands: commandsButton,
-        },
+      : phone
+        ? { navigation: null, commands: searchButton }
+        : { navigation: navigationToggle, commands: commandsButton },
   };
   function openNavigationDrawer() {
     overlay.open({
@@ -1703,41 +1830,6 @@ export default function Workspace() {
       description: 'Choose a conversation',
       content: navigation(false),
     });
-  }
-  // A phone opens the same list with a swipe in from the left edge (D10).
-  const edgeSwipeOpens = useEffectEvent(openNavigationDrawer);
-  useEffect(
-    () =>
-      layout.widthClass === 'phone'
-        ? installEdgeSwipe(() => edgeSwipeOpens())
-        : undefined,
-    [layout.widthClass],
-  );
-  function navigationButton(back: boolean) {
-    return (
-      <IconButton
-        size="sm"
-        label={
-          desktop && layout.navigation.collapsed
-            ? 'Expand navigation'
-            : 'Toggle navigation'
-        }
-        // Desktop shows and hides the sidebar in place; smaller screens open it as a drawer.
-        aria-expanded={desktop ? !layout.navigation.collapsed : undefined}
-        aria-haspopup={desktop ? undefined : 'dialog'}
-        onClick={() =>
-          desktop
-            ? update((previous) => toggleRegion(previous, 'navigation'))
-            : openNavigationDrawer()
-        }
-      >
-        {back ? (
-          <ChevronLeft size={20} aria-hidden />
-        ) : (
-          <PanelLeft size={16} aria-hidden />
-        )}
-      </IconButton>
-    );
   }
   const panelChoices: PanelDescriptor[] = [
     ...(state.workspace?.resources ?? []).map((resource) => ({
@@ -1801,26 +1893,33 @@ export default function Workspace() {
       <SquareTerminal size={16} aria-hidden />
     </IconButton>
   );
-  // The phone header's ⋯: search first, then every panel this thread has.
-  const phoneMenu: MenuAction[] = [
-    {
-      label: 'Workspace commands',
-      icon: <Search size={16} />,
-      shortcut: 'Mod+K',
-      onSelect: (opener) => openCommands(opener),
-    },
-    ...panelActions((title) => `Open ${title}`).map((action, index) =>
+  // The phone header's ⋯: every panel this thread has. Search lives in the
+  // Chats tab (D15), not in a chat.
+  const phoneMenu: MenuAction[] = panelActions((title) => `Open ${title}`).map(
+    (action, index) =>
       index === 0 ? { ...action, separatorBefore: true } : action,
-    ),
-  ];
+  );
   const conversationVisible =
     Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
   // A phone moves between its four places with a tab bar (D1); a
   // conversation and a panel sheet take the whole height.
   const phoneTab =
-    layout.widthClass === 'phone' && !conversationVisible && !compact
+    phone && !conversationVisible && !compact
       ? phoneTabFor(location.pathname, location.search)
       : null;
+  // In a phone chat a swipe in from the left edge is ‹, as on iOS.
+  const edgeSwipeBack = useEffectEvent(() => {
+    if (conversationVisible) goBack();
+  });
+  useEffect(
+    () => (phone ? installEdgeSwipe(() => edgeSwipeBack()) : undefined),
+    [phone],
+  );
+  const backButton = (
+    <IconButton size="sm" label="Back" onClick={goBack}>
+      <ChevronLeft size={20} aria-hidden />
+    </IconButton>
+  );
   const navigation = (inPane: boolean) => (
     <Navigation
       showBuddy={!layout.navigation.collapsed}
@@ -1862,6 +1961,7 @@ export default function Workspace() {
     <ContextHostContext.Provider value={contextHost}>
       <div
         className={`workspace ${layout.navigation.collapsed ? 'navigation-collapsed' : ''} ${layout.panels.length > 0 ? 'has-resource-panels' : ''}`}
+        data-phone-tab={phoneTab ?? undefined}
         ref={workspaceRef}
       >
         {/* Settings has its own "Skip to settings"; the conversation is hidden there. */}
@@ -1871,19 +1971,43 @@ export default function Workspace() {
           </a>
         )}
         <div className="context-parking" ref={contextParking} hidden />
+        <WakeWordHost
+          startInNewChat={() =>
+            creation.newChat('', undefined, { voice: 'talk' })
+          }
+        />
         {!desktop && !conversationVisible && !compact && !settingsOpen && (
           // Home and routed views: one 48px bar. A conversation and Settings
           // carry these controls in their own header (B119); a panel sheet
           // covers the whole height.
-          <div className="compact-controls">
+          <div className={`compact-controls${phone ? ' phone-header' : ''}`}>
             <div
               className="workspace-controls"
               role="group"
               aria-label="Workspace controls"
             >
-              {navigationToggle}
-              {homeOpen && <span className="compact-controls-title">Home</span>}
-              {commandsButton}
+              {phone ? (
+                // A phone: the place's name and Search (D1, D15).
+                <>
+                  {phoneTab && (
+                    <span className="compact-controls-title">
+                      {PHONE_TITLES[phoneTab]}
+                    </span>
+                  )}
+                  <span className="phone-header-end">
+                    {searchButton}
+                    <span className="phone-header-slot" ref={setPhoneSlot} />
+                  </span>
+                </>
+              ) : (
+                <>
+                  {navigationToggle}
+                  {homeOpen && (
+                    <span className="compact-controls-title">Home</span>
+                  )}
+                  {commandsButton}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -2085,7 +2209,11 @@ export default function Workspace() {
                             )
                           }
                           headerLeading={
-                            desktop ? undefined : navigationButton(phone)
+                            desktop
+                              ? undefined
+                              : phone
+                                ? backButton
+                                : navigationToggle
                           }
                           headerMenu={phone ? phoneMenu : undefined}
                         />
@@ -2168,7 +2296,8 @@ export default function Workspace() {
                         <div
                           className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
                         >
-                          {!settingsOpen && (
+                          {/* A phone's tab bar is the way to Home. */}
+                          {!settingsOpen && !phoneTab && (
                             <Link className="button ghost routed-home" to="/">
                               <ChevronLeft size={18} aria-hidden />
                               Home

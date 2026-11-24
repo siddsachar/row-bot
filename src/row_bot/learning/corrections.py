@@ -12,7 +12,9 @@ rule is conservative:
   question, or anything else is **not** a correction;
 - an opening that may or may not correct ("Actually, …", "Wait, …", "Are you sure?") is
   **ambiguous** and stays out, like a correction the person **withdrew** in the message after it
-  ("Never mind, you were right").
+  ("Never mind, you were right");
+- a tap on one of the reply's answer buttons (F3) is **never** a correction, whatever its words: the
+  person picked an answer the reply offered ("No, keep the old one" answers its question).
 
 Each confirmed one becomes a ``next_message_correction`` Signal on the corrected reply, dated when
 Learning confirmed it (so the held-out count, which walks corrections by that date, never skips one,
@@ -178,6 +180,12 @@ def withdraws(text: str) -> bool:
 _TURN_CONTEXT_KEY = "row_bot_turn_context"
 _NOTE_KEY = "row_bot_note"  # Row-Bot's own note to the model (5.3.1's progress nudge), never the person's
 _MID_TURN_KEY = "mid_turn"  # 5.3.1: what the person sent while a turn worked, read at its next step
+_TAPPED_KEY = "tapped_choice"  # F3: the person tapped one of a reply's answer buttons; its words are the button's
+# C1: the Video panel sent it for the person (a comment on a storyboard card, a swap, a new take, make): the review
+# a storyboard asks for, never a correction of the reply before it.
+_VIDEO_PANEL_KEY = "video_panel"
+_VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
+_VOICE_FRONT_KEY = "voice_front"  # V4: a line Live voice's speech model said itself, saved after its run
 _REPLIES = frozenset({"ai", "AIMessageChunk"})
 
 
@@ -197,6 +205,43 @@ def is_row_bot_note(message: Any) -> bool:
     return bool(_kwargs(message).get(_NOTE_KEY))
 
 
+def is_voice_front(message: Any) -> bool:
+    """Whether a reply (captured, ``message_to_dict``, or as saved) is a line Live voice's speech model said
+    itself (a greeting, small talk): Row-Bot's model never wrote it, under other instructions and without
+    tools. It stays in later requests as context, but is never a reply to learn from."""
+
+    return bool(_kwargs(message).get(_VOICE_FRONT_KEY))
+
+
+def follows_voice_front(messages: Sequence[Any]) -> bool:
+    """Whether the person's newest message in a request came right after a Live voice line
+    (``is_voice_front``): the person was answering that line, not the reply before it, so their message
+    corrects nothing Learning recorded."""
+
+    from row_bot.turn_context import is_person_message
+
+    items = list(messages)
+    person = max((index for index, item in enumerate(items) if is_person_message(item)
+                  and not is_row_bot_note(item) and not is_row_bot_prompt(item)), default=-1)
+    for item in reversed(items[:max(person, 0)]):
+        kind = item.get("type") if isinstance(item, Mapping) else getattr(item, "type", "")
+        if str(kind or "") in _REPLIES:
+            return is_voice_front(item)
+    return False
+
+
+def is_row_bot_prompt(message: Any) -> bool:
+    """Whether a human-role message started work Row-Bot set itself (``platform_note``: its carry-on, a goal's
+    next step or a file check, a message linked from another chat, a page's decisions, a delegated agent's
+    task) or is an event it added: the same messages Capture never takes as the person's, so the person's
+    words read past them."""
+
+    kwargs = _kwargs(message)
+    ui = kwargs.get("row_bot_ui")
+    return bool(kwargs.get("platform_note") or kwargs.get("row_bot_internal_event")
+                or (isinstance(ui, Mapping) and ui.get("thread_event")))
+
+
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         text = content
@@ -209,17 +254,19 @@ def _content_text(content: Any) -> str:
     return (text[:cut] if cut >= 0 else text).strip()
 
 
-def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool]]:
+def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool, bool]]:
     """Each message the person sent in a captured request: (where it is, its text, whether they sent it while
-    the turn worked). Human messages without Row-Bot's turn context (its own message, or a block it
-    appended), its notes or the page's picture after an action."""
+    the turn worked, whether they tapped it). Human messages without Row-Bot's turn context (its own message,
+    or a block it appended), its notes, its prompts (``is_row_bot_prompt``) or the page's picture after an
+    action. A tapped answer button is the person's own message, its words the button's; so is what the Video
+    panel sends for them, and both count as tapped."""
 
     from row_bot.learning.pictures import is_page_picture
 
-    found: list[tuple[int, str, bool]] = []
+    found: list[tuple[int, str, bool, bool]] = []
     for index, item in enumerate((request or {}).get("messages") or ()):
         if (not isinstance(item, Mapping) or item.get("type") != "human" or is_row_bot_note(item)
-                or is_page_picture(item)):
+                or is_row_bot_prompt(item) or is_page_picture(item)):
             continue
         kwargs = _kwargs(item)
         if kwargs.get(_TURN_CONTEXT_KEY):
@@ -227,14 +274,17 @@ def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool]]:
         data = item.get("data") or {}
         text = _content_text(data.get("content") if isinstance(data, Mapping) else None)
         if text:
-            found.append((index, text, bool(kwargs.get(_MID_TURN_KEY))))
+            panel = kwargs.get(_VIDEO_PANEL_KEY)
+            tapped = isinstance(kwargs.get(_TAPPED_KEY), Mapping) or (
+                isinstance(panel, Mapping) and panel.get("action") in _VIDEO_PANEL_ACTIONS)
+            found.append((index, text, bool(kwargs.get(_MID_TURN_KEY)), tapped))
     return found
 
 
 def person_texts(request: Mapping[str, Any] | None) -> list[str]:
     """What the person sent, oldest first, from a captured request (``capture.read_request``)."""
 
-    return [text for _index, text, _mid in _persons(request)]
+    return [text for _index, text, _mid, _tapped in _persons(request)]
 
 
 def person_text(request: Mapping[str, Any] | None) -> str:
@@ -246,23 +296,30 @@ def person_text(request: Mapping[str, Any] | None) -> str:
 
 def opening_texts(request: Mapping[str, Any] | None) -> list[str]:
     """What the person sent that a captured request's work starts from, in the order they sent it: their
-    messages since its last reply (their newest when there are none since).
+    messages since its last reply (their newest when there are none since: work Row-Bot carried on itself
+    continues that request).
 
     A message they sent while the turn worked (5.3.1, read at its next step) comes after the one the turn
     started with. When the request's work starts with such messages (the steps after one), it starts with
     the first of them, as the turn of its own it used to be would have."""
 
+    return [text for text, _tapped in _opening_messages(request)]
+
+
+def _opening_messages(request: Mapping[str, Any] | None) -> list[tuple[str, bool]]:
+    """``opening_texts`` with whether the person tapped each one (an answer button, F3)."""
+
     messages = list((request or {}).get("messages") or ())
     found = _persons(request)
     last = max((index for index, item in enumerate(messages)
                 if isinstance(item, Mapping) and item.get("type") in _REPLIES), default=-1)
-    since = [(text, mid) for index, text, mid in found if index > last]
+    since = [(text, mid, tapped) for index, text, mid, tapped in found if index > last]
     if not since:
-        return [found[-1][1]] if found else []
-    own = [text for text, mid in since if not mid]
+        return [(found[-1][1], found[-1][3])] if found else []
+    own = [(text, tapped) for text, mid, tapped in since if not mid]
     if own:
-        return [own[-1], *(text for text, mid in since if mid)]
-    return [text for text, _mid in since]
+        return [own[-1], *((text, tapped) for text, mid, tapped in since if mid)]
+    return [(text, tapped) for text, _mid, tapped in since]
 
 
 class Book:
@@ -301,21 +358,31 @@ class Book:
                 self.signalled[item.decision_id].append(item)
             if item.episode_id:
                 self.signalled_episodes[item.episode_id].append(item)
-        self._openings: dict[str, list[str]] = {}
+        self._openings: dict[str, list[tuple[str, bool]]] = {}
+
+    def _opening_messages(self, episode: Episode) -> list[tuple[str, bool]]:
+        if episode.id in self._openings:
+            return self._openings[episode.id]
+        calls = self.calls.get(episode.id) or []
+        found: list[tuple[str, bool]] = []
+        if calls:
+            from row_bot.learning import capture
+
+            found = _opening_messages(capture.read_request(self.store, calls[0]))
+        self._openings[episode.id] = found
+        return found
 
     def opening_of(self, episode: Episode) -> list[str]:
         """What the person sent to start ``episode``, in order (its first model call's ``opening_texts``)."""
 
-        if episode.id in self._openings:
-            return self._openings[episode.id]
-        calls = self.calls.get(episode.id) or []
-        found: list[str] = []
-        if calls:
-            from row_bot.learning import capture
+        return [text for text, _tapped in self._opening_messages(episode)]
 
-            found = opening_texts(capture.read_request(self.store, calls[0]))
-        self._openings[episode.id] = found
-        return found
+    def tapped(self, episode: Episode) -> bool:
+        """Whether the person started ``episode`` by tapping one of the reply's answer buttons (F3), or through the
+        Video panel (C1)."""
+
+        found = self._opening_messages(episode)
+        return bool(found) and found[0][1]
 
     def text_of(self, episode: Episode) -> str:
         """What the person wrote to start ``episode`` (the first of ``opening_of``)."""
@@ -393,6 +460,9 @@ def confirm(store: LearningStore, *, clock: Callable[[], float] | None = None,
             late += 1
             verdicts["late"] += 1
             continue
+        if book.tapped(episode):  # an answer the reply offered, never a correction of it
+            verdicts["tapped"] += 1
+            continue
         verdict = judge(book.text_of(episode))
         verdicts[verdict] += 1
         if verdict == "ambiguous":
@@ -459,7 +529,7 @@ def _accepted(book: Book, episode: Episode, now: float) -> bool:
             return False
     after = book.next_episode(episode)
     if after is not None:
-        return judge(book.text_of(after)) == "not"
+        return book.tapped(after) or judge(book.text_of(after)) == "not"
     return now - float(episode.ended_at or episode.started_at) >= SETTLE_SECONDS
 
 
@@ -550,7 +620,10 @@ __all__ = [
     "confirm",
     "corrected_decisions",
     "first_call",
+    "follows_voice_front",
     "is_row_bot_note",
+    "is_row_bot_prompt",
+    "is_voice_front",
     "judge",
     "opening_texts",
     "person_text",

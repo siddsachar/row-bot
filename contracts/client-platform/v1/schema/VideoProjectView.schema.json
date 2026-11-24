@@ -1,5 +1,50 @@
 {
   "$defs": {
+    "VideoCastMember": {
+      "additionalProperties": false,
+      "description": "A character who speaks in a video, and the voice its lines are said in (C6).",
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "voice": {
+          "maxLength": 64,
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "voice"
+      ],
+      "title": "VideoCastMember",
+      "type": "object"
+    },
+    "VideoChapter": {
+      "additionalProperties": false,
+      "description": "Where a chapter of a made video starts, and its title (C7): for a YouTube description.",
+      "properties": {
+        "at": {
+          "minimum": 0,
+          "title": "At",
+          "type": "number"
+        },
+        "title": {
+          "maxLength": 120,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "title"
+      ],
+      "title": "VideoChapter",
+      "type": "object"
+    },
     "VideoEditView": {
       "additionalProperties": false,
       "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
@@ -243,6 +288,7 @@
             "16:9",
             "1:1",
             "9:16",
+            "4:5",
             "gif"
           ],
           "title": "Shape",
@@ -256,10 +302,129 @@
       "title": "VideoExportView",
       "type": "object"
     },
+    "VideoPublishFile": {
+      "additionalProperties": false,
+      "description": "A file of a publish kit in the chat's files: a thumbnail in a shape, or the subtitles in a format.",
+      "properties": {
+        "format": {
+          "default": "",
+          "enum": [
+            "",
+            "srt",
+            "vtt"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "shape": {
+          "default": "",
+          "enum": [
+            "",
+            "16:9",
+            "1:1",
+            "9:16",
+            "4:5"
+          ],
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "ref"
+      ],
+      "title": "VideoPublishFile",
+      "type": "object"
+    },
+    "VideoPublishKit": {
+      "additionalProperties": false,
+      "description": "A made version's publish kit (C10), made when the person named where it's going: the post's title and\ndescription (YouTube's limits), a YouTube video's chapters, a thumbnail in each platform's shape, and its\nsubtitles. Each platform's video is the version's own, or its export in that shape.",
+      "properties": {
+        "chapters": {
+          "items": {
+            "$ref": "#/$defs/VideoChapter"
+          },
+          "maxItems": 200,
+          "title": "Chapters",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 5000,
+          "title": "Description",
+          "type": "string"
+        },
+        "platforms": {
+          "items": {
+            "enum": [
+              "youtube",
+              "shorts",
+              "tiktok",
+              "reels",
+              "instagram",
+              "facebook",
+              "x",
+              "linkedin"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Platforms",
+          "type": "array"
+        },
+        "subtitles": {
+          "items": {
+            "$ref": "#/$defs/VideoPublishFile"
+          },
+          "maxItems": 2,
+          "title": "Subtitles",
+          "type": "array"
+        },
+        "thumbnails": {
+          "items": {
+            "$ref": "#/$defs/VideoPublishFile"
+          },
+          "maxItems": 4,
+          "title": "Thumbnails",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 100,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platforms",
+        "title",
+        "description",
+        "thumbnails",
+        "subtitles"
+      ],
+      "title": "VideoPublishKit",
+      "type": "object"
+    },
     "VideoScene": {
       "additionalProperties": false,
       "description": "One scene of a video project (5.3.1 B3): a piece of a video, its speed, zoom, card and line.",
       "properties": {
+        "approved": {
+          "default": false,
+          "title": "Approved",
+          "type": "boolean"
+        },
         "at": {
           "anyOf": [
             {
@@ -277,6 +442,20 @@
           "title": "Card",
           "type": "string"
         },
+        "cue": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Cue",
+          "type": "string"
+        },
+        "effects": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Effects",
+          "type": "array"
+        },
         "end": {
           "anyOf": [
             {
@@ -288,6 +467,23 @@
             }
           ],
           "title": "End"
+        },
+        "footage": {
+          "default": "clip",
+          "enum": [
+            "clip",
+            "picture",
+            "ai",
+            "card",
+            "screen"
+          ],
+          "title": "Footage",
+          "type": "string"
+        },
+        "has_frame": {
+          "default": false,
+          "title": "Has Frame",
+          "type": "boolean"
         },
         "length": {
           "anyOf": [
@@ -306,9 +502,25 @@
           "title": "Line",
           "type": "string"
         },
+        "made": {
+          "default": "",
+          "enum": [
+            "",
+            "new",
+            "reused"
+          ],
+          "title": "Made",
+          "type": "string"
+        },
         "scene_id": {
           "pattern": "^s[0-9a-f]{6}$",
           "title": "Scene Id",
+          "type": "string"
+        },
+        "shows": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Shows",
           "type": "string"
         },
         "source": {
@@ -328,6 +540,12 @@
           ],
           "default": null,
           "title": "Source Ref"
+        },
+        "speaker": {
+          "default": "",
+          "maxLength": 40,
+          "title": "Speaker",
+          "type": "string"
         },
         "speed": {
           "maximum": 4,
@@ -435,7 +653,8 @@
         "",
         "16:9",
         "1:1",
-        "9:16"
+        "9:16",
+        "4:5"
       ],
       "title": "Aspect",
       "type": "string"
@@ -444,17 +663,45 @@
       "title": "Brand",
       "type": "boolean"
     },
+    "caption_style": {
+      "default": "box",
+      "enum": [
+        "box",
+        "clean",
+        "bold",
+        "title",
+        "word"
+      ],
+      "title": "Caption Style",
+      "type": "string"
+    },
     "captions": {
       "title": "Captions",
       "type": "boolean"
+    },
+    "cast": {
+      "items": {
+        "$ref": "#/$defs/VideoCastMember"
+      },
+      "maxItems": 200,
+      "title": "Cast",
+      "type": "array"
     },
     "changed": {
       "items": {
         "pattern": "^s[0-9a-f]{6}$",
         "type": "string"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "title": "Changed",
+      "type": "array"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/VideoChapter"
+      },
+      "maxItems": 200,
+      "title": "Chapters",
       "type": "array"
     },
     "checks": {
@@ -496,18 +743,58 @@
       "items": {
         "$ref": "#/$defs/VideoExportView"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "title": "Exports",
       "type": "array"
+    },
+    "grade": {
+      "default": "natural",
+      "enum": [
+        "natural",
+        "warm",
+        "cinematic",
+        "vivid",
+        "bw"
+      ],
+      "title": "Grade",
+      "type": "string"
+    },
+    "grain": {
+      "default": false,
+      "title": "Grain",
+      "type": "boolean"
     },
     "latest": {
       "minimum": 1,
       "title": "Latest",
       "type": "integer"
     },
+    "letterbox": {
+      "default": false,
+      "title": "Letterbox",
+      "type": "boolean"
+    },
+    "logline": {
+      "default": "",
+      "maxLength": 160,
+      "title": "Logline",
+      "type": "string"
+    },
     "music": {
       "maxLength": 200,
       "title": "Music",
+      "type": "string"
+    },
+    "music_mood": {
+      "default": "",
+      "enum": [
+        "",
+        "calm",
+        "upbeat",
+        "focused",
+        "warm"
+      ],
+      "title": "Music Mood",
       "type": "string"
     },
     "music_volume": {
@@ -527,6 +814,11 @@
       "title": "Number",
       "type": "integer"
     },
+    "on_beat": {
+      "default": false,
+      "title": "On Beat",
+      "type": "boolean"
+    },
     "problem": {
       "maxLength": 400,
       "title": "Problem",
@@ -535,6 +827,32 @@
     "project_id": {
       "pattern": "^vid-[0-9a-f]{8}$",
       "title": "Project Id",
+      "type": "string"
+    },
+    "publish": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VideoPublishKit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "recipe": {
+      "default": "",
+      "enum": [
+        "",
+        "film",
+        "youtube",
+        "vlog",
+        "montage",
+        "explainer",
+        "demo",
+        "short"
+      ],
+      "title": "Recipe",
       "type": "string"
     },
     "review_sheet": {
@@ -547,7 +865,7 @@
       "items": {
         "$ref": "#/$defs/VideoScene"
       },
-      "maxItems": 60,
+      "maxItems": 200,
       "title": "Scenes",
       "type": "array"
     },
@@ -567,6 +885,15 @@
       "maxLength": 80,
       "minLength": 1,
       "title": "Title",
+      "type": "string"
+    },
+    "transitions": {
+      "default": "cut",
+      "enum": [
+        "cut",
+        "crossfade"
+      ],
+      "title": "Transitions",
       "type": "string"
     },
     "versions": {

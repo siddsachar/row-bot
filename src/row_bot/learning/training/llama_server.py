@@ -45,6 +45,7 @@ import os
 import secrets
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -70,6 +71,9 @@ SERVER_IDLE_SECONDS = 60.0
 CHECK_EVERY_SECONDS = 5.0
 START_SECONDS = 60.0
 LOAD_SECONDS = 600.0
+# How long a model may stay unloaded after Row-Bot asked for it before it asks again: a server still
+# unloading another model refuses the load ("model limit reached") and leaves this one unloaded.
+LOAD_RETRY_SECONDS = 2.0
 # A server that doesn't answer its health check this many times in a row is ended.
 MISSED_HEALTH = 3
 PROMPT_CACHE_MIB = 2048  # per loaded model, in the computer's memory
@@ -164,6 +168,21 @@ def presets_text(models: Sequence[ModelEntry]) -> str:
         lines += [f"[{_ini_value(entry.name)}]", f"model = {_ini_value(entry.gguf)}",
                   f"ctx-size = {int(entry.context)}", ""]
     return "\n".join(lines)
+
+
+def release_local_model_server() -> None:
+    """Row-Bot's own local model server (Run on this computer, E1) gives the card back before Learning loads a
+    model of its own, unless it is answering the person (then the load that follows may still fail, and says so).
+    Read through ``sys.modules``: nothing is loaded when E1 never ran. Its idle stop is not relied on (it can hold
+    its model for half an hour)."""
+
+    server = sys.modules.get("row_bot.local_runtime.server")
+    if server is None:
+        return
+    try:
+        server.release_gpu()
+    except Exception:  # noqa: BLE001 - the load that follows decides
+        logger.debug("The local model server couldn't give the card back", exc_info=True)
 
 
 def free_port() -> int:
@@ -612,16 +631,22 @@ class ManagedServer:
         """Load ``name`` now and wait until it answers (a big model takes a while; the probe's own
         requests then don't wait for it). Raises :class:`ServerError`."""
 
+        release_local_model_server()
         connection = self.ensure()
         if not any(entry.name == name for entry in self.models()):
             raise ServerError("unknown_model")
         base = f"http://127.0.0.1:{connection.port}"
-        try:
-            self._http.request("POST", f"{base}/models/load", key=connection.api_key, body={"model": name},
-                               timeout=30.0)
-        except Exception:  # noqa: BLE001 - its status says what happened
-            pass
-        deadline = self._clock() + timeout
+
+        def ask() -> float:
+            try:
+                self._http.request("POST", f"{base}/models/load", key=connection.api_key,
+                                   body={"model": name}, timeout=30.0)
+            except Exception:  # noqa: BLE001 - its status says what happened
+                pass
+            return self._clock()
+
+        asked = ask()
+        deadline = asked + timeout
         while True:
             status = self.model_status(name)
             if status == "loaded":
@@ -631,6 +656,8 @@ class ManagedServer:
                 raise ServerError("crashed")
             if status == "failed" or self._clock() > deadline:
                 raise ServerError("load_failed")
+            if status == "unloaded" and self._clock() - asked >= LOAD_RETRY_SECONDS:
+                asked = ask()  # refused while another model was unloading: it isn't loading
             time.sleep(0.25)
 
     def model_status(self, name: str) -> str | None:

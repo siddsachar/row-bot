@@ -24,6 +24,7 @@ from typing import Any
 
 from row_bot import learning
 from row_bot.application import learning_hugging_face as _hugging_face
+from row_bot.application import learning_open_models as _open_models
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
@@ -38,7 +39,7 @@ _ACTIONS = frozenset({
     "export_version", "delete_version", "save_advanced", "reset_advanced", "retrain_without", "dismiss",
     "review_version", "use_smaller_model", "change_starting_model",
     "test_change", "use_change", "undo_change", "not_now_change", "dont_suggest_change", "edit_change",
-    "test_lesson", "delete_lesson", "undo_method",
+    "test_lesson", "delete_lesson", "undo_method", "answer_question", "dismiss_question",
 })
 # Changes Learning drafted (L3b): test, use, undo, not now, don't suggest again, edit; a lesson Row-Bot saved
 # for itself tested, or deleted. Every one is the person's own choice (D24).
@@ -64,7 +65,7 @@ _VERSION_NUMBER_ACTIONS = frozenset({"compare_version", "use_version", "export_v
 # The personal model's version (L2c): make it ready again (Try again, Check again), or choose where it runs.
 _VERSION_ACTIONS = frozenset({"make_ready", "choose_runtime"})
 # The personal model's download (L2b): the training engine and the starting model.
-_ACTIONS = _ACTIONS | _hugging_face.ACTIONS
+_ACTIONS = _ACTIONS | _hugging_face.ACTIONS | _open_models.ACTIONS
 # The Hugging Face commands for one run (the run the person saw).
 _HF_JOB_ACTIONS = frozenset({"hf_start", "hf_cancel", "hf_check_now"})
 _DOWNLOAD_ACTIONS = frozenset({"start_download", "stop_download", "cancel_download", "remove_engine",
@@ -183,20 +184,24 @@ def _default_model_name() -> str:
 
 
 def _spending(settings: learning.LearningSettings) -> dict[str, Any]:
-    used = 0
+    used = kept = 0
+    limit = settings.monthly_token_limit
     try:
         from row_bot.learning import spending
 
         used = spending.used_this_month()
+        kept = spending.kept_for_trials(limit)
     except Exception:
         logger.debug("Learning could not read this month's tokens", exc_info=True)
-    limit = settings.monthly_token_limit
     return {
+        # Shown whatever the limit is, no limit included.
         "used_tokens": max(0, int(used)),
         "limit_tokens": limit,
         "resets_on": _next_month(date.today()).isoformat(),
         "model_name": _default_model_name(),
-        "limit_reached": settings.enabled and (limit == 0 or used >= limit),
+        # What comparing methods still has of its share: the rest of Learning's work stops before it (O178).
+        "kept_for_comparing": max(0, int(kept)),
+        "limit_reached": settings.enabled and limit is not None and (limit == 0 or used >= limit - kept),
     }
 
 
@@ -273,6 +278,46 @@ def _trial_night() -> dict[str, Any] | None:
         return None
 
 
+def _practice_night() -> dict[str, Any] | None:
+    if not learning.store_exists():
+        return None
+    try:
+        from row_bot.learning import practice
+
+        return practice.last_night(_store()) if practice.enabled() else None
+    except Exception:
+        logger.debug("Learning could not read last night's practice", exc_info=True)
+        return None
+
+
+def _practice_line(found: dict[str, Any] | None, night: str) -> dict[str, Any]:
+    """The night's practice for the Overnight lines (L4b): what it ran and passed, and its kind of work."""
+
+    if not found or found.get("night") != night:
+        return {}
+    kinds = [kind for kind, (ran, _passed) in (found.get("by_kind") or {}).items() if int(ran) > 0]
+    return {"practised": max(0, int(found.get("ran") or 0)), "practised_passed": max(0, int(found.get("passed") or 0)),
+            "practice_kind": kinds[0] if len(kinds) == 1 and kinds[0] in _KINDS[:-1] else None,
+            "practice_needs_container": bool(found.get("needs_container") or found.get("coding_left_out"))}
+
+
+def _quick_question() -> dict[str, Any] | None:
+    if not learning.store_exists():
+        return None
+    try:
+        from row_bot.learning import question
+
+        found = question.current(_store())
+    except Exception:
+        logger.debug("Learning could not read its quick question", exc_info=True)
+        return None
+    if not found:
+        return None
+    return {"id": _text(found.get("id"), 128), "question": _text(found.get("question"), 200),
+            "answers": [_text(item, 40) for item in found.get("answers") or ()][:2],
+            "kind": found.get("kind") if found.get("kind") in _KINDS else "other"}
+
+
 def _method_line(trial: dict[str, Any] | None, night: str) -> dict[str, Any]:
     """The night's strategy trial for the Overnight lines: a switch (with what it changes) or a kept method."""
 
@@ -289,8 +334,10 @@ def _method_line(trial: dict[str, Any] | None, night: str) -> dict[str, Any]:
 
 
 def _overnight(night: dict[str, Any] | None, today: date | None = None,
-               tests: dict[str, Any] | None = None, trial: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """Last night's look, its tests and its strategy trial (UX §3 Overnight): only a recent one, in counts."""
+               tests: dict[str, Any] | None = None, trial: dict[str, Any] | None = None,
+               practice: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Last night's look, its practice, its tests and its strategy trial (UX §3 Overnight): only a recent one, in
+    counts."""
 
     if not night or night.get("state") not in _OVERNIGHT_STATES:
         return None
@@ -312,7 +359,7 @@ def _overnight(night: dict[str, Any] | None, today: date | None = None,
             "tested": count("tested"), "ready": count("ready"), "not_better": count("not_better"),
             "used": count("used"),
             "tests_state": same.get("state") if same.get("state") in ("stopped", "limit", "claude_plan", "failed")
-            else None, **_method_line(trial, when.isoformat())}
+            else None, **_method_line(trial, when.isoformat()), **_practice_line(practice, when.isoformat())}
 
 
 def _testing_now() -> dict[str, Any] | None:
@@ -509,7 +556,41 @@ def _method_view(store: Any, now: float | None = None) -> dict[str, Any]:
             "description": _text(method.describe(), 600), "tried": tried, "kept": kept,
             "tokens": max(0, int(spending.used_this_month(now=now))), "trials": trial_rows, "history": history[:30],
             "can_undo": can_undo, "next_trial": {"state": state, "fresh": max(0, int(fresh)),
-                                                 "needed": evaluation.MIN_FRESH}}
+                                                 "needed": evaluation.MIN_FRESH}, "jobs": _jobs(store, now)}
+
+
+def _jobs(store: Any, now: float | None = None) -> list[dict[str, Any]]:
+    """Who does each of Learning's own jobs (L4c), with since when, the latest test and this month's use."""
+
+    from row_bot.learning import routing
+    from row_bot.learning.improver import jobs
+
+    offered = jobs.offered()
+    if not offered:
+        return []
+    found = jobs.state(store)
+    main = routing.model_name(routing.main_model_ref())
+    month = jobs.month_key(now if now is not None else store.now())
+    rows = []
+    for job in offered:
+        held = found.get(job) or {}
+        last = held.get("last") or {}
+        usage = held.get("usage") or {}
+        this_month = usage.get("month") == month
+        rows.append({
+            "job": job, "by": "personal" if held.get("by") == "personal" else "main",
+            "version": int(held["version"]) if held.get("by") == "personal" and held.get("version") else None,
+            "main_model": _text(main, 128), "since": _iso(held.get("since")),
+            "reason": held.get("reason") if held.get("reason") in ("not_matched", "new_version", "not_served") else "",
+            "last": {"at": _iso(last.get("at")) or "", "version": max(1, int(last.get("version") or 1)),
+                     "asked": max(0, int(last.get("asked") or 0)),
+                     "personal_passed": max(0, int(last.get("personal_passed") or 0)),
+                     "main_passed": max(0, int(last.get("main_passed") or 0)), "verdict": last["verdict"]}
+            if last.get("verdict") in ("qualified", "not_matched", "too_few", "limit", "unavailable") else None,
+            "tokens": max(0, int(usage.get("tokens") or 0)) if this_month else 0,
+            "seconds": max(0.0, float(usage.get("seconds") or 0.0)) if this_month else 0.0,
+        })
+    return rows
 
 
 def _kinds_learning(changes: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -591,10 +672,25 @@ def _downloads_view() -> Any:
         return None
 
 
+def _starting_model(settings: learning.LearningSettings) -> Any:
+    """The starting model the settings name: a certified one, or (C1 Part 4) a model the person checked here
+    whose check passed, under the id the settings keep (``hf:<repo>``)."""
+
+    from row_bot.learning.training import hardware, weights
+
+    found = hardware.STARTING_MODELS.get(settings.starting_model)
+    if found is not None or not settings.starting_model.startswith("hf:"):
+        return found or hardware.QWEN35_9B
+    pinned = weights.model_for(settings.starting_model)
+    if pinned is None:
+        return hardware.QWEN35_9B
+    return hardware.StartingModel(settings.starting_model, pinned.name, pinned.licence, pinned.download_bytes)
+
+
 def _personal_model(settings: learning.LearningSettings) -> dict[str, Any]:
     from row_bot.learning.training import hardware
 
-    model = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B)
+    model = _starting_model(settings)
     view = _downloads_view()
     engine = _ENGINE_STATES.get(view.engine_state, "not_downloaded") if view is not None else "not_downloaded"
     starting = view.model_state if view is not None else "not_downloaded"
@@ -630,6 +726,7 @@ def _personal_model(settings: learning.LearningSettings) -> dict[str, Any]:
         else None,
         "room": _room_view(settings),
         "stronger_model": _stronger_view(settings),
+        "other_models": _open_models.view() if settings.enabled else [],
         **_use_parts(),
     }
 
@@ -749,10 +846,19 @@ def _change_starting_model(model_id: str) -> str:
 
     settings = learning.read_settings()
     check = hardware.peek()
-    offered = {model.id for model in check.starting_models} if check is not None and check.can_train else set()
+    can_train = check is not None and check.can_train
+    offered = {model.id: model.name for model in check.starting_models} if can_train else {}
+    if model_id.startswith("hf:") and can_train:
+        # C1 Part 4: a model the person checked here trains here once its check passed (uncertified).
+        from row_bot.learning.training import open_models
+
+        record = open_models.read(open_models.repo_of(model_id) or "")
+        card = int(check.gpu.memory_mib) if check.gpu is not None else None
+        if record is not None and record.trains_here and open_models.as_choice(record, card) is not None:
+            offered[model_id] = record.name
     if model_id not in offered:
         raise ClientPlatformError("learning_training_changed")
-    name = hardware.STARTING_MODELS[model_id].name
+    name = offered[model_id]
     if model_id == settings.starting_model:
         return f"{name} is already the starting model."
     if _change_busy():
@@ -1179,6 +1285,14 @@ def _control_state(settings: learning.LearningSettings, opted_out: list[str]) ->
     }
 
 
+def _state(settings: learning.LearningSettings) -> str:
+    return "off" if not settings.enabled else "paused" if settings.paused else "on"
+
+
+def _revision(settings: learning.LearningSettings, opted_out: list[str]) -> str:
+    return sha256(json.dumps(_control_state(settings, opted_out), sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Learning's state for Settings › Learning, the setup sheet and the Learning tab."""
 
@@ -1187,7 +1301,7 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
     root = _root()
     settings = learning.read_settings()
     opted_out = _store().opted_out_chats() if learning.store_exists() else []
-    state = "off" if not settings.enabled else "paused" if settings.paused else "on"
+    state = _state(settings)
     training = _training(settings)  # first: it loads the runner the engine's state comes from
     night = _night() if settings.enabled else None
     changes = _changes() if settings.enabled else []
@@ -1211,15 +1325,15 @@ def read_learning(*, validate: Callable[[], None]) -> dict[str, Any]:
         "owner_unset_channels": _owner_unset_channels(),
         "needs_you": _needs_you(settings),
         "overnight": _overnight(night, tests=_tests() if settings.enabled else None,
-                                trial=_trial_night() if settings.enabled else None),
+                                trial=_trial_night() if settings.enabled else None,
+                                practice=_practice_night() if settings.enabled else None),
         "changes": changes,
         "testing_now": _testing_now() if settings.enabled else None,
         "kinds_learning": _kinds_learning(changes) if settings.enabled else [],
         "method": _method() if settings.enabled else None,
+        "quick_question": _quick_question() if settings.enabled else None,
     }
-    data["revision"] = sha256(
-        json.dumps(_control_state(settings, opted_out), sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    data["revision"] = _revision(settings, opted_out)
     validate()
     return data
 
@@ -1242,6 +1356,15 @@ def read_learning_download(*, validate: Callable[[], None]) -> dict[str, Any]:
     result = _download_view(_downloads_view())
     validate()
     return result
+
+
+def read_learning_models(*, validate: Callable[[], None], query: str = "") -> dict[str, Any]:
+    """Hugging Face's public search for chat models (C1 Part 4): free, no sign-in, nothing of the person's sent but
+    the words searched for."""
+
+    _require_preview()
+    validate()
+    return _open_models.search(query)
 
 
 def read_learning_hardware(*, validate: Callable[[], None], refresh: bool = False) -> dict[str, Any]:
@@ -1333,6 +1456,20 @@ def read_learning_conversation(conversation_id: str, *, validate: Callable[[], N
     return {"conversation_id": clean, "state": state, "reason": reason}
 
 
+def _memory_present(memory_id: str) -> bool:
+    """Whether a lesson's memory is still saved (unsure: yes, so a read error never shows it removed)."""
+
+    if not memory_id:
+        return True
+    try:
+        from row_bot import knowledge_graph
+
+        return knowledge_graph.get_entity(memory_id) is not None
+    except Exception:
+        logger.debug("Learning could not check a lesson's memory", exc_info=True)
+        return True
+
+
 def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
     """Lessons (UX §7): those Learning put into use (In use, or Off after Undo), with their kind of work and
     how often recall used them this month, and those Row-Bot saved for itself during chats (its
@@ -1357,11 +1494,14 @@ def read_learning_lessons(*, validate: Callable[[], None]) -> dict[str, Any]:
                 continue  # shown below, as the memory it tests
             if state == "in_use" or (state == "not_used" and meta.get("state") == "undone"):
                 kind = str(meta.get("kind_of_work") or "other")
+                # Its memory removed outside Lessons (Memory, the memory tool): recall can't reach it, so it isn't
+                # in use. Undoing the removal puts the memory back by id, and it shows In use again.
+                status = "off" if state != "in_use" else "in_use" if _memory_present(memory_id) else "removed"
                 items.append({
                     "id": _text(proposal.get("id"), 128), "title": _text(proposal.get("title"), 200),
                     "text": _text((proposal.get("payload") or {}).get("text"), 600), "origin": "learning",
-                    "status": "in_use" if state == "in_use" else "off", "kind": kind if kind in _KINDS else "other",
-                    "used": changes.used_this_month(memory_id) if state == "in_use" else 0,
+                    "status": status, "kind": kind if kind in _KINDS else "other",
+                    "used": changes.used_this_month(memory_id) if status == "in_use" else 0,
                     "change_id": _text(proposal.get("id"), 128),
                     "updated_at": _text(proposal.get("updated_at"), 64),
                 })
@@ -1547,12 +1687,14 @@ def _setup_values(setup: Any) -> dict[str, Any]:
         if type(value) is not bool:
             raise ClientPlatformError("invalid_learning_command")
         values[f"sources.{key}"] = value
-    limit = setup.get("monthly_token_limit")
+    # None: no limit, which only an explicit null chooses (a missing limit is refused).
+    limit = setup.get("monthly_token_limit", -1)
     if (setup.get("apply_mode") not in learning.APPLY_MODES
             or setup.get("train_where") not in learning.TRAIN_PLACES
             or setup.get("starting_model", learning.STARTING_MODELS[0]) not in _trainable_models()
             or type(setup.get("train_in_quiet_hours")) is not bool
-            or type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT):
+            or (limit is not None
+                and (type(limit) is not int or not 0 <= limit <= learning.MAX_MONTHLY_TOKEN_LIMIT))):
         raise ClientPlatformError("invalid_learning_command")
     values.update({
         "apply_mode": setup["apply_mode"],
@@ -1616,6 +1758,8 @@ def _target(action: str, command: dict[str, Any]) -> str:
         return "learning:use"
     if action in _CHANGE_ACTIONS:
         return f"learning:change:{command.get('change_id', '')}"
+    if action in ("answer_question", "dismiss_question"):
+        return f"learning:question:{command.get('item_id', '')}"
     return "learning:settings"
 
 
@@ -1862,12 +2006,12 @@ def _training_runs() -> bool:
 def _download(action: str) -> str:
     """The person's action on the personal model's download: what happened, in words."""
 
-    from row_bot.learning.training import downloads, engine, hardware, weights
+    from row_bot.learning.training import downloads, engine, weights
 
     task = downloads.get()
     settings = learning.read_settings()
-    model = weights.MODELS.get(settings.starting_model, weights.QWEN35_9B)
-    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
+    model = weights.model_for(settings.starting_model, default=weights.QWEN35_9B)
+    name = _starting_model(settings).name
     try:
         if action == "start_download":
             if _training_runs():
@@ -1909,10 +2053,10 @@ def _answer_download(answer: str) -> str:
     _save({"model_download": "waiting" if answer == "download" else "not_now"})
     if answer != "download":
         return "Not downloading for now."
-    from row_bot.learning.training import downloads, hardware
+    from row_bot.learning.training import downloads
 
     settings = learning.read_settings()
-    name = hardware.STARTING_MODELS.get(settings.starting_model, hardware.QWEN35_9B).name
+    name = _starting_model(settings).name
     try:
         if _training_runs():
             raise downloads.DownloadError("busy")
@@ -1972,10 +2116,14 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
     if action == "save_advanced" and not isinstance(advanced_values, dict):
         raise ClientPlatformError("invalid_learning_command")
     item_id = _text(command.get("item_id"), 128)
-    if action == "dismiss" and not item_id:
+    if action in ("dismiss", "answer_question", "dismiss_question") and not item_id:
+        raise ClientPlatformError("invalid_learning_command")
+    if action == "answer_question" and not _text(command.get("answer"), 2000).strip():
         raise ClientPlatformError("invalid_learning_command")
     model_id = _text(command.get("model"), 128)
-    if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS:
+    checked = action == "change_starting_model" and learning._checked_model(model_id)  # noqa: SLF001
+    if action in ("use_smaller_model", "change_starting_model") and model_id not in learning.STARTING_MODELS \
+            and not checked:
         raise ClientPlatformError("invalid_learning_command")
     change_id = _text(command.get("change_id"), 128)
     if action in _CHANGE_ACTIONS and not change_id:
@@ -2011,24 +2159,30 @@ def execute_learning(command: dict, *, owner_id: str, validate: Callable[[], Non
         "cap_usd": cap if type(cap) is int else None,
         "quote_cost_cents": command.get("quote_cost_cents") if type(command.get("quote_cost_cents")) is int else None,
         "flavor": _text(command.get("flavor"), 64),
+        "licence_ok": command.get("licence_ok") is True,
     }
     existing = admissions.read_command_metadata(owner_id, command["command_id"])
     if existing is not None:
         if existing["target"] != target or existing["type"] != wire["type"]:
             raise ClientPlatformError("idempotency_mismatch")
         return admissions.claim_command(owner_id, command["command_id"], wire, target)
-    snapshot = read_learning(validate=validate)
-    if snapshot["revision"] != command["revision"]:
-        raise ClientPlatformError("learning_revision_conflict", snapshot["revision"])
-    state = snapshot["state"]
+    # The checks read only the saved choices, not the whole snapshot: on a large profile that read
+    # takes seconds, and the receipt already makes one.
+    validate()
+    settings = learning.read_settings()
+    exists = learning.store_exists()
+    revision = _revision(settings, _store().opted_out_chats() if exists else [])
+    if revision != command["revision"]:
+        raise ClientPlatformError("learning_revision_conflict", revision)
+    state = _state(settings)
     setup_values = _setup_values(command.get("setup")) if action == "turn_on" else {}
     if action in {"turn_off", "pause", "resume", "answer_download"} and state == "off":
         raise ClientPlatformError("learning_off")
     if action == "pause" and state == "paused" or action == "resume" and state != "paused":
-        raise ClientPlatformError("learning_revision_conflict", snapshot["revision"])
+        raise ClientPlatformError("learning_revision_conflict", revision)
     if action == "turn_on" and state != "off":
-        raise ClientPlatformError("learning_revision_conflict", snapshot["revision"])
-    if action == "delete_data" and not snapshot["data"]["exists"]:
+        raise ClientPlatformError("learning_revision_conflict", revision)
+    if action == "delete_data" and not exists:
         raise ClientPlatformError("learning_data_missing")
     if action == "teach":
         from row_bot.learning import teach
@@ -2126,6 +2280,19 @@ def _perform(
         summary = _use_action(action, wire)
     elif action in _CHANGE_ACTIONS:
         summary = _change_action(action, wire)
+    elif action in ("answer_question", "dismiss_question"):
+        from row_bot.learning import question
+
+        if not learning.store_exists() or not question.enabled():
+            raise ClientPlatformError("learning_question_changed")
+        try:
+            if action == "answer_question":
+                question.answer(_store(), wire["item_id"], wire["answer"])
+            else:
+                question.dismiss(_store(), wire["item_id"])
+        except question.QuestionError:
+            raise ClientPlatformError("learning_question_changed") from None
+        summary = "Thanks. Row-Bot will learn from this." if action == "answer_question" else "Row-Bot won’t ask that again."
     elif action == "undo_method":
         from row_bot.learning.improver import meta
 
@@ -2135,6 +2302,8 @@ def _perform(
         summary = f"Back to learning method v{back.version}."
     elif action in _hugging_face.ACTIONS:
         summary = _hugging_face.perform(action, wire)
+    elif action in _open_models.ACTIONS:
+        summary = _open_models.perform(action, wire)
     elif action == "delete_data":
         from row_bot.learning.store import LearningStoreError
         from row_bot.learning.training import jobs as training_jobs

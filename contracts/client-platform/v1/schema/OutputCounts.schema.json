@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "description": "How many outputs each filter lists in one chat.",
+  "properties": {
+    "made": {
+      "minimum": 0,
+      "title": "Made",
+      "type": "integer"
+    },
+    "uploads": {
+      "minimum": 0,
+      "title": "Uploads",
+      "type": "integer"
+    },
+    "working": {
+      "minimum": 0,
+      "title": "Working",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "made",
+    "uploads",
+    "working"
+  ],
+  "title": "OutputCounts",
+  "type": "object"
+}

@@ -3,13 +3,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
   ChevronRight,
+  Circle,
+  CircleCheck,
   Code2,
   Download,
   FileDown,
   FileText,
   Layers,
   MessageSquare,
+  MoreHorizontal,
   Palette,
+  PencilLine,
   Pin,
   RefreshCw,
   Search,
@@ -24,22 +28,27 @@ import type { Command, ConversationView } from '../../api/types';
 import type { CapabilityResult, SavedFile } from '../../platform';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { absoluteTime } from '../../ui/format';
+import { usePhone } from '../../ui/on-your-computer';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
   IconButton,
   Input,
+  ListSkeleton,
   Menu,
   Segmented,
-  Skeleton,
   Toolbar,
   ToolbarSeparator,
+  type MenuAction,
 } from '../../ui/primitives';
-import {
+import ConversationActions, {
+  conversationActionsDialog,
   runConversationAction,
   type ConversationActionsApi,
 } from '../settings/ConversationActions';
 import { ConversationGlyph } from './ConversationGlyph';
+import { deleteWithUndo, useDeletingConversations } from './delete-with-undo';
+import { useLongPress } from './long-press';
 import {
   CONVERSATION_TYPES,
   groupConversations,
@@ -205,17 +214,142 @@ export async function deleteOneConversation(
 }
 
 /**
+ * A chat on the phone (D10): no checkbox. A tap opens it; a long-press, a
+ * right-click or the context-menu key opens Pin, Rename and Delete. In
+ * select mode a tap ticks it instead.
+ */
+function PhoneRow({
+  row,
+  now,
+  selecting,
+  checked,
+  busy,
+  onToggle,
+  actions,
+}: {
+  row: ConversationView;
+  now: Date;
+  selecting: boolean;
+  checked: boolean;
+  busy: boolean;
+  onToggle: () => void;
+  actions: MenuAction[];
+}) {
+  const item = useRef<HTMLLIElement>(null);
+  const [pressed, setPressed] = useState(false);
+  // The lift that ends a long-press must not also open the chat.
+  const longPressed = useRef(false);
+  useLongPress(
+    item,
+    () => {
+      longPressed.current = true;
+      setPressed(true);
+    },
+    !selecting,
+  );
+  const title = titleOf(row);
+  const date = shortTime(row.updated_at, now);
+  const body = (
+    <>
+      <span className="phone-row-title">{title}</span>
+      {row.incognito && <span className="sr-only"> (incognito)</span>}
+      {date && (
+        <time
+          className="phone-row-date"
+          dateTime={row.updated_at}
+          title={absoluteTime(row.updated_at)}
+        >
+          {date}
+        </time>
+      )}
+    </>
+  );
+  return (
+    <li
+      ref={item}
+      className="phone-row"
+      data-selected={checked || pressed || undefined}
+      onTouchStart={() => {
+        longPressed.current = false;
+      }}
+      onContextMenu={(event) => {
+        if (selecting) return;
+        event.preventDefault();
+        setPressed(true);
+      }}
+    >
+      {selecting ? (
+        <button
+          type="button"
+          className="phone-row-main"
+          aria-pressed={checked}
+          disabled={busy}
+          onClick={onToggle}
+        >
+          <span className="phone-row-icon" data-checked={checked || undefined}>
+            {checked ? (
+              <CircleCheck size={20} aria-hidden />
+            ) : (
+              <Circle size={20} aria-hidden />
+            )}
+          </span>
+          {body}
+        </button>
+      ) : (
+        <Link
+          className="phone-row-main"
+          to={`/conversations/${encodeURIComponent(row.id)}`}
+          onClick={(event) => {
+            if (!longPressed.current) return;
+            longPressed.current = false;
+            event.preventDefault();
+          }}
+        >
+          <span className="phone-row-icon" aria-hidden>
+            <ConversationGlyph row={row} size={18} />
+          </span>
+          {body}
+        </Link>
+      )}
+      {!selecting && (
+        // Opened by a long-press or a right-click; out of the tab order,
+        // since ⋯ › Select reaches the same actions.
+        <Menu
+          label={`Actions for ${title}`}
+          iconOnly
+          variant="ghost"
+          className="phone-row-menu"
+          tabIndex={-1}
+          open={pressed}
+          onOpenChange={setPressed}
+          actions={actions}
+        >
+          <MoreHorizontal size={16} aria-hidden />
+        </Menu>
+      )}
+    </li>
+  );
+}
+
+/**
  * Every conversation: one search for titles and messages, a type filter, and
  * selection by ticking rows, with a bar that stays in view (B270). Bulk Pin
  * and Export run the reviewed conversation actions one by one; deletion is
- * revision-fenced per conversation with receipts.
+ * revision-fenced per conversation with receipts. On a phone, ⋯ › Select
+ * turns on select mode (`selecting`) in place of checkboxes (D10).
  */
 export default function ConversationLibrary({
   initialSelectedId,
+  selecting = false,
+  onSelectingChange,
 }: {
   initialSelectedId?: string;
+  selecting?: boolean;
+  onSelectingChange?: (selecting: boolean) => void;
 }) {
-  const { controller, platform } = useRuntime();
+  const { controller, platform, conversationActionsOwner } = useRuntime();
+  const phone = usePhone();
+  const deleting = useDeletingConversations();
   // Only the search: token updates elsewhere must not re-render the list.
   const hasSearch = useClientSelector((state) => Boolean(state.search));
   const overlay = useOverlay();
@@ -291,9 +425,26 @@ export default function ConversationLibrary({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller]);
 
+  // A chat deleted with Undo leaves the list at once; once its Undo ends the
+  // list is read again, so one brought back returns.
+  const wasDeleting = useRef(deleting);
+  useEffect(() => {
+    const settled = [...wasDeleting.current].some((id) => !deleting.has(id));
+    wasDeleting.current = deleting;
+    if (!settled) return;
+    controller.readConversationLibrary().then(
+      (result) => {
+        if (mounted.current) setRows(result);
+      },
+      () => undefined,
+    );
+  }, [controller, deleting]);
+
   const now = new Date();
   const matching = inGroupOrder(
-    withoutHelpers(rows ?? []).filter((row) => matchesType(row, filter)),
+    withoutHelpers(rows ?? []).filter(
+      (row) => matchesType(row, filter) && !deleting.has(row.id),
+    ),
     now,
   );
   const visible = matching.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -564,6 +715,96 @@ export default function ConversationLibrary({
     }
   }
 
+  /** Pin and Unpin one chat: the reviewed command without the dialog, as in the sidebar. */
+  async function togglePin(row: ConversationView) {
+    const pinned = !row.pinned;
+    const outcome = await runConversationAction(
+      {
+        load: controller.conversationActions,
+        review: controller.reviewConversationAction,
+        execute: controller.executeConversationAction,
+      },
+      row.id,
+      'conversation.pin',
+      { pinned },
+      new AbortController().signal,
+    );
+    if (outcome.status === 'completed')
+      await Promise.all([refresh(), controller.loadMoreConversations(true)]);
+    else
+      overlay.notify(
+        outcome.status === 'uncertain'
+          ? "Row-Bot couldn't confirm that. Check the list before trying again."
+          : `Couldn't ${pinned ? 'pin' : 'unpin'} it. Try again.`,
+      );
+  }
+
+  /** The sidebar's actions dialog, with the name ready to type over. */
+  function openRename(row: ConversationView) {
+    const session = conversationActionsOwner?.get()?.get(row.id);
+    if (!session) {
+      overlay.notify(
+        'Conversation actions are unavailable while reviewed actions need attention.',
+      );
+      return;
+    }
+    overlay.open(
+      conversationActionsDialog(
+        row,
+        session,
+        <ConversationActions
+          conversationId={row.id}
+          session={session}
+          load={controller.conversationActions}
+          review={controller.reviewConversationAction}
+          execute={controller.executeConversationAction}
+          save={platform.save}
+          onChanged={() => {
+            void refresh();
+            void controller.loadMoreConversations(true);
+          }}
+        />,
+      ),
+    );
+  }
+
+  /** One chat is one confirmation, then it goes at once with Undo (B343). */
+  function confirmDelete(row: ConversationView, opener: HTMLElement | null) {
+    const title = row.title || 'this conversation';
+    overlay.open({
+      kind: 'alert',
+      title: `Delete '${title}'?`,
+      description:
+        'This removes the conversation history. Bound designs and workspaces remain. Running work must stop before deletion can finish.',
+      confirmLabel: 'Delete conversation',
+      returnFocusTo: opener,
+      onConfirm: () => {
+        if (controller.getSnapshot().selectedConversationId === row.id)
+          navigate('/');
+        deleteWithUndo(controller, overlay.notify, row);
+      },
+    });
+  }
+
+  const rowActions = (row: ConversationView): MenuAction[] => [
+    {
+      label: row.pinned ? 'Unpin' : 'Pin',
+      icon: <Pin size={16} />,
+      onSelect: () => void togglePin(row),
+    },
+    {
+      label: 'Rename',
+      icon: <PencilLine size={16} />,
+      onSelect: () => openRename(row),
+    },
+    {
+      label: 'Delete…',
+      icon: <Trash2 size={16} />,
+      danger: true,
+      onSelect: (opener) => confirmDelete(row, opener),
+    },
+  ];
+
   function reviewDelete(opener: HTMLElement) {
     if (!selectedRows.length || busy || !fresh || pendingRecovery) return;
     const reviewed = [...selectedRows];
@@ -721,6 +962,58 @@ export default function ConversationLibrary({
   }
 
   const pages = Math.ceil(matching.length / PAGE_SIZE);
+  const showBar = phone ? selecting : selected.size > 0;
+  const none = !selectedRows.length;
+  const bulkActions = (
+    <>
+      <IconButton
+        label={allPinned ? 'Unpin' : 'Pin'}
+        disabled={Boolean(busy) || none}
+        onClick={() => void bulk('pin')}
+      >
+        <Pin size={16} aria-hidden />
+      </IconButton>
+      {phone && selectedRows.length === 1 && (
+        <IconButton
+          label="Rename"
+          disabled={Boolean(busy)}
+          onClick={() => openRename(selectedRows[0])}
+        >
+          <PencilLine size={16} aria-hidden />
+        </IconButton>
+      )}
+      <Menu
+        label="Export"
+        hint="Export as Markdown or PDF"
+        iconOnly
+        variant="ghost"
+        className="icon-action icon-action-md"
+        disabled={Boolean(busy) || none}
+        actions={[
+          {
+            label: 'Markdown',
+            icon: <FileText size={16} />,
+            onSelect: () => void bulk('markdown'),
+          },
+          {
+            label: 'PDF',
+            icon: <FileDown size={16} />,
+            onSelect: () => void bulk('pdf'),
+          },
+        ]}
+      >
+        <Download size={16} aria-hidden />
+      </Menu>
+      <IconButton
+        label="Delete…"
+        variant="danger"
+        disabled={Boolean(busy) || !fresh || !!pendingRecovery || none}
+        onClick={(event) => reviewDelete(event.currentTarget)}
+      >
+        <Trash2 size={16} aria-hidden />
+      </IconButton>
+    </>
+  );
   return (
     <section
       className="conversation-library"
@@ -763,9 +1056,10 @@ export default function ConversationLibrary({
             }}
           />
         </form>
+        {/* A phone's filters are labelled chips; Refresh is in its ⋯. */}
         <Segmented
           size="sm"
-          className="library-types"
+          className={phone ? 'phone-chips' : 'library-types'}
           label="Conversation type"
           value={filter}
           onChange={(value) => {
@@ -777,17 +1071,19 @@ export default function ConversationLibrary({
             return {
               value: option.value,
               label: option.label,
-              icon: <Icon size={15} aria-hidden />,
+              icon: phone ? undefined : <Icon size={15} aria-hidden />,
             };
           })}
         />
-        <IconButton
-          label="Refresh library"
-          disabled={Boolean(busy) || refreshing}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={16} aria-hidden />
-        </IconButton>
+        {!phone && (
+          <IconButton
+            label="Refresh library"
+            disabled={Boolean(busy) || refreshing}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={16} aria-hidden />
+          </IconButton>
+        )}
       </div>
       {error && <p role="alert">{error}</p>}
       {searchError && <p role="alert">{searchError}</p>}
@@ -820,19 +1116,52 @@ export default function ConversationLibrary({
           <SearchResults onContinue={(cursor) => void runSearch(cursor)} />
         </div>
       ) : !rows ? (
-        <>
-          <Skeleton label="Loading all conversations" />
-          <Button disabled={refreshing} onClick={() => void refresh()}>
-            Retry library
-          </Button>
-        </>
+        error && !refreshing ? (
+          <Button onClick={() => void refresh()}>Retry library</Button>
+        ) : (
+          <>
+            {/* The summary's line, so the rows arrive without moving the page. */}
+            <div className="library-bar">
+              {!phone && (
+                <p className="library-summary">Loading conversations…</p>
+              )}
+            </div>
+            <ListSkeleton
+              label="Loading all conversations"
+              rows={phone ? 9 : 14}
+              className="library-list-loading"
+            />
+          </>
+        )
       ) : (
         <>
-          <div
-            className="library-bar"
-            data-selecting={selected.size > 0 || undefined}
-          >
-            {selected.size > 0 ? (
+          <div className="library-bar" data-selecting={showBar || undefined}>
+            {phone ? (
+              showBar && (
+                <Toolbar
+                  label="Selected conversations"
+                  className="library-selection"
+                >
+                  <IconButton
+                    label="Done"
+                    disabled={Boolean(busy)}
+                    onClick={() => {
+                      setSelected(new Set());
+                      onSelectingChange?.(false);
+                    }}
+                  >
+                    <X size={18} aria-hidden />
+                  </IconButton>
+                  <span className="library-count" aria-live="polite">
+                    {selected.size
+                      ? `${selected.size.toLocaleString()} selected`
+                      : 'Tap chats to select'}
+                  </span>
+                  <span className="library-bar-spacer" />
+                  {bulkActions}
+                </Toolbar>
+              )
+            ) : selected.size > 0 ? (
               <Toolbar
                 label="Selected conversations"
                 className="library-selection"
@@ -854,43 +1183,7 @@ export default function ConversationLibrary({
                   {selected.size.toLocaleString()} selected
                 </span>
                 <ToolbarSeparator />
-                <IconButton
-                  label={allPinned ? 'Unpin' : 'Pin'}
-                  disabled={Boolean(busy)}
-                  onClick={() => void bulk('pin')}
-                >
-                  <Pin size={16} aria-hidden />
-                </IconButton>
-                <Menu
-                  label="Export"
-                  hint="Export as Markdown or PDF"
-                  iconOnly
-                  variant="ghost"
-                  className="icon-action icon-action-md"
-                  disabled={Boolean(busy)}
-                  actions={[
-                    {
-                      label: 'Markdown',
-                      icon: <FileText size={16} />,
-                      onSelect: () => void bulk('markdown'),
-                    },
-                    {
-                      label: 'PDF',
-                      icon: <FileDown size={16} />,
-                      onSelect: () => void bulk('pdf'),
-                    },
-                  ]}
-                >
-                  <Download size={16} aria-hidden />
-                </Menu>
-                <IconButton
-                  label="Delete…"
-                  variant="danger"
-                  disabled={Boolean(busy) || !fresh || !!pendingRecovery}
-                  onClick={(event) => reviewDelete(event.currentTarget)}
-                >
-                  <Trash2 size={16} aria-hidden />
-                </IconButton>
+                {bulkActions}
                 <span className="library-bar-spacer" />
                 <IconButton
                   label="Clear selection"
@@ -953,8 +1246,8 @@ export default function ConversationLibrary({
             <p>Nothing in this filter.</p>
           ) : (
             <div
-              className="library-list"
-              data-selecting={selected.size > 0 || undefined}
+              className={phone ? 'phone-chat-list' : 'library-list'}
+              data-selecting={showBar || undefined}
             >
               {groupConversations(visible, now).map((group) => (
                 <Fragment key={group.id}>
@@ -963,6 +1256,19 @@ export default function ConversationLibrary({
                   </h2>
                   <ul aria-labelledby={`${headingId}-${group.id}`}>
                     {group.rows.map((row) => {
+                      if (phone)
+                        return (
+                          <PhoneRow
+                            key={row.id}
+                            row={row}
+                            now={now}
+                            selecting={selecting}
+                            checked={selected.has(row.id)}
+                            busy={Boolean(busy)}
+                            onToggle={() => toggle(row.id, false)}
+                            actions={rowActions(row)}
+                          />
+                        );
                       const title = titleOf(row);
                       const date = shortTime(row.updated_at, now);
                       const checked = selected.has(row.id);
