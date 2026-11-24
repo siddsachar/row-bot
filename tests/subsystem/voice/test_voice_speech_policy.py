@@ -26,6 +26,14 @@ def test_an_answer_with_nothing_to_say_aloud_points_to_the_screen():
     assert spoken_text(answer) == ON_SCREEN_POINTER
 
 
+def test_an_interface_is_said_by_its_name_and_stays_on_screen():
+    interface = ('```rowbot-ui\n{"title": "Lisbon trip", "surfaceId": "trip", "components": '
+                 '[{"id": "root", "component": "Text", "text": "Day 1: Alfama"}]}\n```')
+
+    assert spoken_text(f"Here's a plan.\n\n{interface}") == "Here's a plan.\nLisbon trip is on screen."
+    assert spoken_text(interface) == "Lisbon trip is on screen."
+
+
 def test_long_speech_is_split_between_sentences_and_keeps_every_word():
     text = "First sentence here. " * 30 + "Closing words."
     pieces = speech_pieces(text, 100)

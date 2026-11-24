@@ -746,6 +746,90 @@ async def _send_discord_interrupt_approval_card(
     return int(message_id) if message_id is not None else None
 
 
+
+def _make_discord_surface_view(buttons: list[tuple[str, str]]):
+    """An interface's buttons as a Discord view (G7): one button per action, ``rowbot_ui:<token>``."""
+    try:
+        import discord
+    except Exception:
+        return None
+    ui = getattr(discord, "ui", None)
+    if ui is None or not hasattr(ui, "View") or not hasattr(ui, "Button"):
+        return None
+    from row_bot.channels import surface_buttons
+
+    view = ui.View(timeout=surface_buttons.TOKEN_SECONDS)
+    for label, token in buttons:
+        button = ui.Button(label=label[:80], style=discord.ButtonStyle.secondary, custom_id=f"rowbot_ui:{token}")
+
+        async def pressed(interaction, token: str = token) -> None:
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+            await _handle_discord_surface_button(interaction.channel, token,
+                                                 user_id=getattr(interaction.user, "id", None))
+
+        button.callback = pressed
+        view.add_item(button)
+    return view
+
+
+async def _send_discord_surface_buttons(channel, thread_id: str) -> None:
+    """After a reply that drew an interface, its buttons; nothing when it has none."""
+    from row_bot.channels import surface_buttons
+
+    for offer in surface_buttons.offers("discord", thread_id):
+        view = _make_discord_surface_view(offer.buttons)
+        if view is None:
+            return
+        try:
+            await channel.send(f"**{offer.title}**", view=view)
+        except Exception:
+            log.warning("An interface's buttons could not be sent to Discord", exc_info=True)
+
+
+async def _handle_discord_surface_button(channel, token: str, *, user_id: int | None) -> None:
+    """A tap on an interface's button (G7): the person's press, answered in this channel's conversation."""
+    from row_bot.channels import surface_buttons
+
+    if not _pressed_by_owner(user_id):
+        return
+    if _peek_discord_interrupt(int(getattr(channel, "id", 0))) is not None:
+        await channel.send("Answer the waiting approval or question first.")
+        return
+    thread_id = _get_or_create_thread(channel.id, shared=_channel_kind(channel) != "dm")
+    try:
+        press = surface_buttons.take(token, channel="discord", thread_id=thread_id)
+    except surface_buttons.Refused as refused:
+        await channel.send(str(refused))
+        return
+    with surface_buttons.answering(thread_id) as free:
+        if not free:
+            await channel.send("Row-Bot is still answering your last press.")
+            return
+        await channel.send(f"👉 **{press.label}**")
+        config = {"configurable": {"thread_id": thread_id}}
+        try:
+            answer, interrupt_data, images, videos, delivery = await _stream_agent_turn_to_discord(
+                channel, press.model_text, surface_buttons.press_config(config, press),
+            )
+        except Exception as exc:
+            log.error("Agent error for an interface press in %s: %s", getattr(channel, "id", ""), exc)
+            await channel.send(f"⚠️ Error: {exc}")
+            return
+        if ch_runtime.channel_turn_is_suspended(answer):
+            return
+        if answer and not delivery.delivered and not delivery.uncertain:
+            for part in _split_message(answer):
+                await channel.send(part)
+        await _send_captured_media(channel, images, videos)
+        if interrupt_data:
+            await _send_discord_interrupt_approval_card(channel, interrupt_data, config)
+        else:
+            await _send_discord_surface_buttons(channel, thread_id)
+
+
 def _pressed_by_owner(user_id: int | None) -> bool:
     """Whether the person who pressed a button may answer it: the paired owner, as for messages.
 
@@ -1538,6 +1622,8 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
             interrupt_data,
             config,
         )
+    else:
+        await _send_discord_surface_buttons(channel, thread_id)
 
 
 # ──────────────────────────────────────────────────────────────────────

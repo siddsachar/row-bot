@@ -12,6 +12,7 @@ import re
 ON_SCREEN_POINTER = "The answer is on screen."
 
 _CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```")
+_INTERFACE_RE = re.compile(r"```rowbot-ui[^\n]*\n([\s\S]*?)```")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\([^\)]*\)")
 _URL_RE = re.compile(r"https?://\S+")
@@ -40,8 +41,17 @@ def spoken_text(text: str) -> str:
     return clean_for_speech(text) or ON_SCREEN_POINTER
 
 
+def _interface_said(match: re.Match[str]) -> str:
+    """An interface Row-Bot drew (generative UI) is said by its name: it stays on screen."""
+    from row_bot.application import surfaces
+
+    found = surfaces.parse(match.group(1))
+    return f"\n{found[1]['title']} is on screen.\n" if found else ""
+
+
 def clean_for_speech(text: str) -> str:
     clean = str(text or "")
+    clean = _INTERFACE_RE.sub(_interface_said, clean)
     clean = _CODE_BLOCK_RE.sub("", clean)
     clean = _INLINE_CODE_RE.sub(r"\1", clean)
     clean = _LINK_RE.sub(r"\1", clean)

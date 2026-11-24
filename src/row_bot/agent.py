@@ -838,6 +838,8 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
     else:
         # A delegated agent's task (or its parent's messages to it) carries its
         # handoff prompt for the model; the thread shows a short note (B167).
+        # A press on an interface's button in a chat app (generative UI) shows
+        # the button's words the same way.
         task_note = configurable.get("platform_task_note")
         human = (
             HumanMessage(
@@ -848,7 +850,7 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
                 },
             )
             if isinstance(task_note, dict)
-            and task_note.get("kind") in {"agent_task", "agent_guidance"}
+            and task_note.get("kind") in {"agent_task", "agent_guidance", "surface"}
             else None
         )
     return normalized, {

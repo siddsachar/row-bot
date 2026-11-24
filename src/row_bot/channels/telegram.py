@@ -1444,6 +1444,71 @@ async def _send_agent_response(
             await _send_html_msg(chat, chunk)
 
 
+def _surface_keyboards(thread_id: str) -> list[tuple[str, InlineKeyboardMarkup]]:
+    """Each interface the latest reply drew, as its title and a button per action (G7): ``ui:<token>``."""
+    from row_bot.channels import surface_buttons
+
+    return [
+        (f"<b>{_escape_html(offer.title)}</b>",
+         InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"ui:{token}")]
+                               for label, token in offer.buttons]))
+        for offer in surface_buttons.offers("telegram", thread_id)
+    ]
+
+
+async def _send_surface_buttons(chat, thread_id: str, *, message_thread_id: int | None = None) -> None:
+    """After a reply that drew an interface, its buttons; nothing when it has none."""
+    kwargs = {"message_thread_id": message_thread_id} if message_thread_id else {}
+    for text, keyboard in _surface_keyboards(thread_id):
+        try:
+            await chat.send_message(text, parse_mode="HTML", reply_markup=keyboard, **kwargs)
+        except Exception:
+            log.warning("An interface's buttons could not be sent to Telegram", exc_info=True)
+
+
+async def _handle_surface_button(update: Update, context: ContextTypes.DEFAULT_TYPE, query, data: str) -> None:
+    """A tap on an interface's button (G7): the person's press, answered in this chat's conversation."""
+    from row_bot.channels import surface_buttons
+
+    chat = update.effective_chat
+    chat_id = chat.id
+    message_thread_id = getattr(query.message, "message_thread_id", None)
+    kwargs = {"message_thread_id": message_thread_id} if message_thread_id else {}
+    if chat_id in _pending_interrupts:
+        await chat.send_message("⏸️ Answer the waiting approval or question first.", **kwargs)
+        return
+    config = _refresh_thread_model_override(_current_thread_config(chat_id, context))
+    thread_id = (config.get("configurable") or {}).get("thread_id", "")
+    try:
+        press = surface_buttons.take(data.removeprefix("ui:"), channel="telegram", thread_id=thread_id)
+    except surface_buttons.Refused as refused:
+        await chat.send_message(str(refused), **kwargs)
+        return
+    with surface_buttons.answering(thread_id) as free:
+        if not free:
+            await chat.send_message("Row-Bot is still answering your last press.", **kwargs)
+            return
+        await _send_html_msg(chat, f"👉 <b>{_escape_html(press.label)}</b>", **kwargs)
+        await chat.send_action("typing")
+        turn_config = surface_buttons.press_config(config, press)
+        try:
+            answer, interrupt_data, images, videos, delivery = await _stream_agent_turn_to_telegram(
+                chat, press.model_text, turn_config, message_thread_id=message_thread_id,
+                draft_id_seed=getattr(query.message, "message_id", None),
+            )
+        except Exception as exc:
+            log.error("Agent error for an interface press in chat %s: %s", chat_id, exc)
+            await chat.send_message(f"⚠️ Error: {exc}", **kwargs)
+            return
+        if ch_runtime.channel_turn_is_suspended(answer):
+            return
+        shown = "" if delivery.delivered or delivery.uncertain else answer
+        await _send_agent_response(chat, query.message, chat_id, config, shown, interrupt_data, images, videos,
+                                   message_thread_id=message_thread_id)
+        if not interrupt_data:
+            await _send_surface_buttons(chat, thread_id, message_thread_id=message_thread_id)
+
+
 def _cfg_float(channel_config: dict, key: str, default: float) -> float:
     try:
         return float(channel_config.get(key, default))
@@ -1831,6 +1896,9 @@ async def _run_agent_for_message(
         )
         for url in yt_urls:
             await update.effective_chat.send_message(url)
+    if not interrupt_data:
+        await _send_surface_buttons(update.effective_chat, (config.get("configurable") or {}).get("thread_id", ""),
+                                    message_thread_id=_telegram_message_thread_id(msg))
     if voice_reply and clean_answer and not interrupt_data:
         await _send_voice_reply(
             update.effective_chat, clean_answer, message_thread_id=_telegram_message_thread_id(msg),
@@ -1956,6 +2024,10 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if cb_data.startswith("q:"):
         await _handle_question_button(update, context, query, cb_data)
+        return
+
+    if cb_data.startswith("ui:"):
+        await _handle_surface_button(update, context, query, cb_data)
         return
 
     # ── Live chat interrupt buttons (interrupt_approve / interrupt_deny) ──
@@ -2146,6 +2218,8 @@ async def _continue_after_interrupt(update: Update, context: ContextTypes.DEFAUL
                 message_thread_id=_telegram_message_thread_id(message),
             )
         thread_id = ch_runtime.thread_id_from_config(config)
+        await _send_surface_buttons(update.effective_chat, thread_id,
+                                    message_thread_id=_telegram_message_thread_id(message))
         if thread_id and answer:
             _goal_run_turn, _goal_send_text = _telegram_goal_callbacks(
                 update.effective_chat,

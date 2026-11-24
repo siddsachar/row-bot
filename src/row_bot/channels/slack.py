@@ -1564,6 +1564,7 @@ async def _handle_dm(
         await _upload_captured_media(
             client, channel_id, captured_images, captured_video_paths, thread_ts=media_ts,
         )
+        await _send_slack_surface_buttons(client, channel_id, thread_id, thread_ts=conv_ts)
         return
 
     if clean_answer and not delivery.uncertain:
@@ -1584,6 +1585,88 @@ async def _handle_dm(
             config=config,
             thread_ts=reply_ts,
         )
+    else:
+        await _send_slack_surface_buttons(client, channel_id, thread_id, thread_ts=conv_ts)
+
+
+
+def _surface_button_messages(thread_id: str) -> list[dict[str, Any]]:
+    """Each interface the latest reply drew, as a Block Kit message: its title and a button per action (G7)."""
+    from row_bot.channels import surface_buttons
+
+    return [
+        {"text": offer.title, "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*{offer.title}*"}},
+            {"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": label[:75]},
+                 "action_id": f"rowbot_ui_{index}", "value": token}
+                for index, (label, token) in enumerate(offer.buttons)]},
+        ]}
+        for offer in surface_buttons.offers("slack", thread_id)
+    ]
+
+
+async def _send_slack_surface_buttons(client, channel_id: str, thread_id: str, *,
+                                      thread_ts: str | None = None) -> None:
+    """After a reply that drew an interface, its buttons; nothing when it has none."""
+    for message in _surface_button_messages(thread_id):
+        try:
+            await client.chat_postMessage(channel=channel_id, **message,
+                                          **({"thread_ts": thread_ts} if thread_ts else {}))
+        except Exception:
+            log.warning("An interface's buttons could not be sent to Slack", exc_info=True)
+
+
+async def _handle_surface_button(body: dict, client) -> None:
+    """A tap on an interface's button (G7): the person's press, answered in this place's conversation."""
+    from row_bot.channels import surface_buttons
+
+    if not _clicked_by_owner(body):
+        return
+    message = body.get("message", {}) or {}
+    channel_id = str((body.get("channel") or {}).get("id") or message.get("channel") or "")
+    action = next(iter(body.get("actions") or []), {}) or {}
+    conv_ts = None if _is_dm_channel(channel_id) else (str(message.get("thread_ts") or "") or None)
+    where: dict[str, Any] = {"channel": channel_id, **({"thread_ts": conv_ts} if conv_ts else {})}
+
+    async def say(text: str, **kwargs: Any) -> None:
+        await client.chat_postMessage(text=text, **kwargs)
+
+    if _peek_slack_interrupt(channel_id=channel_id, thread_ts=conv_ts, exact=conv_ts is not None):
+        await say("Answer the waiting approval or question first.", **where)
+        return
+    thread_id = _get_or_create_thread(channel_id, conv_ts)
+    try:
+        press = surface_buttons.take(str(action.get("value") or ""), channel="slack", thread_id=thread_id)
+    except surface_buttons.Refused as refused:
+        await say(str(refused), **where)
+        return
+    with surface_buttons.answering(thread_id) as free:
+        if not free:
+            await say("Row-Bot is still answering your last press.", **where)
+            return
+        await say(f"👉 *{press.label}*", **where)
+        config = {"configurable": {"thread_id": thread_id}}
+        try:
+            answer, interrupt_data, images, videos, delivery = await _stream_agent_turn_to_slack(
+                client, channel_id, press.model_text, surface_buttons.press_config(config, press), thread_ts=conv_ts,
+            )
+        except Exception as exc:
+            log.error("Agent error for an interface press in %s: %s", channel_id, exc)
+            await say(f"⚠️ Error: {exc}", **where)
+            return
+        if ch_runtime.channel_turn_is_suspended(answer):
+            return
+        if answer and not delivery.delivered and not delivery.uncertain:
+            await _send_slack_safe_text(say, channel_id, answer, thread_ts=conv_ts)
+        await _upload_captured_media(client, channel_id, images, videos,
+                                     thread_ts=_media_thread_ts(channel_id, conv_ts))
+        if interrupt_data:
+            await _send_slack_interrupt_approval_card(client, say, channel_id=channel_id,
+                                                      interrupt_data=interrupt_data, config=config,
+                                                      thread_ts=conv_ts)
+        else:
+            await _send_slack_surface_buttons(client, channel_id, thread_id, thread_ts=conv_ts)
 
 
 def _clicked_by_owner(body: dict) -> bool:
@@ -1989,6 +2072,12 @@ async def start_bot() -> bool:
         async def _on_interrupt_deny(ack, body, client):
             await ack()
             await _handle_interrupt_button(body, client, approved=False)
+
+        # An interface's buttons (generative UI): one action id per button in its message.
+        @_app.action(_re.compile(r"^rowbot_ui_\d+$"))
+        async def _on_surface_button(ack, body, client):
+            await ack()
+            await _handle_surface_button(body, client)
 
         # Register event handlers
         @_app.event("message")

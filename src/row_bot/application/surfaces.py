@@ -885,6 +885,62 @@ def declared_actions(surface: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return found
 
 
+def chat_app_buttons(surface: dict[str, Any], limit: int = 8) -> list[dict[str, Any]]:
+    """The buttons a chat app shows for a surface (G7): each one's words, action and context as drawn.
+
+    A chat app shows the surface as words and can't edit it, so a button sends what the surface holds when
+    drawn; a button repeated over a list is one button per item. Left out: links (the words carry them),
+    buttons whose checks depend on what the person enters, and values Row-Bot fills in on this computer,
+    which never go to the conversation from a chat app.
+    """
+
+    by_id = {component["id"]: component for component in surface["components"]}
+    data = surface.get("dataModel") or {}
+    private = tuple(surface.get("sources") or {})
+    found: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def bound_to_private(value: Any) -> bool:
+        path = value.get("@path") if isinstance(value, dict) else None
+        return isinstance(path, str) and any(path == key or path.startswith(key + "/") for key in private)
+
+    def walk(key: str, scope: Any, depth: int) -> None:
+        component = by_id.get(key)
+        if component is None or depth > MAX_DEPTH or len(found) >= limit:
+            return
+        kind = component["component"]
+        event = component.get("action", {}).get("event") if kind == "Button" else None
+        if event and not component.get("@checks"):
+            context = {name: _resolve(value, data, scope) for name, value in (event.get("context") or {}).items()
+                       if not bound_to_private(value)}
+            context = {name: value for name, value in context.items() if value is not None}
+            label = _label(component, by_id, data, scope) or event["name"]
+            fingerprint = json.dumps([event["name"], context], ensure_ascii=False, sort_keys=True, default=str)
+            if fingerprint not in seen:
+                seen.add(fingerprint)
+                found.append({"name": event["name"], "label": label[:64], "context": context,
+                              "component_id": component["id"]})
+            return
+        if kind == "Tabs":
+            for tab in component["tabs"]:
+                walk(tab["child"], scope, depth + 1)
+        elif kind == "Modal":
+            walk(component["content"], scope, depth + 1)
+        elif "child" in component and kind != "Button":
+            walk(component["child"], scope, depth + 1)
+        children = component.get("children")
+        if isinstance(children, list):
+            for child in children:
+                walk(child, scope, depth + 1)
+        elif isinstance(children, dict):
+            items = read_path(data, children["path"], scope)
+            for item in (items if isinstance(items, list) else [])[:50]:
+                walk(children["componentId"], item, depth + 1)
+
+    walk("root", None, 0)
+    return found
+
+
 def parse(source: str) -> tuple[str, dict[str, Any]] | None:
     """The ``surface`` block a ```rowbot-ui body becomes, or None to keep it as a code block."""
 
@@ -908,7 +964,7 @@ def _reply_text(message: Any) -> str:
         str(part.get("text") or "") for part in content if isinstance(part, dict) and part.get("type") == "text")
 
 
-def _surfaces_in(message: Any) -> list[dict[str, Any]]:
+def surfaces_in(message: Any) -> list[dict[str, Any]]:
     from row_bot.application.answer_components import component_spans
 
     return [json.loads(fields["surface_json"]) for _start, _end, kind, fields in component_spans(_reply_text(message))
@@ -925,7 +981,7 @@ def reply_surface(conversation_id: str, message_id: str, surface_id: str) -> dic
                   if isinstance(message, AIMessage) and message.id == message_id), None)
     if reply is None:
         return None
-    return next((surface for surface in _surfaces_in(reply) if surface["surfaceId"] == surface_id), None)
+    return next((surface for surface in surfaces_in(reply) if surface["surfaceId"] == surface_id), None)
 
 
 def latest_surface(conversation_id: str, surface_id: str) -> tuple[str, dict[str, Any]] | None:
@@ -936,7 +992,7 @@ def latest_surface(conversation_id: str, surface_id: str) -> tuple[str, dict[str
 
     for message in reversed(threads.get_latest_checkpoint_messages(conversation_id)):
         if isinstance(message, AIMessage) and message.id:
-            found = [surface for surface in _surfaces_in(message) if surface["surfaceId"] == surface_id]
+            found = [surface for surface in surfaces_in(message) if surface["surfaceId"] == surface_id]
             if found:
                 return str(message.id), found[-1]
     return None
