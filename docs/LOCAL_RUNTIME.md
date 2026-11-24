@@ -158,7 +158,8 @@ mini (16 GB, b12359 Metal), Qwen3.5 9B read a prompt at about 200 tokens a secon
 | 110K | 1,095 s, past the 600 s silence limit; 128K went into swap |
 
 A follow-up turn's first word took about 0.5 s from the prompt cache. Pro and Max chips get measured before
-a larger window is automatic on a Mac; a larger window will be the person's own choice (U1).
+a larger window is automatic on a Mac; a person may choose one in the model's settings, which say
+"slow first reply on long chats" above 32K there (U1).
 
 **On an RTX 5090** (32 GB, b12359 CUDA 13) every case loaded all its layers on the card, and the larger
 windows are quick. A cold 110K prompt's first word took 49 s on the 27B 4-bit and 17 s on Qwen3.5 9B; the
@@ -175,6 +176,15 @@ Qwen3.5 4B reads 128K beside the 3-bit's 32K. Setup and Settings › Models › 
 The presets file, the endpoint (`save_endpoint`, one window per model and none for the whole endpoint),
 `fit` and Setup all take it from `context_for`, with this computer's hardware as read once per run
 (Repair reads it again).
+
+**The person's window** (U1). A model's settings sheet offers the windows that fit
+(`models.context_choices`: each of 32K, 64K, 128K and 256K up to the native window that runs the model the
+way 32K does, so a model on the card keeps the `--fit` margin) with what each one's cache takes, and saves
+the choice in the per-model store (`row_bot.models.local_model_settings`, key
+`model:custom_openai_llamacpp:<id>`). `context_for(model, hardware, chosen)` serves it while it fits (else the
+largest choice below it). Saving rewrites the endpoint's windows at once; a running server stops when
+nothing is being answered, or as soon as the reply finishes, and the next request starts it with the new
+presets.
 
 **Thinking.** Every request says whether the model thinks (`chat_template_kwargs.enable_thinking`),
 rather than leaving it to the template. Every model thinks for now, as its template does by default;

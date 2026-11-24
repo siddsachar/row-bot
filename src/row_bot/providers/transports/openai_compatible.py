@@ -19,7 +19,7 @@ from row_bot.prompt_cache import conversation_cache_ttl, usage_metadata_from_pro
 from row_bot.providers import sampling_presets
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_REQUESTY, prompt_cache_route
 from row_bot.providers.model_visibility import is_personal_model_endpoint
-from row_bot.providers.reasoning import built_in_model_thinks
+from row_bot.providers.reasoning import built_in_model_thinks, takes_per_chat_thinking
 from row_bot.providers.tool_schema import gemini_openai_tool, is_gemini_model
 from row_bot.providers.transports import local_silence
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
@@ -442,6 +442,9 @@ class ChatOpenAICompatible(BaseChatModel):
         if isinstance(extra_body, dict):
             body.update(extra_body)
         _apply_reasoning_request_config(body, self.endpoint, self.model_name)
+        own_limit = _person_reply_limit(self.endpoint, self.model_name)
+        if own_limit:
+            body["max_tokens"] = own_limit  # the person's reply limit for this model (U1); a caller's still wins
         self._apply_context_override(body)
         tools = kwargs.get("tools") or []
         if tools and accepts_tools:
@@ -1029,9 +1032,37 @@ def _merge_chat_template_kwargs(body: dict[str, Any], values: dict[str, Any]) ->
     body["chat_template_kwargs"] = merged
 
 
+def _local_model_of(endpoint: dict[str, Any], model_name: str) -> tuple[str, str] | None:
+    """(provider id, model id) of a model on a server on this computer that the person's per-model settings
+    reach; None for a remote endpoint or one serving Learning's personal models (served as trained)."""
+    if (not isinstance(endpoint, dict) or is_personal_model_endpoint(endpoint)
+            or str(endpoint.get("execution_location") or "").strip().lower() != "local"):
+        return None
+    provider_id = str(endpoint.get("provider_id") or "")
+    return (provider_id, str(model_name or "")) if provider_id and model_name else None
+
+
+def _person_reply_limit(endpoint: dict[str, Any], model_name: str) -> int | None:
+    found = _local_model_of(endpoint, model_name)
+    if found is None:
+        return None
+    from row_bot.models import local_reply_limit
+
+    return local_reply_limit(*found)
+
+
 def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, Any], model_name: str) -> None:
-    """The endpoint's own thinking setting, else a Run on this computer model's (D3); the chat's own choice
-    (``_apply_dynamic_reasoning_plan``) is applied after this and wins."""
+    """The person's Thinking for this model (U1), else the endpoint's own thinking setting, else a Run on this
+    computer model's (D3); the chat's own choice (``_apply_dynamic_reasoning_plan``) is applied after this and
+    wins."""
+    found = _local_model_of(endpoint, model_name) if takes_per_chat_thinking(endpoint) else None
+    if found is not None:
+        from row_bot.models import local_thinking
+
+        own = local_thinking(*found)
+        if own is not None:
+            _merge_chat_template_kwargs(body, {"enable_thinking": own})
+            return
     mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
     profile = str(endpoint.get("profile") or "").strip().lower()
     template_profiles = {"llama_cpp", "vllm", "sglang"}

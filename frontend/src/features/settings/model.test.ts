@@ -172,7 +172,7 @@ describe('settings navigation metadata', () => {
     expect(found('camera')).toEqual(['Vision model']);
     expect(found('claude')).toEqual(['Subscriptions', 'API providers']);
     expect(found('helper levels')).toEqual(['Limits for long work']);
-    expect(found('reading limit')).toEqual(['Reading limit']);
+    expect(found('reading limit')).toEqual(['Cloud reading limit']);
     expect(found('blocked')).toEqual(['Blocked commands']);
     expect(found('api key')).toEqual([
       'API providers',

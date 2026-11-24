@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "LocalModelSamplingCard": {
+      "additionalProperties": false,
+      "description": "The model card's values for the model's family, for a reply that thinks and one that doesn't.",
+      "properties": {
+        "non_thinking": {
+          "$ref": "#/$defs/LocalModelSamplingValues"
+        },
+        "thinking": {
+          "$ref": "#/$defs/LocalModelSamplingValues"
+        }
+      },
+      "required": [
+        "thinking",
+        "non_thinking"
+      ],
+      "title": "LocalModelSamplingCard",
+      "type": "object"
+    },
+    "LocalModelSamplingValues": {
+      "additionalProperties": false,
+      "description": "Sampling values for a local model's replies; a value left out is the engine's own.",
+      "properties": {
+        "min_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min P"
+        },
+        "presence_penalty": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": -2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Presence Penalty"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top P"
+        }
+      },
+      "title": "LocalModelSamplingValues",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "card": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalModelSamplingCard"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "custom": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalModelSamplingValues"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "fields": {
+      "items": {
+        "enum": [
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Fields",
+      "type": "array"
+    },
+    "thinks": {
+      "title": "Thinks",
+      "type": "boolean"
+    },
+    "value": {
+      "enum": [
+        "auto",
+        "engine",
+        "custom"
+      ],
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "value",
+    "thinks",
+    "fields"
+  ],
+  "title": "LocalModelSamplingSettings",
+  "type": "object"
+}

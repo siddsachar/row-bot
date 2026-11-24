@@ -5650,8 +5650,15 @@ _E1_STUDIO = {"kind": "lmstudio", "label": "LM Studio", "port": 1234, "base_url"
 def _e1_view() -> dict:
     installed = set(_e1_state["installed"])
     build = bool(installed)
+    if _u1_saved:  # U1's sheet: what an installed model reads, with the person's choice
+        from row_bot import local_runtime
+
+        windows = {model_id: local_runtime.model_context(model_id) for model_id in installed}
+    else:
+        windows = {}
     rows = [{"id": model_id, "name": name, "model_ref": f"model:custom_openai_llamacpp:{model_id}", "size_bytes": size,
-             "fit": fit, "context_tokens": window, "everyday": model_id == "qwen3.5-4b", "quantization": quant,
+             "fit": fit, "context_tokens": windows.get(model_id, window), "everyday": model_id == "qwen3.5-4b",
+             "quantization": quant,
              "older": older, "installed": model_id in installed,
              "download_bytes": 0 if model_id in installed else size + (0 if build else _E1_BUILD)}
             for model_id, name, quant, older, size, fit, window in _E1_MODELS]
@@ -5780,6 +5787,52 @@ def e1_local_runtime(state: str, done: float = 0.0, failure: str = "", found: st
     return _e1_view()
 
 
+# ── U1 (local-models uplift): a local model's settings sheet ───────────────
+# "on": Row-Bot's own llama.cpp with Qwen3.5 9B downloaded on a synthetic 12 GB NVIDIA card (the sheet reads
+# the real sizes and memory for it), and LM Studio on this computer with gemma-4 loaded at 32K. Nothing runs:
+# a window choice only rewrites the endpoint, as it does while no server is running. "off" puts it back.
+_u1_saved: dict = {}
+
+
+@app.post("/__u1_fixture/local-model-sheet/{state}")
+def u1_local_model_sheet(state: str, x_fixture_token: str = Header(default="")) -> dict:
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models as chat_models
+    from row_bot.local_runtime import builds, hardware, install, models, server
+    from row_bot.providers import custom
+
+    if state == "on":
+        _u1_saved.setdefault("peek", hardware.peek)
+        _u1_saved.setdefault("installed", install.installed_models)
+        card = hardware.Gpu(hardware.NVIDIA, "NVIDIA GeForce RTX 4070", 12 * hardware.GIB, "581.42")
+        found = hardware.classify(builds.WINDOWS_X64, 32 * hardware.GIB, [card])
+        hardware.peek = lambda: found
+        install.installed_models = lambda root=None: [models.get("qwen3.5-9b")]
+        _e1_state.update(state="installed", installed=["qwen3.5-9b"], failure=None)
+        _e1_save_endpoint()
+        server.save_endpoint()
+        custom.save_custom_endpoint({"id": "lmstudio-1234", "name": "LM Studio", "base_url": _E1_STUDIO["base_url"],
+                                     "profile": "lmstudio", "execution_location": "local", "auth_required": False},
+                                    manage_secret=False)
+        _e1_store_models("lmstudio-1234", ["gemma-4"])
+    elif state == "off":
+        chat_models.save_person_local_model_settings("custom_openai_llamacpp", "qwen3.5-9b")
+        chat_models.save_person_local_model_settings("custom_openai_lmstudio-1234", "gemma-4")
+        if "peek" in _u1_saved:
+            hardware.peek = _u1_saved.pop("peek")
+            install.installed_models = _u1_saved.pop("installed")
+        with custom.provider_config_transaction():
+            cfg = custom.load_provider_config(strict=True)
+            revision = custom.provider_config_revision(cfg)
+            cfg["custom_endpoints"] = [item for item in cfg.get("custom_endpoints", [])
+                                       if not (isinstance(item, dict) and item.get("id") == "lmstudio-1234")]
+            custom.save_provider_config(cfg, expected_revision=revision)
+        _e1_state.update(state="unavailable", done=0, installed=[], failure=None, found=[])
+        if custom.get_custom_endpoint("llamacpp") is not None:
+            custom.remove_managed_endpoint("llamacpp")
+    else:
+        raise HTTPException(status_code=422, detail="Unknown sheet state")
+    return {"state": state}
 # ── V1b: Row-Bot Voice's streaming speech models in Settings › Voice ─────────
 # The real catalog and pick with a fixed computer; Download, Stop and Remove change only this state.
 _v1b_state: dict = {"state": "not_installed", "done": 0, "installed": [], "failure": None}

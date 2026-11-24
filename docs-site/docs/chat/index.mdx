@@ -214,7 +214,7 @@ When a conversation gets long, Row-Bot first clears older tool output from what 
 
 On a cloud model, Row-Bot writes that summary ahead of time, after a reply, once the conversation is close to the point. When the point comes, the summary is ready and the reply goes on without the pause. The ring's details then say **A summary of older messages is ready**. Nothing else changes: it is the same summary, it counts as compaction in your usage, and it is set aside if you edit an earlier message or change the model. Local models summarize at the point, as before, so a summary never holds your computer's model while you type.
 
-Compaction starts near the end of the model's window, leaving room for the reply and the summary: at about 967,000 tokens on a 1M-token model, and at 167,000 to 177,000 on a 200,000-token one, depending on the provider. Smaller local models keep about a quarter of the window free. A **Reading limit** in [Settings › Models](/docs/settings/models#reading-limit) makes the window smaller.
+Compaction starts near the end of the model's window, leaving room for the reply and the summary: at about 967,000 tokens on a 1M-token model, and at 167,000 to 177,000 on a 200,000-token one, depending on the provider. Smaller local models keep about a quarter of the window free. A **Cloud reading limit** in [Settings › Models](/docs/settings/models#cloud-reading-limit) makes a cloud model's window smaller; a local model's context is in its own settings.
 
 ## The Details Card
 

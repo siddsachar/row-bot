@@ -7806,6 +7806,8 @@ class CachedModelRow(WireModel):
     runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
     offered: bool = False
     favourite_rank: int | None = Field(default=None, ge=1, le=256)
+    # It runs on this computer and has its own settings sheet (U1).
+    local_settings: bool = False
 
 
 class CachedModelPage(WireModel):
@@ -7841,6 +7843,9 @@ class ModelPickerSurface(WireModel):
 
 
 class ModelContextState(WireModel):
+    """The Cloud reading limit (U2): how much Row-Bot sends a cloud model at most; ``policy_kind`` is the main
+    model's (a local one's window is in its own settings)."""
+
     policy_kind: Literal["local", "provider"]
     selected_cap: int | None = Field(default=None, ge=16384, le=10000000)
     native_max: int | None = Field(default=None, ge=1)
@@ -7872,8 +7877,120 @@ class ModelSurfaceMutation(WireModel):
 
 
 class ModelContextMutation(WireModel):
-    policy_kind: Literal["local", "provider"]
+    """The Cloud reading limit; None reads as much as each cloud model allows."""
+
     cap: int | None = Field(default=None, ge=16384, le=10000000)
+
+
+class LocalModelContextChoice(WireModel):
+    tokens: int = Field(ge=1024, le=4194304)
+    # What the model and this context take loaded (file, cache, working memory) where Row-Bot runs the model
+    # (Run on this computer); None elsewhere.
+    memory_bytes: int | None = Field(default=None, ge=0)
+    # A first reply on a long chat is slow at this size here (a Mac above 32K).
+    slow: bool = False
+
+
+class LocalModelContextSettings(WireModel):
+    # False for a server the person runs: its window is the server's.
+    editable: bool
+    # The size the person chose; None is Automatic.
+    chosen: int | None = Field(default=None, ge=1024, le=4194304)
+    # What Automatic gives, with its cache where Row-Bot knows it.
+    automatic: int | None = Field(default=None, ge=1, le=4194304)
+    automatic_memory_bytes: int | None = Field(default=None, ge=0)
+    memory_place: Literal["card", "memory"] | None = None
+    # The card's memory, or the computer's where the model runs on the processor or a Mac.
+    room_bytes: int | None = Field(default=None, ge=0)
+    choices: list[LocalModelContextChoice] = Field(max_length=16)
+    # What a chat with it reads now.
+    current: int | None = Field(default=None, ge=1)
+    # What a server the person runs loaded the model at (None when it didn't say).
+    loaded: int | None = Field(default=None, ge=1)
+    # Sizes LM Studio can be asked to load it at again.
+    reload_choices: list[int] = Field(default_factory=list, max_length=16)
+
+
+class LocalModelThinkingSettings(WireModel):
+    # The model has a Thinking control on this engine.
+    available: bool
+    value: Literal["auto", "on", "off"]
+    # What Automatic gives this model (Row-Bot's default for it); None where the model's template decides.
+    automatic: bool | None = None
+
+
+class LocalModelReplyLimitSettings(WireModel):
+    # None is Automatic.
+    value: int | None = Field(default=None, ge=1024, le=262144)
+    # What Automatic gives (None: the server's own default).
+    automatic: int | None = Field(default=None, ge=1)
+    choices: list[int] = Field(max_length=16)
+
+
+class LocalModelSamplingValues(WireModel):
+    """Sampling values for a local model's replies; a value left out is the engine's own."""
+
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    top_k: int | None = Field(default=None, ge=0, le=1000)
+    min_p: float | None = Field(default=None, ge=0, le=1)
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+
+
+class LocalModelSamplingCard(WireModel):
+    """The model card's values for the model's family, for a reply that thinks and one that doesn't."""
+
+    thinking: LocalModelSamplingValues
+    non_thinking: LocalModelSamplingValues
+
+
+class LocalModelSamplingSettings(WireModel):
+    # "auto": the model card's values (none for a family without a card); "engine": the engine's own; "custom".
+    value: Literal["auto", "engine", "custom"]
+    custom: LocalModelSamplingValues | None = None
+    card: LocalModelSamplingCard | None = None
+    # Whether a reply thinks unless a chat chooses, so which of the card's values it gets.
+    thinks: bool
+    # The values this server is sent (LM Studio has no min_p).
+    fields: list[Literal["temperature", "top_p", "top_k", "min_p", "presence_penalty"]] = Field(max_length=5)
+
+
+class LocalModelSettingsView(WireModel):
+    """One local model's settings sheet (U1): its window, Thinking, reply limit and sampling."""
+
+    schema_version: Literal[1] = 1
+    model_ref: str = Field(min_length=1, max_length=647)
+    name: str = Field(max_length=256)
+    engine: Literal["ollama", "built_in", "server"]
+    engine_name: str = Field(max_length=256)
+    profile: str = Field(max_length=64)
+    context: LocalModelContextSettings
+    thinking: LocalModelThinkingSettings
+    reply_limit: LocalModelReplyLimitSettings
+    sampling: LocalModelSamplingSettings
+    # Row-Bot's own server after a window change: from its next start, restarted now, or once it is idle.
+    applied: Literal["next_start", "restarted", "when_idle"] | None = None
+    # LM Studio's answer to a reload, in words.
+    notice: str | None = Field(default=None, max_length=256)
+
+
+class LocalModelSettingsMutation(WireModel):
+    model_ref: str = Field(min_length=1, max_length=647)
+    # None is Automatic.
+    context: int | None = Field(default=None, ge=1024, le=4194304)
+    thinking: Literal["auto", "on", "off"] = "auto"
+    reply_limit: int | None = Field(default=None, ge=1024, le=262144)
+    # Absent: the sampling saved stays.
+    sampling: Literal["auto", "engine", "custom"] | None = None
+    # The person's values with "custom".
+    sampling_values: LocalModelSamplingValues | None = None
+
+
+class LocalModelReloadRequest(WireModel):
+    """Load a model in LM Studio again at another window (the person pressed it)."""
+
+    model_ref: str = Field(min_length=1, max_length=647)
+    context: int = Field(ge=16384, le=262144)
 
 
 class ModelVisibilityMutation(WireModel):

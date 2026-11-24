@@ -1924,6 +1924,18 @@ export interface ClientTransport {
     body: Wire.ModelContextMutation,
     signal?: AbortSignal,
   ): Promise<Wire.ModelsSettingsState>;
+  localModelSettings?(
+    modelRef: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
+  saveLocalModelSettings?(
+    body: Wire.LocalModelSettingsMutation,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
+  reloadLocalModelInLmStudio?(
+    body: Wire.LocalModelReloadRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.LocalModelSettingsView>;
   updateModelVisibility?(
     body: Wire.ModelVisibilityMutation,
     signal?: AbortSignal,

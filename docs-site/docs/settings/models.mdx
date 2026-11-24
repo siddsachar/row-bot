@@ -1,6 +1,6 @@
 ---
 title: "Settings: Models"
-description: "Choose the main model and the models for Vision, Image and Video, keep your models starred, connect providers, and set the reading limit and limits for long work."
+description: "Choose the main model and the models for Vision, Image and Video, keep your models starred, connect providers, set each local model's own settings, the Cloud reading limit and limits for long work."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -49,6 +49,18 @@ Image models come from your ChatGPT plan, OpenAI, Google, xAI, OpenRouter, Verce
 - The trash icon removes Row-Bot's download (llama.cpp and every model it downloaded), after asking, and says how much space it freed. Each model has its own trash icon too. Other local runtimes and your chats are kept.
 - When a Row-Bot release brings a newer llama.cpp build, **Update** shows its size; the older one keeps working until you press it.
 
+### A Local Model's Settings
+
+Each model on this computer has one settings sheet. Open it with the sliders icon (**Settings for _model_**) on its row here or in the Catalog, or from the model picker beside **Manage models**. Each choice saves at once.
+
+- **Context** is how much of the chat the model reads at once. **Automatic** shows the size it picks and, for Row-Bot's download, what it takes on the graphics card (for example "64K · about 2 GB on your card"). A fixed size lists only the sizes that fit this computer. On a Mac, sizes above 32K say "slow first reply on long chats". On Ollama the next message uses the new size; Row-Bot's own server starts again with it when nothing is being answered.
+- For a server you run (LM Studio, llama.cpp, vLLM, SGLang), the server sets the context: the sheet shows what it loaded and where to change it. For LM Studio, **Reload in LM Studio at _size_** loads the model again at another size.
+- **Thinking** (Automatic, On or Off) is shown for models that can turn thinking on or off. A chat's own Thinking choice still wins.
+- **More › Reply length** limits how long one reply may be, in tokens (about three quarters of a word each). **Automatic** keeps the engine's own limit.
+- **More › Sampling** is how freely the model picks each word. For Qwen3.5 and Qwen3.8, **Model card** sends the values their makers recommend, for a reply that thinks and one that doesn't, and the sheet shows them. **Engine's own** sends none, so the engine's defaults apply. **Custom** sends your own temperature, top-p, top-k, min-p and presence penalty (LM Studio has no min-p), whether the model thinks or not; an empty field is the engine's own. A value in the endpoint's **Extra request JSON** still wins.
+
+Ollama models without their own context keep the size chosen before this sheet existed (Automatic is 64K); the old setting moved once to the model that was in use. Learning's personal models have no sheet: they run as they were trained.
+
 Row-Bot's download uses the official [llama.cpp](https://github.com/ggml-org/llama.cpp) release builds (MIT licence). Its default model is **Qwen3.8 27B** at the build that fits the graphics card: 4-bit for 20 GB or more, 3-bit for 16 GB, 2-bit for 12 GB. Smaller computers are offered **Qwen3.5 9B or 4B**, a smaller model of the generation before. All are Apache-2.0, pinned and checked against their fingerprints. The program listens only on this computer, offline, with a key that changes each time it starts. Its models appear in every model picker under **This computer**. See [Privacy And Safety](/docs/privacy-safety/) for what is downloaded and from where.
 
 ## Your Models
@@ -65,9 +77,9 @@ Row-Bot's download uses the official [llama.cpp](https://github.com/ggml-org/lla
 
 A link to `/settings/models?provider=<id>` opens that provider's sheet.
 
-## Reading Limit
+## Cloud Reading Limit
 
-**Reading limit** sets how much text the main model reads at once. **Automatic** uses what the model supports; **Limit…** sets a smaller number of tokens, useful for local models on smaller computers.
+**Cloud models › Cloud reading limit** sets the most Row-Bot sends a cloud model at once. **Automatic** uses all the model reads; **Limit…** sets a smaller number of tokens, to keep requests smaller. It never changes models on this computer: their context is in each model's own settings.
 
 ## Limits For Long Work
 
@@ -115,4 +127,4 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 - If a model is missing, refresh the catalog and check whether its provider is connected.
 - If a picker says its provider no longer lists your model, the provider has probably retired it. OpenAI, for example, retired its gpt-image-1 models in October and December 2026; choose one of its current image models.
 - If a model shows as unavailable, read its reason; reconnecting its provider usually fixes it.
-- If a small local model fails before answering, lower the reading limit or choose a more capable model.
+- If a small local model fails before answering, give it a smaller context in its settings or choose a more capable model.
