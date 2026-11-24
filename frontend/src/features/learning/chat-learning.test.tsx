@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
@@ -190,6 +191,44 @@ it.each([
   await screen.findByRole('button', { name: 'Chat menu' });
   await act(async () => undefined);
   expect(screen.queryByRole('button', { name: 'Teach Row-Bot' })).toBeNull();
+});
+
+it('a reply row isn’t drawn again with every word of a streaming reply while Teach is offered', async () => {
+  const { controller } = controllerFor(learningSnapshot({ state: 'on' }));
+  const runtime = { controller } as unknown as React.ContextType<
+    typeof RuntimeContext
+  >;
+  let rowRenders = 0;
+  const Row = memo(function Row() {
+    rowRenders += 1;
+    return useTeach() ? <span>Teach offered</span> : null;
+  });
+  function Streaming({ text }: { text: string }) {
+    const chat = useChatTeach('chat-a');
+    return (
+      <TeachContext.Provider value={chat.teach}>
+        <Row />
+        <p>{text}</p>
+        {chat.sheet}
+      </TeachContext.Provider>
+    );
+  }
+  const view = (text: string) => (
+    <RuntimeContext.Provider value={runtime}>
+      <OverlayProvider>
+        <Streaming text={text} />
+      </OverlayProvider>
+    </RuntimeContext.Provider>
+  );
+  const { rerender } = render(view('Tick 0000.'));
+  await screen.findByText('Teach offered');
+  const before = rowRenders;
+
+  for (const text of ['Tick 0001.', 'Tick 0002.', 'Tick 0003.'])
+    rerender(view(text));
+
+  expect(screen.getByText('Tick 0003.')).toBeVisible();
+  expect(rowRenders).toBe(before);
 });
 
 it('with Learning off a chat shows nothing of it', async () => {
