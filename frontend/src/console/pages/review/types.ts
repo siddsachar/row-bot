@@ -1,7 +1,6 @@
 /** The review queue's shapes, as the Company Server answers them (B4a). */
 
-export type SubmissionStatus =
-  'pending' | 'approved' | 'rejected' | 'withdrawn';
+export type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 /** What the queue shows: one status, or every one. */
 export type Shown = SubmissionStatus | 'all';
 
@@ -11,6 +10,8 @@ export type Submission = {
   space_id: string;
   /** Null when the caller doesn't read the space. */
   space_name: string | null;
+  /** The space it was sent to: not `space_id` once an approval moved it. */
+  sent_space_id: string;
   title: string;
   text: string;
   source_note: string | null;

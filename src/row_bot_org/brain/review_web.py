@@ -4,20 +4,22 @@ their owners' (or an admin's) decisions.
 For anyone signed in (a browser session or a device's bearer), always as a member:
 
 - ``POST /api/brain/spaces/{id}/submissions``: ``{"title", "text", "source_note"}`` to a space they read, while
-  their company's policy allows Share to company (``data.share_to_company``) and they have fewer than
-  ``MAX_PENDING`` waiting (else 429 ``too_many_pending``);
-- ``GET /api/brain/submissions?mine=1&status=``: their own, whatever became of them;
-- ``POST /api/brain/submissions/{id}/withdraw``: one of their own, while it waits.
+  their company's policy allows Share to company (``data.share_to_company``), they have fewer than
+  ``MAX_PENDING`` waiting (else 429 ``too_many_pending``) and sent fewer than ``MAX_PER_DAY`` today (else 429
+  ``too_many_shares_today``);
+- ``GET /api/brain/submissions?mine=1&status=``: their own, whatever became of them (``space_name`` is where an
+  approval moved one to, which they may not read);
+- ``POST /api/brain/submissions/{id}/withdraw``: one of their own, while it waits: it is deleted, text and all.
 
 For a space's owners, and admins (any space), in a browser session only (a bearer gets 403
 ``browser_session_required``):
 
 - ``GET /api/brain/review?space=&status=``: the submissions of the spaces they review (``pending`` unless
-  ``status`` says otherwise: ``approved``, ``rejected``, ``withdrawn`` or ``all``), with those spaces and how many
-  wait;
+  ``status`` says otherwise: ``approved``, ``rejected`` or ``all``), with those spaces and how many wait;
 - ``POST /api/brain/review/{id}/approve``: ``{"title", "text", "space_id"}``, each optional (the share as sent, in
-  its space, unless edited or moved to another space the reviewer manages). In one transaction it becomes a fact
-  of that space, written by the reviewer with the share's submitter as its source;
+  its space, unless edited or moved to another group space the reviewer manages: never into the company space it
+  wasn't sent to). In one transaction it becomes a fact of that space, written by the reviewer with the share's
+  submitter as its source;
 - ``POST /api/brain/review/{id}/reject``: ``{"reason"}``.
 
 A submission holds what a person wrote in a chat: before approval only its submitter and its space's managers see
@@ -33,7 +35,7 @@ from typing import Literal
 
 import psycopg
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import field_validator
 
 from row_bot.audit import Action, AuditLayer, Target, TargetKind
@@ -55,7 +57,7 @@ MAX_FACT = 2000
 # A share becomes a fact: CON-1's item kind for it.
 ITEM_KIND = "fact"
 
-Shown = Literal["pending", "approved", "rejected", "withdrawn", "all"]
+Shown = Literal["pending", "approved", "rejected", "all"]
 
 
 class SubmissionIn(_Body):
@@ -133,8 +135,11 @@ def review_router(service: BrainService) -> APIRouter:
         review_store.hold_submitter(conn, principal.principal_id)
         if review_store.pending_count(conn, principal.principal_id) >= review_store.MAX_PENDING:
             return _error(429, "too_many_pending", max_pending=review_store.MAX_PENDING)
+        if review_store.shares_today(conn, principal.principal_id) >= review_store.MAX_PER_DAY:
+            return _error(429, "too_many_shares_today", max_per_day=review_store.MAX_PER_DAY)
         submission = review_store.add_submission(conn, space_id=space.id, title=body.title, text=body.text,
                                                  source_note=body.source_note, submitter_groups=principal.groups)
+        review_store.count_share(conn, principal.principal_id)
         share_event(conn, Action.SHARE_SUBMITTED, audit.person(principal.principal_id), _layer(space), space.id,
                     submission.id, principal.device_id)
         return JSONResponse(submission.to_json(), status_code=201)
@@ -150,21 +155,23 @@ def review_router(service: BrainService) -> APIRouter:
 
     @router.post("/api/brain/submissions/{submission_id}/withdraw")
     def withdraw(submission_id: str, conn: psycopg.Connection = member,
-                 principal: RequestPrincipal = caller_of) -> JSONResponse:
+                 principal: RequestPrincipal = caller_of) -> Response:
         found = _uuid(submission_id)
         current = None if found is None else review_store.get_submission(conn, found)
         if current is None or current.submitted_by != principal.principal_id:
             return _error(404, "submission_not_found")
-        withdrawn = review_store.withdraw(conn, current.id, principal.principal_id)
-        if withdrawn is None:
+        # Withdrawing deletes it, text and all: nobody reads it again.
+        if not review_store.withdraw(conn, current.id, principal.principal_id):
             decided = review_store.get_submission(conn, current.id)
-            return _error(409, "submission_decided", status=decided.status if decided else current.status)
+            if decided is None:
+                return _error(404, "submission_not_found")
+            return _error(409, "submission_decided", status=decided.status)
         # A space its submitter no longer reads is a group space (everyone reads the company space).
         space = store.get_space(conn, current.space_id)
         share_event(conn, Action.SHARE_WITHDRAWN, audit.person(principal.principal_id),
                     AuditLayer.TEAM if space is None else _layer(space), current.space_id, current.id,
                     principal.device_id)
-        return JSONResponse(withdrawn.to_json())
+        return Response(status_code=204)
 
     # -- reviewers: a space's owners, and admins, in a browser session ---------------------------
 
@@ -217,6 +224,9 @@ def review_router(service: BrainService) -> APIRouter:
             target = _managed(caller, str(body.space_id))
             if isinstance(target, JSONResponse):
                 return target
+            # Everyone reads the company space: a share goes there only if its submitter sent it there.
+            if target.kind == store.COMPANY:
+                return _error(422, "cannot_move_to_company_space")
         title = body.title if body.title is not None else current.title
         text = body.text if body.text is not None else current.text
         if len(text) > MAX_FACT:
@@ -224,7 +234,8 @@ def review_router(service: BrainService) -> APIRouter:
         fact_id = review_store.add_fact_from(caller.conn, current, space_id=target.id, text=text,
                                              writer_groups=caller.principal.groups)
         approved = review_store.approve(caller.conn, current.id, principal_id=caller.principal.principal_id,
-                                        space_id=target.id, title=title, text=text, fact_id=fact_id)
+                                        space_id=target.id, moved_to=None if target.id == space.id else target.name,
+                                        title=title, text=text, fact_id=fact_id)
         fact = store.get_fact(caller.conn, fact_id)
         details: dict[str, str] = {"fact_id": fact_id}
         edited = [field for field, before, after in (("title", current.title, title), ("text", current.text, text))

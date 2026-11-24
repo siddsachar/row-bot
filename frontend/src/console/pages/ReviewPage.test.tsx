@@ -58,7 +58,7 @@ test('the queue lists what waits, oldest first, with who shared it where, and fi
 
   await userEvent.selectOptions(
     screen.getByRole('combobox', { name: 'Show' }),
-    'Withdrawn',
+    'Rejected',
   );
   expect(
     await screen.findByText('No shares match these filters.'),

@@ -10,7 +10,6 @@ export const SHOWN: { value: Shown; label: string }[] = [
   { value: 'pending', label: 'Waiting' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
-  { value: 'withdrawn', label: 'Withdrawn' },
   { value: 'all', label: 'All' },
 ];
 
@@ -18,7 +17,6 @@ export const STATUS: Record<SubmissionStatus, { tone: Tone; label: string }> = {
   pending: { tone: 'warning', label: 'Waiting' },
   approved: { tone: 'success', label: 'Approved' },
   rejected: { tone: 'danger', label: 'Rejected' },
-  withdrawn: { tone: 'neutral', label: 'Withdrawn' },
 };
 
 const COUNT = new Intl.NumberFormat();

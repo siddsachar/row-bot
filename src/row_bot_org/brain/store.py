@@ -211,7 +211,8 @@ def list_facts(conn: psycopg.Connection, space_id: str, *, include_retired: bool
 def update_fact(conn: psycopg.Connection, fact_id: str, *, text: str | None, source_document_id: str | None,
                 clear_source: bool, principal_id: str, writer_groups: Sequence[str]) -> dict[str, Any] | None:
     """A fact's new wording or source, written by ``principal_id`` (who then answers for it); its embedding is
-    made again, and new wording is read again for the graph (its old mentions go)."""
+    made again, and new wording is read again for the graph (its old mentions go). New wording is the editor's,
+    no longer the share it may have come from: its share and submitter go."""
     if text is not None:
         graph_store.clear_fact_mentions(conn, fact_id)
     row = conn.execute(
@@ -219,9 +220,12 @@ def update_fact(conn: psycopg.Connection, fact_id: str, *, text: str | None, sou
         " source_document_id = CASE WHEN %s THEN NULL ELSE coalesce(%s, source_document_id) END,"
         " written_by = %s, writer_groups = %s, updated_at = now(),"
         " embedding = NULL, embedding_model = NULL, embedding_dim = NULL,"
-        " graph_done_at = CASE WHEN %s::text IS NULL THEN graph_done_at END, graph_retry_at = NULL"
+        " graph_done_at = CASE WHEN %s::text IS NULL THEN graph_done_at END, graph_retry_at = NULL,"
+        " source_submission_id = CASE WHEN %s::text IS NULL THEN source_submission_id END,"
+        " submitted_by = CASE WHEN %s::text IS NULL THEN submitted_by END"
         f" WHERE id = %s RETURNING {_FACT_COLUMNS}",
-        (text, clear_source, source_document_id, principal_id, list(writer_groups), text, fact_id)).fetchone()
+        (text, clear_source, source_document_id, principal_id, list(writer_groups), text, text, text,
+         fact_id)).fetchone()
     return None if row is None else _fact(row)
 
 

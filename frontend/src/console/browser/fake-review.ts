@@ -24,12 +24,13 @@ type Submission = {
   kind: 'share';
   space_id: string;
   space_name: string | null;
+  sent_space_id: string;
   title: string;
   text: string;
   source_note: string | null;
   submitted_by: string;
   submitted_at: string;
-  status: 'pending' | 'approved' | 'rejected' | 'withdrawn';
+  status: 'pending' | 'approved' | 'rejected';
   reviewed_by: string | null;
   decided_at: string | null;
   reason: string | null;
@@ -52,6 +53,7 @@ function share(
     kind: 'share',
     space_id: space.id,
     space_name: space.name,
+    sent_space_id: space.id,
     source_note: null,
     submitted_by: ADA,
     submitted_at: ago(60 * number),
