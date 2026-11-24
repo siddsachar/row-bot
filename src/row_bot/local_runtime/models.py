@@ -23,6 +23,8 @@ Fit = Literal["gpu", "partial", "cpu", "too_big"]
 CONTEXT = 32_768
 # The windows a model is served at, largest first (D1): the largest that still runs it entirely on the card.
 CONTEXTS = (131_072, 65_536, CONTEXT)
+# The windows a person may choose for a model (U1), where they fit: up to the models' native window.
+CHOICES = (CONTEXT, 65_536, 131_072, 262_144)
 # llama.cpp's --fit keeps this much of each card free and moves layers to the processor when a model would
 # leave less (``--fit-target``, default 1024 MiB: b12359 ``common/common.h:502``). A larger window is served
 # only with this much to spare, so it never moves part of the model off the card.
@@ -162,9 +164,44 @@ def _suits(model: Model, hardware: Hardware) -> bool:
     return hardware.ram_bytes >= MAC_RECOMMEND_RAM.get(model.id, 0)
 
 
-def context_for(model: Model, hardware: Hardware) -> int:
+def _runs(model: Model, hardware: Hardware, context: int) -> Fit:
+    """How ``model`` would run here at ``context``."""
+
+    if not hardware.supported:
+        return "too_big"
+    need = model.need_bytes(context)
+    card = hardware.usable_gpu_bytes
+    if hardware.acceleration == builds.METAL:
+        return "gpu" if need <= card else "too_big"
+    if card and need <= card:
+        return "gpu"
+    cpu = int(hardware.ram_bytes * CPU_SHARE)
+    if card and need <= card + cpu:
+        return "partial"
+    return "cpu" if need <= cpu else "too_big"
+
+
+def context_choices(model: Model, hardware: Hardware) -> tuple[int, ...]:
+    """The windows a person may choose for ``model`` here (U1), smallest first: each of :data:`CHOICES` up to its
+    native window that runs it the way :data:`CONTEXT` does. A model on the graphics card stays on it with
+    llama.cpp's :data:`FIT_MARGIN_BYTES` to spare (a larger window never moves part of it off the card); one that
+    runs partly on the card or on the processor still fits in memory. :data:`CONTEXT` is always offered."""
+
+    base = _runs(model, hardware, CONTEXT)
+    if base == "too_big":
+        return (CONTEXT,)
+    on_card = base == "gpu" and hardware.acceleration != builds.METAL
+    return tuple(context for context in CHOICES if context == CONTEXT or (
+        context <= model.native_context and (
+            _on_card(model, hardware, context, FIT_MARGIN_BYTES) if on_card
+            else _runs(model, hardware, context) == base)))
+
+
+def context_for(model: Model, hardware: Hardware, chosen: int | None = None) -> int:
     """The window ``model`` is served at on this computer (D1), the one value its presets, its endpoint, :func:`fit`
-    and Setup all use: the largest of :data:`CONTEXTS` (never above its native window) at which it still runs
+    and Setup all use. A window the person chose (``chosen``, U1) is served while it fits
+    (:func:`context_choices`; else the largest choice below it). Otherwise: the largest of :data:`CONTEXTS`
+    (never above its native window) at which it still runs
     entirely on the graphics card with llama.cpp's :data:`FIT_MARGIN_BYTES` to spare. A model that runs partly on
     the card or on the processor stays at :data:`CONTEXT`: a longer prompt there would make the first word too
     slow. The models are picked at :data:`CONTEXT` first, so a larger window never costs a quality level.
@@ -175,29 +212,21 @@ def context_for(model: Model, hardware: Hardware) -> int:
     swap. Pro and Max chips are measured before a larger window is automatic there; a person may still choose
     one (U1)."""
 
+    if chosen:
+        return max((context for context in context_choices(model, hardware) if context <= int(chosen)),
+                   default=CONTEXT)
     if hardware.acceleration == builds.METAL or not _on_card(model, hardware, CONTEXT):
         return CONTEXT
     return next((context for context in CONTEXTS if context <= model.native_context
                  and _on_card(model, hardware, context, FIT_MARGIN_BYTES)), CONTEXT)
 
 
-def fit(model: Model, hardware: Hardware) -> Fit:
+def fit(model: Model, hardware: Hardware, chosen: int | None = None) -> Fit:
     """How ``model`` would run here at :func:`context_for`'s window: all on the graphics card, partly on it, on
-    the processor, or not at all (the window grows only while the model stays on the card, so it runs the
-    same way at :data:`CONTEXT`)."""
+    the processor, or not at all (the window grows only while the model runs the same way, so it runs as it
+    does at :data:`CONTEXT`)."""
 
-    if not hardware.supported:
-        return "too_big"
-    need = model.need_bytes(context_for(model, hardware))
-    card = hardware.usable_gpu_bytes
-    if hardware.acceleration == builds.METAL:
-        return "gpu" if need <= card else "too_big"
-    if card and need <= card:
-        return "gpu"
-    cpu = int(hardware.ram_bytes * CPU_SHARE)
-    if card and need <= card + cpu:
-        return "partial"
-    return "cpu" if need <= cpu else "too_big"
+    return _runs(model, hardware, context_for(model, hardware, chosen))
 
 
 def recommend(hardware: Hardware) -> Model | None:
@@ -217,4 +246,5 @@ def recommend(hardware: Hardware) -> Model | None:
                  and fit(model, hardware) in ("cpu", "partial")), None)
 
 
-__all__ = ["CATALOG", "CONTEXT", "CONTEXTS", "Fit", "Model", "context_for", "fit", "get", "recommend"]
+__all__ = ["CATALOG", "CHOICES", "CONTEXT", "CONTEXTS", "Fit", "Model", "context_choices", "context_for", "fit", "get",
+           "recommend"]

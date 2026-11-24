@@ -166,17 +166,16 @@ test('Vision, media, context, and delegation controls write local settings', asy
   await expect(
     models.getByRole('switch', { name: 'Enable video' }),
   ).toBeChecked();
-  await models
-    .locator('summary')
-    .filter({ hasText: 'Advanced context' })
-    .click();
-  // Automatic or a limit, in plain words (B229).
+  await models.locator('summary').filter({ hasText: 'Cloud models' }).click();
+  // Automatic or a limit, in plain words (B229); for cloud models only (U2).
   await models.getByRole('radio', { name: 'Limit…' }).click();
   const limit = models.getByRole('spinbutton', { name: 'Limit in tokens' });
   await limit.fill('60000');
   // Enter saves the limit (decision 19); the notice offers Undo.
   await limit.press('Enter');
-  const saved = notices.filter({ hasText: 'Reading limit: 60,000 tokens' });
+  const saved = notices.filter({
+    hasText: 'Cloud reading limit: 60,000 tokens',
+  });
   await expect(saved).toBeVisible();
   await expect(
     saved.getByRole('button', { name: 'Undo', exact: true }),

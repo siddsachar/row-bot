@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "automatic": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Automatic"
+    },
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "value": {
+      "enum": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "available",
+    "value"
+  ],
+  "title": "LocalModelThinkingSettings",
+  "type": "object"
+}

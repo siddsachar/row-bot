@@ -692,6 +692,69 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str, *, validate: Ca
     return CustomEndpointModelRefreshResult(infos, default_reset=default_reset)
 
 
+class LmStudioReloadError(ValueError):
+    """LM Studio didn't load the model at the window asked for; ``words`` says why, plainly."""
+
+    def __init__(self, words: str) -> None:
+        self.words = words
+        super().__init__(words)
+
+
+def reload_lmstudio_model(endpoint_or_provider_id: str, model_id: str, context: int, *,
+                          validate: Callable[[], None] = lambda: None) -> int:
+    """Load a model in LM Studio on this computer again with a window of ``context`` tokens (the person
+    pressed "Reload in LM Studio"; U1), through its REST API (LM Studio 0.4+, ``/api/v1``): each loaded
+    instance of it is unloaded (``POST /api/v1/models/unload``), then it is loaded with ``context_length``
+    (``POST /api/v1/models/load``), and the endpoint's models are read again so Row-Bot uses the new window.
+    Returns the window LM Studio loaded. Raises ``ValueError`` for an endpoint that isn't LM Studio on this
+    computer and :class:`LmStudioReloadError` when LM Studio refuses."""
+
+    endpoint = get_custom_endpoint(endpoint_or_provider_id)
+    if (not endpoint or str(endpoint.get("profile") or "") != "lmstudio" or endpoint.get("managed")
+            or str(endpoint.get("execution_location") or "") != "local"):
+        raise ValueError("not_lmstudio")
+    headers = _custom_endpoint_headers(endpoint)
+    guard = _endpoint_probe_authority(endpoint, headers, validate)
+    root = _native_root_url(str(endpoint.get("base_url") or ""))
+
+    def call(method: str, path: str, body: dict | None = None) -> Any:
+        guard()
+        response = _probe_request(method, f"{root}{path}", headers=headers, timeout=_endpoint_timeout(guard, 120),
+                                  validate=guard, json_body=body)
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("error")
+                detail = detail.get("message") if isinstance(detail, dict) else detail
+            except Exception:  # noqa: BLE001 - its words are optional
+                detail = ""
+            raise LmStudioReloadError(str(detail or f"LM Studio answered {response.status_code}.")[:240])
+        return response.json() if response.content else {}
+
+    try:
+        listed = call("GET", "/api/v1/models")
+    except LmStudioReloadError:
+        raise LmStudioReloadError("This LM Studio can't load models for Row-Bot. Update it to 0.4 or later.") from None
+    item = next((entry for entry in (listed.get("models") or ()) if isinstance(entry, dict)
+                 and model_id in {str(entry.get("key") or ""), str(entry.get("id") or "")}), None)
+    if item is None:
+        raise LmStudioReloadError("LM Studio doesn't list this model any more.")
+    most = _positive_int(item.get("max_context_length"))
+    if most and int(context) > most:
+        raise LmStudioReloadError(f"This model reads at most {most:,} tokens. Choose a smaller size.")
+    for instance in item.get("loaded_instances") or ():
+        if isinstance(instance, dict) and instance.get("id"):
+            call("POST", "/api/v1/models/unload", {"instance_id": str(instance["id"])})
+    loaded = call("POST", "/api/v1/models/load", {"model": str(item.get("key") or model_id),
+                                                  "context_length": int(context), "echo_load_config": True})
+    config = loaded.get("load_config") if isinstance(loaded, dict) else None
+    window = _positive_int(config.get("context_length")) if isinstance(config, dict) else 0
+    try:
+        refresh_custom_endpoint_models(str(endpoint["id"]), validate=validate)
+    except Exception:  # noqa: BLE001 - loaded; the window is read again at the next refresh
+        logger.debug("LM Studio's models weren't read again after a reload", exc_info=True)
+    return window or int(context)
+
+
 def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = None, *,
                           validate: Callable[[], None] = lambda: None,
                           record_commit: Callable[[dict], None] | None = None, strict: bool = False) -> dict[str, Any]:

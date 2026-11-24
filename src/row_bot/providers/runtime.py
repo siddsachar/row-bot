@@ -1204,12 +1204,14 @@ def _validated_runtime_reasoning_plan(
 
 
 def _local_reasoning_default(runtime_model: str) -> dict[str, Any]:
-    """A local model saved as non-thinking (a personal model, O24) is asked not to think. The transport
-    keeps it so whatever the conversation chose (``RowBotChatOllama``)."""
+    """An Ollama model's saved Thinking, before the conversation's own choice: the person's On or Off, or
+    Learning's off for a personal model (O24), which the transport keeps whatever the conversation chose
+    (``RowBotChatOllama``)."""
     try:
         from row_bot.models import local_model_settings
 
-        return {"reasoning": False} if local_model_settings(runtime_model).get("reasoning") == "off" else {}
+        saved = local_model_settings(runtime_model).get("reasoning")
+        return {"reasoning": saved == "on"} if saved in {"on", "off"} else {}
     except Exception:
         return {}
 

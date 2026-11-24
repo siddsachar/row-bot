@@ -22,6 +22,7 @@ import pytest
 # Imported at collection, before a test moves the data folder: patching its path then restores the real one.
 import row_bot.providers.config as provider_config
 from row_bot.local_runtime import install, models, server
+from row_bot.local_runtime.hardware import GIB
 from tests.fixtures.local_runtime import FakeFiles, fake_build, fake_model, python_command
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
@@ -482,3 +483,131 @@ def test_each_request_says_whether_the_built_in_model_thinks_and_the_chats_choic
         assert [thinks(model.id) for model in built_in] == [True, False, False]
         assert [thinks(model.id, "off") for model in built_in] == [False, False, False]
         assert thinks("qwen3.5-9b", "on") is True
+
+
+# ── The person's window for a model (U1) ─────────────────────────────────────
+
+
+@pytest.fixture
+def settings_store(tmp_path, monkeypatch):
+    from row_bot import models as chat_models
+    from row_bot.local_runtime import hardware
+
+    monkeypatch.setattr(chat_models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    monkeypatch.setattr(chat_models, "_local_model_settings", {})
+    monkeypatch.setattr(chat_models, "_override_llm_cache", {})
+    yield chat_models
+    hardware.forget()  # what a test's fake card left in the cache
+
+
+def _sheet(model_id: str) -> dict:
+    from row_bot import local_runtime
+    from row_bot.application.client_local_model_settings import read_local_model_settings
+
+    return read_local_model_settings(local_runtime.model_ref(model_id))
+
+
+def _choose(model_id: str, context: int | None) -> dict:
+    from row_bot import local_runtime
+    from row_bot.application.client_local_model_settings import save_local_model_settings
+
+    return save_local_model_settings(local_runtime.model_ref(model_id), context=context, thinking="auto",
+                                     reply_limit=None, validate=lambda: None)
+
+
+def test_only_windows_that_fit_the_card_are_offered_and_a_choice_is_what_the_endpoint_serves(
+        tmp_path, monkeypatch, settings_store):
+    """On a 16 GB card the 3-bit 27B fits only at 32K; the 4B is served at 128K and may be given any window up to
+    its native 256K, each with what its cache takes on the card."""
+    from row_bot import local_runtime
+    from row_bot.providers import custom
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 16)
+    monkeypatch.setattr(install, "installed_models",
+                        lambda root=None: [models.get("qwen3.8-27b-q3"), models.get("qwen3.5-4b")])
+    server.save_endpoint()
+
+    big, small = _sheet("qwen3.8-27b-q3"), _sheet("qwen3.5-4b")
+    assert [choice["tokens"] for choice in big["context"]["choices"]] == [32_768]
+    assert [choice["tokens"] for choice in small["context"]["choices"]] == [32_768, 65_536, 131_072, 262_144]
+    assert small["context"]["automatic"] == 131_072 and small["context"]["memory_place"] == "card"
+    assert small["context"]["automatic_memory_bytes"] == models.get("qwen3.5-4b").need_bytes(131_072)
+    assert small["context"]["room_bytes"] == 16 * GIB
+    with pytest.raises(ValueError, match="invalid_command"):
+        _choose("qwen3.8-27b-q3", 65_536)  # doesn't fit: refused, nothing saved
+
+    view = _choose("qwen3.5-4b", 65_536)
+
+    assert view["context"]["chosen"] == 65_536 and view["applied"] == "next_start"
+    endpoint = custom.get_custom_endpoint(local_runtime.PROVIDER_ID)
+    windows = {item["model_id"]: item["context_window"] for item in endpoint["models"]}
+    assert windows == {"qwen3.8-27b-q3": 32_768, "qwen3.5-4b": 65_536}
+    assert settings_store.get_context_size(local_runtime.model_ref("qwen3.5-4b")) == 65_536
+    _choose("qwen3.5-4b", None)  # Automatic again
+    assert local_runtime.model_context("qwen3.5-4b") == 131_072
+
+
+def test_the_sheet_says_what_automatic_thinking_is_for_each_built_in_model(tmp_path, monkeypatch, settings_store):
+    """D3: the 27B thinks unless a chat says otherwise, the 9B and 4B don't; the sheet's Automatic says which."""
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _card(monkeypatch, 24)
+    built_in = [models.get("qwen3.8-27b-q4"), models.get("qwen3.5-9b"), models.get("qwen3.5-4b")]
+    monkeypatch.setattr(install, "installed_models", lambda root=None: built_in)
+    server.save_endpoint()
+
+    thinking = [_sheet(model.id)["thinking"] for model in built_in]
+
+    assert [item["automatic"] for item in thinking] == [True, False, False]
+    assert all(item["available"] and item["value"] == "auto" for item in thinking)
+
+
+def test_a_mac_may_choose_a_larger_window_with_a_slow_first_reply_said(tmp_path, monkeypatch, settings_store):
+    from row_bot.local_runtime import builds, hardware
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(hardware, "detector", lambda: hardware.classify(builds.MACOS_ARM64, 16 * hardware.GIB,
+                                                                        apple_silicon=True))
+    hardware.forget()
+    monkeypatch.setattr(install, "installed_models", lambda root=None: [models.get("qwen3.5-9b")])
+    server.save_endpoint()
+
+    context = _sheet("qwen3.5-9b")["context"]
+
+    assert context["automatic"] == 32_768 and context["memory_place"] == "memory"
+    assert [(choice["tokens"], choice["slow"]) for choice in context["choices"]][:2] == [(32_768, False),
+                                                                                          (65_536, True)]
+
+
+@pytest.mark.slow
+def test_a_running_server_serves_a_new_window_after_restarting_when_idle(installed, monkeypatch, settings_store):
+    _card(monkeypatch, 24)
+    local = _server(installed)
+    monkeypatch.setattr(server, "loaded", lambda: [local])
+    presets = install.runtime_dir(installed["root"]) / server.RUN_FOLDER / server.PRESETS_FILE
+    model = installed["model"].id
+    try:
+        connection = local.connection()
+        assert _settings(presets.read_text("utf-8"), model)["ctx-size"] == "131072"
+        _chat(connection, model)
+        headers = {"Authorization": f"Bearer {connection.api_key}"}
+        httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": True}, headers=headers,
+                   trust_env=False)
+
+        assert _choose(model, 65_536)["applied"] == "when_idle"
+        assert local.state == "running"  # never stopped under a reply
+
+        httpx.post(f"http://127.0.0.1:{connection.port}/__busy", json={"busy": False}, headers=headers,
+                   trust_env=False)
+        local.check()
+        assert local.state == "stopped"
+        assert local.connection() is not None  # the next request starts it with the new window
+        assert _settings(presets.read_text("utf-8"), model)["ctx-size"] == "65536"
+
+        assert _choose(model, 32_768)["applied"] == "restarted"  # idle: at once
+        assert local.state == "stopped"
+    finally:
+        local.stop()

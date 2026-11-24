@@ -457,7 +457,12 @@ class RowBotChatOllama(ChatOllama):
         params = super()._chat_params(messages, stop, **kwargs)
         options = params.get("options")
         if isinstance(options, dict) and options.get("num_ctx") and "num_predict" not in options:
-            params["options"] = {**options, "num_predict": options["num_ctx"]}
+            # A reply may fill the window, unless the person gave this model a reply limit (U1).
+            from row_bot.models import local_reply_limit
+
+            limit = local_reply_limit("ollama", self.model)
+            params["options"] = {**options, "num_predict": min(limit, options["num_ctx"]) if limit
+                                 else options["num_ctx"]}
         options = params.get("options")
         if options is None or isinstance(options, dict):
             filled = dict(options or {})

@@ -3345,6 +3345,31 @@ export class HttpTransport implements ClientTransport {
   updateModelContext(body: wire.ModelContextMutation, signal?: AbortSignal) {
     return wire.updateModelContext(this.base, this.session(), body, signal);
   }
+  localModelSettings(modelRef: string, signal?: AbortSignal) {
+    return wire.getLocalModelSettings(
+      this.base,
+      this.session(),
+      modelRef,
+      signal,
+    );
+  }
+  saveLocalModelSettings(
+    body: wire.LocalModelSettingsMutation,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveLocalModelSettings(this.base, this.session(), body, signal);
+  }
+  reloadLocalModelInLmStudio(
+    body: wire.LocalModelReloadRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.reloadLocalModelInLmStudio(
+      this.base,
+      this.session(),
+      body,
+      signal,
+    );
+  }
   updateModelVisibility(
     body: wire.ModelVisibilityMutation,
     signal?: AbortSignal,

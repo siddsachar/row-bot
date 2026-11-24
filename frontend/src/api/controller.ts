@@ -5511,6 +5511,26 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.updateModelContext(body, signal);
     });
+  /** One local model's settings sheet (U1): its window, Thinking and reply length. */
+  localModelSettings = (modelRef: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.localModelSettings?.(modelRef, signal));
+  saveLocalModelSettings = (
+    body: import('./types').LocalModelSettingsMutation,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.saveLocalModelSettings)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.saveLocalModelSettings(body, signal);
+    });
+  /** The person pressed "Reload in LM Studio at N". */
+  reloadLocalModelInLmStudio = (
+    body: import('./types').LocalModelReloadRequest,
+  ) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.reloadLocalModelInLmStudio)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.reloadLocalModelInLmStudio(body, signal);
+    });
   /**
    * Star or unstar a model. The composer's list changes at once and settles on
    * what the server saved; a failed save puts it back.

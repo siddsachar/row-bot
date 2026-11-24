@@ -9819,13 +9819,73 @@ def create_router(
         try:
             result = await call(
                 update_model_context,
-                body.policy_kind,
                 body.cap,
                 validate=dispatch_validation(request, current),
             )
-        except ValueError as exc:
-            raise ProtocolError(str(exc), 422) from None
+        except ValueError:
+            raise ProtocolError("invalid_command", 422) from None
         return await respond(request, dto.ModelsSettingsState, result)
+
+    def _local_model_problem(error: ValueError) -> ProtocolError:
+        # Not a local model the person may set (a cloud one, Learning's), or a value its sheet doesn't offer.
+        code = str(error)
+        if code == "model_configuration_unavailable":
+            return ProtocolError(code, 409)
+        return ProtocolError("invalid_command", 422)
+
+    @router.get("/settings/models/local-model")
+    async def local_model_settings_view(request: Request, model_ref: str = "") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_local_model_settings import read_local_model_settings
+
+        try:
+            result = await call(
+                read_local_model_settings,
+                model_ref[:647],
+                validate=dispatch_validation(request, current),
+            )
+        except ValueError as exc:
+            raise _local_model_problem(exc) from None
+        return await respond(request, dto.LocalModelSettingsView, result)
+
+    @router.post("/settings/models/local-model")
+    async def local_model_settings_save(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.LocalModelSettingsMutation, 2048)
+        from row_bot.application.client_local_model_settings import save_local_model_settings
+
+        try:
+            result = await call(
+                save_local_model_settings,
+                body.model_ref,
+                context=body.context,
+                thinking=body.thinking,
+                reply_limit=body.reply_limit,
+                sampling=body.sampling or "keep",
+                sampling_values=body.sampling_values.model_dump() if body.sampling_values else None,
+                validate=dispatch_validation(request, current),
+            )
+        except ValueError as exc:
+            raise _local_model_problem(exc) from None
+        return await respond(request, dto.LocalModelSettingsView, result)
+
+    @router.post("/settings/models/local-model/reload")
+    async def local_model_reload(request: Request) -> JSONResponse:
+        # The person pressed "Reload in LM Studio": one request to their own LM Studio on this computer.
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.LocalModelReloadRequest, 2048)
+        from row_bot.application.client_local_model_settings import reload_in_lm_studio
+
+        try:
+            result = await call(
+                reload_in_lm_studio,
+                body.model_ref,
+                body.context,
+                validate=dispatch_validation(request, current),
+            )
+        except ValueError as exc:
+            raise _local_model_problem(exc) from None
+        return await respond(request, dto.LocalModelSettingsView, result)
 
     @router.post("/settings/models/visibility")
     async def models_visibility_update(request: Request) -> JSONResponse:

@@ -4988,6 +4988,12 @@ button.attachment-tile-face:hover {
   flex: 1;
   min-width: 0;
 }
+.model-picker-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .model-picker-manage.button {
   justify-self: start;
   min-height: 26px;
