@@ -3486,6 +3486,8 @@ const refusals = new Set([
   'browser_navigation_denied',
   'capability_unavailable',
   'clone_blocked',
+  // The person's company doesn't allow it (Row-Bot for Teams, C3b).
+  'company_policy',
   'computer_use_local_only',
   'developer_repository_action_denied',
   'document_processing_denied',
