@@ -45,6 +45,7 @@ import { useLongPress } from './long-press';
 import { AgentStubs } from './AgentStubs';
 import ApprovalCard from './ApprovalCard';
 import { MediaPreview } from './MediaPreview';
+import { madeTitle } from './outputs';
 import ErrorFix from './ErrorFix';
 import {
   noteReadAloud,
@@ -145,27 +146,31 @@ export function MessageMedia({ media }: { media: GeneratedMedia[] }) {
       )}
       {finals.length > 0 && (
         <div className="message-finals">
-          {finals.map((item) => (
-            <figure
-              key={item.reference}
-              className="message-final"
-              aria-label={`Final: ${item.label ?? 'result'}`}
-            >
-              <figcaption className="message-final-head">
-                <FinalChip />
-                <strong title={item.label}>{item.label}</strong>
-              </figcaption>
-              {item.caption && (
-                <p className="message-final-caption">{item.caption}</p>
-              )}
-              <MediaPreview
-                reference={item.reference}
-                mime={item.mime}
-                label={item.label}
-                downloadName={downloadName(item)}
-              />
-            </figure>
-          ))}
+          {finals.map((item) => {
+            // Its title, as its Outputs tile names it; its file name downloads.
+            const title = item.label ? madeTitle(item.label, item.mime) : '';
+            return (
+              <figure
+                key={item.reference}
+                className="message-final"
+                aria-label={`Final: ${title || 'result'}`}
+              >
+                <figcaption className="message-final-head">
+                  <FinalChip />
+                  <strong title={item.label}>{title}</strong>
+                </figcaption>
+                {item.caption && (
+                  <p className="message-final-caption">{item.caption}</p>
+                )}
+                <MediaPreview
+                  reference={item.reference}
+                  mime={item.mime}
+                  label={title || item.label}
+                  downloadName={downloadName(item)}
+                />
+              </figure>
+            );
+          })}
         </div>
       )}
     </>

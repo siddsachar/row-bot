@@ -77,6 +77,84 @@ async function playable(scope: ReturnType<Page['locator']>) {
     .toMatch(/^(fallback|playback)$/);
 }
 
+/** The brightest channel in a strip of the page, read from its pixels. */
+async function brightest(page: Page, clip: Rect) {
+  const shot = await page.screenshot({ clip });
+  return page.evaluate(async (data) => {
+    // The page's CSP allows data: images but not fetching them.
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const canvas = new OffscreenCanvas(image.width, image.height);
+    const context = canvas.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const { data: pixels } = context.getImageData(
+      0,
+      0,
+      image.width,
+      image.height,
+    );
+    let most = 0;
+    for (let at = 0; at < pixels.length; at += 4)
+      most = Math.max(most, pixels[at], pixels[at + 1], pixels[at + 2]);
+    return most;
+  }, shot.toString('base64'));
+}
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/**
+ * A floating card stays frosted, not see-through: over a white backdrop its
+ * dark card stays dark, and over a black one its light card stays light, so
+ * a bright video under it never shows as a haze.
+ */
+async function staysFrosted(page: Page, card: Rect) {
+  const strip = {
+    x: card.x + 24,
+    y: card.y + card.height - 8,
+    width: card.width - 48,
+    height: 4,
+  };
+  for (const [appearance, backdrop] of [
+    ['dark', '#fff'],
+    ['light', '#000'],
+  ] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-theme',
+      appearance,
+    );
+    const under = await page.evaluate(
+      ({ rect, colour }) => {
+        const element = document.createElement('div');
+        Object.assign(element.style, {
+          position: 'fixed',
+          left: `${rect.x - 80}px`,
+          top: `${rect.y - 80}px`,
+          width: `${rect.width + 160}px`,
+          height: `${rect.height + 160}px`,
+          background: colour,
+          // Under the card (z-index 30), over everything else.
+          zIndex: '29',
+          pointerEvents: 'none',
+        });
+        element.dataset.backdrop = 'probe';
+        document.querySelector('.chat-workspace')!.append(element);
+        return true;
+      },
+      { rect: card, colour: backdrop },
+    );
+    expect(under).toBe(true);
+    const most = await brightest(page, strip);
+    if (appearance === 'dark') expect(most).toBeLessThan(90);
+    else expect(most).toBeGreaterThan(200);
+    await page.evaluate(() =>
+      document.querySelector('[data-backdrop="probe"]')?.remove(),
+    );
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+}
+
 /** The browser pane the recording opened: the views are of the chat itself. */
 async function closeBrowserPane(page: Page) {
   const close = page.getByRole('button', {
@@ -110,10 +188,12 @@ test('a film made with working files shows only its final and the AI clip; the r
   ).toBeVisible({ timeout: 30_000 });
 
   // The final, large, with its name, its Final mark and the caption it was given.
+  // Named by its title, as its Outputs tile is, not by its file.
   const final = transcript.getByRole('figure', {
-    name: 'Final: Birthday montage.mp4',
+    name: 'Final: Birthday montage',
   });
   await expect(final).toBeVisible();
+  await expect(final).not.toContainText('.mp4');
   await expect(final).toContainText('Final');
   await expect(final).toContainText("Sam's birthday, 1 minute");
   await playable(final);
@@ -187,14 +267,29 @@ test('a video made end to end: its draft shows for review, the change is present
   await everywhere(page, info, 'w8-draft-review', () =>
     draft.scrollIntoViewIfNeeded(),
   );
+  // On a phone too, Open stays on the card's row, beside its title and state.
+  await page.setViewportSize(PHONE);
+  await draft.scrollIntoViewIfNeeded();
+  const open = await draft
+    .getByRole('button', { name: 'Open', exact: true })
+    .boundingBox();
+  const heading = await draft.getByText(film, { exact: true }).boundingBox();
+  const state = await draft
+    .getByText('Version 1 of 1', { exact: false })
+    .boundingBox();
+  expect(open && heading && state).toBeTruthy();
+  expect(open!.y).toBeLessThan(state!.y + state!.height);
+  expect(open!.x).toBeGreaterThan(heading!.x + heading!.width);
+  await page.setViewportSize(DESKTOP);
 
   // A shorter intro: version 2 is made and presented, large, as the final.
   await send(page, 'w8 shorter intro fixture');
   await expect(
     transcript.getByText('with the shorter intro', { exact: false }),
   ).toBeVisible({ timeout: 90_000 });
-  const final = transcript.getByRole('figure', { name: `Final: ${film}.mp4` });
+  const final = transcript.getByRole('figure', { name: `Final: ${film}` });
   await expect(final).toContainText('Final');
+  await expect(final).not.toContainText('.mp4');
   await expect(final).toContainText('Signing up, start to finish');
   await playable(final);
   // The draft folds away (version 1's card is gone, version 2's is a working
@@ -248,14 +343,24 @@ test('a video made end to end: its draft shows for review, the change is present
   ).toHaveCount(0);
   await toggle.click();
   // The recording, the review sheet (one tile for both versions') and the
-  // voice of each scene that says a line.
+  // voice of each scene that says a line, each told apart by its number.
   const working = outputs.getByRole('list', { name: 'Working files' });
   await expect(working.getByRole('listitem')).toHaveCount(5);
-  for (const name of ['Recording', `${film} review`])
+  for (const name of [
+    'Recording',
+    `${film} review`,
+    `Voice 1 · ${film}`,
+    `Voice 2 · ${film}`,
+    `Voice 3 · ${film}`,
+  ])
     await expect(
       working.getByRole('button', { name: `Open ${name}`, exact: true }),
     ).toBeVisible();
   await views(page, info, 'w8-outputs-working');
+  // Frosted over whatever is under it (a bright video in a dark theme).
+  const card = await context.boundingBox();
+  expect(card).toBeTruthy();
+  await staysFrosted(page, card!);
 
   await page.setViewportSize(PHONE);
   await page.goto(`/app-v2/conversations/${chat}`);

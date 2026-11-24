@@ -1266,7 +1266,9 @@
       color-mix(in srgb, var(--text-primary) 5%, transparent),
       transparent 42%
     ),
-    color-mix(in srgb, var(--surface-overlay) 54%, transparent);
+    /* Frosted, not see-through: a bright video under a dark card would
+       otherwise show through as a haze, and dim the card's labels. */
+    color-mix(in srgb, var(--surface-overlay) 90%, transparent);
   box-shadow:
     inset 0 1px 0 var(--surface-highlight),
     0 1px 2px color-mix(in srgb, var(--shadow-color) 60%, transparent),

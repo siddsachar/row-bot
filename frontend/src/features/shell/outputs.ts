@@ -59,6 +59,72 @@ export function outputTitle(
   return words.charAt(0).toLocaleUpperCase() + words.slice(1);
 }
 
+const MEDIA_SUFFIX =
+  /\.(?:mp4|m4v|mov|webm|mkv|png|jpe?g|gif|webp|wav|mp3|m4a|ogg|flac|aac)$/i;
+
+/**
+ * A made file shown by its name in the chat's files ("Sign-up in 30
+ * seconds.mp4"), named as its Outputs tile names it: a film, picture or
+ * sound by its title, without "generated-" or its type. Any other file (a
+ * PDF, a spreadsheet) keeps its file name, its type part of the name.
+ */
+export function madeTitle(fileName: string, mime: string) {
+  if (!/^(?:video|image|audio)\//.test(mime)) return fileName;
+  const name = fileName
+    .replace(/^generated-(?=.)/, '')
+    .replace(MEDIA_SUFFIX, '');
+  return name
+    ? outputTitle({ name, file_name: fileName, role: 'final' })
+    : fileName;
+}
+
+/** A film's voice line as the video tool names it: "<film> <scene id>". */
+const VOICE_LINE = /^(.+) s[0-9a-f]{6}(?:-\d+)?$/;
+
+/** The film a voice line belongs to, or "" for any other output. */
+export function voiceLineOf(
+  output: Pick<OutputView, 'name' | 'kind' | 'role'>,
+) {
+  if (output.kind !== 'audio' || output.role !== 'working') return '';
+  return VOICE_LINE.exec(output.name)?.[1] ?? '';
+}
+
+/**
+ * Titles for one list of outputs: each as `outputTitle` reads it, but a
+ * film's voice lines (which share the film's name and a scene id) as
+ * "Voice 2 · Sign-up in 30 seconds", numbered in the order they were made,
+ * so three lines read as three, and the number shows where a tile cuts the
+ * name short.
+ */
+export function outputTitles(outputs: readonly OutputView[]) {
+  const lines = new Map<string, OutputView[]>();
+  for (const output of outputs) {
+    const film = voiceLineOf(output);
+    if (!film) continue;
+    const key = `${output.conversation_id}\0${film}`;
+    lines.set(key, [...(lines.get(key) ?? []), output]);
+  }
+  const titles = new Map<string, string>();
+  for (const [key, members] of lines) {
+    const film = key.slice(key.indexOf('\0') + 1);
+    // Newest first in the list: the oldest is voice 1.
+    const made = members
+      .map((output, index) => ({ output, index }))
+      .sort(
+        (a, b) =>
+          Date.parse(a.output.created_at) - Date.parse(b.output.created_at) ||
+          b.index - a.index,
+      );
+    made.forEach(({ output }, index) =>
+      titles.set(
+        output.id,
+        made.length > 1 ? `Voice ${index + 1} · ${film}` : `Voice · ${film}`,
+      ),
+    );
+  }
+  return (output: OutputView) => titles.get(output.id) ?? outputTitle(output);
+}
+
 /** "v2 of 3", or "" for an output with one version. */
 export function versionWords(output: OutputView) {
   return output.version_count > 1
