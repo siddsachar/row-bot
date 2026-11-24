@@ -1445,7 +1445,12 @@ def _s3_stream(text: str, config: dict):
             ]
             final = "Here's the sign-up page at phone size: the form stacks into one column and the button fits."
         elif "screen recording" in text:
-            problem = setup_problem()
+            # Computer use not set up, whatever this host is and whatever earlier specs left behind.
+            held, _N12B["ready"] = _N12B["ready"], "not_installed"
+            try:
+                problem = setup_problem()
+            finally:
+                _N12B["ready"] = held
             assert problem.startswith("Recording your screen needs Computer use set up."), problem
             steps = [("computer_record", {"action": "start"}, lambda: (problem, []))]
             final = ("I can't record your screen yet: that needs Computer use set up. Open **Settings › System › "
