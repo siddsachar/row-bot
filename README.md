@@ -67,8 +67,10 @@ mode.
 - **Tools** - web search, files, shell, Row-Bot's own browser, opt-in Computer
   Use on Windows and macOS, Gmail, Calendar, Outlook and X, image and video
   generation and editing, and custom tools.
-- **Channels and voice** - Telegram, WhatsApp, Discord, Slack and SMS;
-  dictation, Talk and read-aloud with local Whisper or SenseVoice and Kokoro.
+- **Channels and voice** - Telegram, WhatsApp, Discord, Slack and SMS, with
+  voice notes answered by voice; dictation, read-aloud and hands-free Talk you
+  can interrupt, on this computer with Whisper, a faster streaming speech model
+  and Kokoro, or with cloud speech and Live voice providers on your own keys.
 - **Help and health checks** - ask Row-Bot how to do something and it answers
   from its own guides for your version, offline, with each setting linked;
   Monitor runs health checks by itself, with one fix per problem, and

@@ -1,21 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
+  Blend,
+  Clapperboard,
   CircleAlert,
+  Copy,
+  Film,
+  Music,
+  RectangleHorizontal,
   CircleCheck,
   Download,
   Repeat,
   RotateCcw,
   StepBack,
   StepForward,
-  Trash2,
-  ZoomIn,
 } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type {
+  VideoPanelRequest,
   VideoProjectView,
-  VideoScene,
   VideoSceneWrite,
 } from '../../api/types';
 import {
@@ -23,7 +25,8 @@ import {
   type SavedFile,
   unavailable,
 } from '../../platform/types';
-import { useRuntime } from '../../runtime';
+import { writeClipboardText } from '../../platform/clipboard';
+import { useClientSelector, useRuntime } from '../../runtime';
 import {
   Button,
   Disclosure,
@@ -41,15 +44,29 @@ import { announceSaved } from '../shell/save-file';
 import { editLive } from '../shell/video-edits';
 import { LivePreview } from './LivePreview';
 import { acquire, release } from './media-urls';
+import { PublishKit } from './PublishKit';
+import { StoryboardCard } from './StoryboardCard';
 import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
 import {
+  CAPTION_STYLES,
+  type CaptionStyle,
+  chapterLines,
+  GRADES,
+  type Grade,
   SHAPES,
-  SPEEDS,
+  type VideoDraft,
+  type VideoLook,
+  clockWords,
   draftOf,
+  lookChanges,
+  isPlanned,
+  musicSections,
+  musicWords,
   shapeHint,
   isDirty,
-  lengthWords,
+  sceneSeconds,
+  speakersOf,
   statusWords,
   versionWords,
 } from './video-words';
@@ -58,12 +75,7 @@ import {
 const FRAME = 1 / 30;
 const POLL_MS = 1500;
 
-type Draft = {
-  scenes: VideoSceneWrite[];
-  captions: boolean;
-  brand: boolean;
-  voice: string;
-};
+type Draft = VideoDraft;
 /** Unsaved edits per project and version, so they outlive the panel moving between side and full screen. */
 const drafts = new Map<string, Draft>();
 const WIDE = '(min-width: 768px)';
@@ -83,50 +95,16 @@ function useWide(): boolean {
   return wide;
 }
 
-function SceneThumb({
-  url,
-  scene,
-  number,
-  onSeek,
-}: {
-  url: string;
-  scene: VideoScene;
-  number: number;
-  onSeek: (at: number) => void;
-}) {
-  const at = scene.at;
-  if (!url || at === null || at === undefined)
-    return (
-      <span className="video-scene-thumb video-scene-thumb-empty" aria-hidden>
-        {number}
-      </span>
-    );
-  return (
-    <button
-      type="button"
-      className="video-scene-thumb"
-      aria-label={`Play from scene ${number}`}
-      onClick={() => onSeek(at)}
-    >
-      <video
-        src={`${url}#t=${(at + 0.05).toFixed(2)}`}
-        preload="metadata"
-        muted
-        playsInline
-        tabIndex={-1}
-        aria-hidden
-      />
-    </button>
-  );
-}
-
 /**
  * A video project beside its chat (5.3.1 B3): the player, then the video as
- * scenes. Each scene's line is edited as text (re-voiced when the video is
- * made), with its speed, its card and its trim; scenes move and go. Saving
- * makes a new version and the video again; every version stays, so going back
- * is one tap. Once made, the review card shows the checks, and Post to X or
- * Save to the workspace go through Row-Bot, with their own approvals.
+ * storyboard cards (C1). A new video starts as a storyboard: nothing is made
+ * until the person presses Make, after approving its scenes or commenting on
+ * them (a comment reaches Row-Bot as their message in the chat). Each scene's
+ * line is edited as text (re-voiced when the video is made), with its speed,
+ * its card and its trim; scenes move and go. Saving makes a new version, and
+ * the video again once it was made; every version stays, so going back is one
+ * tap. Once made, the review card shows the checks, and Post to X or Save to
+ * the workspace go through Row-Bot, with their own approvals.
  */
 export default function VideoPanel({
   conversationId,
@@ -172,6 +150,20 @@ export default function VideoPanel({
   }
   const status = view?.status;
   const working = status === 'voicing' || status === 'rendering';
+  // A step in the chat may have changed this video (a comment on a card): the panel follows it, unless the person
+  // is in the middle of an edit.
+  const revision = useClientSelector((value) =>
+    value.projection?.conversation_id === conversationId
+      ? value.projection?.checkpoint_revision
+      : undefined,
+  );
+  const editing = useRef(false);
+  const seenRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === seenRevision.current) return;
+    seenRevision.current = revision;
+    if (!editing.current) setAttempt((value) => value + 1);
+  }, [revision]);
   useEffect(() => {
     if (!visible) return;
     const abort = new AbortController();
@@ -221,6 +213,7 @@ export default function VideoPanel({
   const scenes = view?.scenes ?? [];
   const edited = draft ?? (view ? draftOf(view) : null);
   const dirty = view && draft ? isDirty(view, draft) : false;
+  editing.current = dirty;
   const changed = useMemo(() => new Set(view?.changed ?? []), [view]);
   const latest = view ? view.number === view.latest : true;
 
@@ -241,6 +234,9 @@ export default function VideoPanel({
         at === index ? { ...scene, ...patch } : scene,
       ),
     });
+  }
+  function setLook(patch: Partial<VideoLook>) {
+    if (edited) edit({ ...edited, look: { ...edited.look, ...patch } });
   }
   function move(index: number, by: -1 | 1) {
     if (!edited) return;
@@ -267,6 +263,9 @@ export default function VideoPanel({
         setView(next);
         setShown(undefined);
         setDraft(null);
+        // Being made now: read it again until it's made.
+        if (next.status === 'voicing' || next.status === 'rendering')
+          setAttempt((value) => value + 1);
       }
     } catch (cause) {
       setError(clientError(cause).message);
@@ -274,23 +273,37 @@ export default function VideoPanel({
       setBusy(false);
     }
   }
-  const save = () =>
-    view && edited
-      ? act(() =>
-          controller.changeVideoProject(projectId, {
-            base: view.number,
-            scenes: edited.scenes,
-            captions: edited.captions,
-            brand: edited.brand,
-            voice: edited.voice,
-            note: 'Edited in the panel',
-          }),
-        )
-      : undefined;
+  const save = () => {
+    if (!view || !edited) return undefined;
+    // Only the voices the person changed: each is kept with its character in Library › Media.
+    const before = draftOf(view).cast;
+    const cast = Object.entries(edited.cast)
+      .filter(([name, voice]) => voice && before[name] !== voice)
+      .map(([name, voice]) => ({ name, voice }));
+    return act(() =>
+      controller.changeVideoProject(projectId, {
+        base: view.number,
+        scenes: edited.scenes,
+        captions: edited.captions,
+        brand: edited.brand,
+        voice: edited.voice,
+        ...(cast.length ? { cast } : {}),
+        ...lookChanges(view, edited.look),
+        note: 'Edited in the panel',
+      }),
+    );
+  };
   const restore = (number: number) =>
     act(() => controller.restoreVideoProject(projectId, number));
 
-  async function ask(text: string) {
+  /**
+   * The person's request, sent to Row-Bot as their message in this chat; a
+   * storyboard's request says which of the panel's buttons sent it.
+   */
+  async function ask(
+    text: string,
+    action?: VideoPanelRequest['action'],
+  ): Promise<boolean> {
     setBusy(true);
     setError('');
     setNotice('');
@@ -308,6 +321,7 @@ export default function VideoPanel({
           text,
           attachment_refs: [],
           model_selection: selection,
+          ...(action ? { video_panel: { action } } : {}),
         },
         snapshot.conversation?.id === conversationId
           ? snapshot.conversation.revision
@@ -317,8 +331,10 @@ export default function VideoPanel({
         throw { code: receipt.code ?? 'operation_uncertain' };
       setNotice('Asked Row-Bot in the chat.');
       controller.showLatest();
+      return true;
     } catch (cause) {
       setError(clientError(cause).message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -326,10 +342,12 @@ export default function VideoPanel({
 
   // The desktop app's Save dialog (Exports while it reconnects), or a browser download.
   async function download(edit = view?.edit) {
-    if (!edit?.media_ref) return;
-    const name = edit.output_name || 'video.mp4';
+    if (edit?.media_ref)
+      await saveFile(edit.media_ref, edit.output_name || 'video.mp4');
+  }
+  async function saveFile(ref: string, name: string) {
     const result = await platform
-      .save(edit.media_ref, name)
+      .save(ref, name)
       .catch((): CapabilityResult<SavedFile> =>
         unavailable('operation_failed'),
       );
@@ -337,7 +355,7 @@ export default function VideoPanel({
     if (result.status !== 'ok') {
       setError(
         result.reason === 'user_gesture_required'
-          ? 'Press Download again to save the video.'
+          ? 'Press Download again to save it.'
           : `Couldn't download ${name}. Try again.`,
       );
       return;
@@ -380,6 +398,32 @@ export default function VideoPanel({
     );
 
   const words = statusWords(view);
+  const storyboard = view.status === 'draft' && latest;
+  const planned = scenes.filter(isPlanned).length;
+  const approved = scenes.filter((scene) => scene.approved).length;
+  const lengths = edited.scenes.map((scene) =>
+    sceneSeconds(
+      scene,
+      scenes.find((item) => item.scene_id === scene.scene_id),
+    ),
+  );
+  const total = lengths.every((value) => value !== null)
+    ? lengths.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    : null;
+  const makes = scenes.map((scene) => scene.made ?? '');
+  const speakers = speakersOf(edited);
+  const speakerList = `video-speakers-${projectId}`;
+  const music = musicWords(view);
+  const sections = view.music === 'fit' ? musicSections(scenes) : [];
+  const partial = view.status === 'made' && makes.includes('reused');
+  // Footage still to make (an AI shot) is Row-Bot's: Make asks it in the chat.
+  const make = () =>
+    planned
+      ? void ask(
+          `Make the video "${view.title}" (${view.project_id}) from its storyboard, version ${view.number}.`,
+          'make',
+        )
+      : void act(() => controller.makeVideoProject?.(projectId));
   const versionLabel = (number: number) => {
     const item = view.versions.find((entry) => entry.number === number);
     return item ? versionWords(item) : `Version ${number}`;
@@ -432,81 +476,121 @@ export default function VideoPanel({
         </div>
       </header>
 
-      <div className="video-player" data-status={view.status}>
-        {dirty ? (
-          <LivePreview
-            scenes={edited.scenes}
-            shown={scenes}
-            captions={edited.captions}
-          />
-        ) : url ? (
-          <video
-            ref={player}
-            src={url}
-            onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
-            onSeeked={(event) => setTime(event.currentTarget.currentTime)}
-            controls
-            playsInline
-            loop={loop}
-            aria-label={`${view.title}, version ${view.number}`}
-          />
-        ) : (
-          <div className="video-player-empty">
-            {working ? (
-              <>
-                <span>{words.detail}</span>
-                {view.edit?.progress !== null &&
-                  view.edit?.progress !== undefined && (
-                    <progress
-                      aria-label="Making the video"
-                      max={1}
-                      value={view.edit.progress}
-                    />
-                  )}
-              </>
-            ) : (
-              <span>{words.detail}</span>
+      {view.logline && <p className="video-panel-logline">{view.logline}</p>}
+      {storyboard && !dirty ? (
+        <section className="video-storyboard-bar" aria-label="Storyboard">
+          <div className="video-storyboard-sum">
+            <strong>Storyboard</strong>
+            <span>
+              {scenes.length} scenes
+              {total !== null && ` · about ${clockWords(total)}`}
+              {` · ${approved} of ${scenes.length} approved`}
+            </span>
+            {music && (
+              <span className="video-storyboard-music">
+                <Music size={12} aria-hidden />
+                <span className="sr-only">Music: </span>
+                {music}
+                {sections.length > 0 &&
+                  ` · changes at scene${sections.length === 1 ? '' : 's'} ${sections.map((index) => index + 1).join(', ')}`}
+                {view.on_beat && ' · cut on the beat'}
+              </span>
+            )}
+            {planned > 0 && (
+              <small>
+                {planned === 1
+                  ? '1 scene needs its footage: Row-Bot makes it first.'
+                  : `${planned} scenes need their footage: Row-Bot makes it first.`}
+              </small>
             )}
           </div>
-        )}
-        {url && !dirty && (
-          <div
-            className="video-player-tools"
-            role="toolbar"
-            aria-label="Player"
-          >
-            <IconButton
-              size="sm"
-              label="Back one frame"
-              onClick={() => step(-FRAME)}
+          <Button variant="primary" disabled={busy} onClick={make}>
+            <Clapperboard size={16} aria-hidden />
+            Make video
+          </Button>
+        </section>
+      ) : (
+        <div className="video-player" data-status={view.status}>
+          {dirty ? (
+            <LivePreview
+              scenes={edited.scenes}
+              shown={scenes}
+              captions={edited.captions}
+            />
+          ) : url ? (
+            <video
+              ref={player}
+              src={url}
+              onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
+              onSeeked={(event) => setTime(event.currentTarget.currentTime)}
+              controls
+              playsInline
+              loop={loop}
+              aria-label={`${view.title}, version ${view.number}`}
+            />
+          ) : (
+            <div className="video-player-empty">
+              {working ? (
+                <>
+                  <span>{words.detail}</span>
+                  {view.edit?.progress !== null &&
+                    view.edit?.progress !== undefined && (
+                      <progress
+                        aria-label="Making the video"
+                        max={1}
+                        value={view.edit.progress}
+                      />
+                    )}
+                </>
+              ) : (
+                <span>{words.detail}</span>
+              )}
+            </div>
+          )}
+          {url && !dirty && (
+            <div
+              className="video-player-tools"
+              role="toolbar"
+              aria-label="Player"
             >
-              <StepBack size={16} aria-hidden />
-            </IconButton>
-            <IconButton
-              size="sm"
-              label="Forward one frame"
-              onClick={() => step(FRAME)}
-            >
-              <StepForward size={16} aria-hidden />
-            </IconButton>
-            <IconButton
-              size="sm"
-              label="Loop"
-              pressed={loop}
-              onClick={() => setLoop((value) => !value)}
-            >
-              <Repeat size={16} aria-hidden />
-            </IconButton>
-            <IconButton
-              size="sm"
-              label="Download"
-              onClick={() => void download(view.edit)}
-            >
-              <Download size={16} aria-hidden />
-            </IconButton>
-          </div>
-        )}
-      </div>
+              <IconButton
+                size="sm"
+                label="Back one frame"
+                onClick={() => step(-FRAME)}
+              >
+                <StepBack size={16} aria-hidden />
+              </IconButton>
+              <IconButton
+                size="sm"
+                label="Forward one frame"
+                onClick={() => step(FRAME)}
+              >
+                <StepForward size={16} aria-hidden />
+              </IconButton>
+              <IconButton
+                size="sm"
+                label="Loop"
+                pressed={loop}
+                onClick={() => setLoop((value) => !value)}
+              >
+                <Repeat size={16} aria-hidden />
+              </IconButton>
+              <IconButton
+                size="sm"
+                label="Download"
+                onClick={() => void download(view.edit)}
+              >
+                <Download size={16} aria-hidden />
+              </IconButton>
+            </div>
+          )}
+        </div>
+      )}
+      {partial && (
+        <p className="video-panel-made">
+          {`Made again: ${makes.filter((made) => made === 'new').length} changed scene${makes.filter((made) => made === 'new').length === 1 ? '' : 's'} drawn, ${makes.filter((made) => made === 'reused').length} reused.`}
+        </p>
+      )}
       {view.problem && (
         <p className="video-panel-problem" role="alert">
           {view.problem}
@@ -521,12 +605,12 @@ export default function VideoPanel({
             value={mode}
             onChange={setMode}
             options={[
-              { value: 'scenes', label: 'Scenes' },
+              { value: 'scenes', label: 'Storyboard' },
               { value: 'timeline', label: 'Timeline' },
             ]}
           />
         ) : (
-          <h3>Scenes</h3>
+          <h3>Storyboard</h3>
         )}
         <label className="video-captions">
           <Toggle
@@ -539,6 +623,23 @@ export default function VideoPanel({
           />
           <span aria-hidden>Captions</span>
         </label>
+        {edited.captions && (
+          <Select
+            aria-label="Caption style"
+            className="video-caption-style"
+            value={edited.look.caption_style}
+            disabled={!latest}
+            onChange={(event) =>
+              setLook({ caption_style: event.target.value as CaptionStyle })
+            }
+          >
+            {Object.entries(CAPTION_STYLES).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        )}
         <label className="video-captions">
           <Toggle
             label="Brand kit"
@@ -565,12 +666,94 @@ export default function VideoPanel({
           ))}
         </Select>
       </div>
+      <div className="video-look" role="group" aria-label="Look">
+        <span className="video-cast-name">Look</span>
+        <Select
+          aria-label="Grade"
+          className="video-grade"
+          value={edited.look.grade}
+          disabled={!latest}
+          onChange={(event) => setLook({ grade: event.target.value as Grade })}
+        >
+          {Object.entries(GRADES).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <IconButton
+          size="sm"
+          label="Film grain"
+          pressed={edited.look.grain}
+          disabled={!latest}
+          onClick={() => setLook({ grain: !edited.look.grain })}
+        >
+          <Film size={16} aria-hidden />
+        </IconButton>
+        <IconButton
+          size="sm"
+          label="Letterbox (2.39, wide videos)"
+          pressed={edited.look.letterbox}
+          disabled={!latest}
+          onClick={() => setLook({ letterbox: !edited.look.letterbox })}
+        >
+          <RectangleHorizontal size={16} aria-hidden />
+        </IconButton>
+        <IconButton
+          size="sm"
+          label="Crossfade between scenes"
+          pressed={edited.look.transitions === 'crossfade'}
+          disabled={!latest}
+          onClick={() =>
+            setLook({
+              transitions:
+                edited.look.transitions === 'crossfade' ? 'cut' : 'crossfade',
+            })
+          }
+        >
+          <Blend size={16} aria-hidden />
+        </IconButton>
+      </div>
+      {speakers.length > 0 && (
+        <div className="video-cast" role="group" aria-label="Voices">
+          <span className="video-cast-name">Voices</span>
+          {speakers.map((name) => (
+            <label key={name} className="video-cast-member">
+              <span>{name}</span>
+              <Select
+                aria-label={`${name}'s voice`}
+                value={edited.cast[name] ?? ''}
+                disabled={!latest}
+                onChange={(event) =>
+                  edit({
+                    ...edited,
+                    cast: { ...edited.cast, [name]: event.target.value },
+                  })
+                }
+              >
+                <option value="">Picked for them</option>
+                {voices.map((voice) => (
+                  <option key={voice.value} value={voice.value}>
+                    {voice.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ))}
+        </div>
+      )}
+      <datalist id={speakerList}>
+        {speakers.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
       {wide && mode === 'timeline' && (
         <VideoTimeline
           scenes={edited.scenes}
           made={scenes}
           narration={view.narration}
-          music={view.music}
+          music={music}
+          sections={sections}
           url={url}
           playhead={url && !dirty ? time : null}
           disabled={!latest}
@@ -592,195 +775,45 @@ export default function VideoPanel({
       )}
       <ol
         className="video-scenes"
-        aria-label="Scenes"
+        aria-label="Storyboard"
         hidden={wide && mode === 'timeline'}
       >
-        {edited.scenes.map((scene, index) => {
-          const number = index + 1;
-          const shownScene = scenes.find(
-            (item) => item.scene_id === scene.scene_id,
-          );
-          return (
-            <li
-              key={scene.scene_id || `new-${index}`}
-              className="video-scene"
-              data-changed={
-                !dirty && scene.scene_id && changed.has(scene.scene_id)
-                  ? 'true'
-                  : undefined
-              }
-            >
-              {shownScene ? (
-                <SceneThumb
-                  url={url}
-                  scene={shownScene}
-                  number={number}
-                  onSeek={seek}
-                />
-              ) : (
-                <span
-                  className="video-scene-thumb video-scene-thumb-empty"
-                  aria-hidden
-                >
-                  {number}
-                </span>
-              )}
-              <div className="video-scene-body">
-                <div className="video-scene-meta">
-                  <strong>Scene {number}</strong>
-                  {shownScene?.length !== null &&
-                    shownScene?.length !== undefined && (
-                      <span>{lengthWords(shownScene.length)}</span>
-                    )}
-                  {scene.zoom && (
-                    <span className="video-scene-badge" title="Zoomed in">
-                      <ZoomIn size={12} aria-hidden />
-                      Zoom
-                    </span>
-                  )}
-                  {shownScene && !shownScene.voiced && scene.line && (
-                    <span className="video-scene-badge">Voiced when made</span>
-                  )}
-                </div>
-                <textarea
-                  className="input video-scene-line"
-                  aria-label={`Scene ${number} line`}
-                  placeholder="Words said over this scene"
-                  rows={2}
-                  maxLength={300}
-                  value={scene.line ?? ''}
-                  disabled={!latest}
-                  onChange={(event) =>
-                    change(index, { line: event.target.value })
-                  }
-                />
-                <div className="video-scene-controls">
-                  {scene.source ? (
-                    <Select
-                      aria-label={`Scene ${number} speed`}
-                      value={String(scene.speed ?? 1)}
-                      disabled={!latest}
-                      onChange={(event) =>
-                        change(index, { speed: Number(event.target.value) })
-                      }
-                    >
-                      {SPEEDS.map((speed) => (
-                        <option key={speed} value={speed}>
-                          {speed}×
-                        </option>
-                      ))}
-                    </Select>
-                  ) : (
-                    // A title card has no video to speed up: only how long it shows.
-                    <label className="video-scene-seconds">
-                      <input
-                        className="input"
-                        type="number"
-                        min={0.5}
-                        step={0.5}
-                        aria-label={`Scene ${number} lasts, in seconds`}
-                        value={scene.end ?? 3}
-                        disabled={!latest}
-                        onChange={(event) =>
-                          change(index, {
-                            end: Math.max(0.5, Number(event.target.value) || 3),
-                          })
-                        }
-                      />
-                      s
-                    </label>
-                  )}
-                  <input
-                    className="input video-scene-card"
-                    aria-label={`Scene ${number} card`}
-                    placeholder="Title card"
-                    maxLength={120}
-                    value={scene.card ?? ''}
-                    disabled={!latest}
-                    onChange={(event) =>
-                      change(index, { card: event.target.value })
-                    }
-                  />
-                  <span className="video-scene-actions">
-                    <IconButton
-                      size="sm"
-                      label={`Move scene ${number} up`}
-                      disabled={!latest || index === 0}
-                      onClick={() => move(index, -1)}
-                    >
-                      <ArrowUp size={16} aria-hidden />
-                    </IconButton>
-                    <IconButton
-                      size="sm"
-                      label={`Move scene ${number} down`}
-                      disabled={!latest || index === edited.scenes.length - 1}
-                      onClick={() => move(index, 1)}
-                    >
-                      <ArrowDown size={16} aria-hidden />
-                    </IconButton>
-                    <IconButton
-                      size="sm"
-                      label={`Remove scene ${number}`}
-                      disabled={!latest || edited.scenes.length < 2}
-                      onClick={() => remove(index)}
-                    >
-                      <Trash2 size={16} aria-hidden />
-                    </IconButton>
-                  </span>
-                </div>
-                {scene.source ? (
-                  <Disclosure summary="Trim" className="video-scene-trim">
-                    <label>
-                      From
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        aria-label={`Scene ${number} starts at, seconds into ${scene.source}`}
-                        value={scene.start ?? 0}
-                        disabled={!latest}
-                        onChange={(event) =>
-                          change(index, {
-                            start: Math.max(0, Number(event.target.value) || 0),
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      To
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step={0.1}
-                        placeholder="End"
-                        aria-label={`Scene ${number} ends at, seconds into ${scene.source}`}
-                        value={scene.end ?? ''}
-                        disabled={!latest}
-                        onChange={(event) =>
-                          change(index, {
-                            end:
-                              event.target.value === ''
-                                ? null
-                                : Math.max(0, Number(event.target.value)),
-                          })
-                        }
-                      />
-                    </label>
-                    <span className="video-scene-source">
-                      of {scene.source}
-                    </span>
-                  </Disclosure>
-                ) : (
-                  <span className="video-scene-source">
-                    A title card on your brand colour
-                  </span>
-                )}
-              </div>
-            </li>
-          );
-        })}
+        {edited.scenes.map((scene, index) => (
+          <StoryboardCard
+            key={scene.scene_id || `new-${index}`}
+            projectId={projectId}
+            title={view.title}
+            version={view.number}
+            scene={scene}
+            shown={scenes.find((item) => item.scene_id === scene.scene_id)}
+            number={index + 1}
+            total={edited.scenes.length}
+            editable={latest}
+            approvable={storyboard && !dirty}
+            planning={view.status === 'draft'}
+            changed={
+              !dirty && Boolean(scene.scene_id) && changed.has(scene.scene_id!)
+            }
+            partial={partial && !dirty}
+            playable={Boolean(url) && !dirty}
+            busy={busy}
+            speakers={speakerList}
+            onChange={(patch) => change(index, patch)}
+            onMove={(by) => move(index, by)}
+            onRemove={() => remove(index)}
+            onApprove={(yes) =>
+              void act(() =>
+                controller.approveVideoScenes(projectId, {
+                  base: view.number,
+                  scene_ids: [scene.scene_id!],
+                  approved: yes,
+                }),
+              )
+            }
+            onAsk={ask}
+            onSeek={seek}
+          />
+        ))}
       </ol>
 
       {dirty && (
@@ -798,7 +831,7 @@ export default function VideoPanel({
             Discard
           </Button>
           <Button variant="primary" disabled={busy} onClick={() => void save()}>
-            Save and make
+            {view.status === 'draft' ? 'Save' : 'Save and make'}
           </Button>
         </div>
       )}
@@ -842,6 +875,36 @@ export default function VideoPanel({
               Post to X
             </Button>
           </div>
+          {view.chapters && view.chapters.length > 0 && (
+            <>
+              <div className="video-chapters-head">
+                <h3>Chapters</h3>
+                <IconButton
+                  size="sm"
+                  label="Copy the chapters"
+                  onClick={() =>
+                    void writeClipboardText(
+                      chapterLines(view.chapters ?? []),
+                      platform.writeClipboard,
+                    ).then((done) =>
+                      done
+                        ? setNotice('Chapters copied, for the description.')
+                        : setError("Couldn't copy the chapters."),
+                    )
+                  }
+                >
+                  <Copy size={16} aria-hidden />
+                </IconButton>
+              </div>
+              <ol className="video-chapters" aria-label="Chapters">
+                {view.chapters.map((item) => (
+                  <li key={item.at}>
+                    <span>{clockWords(item.at)}</span> {item.title}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
           <h3>Other shapes</h3>
           <ul className="video-exports" aria-label="Other shapes">
             {SHAPES.filter((item) => item.shape !== view.aspect).map((item) => {
@@ -881,6 +944,20 @@ export default function VideoPanel({
               );
             })}
           </ul>
+          <PublishKit
+            view={view}
+            busy={busy}
+            onAsk={(text) => void ask(text)}
+            onSave={(ref, name) => void saveFile(ref, name)}
+            onCopy={(text, what) =>
+              void writeClipboardText(text, platform.writeClipboard).then(
+                (done) =>
+                  done
+                    ? setNotice(`${what} copied.`)
+                    : setError(`Couldn't copy the ${what.toLowerCase()}.`),
+              )
+            }
+          />
         </section>
       )}
       <Disclosure

@@ -4,16 +4,18 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ResourceView } from '../../api/types';
+import type { OutputView, ResourceView } from '../../api/types';
 import { OverlayProvider } from '../../ui/overlays';
-import ContextOutputs, { type ConversationOutput } from './ContextOutputs';
+import ContextOutputs from './ContextOutputs';
 
 const runtime = vi.hoisted(() => ({
   attachmentThumbnail: vi.fn(),
   download: vi.fn(),
   intent: vi.fn(),
+  outputs: vi.fn(),
   designSession: { upload: vi.fn() },
 }));
 const viewer = vi.hoisted(() => vi.fn());
@@ -52,17 +54,73 @@ function resource(kind: 'workspace' | 'artifact', id: string, title = id) {
   } satisfies ResourceView;
 }
 
-function output(n: number, mime = 'image/png'): ConversationOutput {
-  return { id: `media-${n}`, reference: `conversation-a:media-${n}`, mime };
+const MIME = {
+  image: 'image/png',
+  video: 'video/mp4',
+  audio: 'audio/wav',
+  document: 'application/pdf',
+  file: 'application/octet-stream',
+} as const;
+
+function output(
+  n: number,
+  kind: OutputView['kind'] = 'image',
+  extra: Partial<OutputView> = {},
+): OutputView {
+  const fileName = `picture-${n}.png`;
+  const version = {
+    ref: `conversation-a:media-${n}`,
+    version: 1,
+    role: 'final' as const,
+    file_name: fileName,
+    mime_type: MIME[kind],
+    size: 2048,
+    created_at: '2026-11-22T10:00:00Z',
+  };
+  return {
+    ...version,
+    id: n.toString(16).padStart(24, '0'),
+    conversation_id: 'conversation-a',
+    name: `picture-${n}`,
+    kind,
+    versions: [version],
+    version_count: 1,
+    working_count: 0,
+    updated_at: '2026-11-22T10:00:00Z',
+    ...extra,
+  };
+}
+
+/** A film with three versions: the second presented, the third a newer draft. */
+function film(): OutputView {
+  const version = (n: number, role: 'final' | 'draft') => ({
+    ref: `conversation-a:film-${n}`,
+    version: n,
+    role,
+    file_name: 'Birthday montage.mp4',
+    mime_type: 'video/mp4',
+    size: 4096,
+    created_at: '2026-11-22T10:00:00Z',
+  });
+  return {
+    ...output(9, 'video'),
+    ...version(2, 'final'),
+    name: 'Birthday montage',
+    versions: [version(3, 'draft'), version(2, 'final'), version(1, 'draft')],
+    version_count: 3,
+    working_count: 4,
+  };
 }
 
 function renderOutputs(
-  outputs: ConversationOutput[],
+  outputs: OutputView[],
   {
     resources = [],
+    workingCount = 0,
     onUseOutputInCode,
   }: {
     resources?: ResourceView[];
+    workingCount?: number;
     onUseOutputInCode?: (output: { reference: string; mime: string }) => void;
   } = {},
 ) {
@@ -72,6 +130,8 @@ function renderOutputs(
         conversationId="conversation-a"
         conversationRevision="7"
         outputs={outputs}
+        workingCount={workingCount}
+        refresh="1"
         resources={resources}
         onUseOutputInCode={onUseOutputInCode}
       />
@@ -79,94 +139,95 @@ function renderOutputs(
   );
 }
 
-const tiles = () =>
-  screen
-    .getAllByRole('button', { name: /^Open / })
-    .map((tile) => tile.getAttribute('aria-label'));
+const tiles = (list = 'Outputs') =>
+  Array.from(
+    screen
+      .getByRole('list', { name: list })
+      .querySelectorAll('.context-output-open'),
+    (tile) => tile.getAttribute('aria-label'),
+  );
 
-async function choose(tile: string, action: string) {
+async function openMenu(tile: string) {
   const menu = screen.getByRole('button', { name: `Actions for ${tile}` });
   await act(async () => fireEvent.keyDown(menu, { key: 'Enter' }));
+}
+
+async function choose(tile: string, action: string) {
+  await openMenu(tile);
   await act(async () =>
     fireEvent.click(screen.getByRole('menuitem', { name: action })),
   );
 }
 
-it('names each output by its kind and place in the chat, newest first', () => {
+it('shows one tile per output in the order given, a made name read as words', () => {
   renderOutputs([
-    output(1),
-    output(2),
-    output(3, 'video/mp4'),
-    output(4, 'image/jpeg'),
+    output(1, 'image', { name: 'waves-at-dusk' }),
+    film(),
+    output(3, 'document', { name: 'Q3 budget £480' }),
   ]);
   expect(tiles()).toEqual([
-    'Open Image 3',
-    'Open Video 1',
-    'Open Image 2',
-    'Open Image 1',
+    'Open Waves at dusk',
+    'Open Birthday montage',
+    'Open Q3 budget £480',
   ]);
 });
 
-it('names a media output by its subject, not the style words it opens with (I20)', () => {
-  renderOutputs([
-    {
-      ...output(1, 'video/mp4'),
-      prompt:
-        'Photorealistic cinematic wide view of colourful fireworks bursting over a calm lake at night',
-    },
-    {
-      ...output(2, 'video/mp4'),
-      prompt: 'Photorealistic cinematic shot of a fluffy ginger cat stretching',
-    },
-  ]);
-  expect(tiles()).toEqual([
-    'Open Fluffy ginger cat stretching',
-    'Open Colourful fireworks bursting over a calm lake…',
-  ]);
-});
-
-it('names an output by the start of its prompt, with the whole prompt in its tooltip', async () => {
-  const prompt =
-    'A lighthouse on a cliff at sunset, waves crashing below, warm light';
-  renderOutputs([
-    output(1),
-    { ...output(2), prompt },
-    { ...output(3, 'video/mp4'), prompt: 'The fox running' },
-  ]);
-  // An output from an older chat, which has no prompt, keeps its place name.
-  expect(tiles()).toEqual([
-    'Open The fox running',
-    'Open A lighthouse on a cliff at sunset, waves…',
-    'Open Image 1',
-  ]);
-  expect(
-    screen.getByText('A lighthouse on a cliff at sunset, waves…'),
-  ).toBeVisible();
-  expect(screen.getByText('Image 1')).toBeVisible();
-  const tile = screen.getByRole('button', {
-    name: 'Open A lighthouse on a cliff at sunset, waves…',
+it('marks a draft and an output with versions on its tile, and names its file in the tooltip', async () => {
+  const draft = output(1, 'video', {
+    name: 'Trailer',
+    role: 'draft',
+    file_name: 'Trailer.mp4',
   });
-  act(() => tile.focus());
-  expect(await screen.findByRole('tooltip')).toHaveTextContent(prompt);
-  fireEvent.click(tile);
-  expect(viewer).toHaveBeenCalledWith(
-    expect.anything(),
-    expect.objectContaining({
-      name: 'A lighthouse on a cliff at sunset, waves…',
-    }),
+  renderOutputs([film(), draft]);
+  const badges = [...document.querySelectorAll('.context-output-badges')].map(
+    (badge) => badge.textContent,
   );
+  expect(badges).toEqual(['3', 'Draft']);
+  act(() =>
+    screen.getByRole('button', { name: 'Open Birthday montage' }).focus(),
+  );
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(
+    'Birthday montage.mp4 · v2 of 3 · Final',
+  );
+});
+
+it('lists an output’s versions in its menu, newest first, and opens the one chosen', async () => {
+  renderOutputs([film()]);
+  await openMenu('Birthday montage');
+  const versions = screen
+    .getAllByRole('menuitem')
+    .filter((item) => item.textContent?.startsWith('Version'));
+  expect(versions.map((item) => item.textContent)).toEqual([
+    'Version 3Draft',
+    'Version 2Final',
+    'Version 1Draft',
+  ]);
+  expect(versions[1]).toHaveAttribute('aria-current', 'true');
+  await act(async () => fireEvent.click(versions[0]));
+  expect(viewer).toHaveBeenCalledWith(expect.anything(), {
+    reference: 'conversation-a:film-3',
+    mime: 'video/mp4',
+    name: 'Birthday montage · v3',
+    size: 4096,
+  });
+});
+
+it('opens an output’s shown version full size in the media viewer', () => {
+  renderOutputs([film()]);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Open Birthday montage' }),
+  );
+  expect(viewer).toHaveBeenCalledWith(expect.anything(), {
+    reference: 'conversation-a:film-2',
+    mime: 'video/mp4',
+    name: 'Birthday montage · v2',
+    size: 4096,
+  });
 });
 
 it('shows the newest six and folds the rest under Show all', () => {
   renderOutputs(Array.from({ length: 8 }, (_, n) => output(n + 1)));
-  expect(tiles()).toEqual([
-    'Open Image 8',
-    'Open Image 7',
-    'Open Image 6',
-    'Open Image 5',
-    'Open Image 4',
-    'Open Image 3',
-  ]);
+  expect(tiles()).toHaveLength(6);
   const more = screen.getByRole('button', { name: 'Show all 8' });
   expect(more).toHaveAttribute('aria-expanded', 'false');
   fireEvent.click(more);
@@ -175,14 +236,18 @@ it('shows the newest six and folds the rest under Show all', () => {
   expect(tiles()).toHaveLength(6);
 });
 
-it('draws a picture and a video from their small thumbnails, without downloading either', async () => {
-  const { container } = renderOutputs([output(1), output(2, 'video/mp4')]);
+it('draws a picture and a video from their small thumbnails, and a document by its kind, without downloading any', async () => {
+  const { container } = renderOutputs([
+    output(1),
+    output(2, 'video'),
+    output(3, 'document'),
+  ]);
   await waitFor(() =>
     expect(container.querySelectorAll('img')).toHaveLength(2),
   );
   expect(
     runtime.attachmentThumbnail.mock.calls.map(([reference]) => reference),
-  ).toEqual(['conversation-a:media-2', 'conversation-a:media-1']);
+  ).toEqual(['conversation-a:media-1', 'conversation-a:media-2']);
   // A video's poster frame (I20) keeps its play mark; a picture has none.
   expect(container.querySelectorAll('.context-output-play')).toHaveLength(1);
   // One rendering per result (B22): the media itself stays in the conversation.
@@ -191,20 +256,10 @@ it('draws a picture and a video from their small thumbnails, without downloading
 
 it('keeps the play mark alone for a video with no poster', async () => {
   runtime.attachmentThumbnail.mockRejectedValue(new Error('not_found'));
-  const { container } = renderOutputs([output(1, 'video/mp4')]);
+  const { container } = renderOutputs([output(1, 'video')]);
   await waitFor(() => expect(runtime.attachmentThumbnail).toHaveBeenCalled());
   expect(container.querySelector('img')).toBeNull();
   expect(container.querySelector('.context-output-play')).not.toBeNull();
-});
-
-it('opens an output full size in the media viewer', () => {
-  renderOutputs([output(1, 'video/mp4')]);
-  fireEvent.click(screen.getByRole('button', { name: 'Open Video 1' }));
-  expect(viewer).toHaveBeenCalledWith(expect.anything(), {
-    reference: 'conversation-a:media-1',
-    mime: 'video/mp4',
-    name: 'Video 1',
-  });
 });
 
 it('shows an output where it is in the conversation', async () => {
@@ -213,52 +268,77 @@ it('shows an output where it is in the conversation', async () => {
   inline.scrollIntoView = vi.fn();
   document.body.append(inline);
   renderOutputs([output(1)]);
-  await choose('Image 1', 'Show in conversation');
+  await choose('Picture 1', 'Show in conversation');
   expect(inline.scrollIntoView).toHaveBeenCalledOnce();
   inline.remove();
 });
 
-it('saves an output with one scoped command and hands it to the code folder without regenerating', async () => {
+it('saves any output to the folder it names, and hands a picture to the code folder without regenerating', async () => {
   runtime.intent.mockResolvedValue({
     status: 'completed',
-    saved_name: 'output-fixture.png',
+    saved_name: 'Saved outputs/Q3 budget £480.pdf',
   });
   const onUseOutputInCode = vi.fn();
-  renderOutputs([output(1)], {
-    resources: [resource('workspace', 'workspace-a')],
-    onUseOutputInCode,
-  });
-  await choose('Image 1', 'Use in code folder');
-  expect(onUseOutputInCode).toHaveBeenCalledWith(
-    expect.objectContaining({
-      reference: 'conversation-a:media-1',
-      mime: 'image/png',
-    }),
+  renderOutputs(
+    [
+      output(1),
+      output(2, 'document', {
+        name: 'Q3 budget £480',
+        file_name: 'Q3 budget £480.pdf',
+      }),
+    ],
+    { resources: [resource('workspace', 'workspace-a')], onUseOutputInCode },
   );
-  await choose('Image 1', 'Save to workspace');
+  await choose('Picture 1', 'Use in code folder');
+  expect(onUseOutputInCode).toHaveBeenCalledWith({
+    reference: 'conversation-a:media-1',
+    mime: 'image/png',
+  });
+  await openMenu('Q3 budget £480');
+  const save = screen.getByRole('menuitem', { name: 'Save to workspace' });
+  expect(save).toHaveAccessibleDescription('Saved outputs/Q3 budget £480.pdf');
+  await act(async () => fireEvent.click(save));
   await waitFor(() =>
     expect(runtime.intent).toHaveBeenCalledWith(
       'conversation-a',
       'media.save',
-      { media_ref: 'conversation-a:media-1' },
+      { media_ref: 'conversation-a:media-2' },
       '7',
     ),
   );
   expect(await screen.findByRole('status')).toHaveTextContent(
-    'Saved to outputs/output-fixture.png',
+    'Saved to your workspace as Saved outputs/Q3 budget £480.pdf',
   );
 });
 
-it('offers the code folder and designs only when the conversation has them', async () => {
-  renderOutputs([output(1)], { onUseOutputInCode: vi.fn() });
-  const menu = screen.getByRole('button', { name: 'Actions for Image 1' });
-  await act(async () => fireEvent.keyDown(menu, { key: 'Enter' }));
+it('offers the code folder and designs only for pictures and videos, and only when the chat has them', async () => {
+  renderOutputs([output(1), output(2, 'audio')], {
+    onUseOutputInCode: vi.fn(),
+    resources: [
+      resource('workspace', 'workspace-a'),
+      resource('artifact', 'artifact-a', 'Poster'),
+    ],
+  });
+  await openMenu('Picture 2');
+  expect(screen.getAllByRole('menuitem')).toHaveLength(2);
   expect(
-    screen.getAllByRole('menuitem').map((item) => item.textContent),
-  ).toEqual(['Show in conversation', 'Save to workspace']);
+    screen.queryByRole('menuitem', { name: 'Use in code folder' }),
+  ).toBeNull();
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+  await openMenu('Picture 1');
+  for (const name of ['Use in code folder', 'Add to design'])
+    expect(screen.getByRole('menuitem', { name })).toBeVisible();
 });
 
-it('copies one output into the chosen design without generating again', async () => {
+it('shows only the working files toggle in a chat that made nothing for the person yet', () => {
+  renderOutputs([], { workingCount: 2 });
+  expect(screen.queryByRole('list', { name: 'Outputs' })).toBeNull();
+  expect(
+    screen.getByRole('switch', { name: 'Show working files' }),
+  ).toBeVisible();
+});
+
+it('copies one picture into the chosen design under its own name, without generating again', async () => {
   runtime.download.mockResolvedValue(
     new Blob(['fixture'], { type: 'image/png' }),
   );
@@ -269,19 +349,92 @@ it('copies one output into the chosen design without generating again', async ()
       resource('artifact', 'artifact-b', 'Poster'),
     ],
   });
-  await choose('Image 1', 'Add to Poster');
+  await choose('Picture 1', 'Add to Poster');
   await waitFor(() =>
     expect(runtime.designSession.upload).toHaveBeenCalledOnce(),
   );
-  expect(runtime.designSession.upload.mock.calls[0][0]).toBeInstanceOf(File);
-  expect(runtime.designSession.upload.mock.calls[0][1]).toBe(
-    'resource-revision',
-  );
+  const [file, revision] = runtime.designSession.upload.mock.calls[0];
+  expect(file).toBeInstanceOf(File);
+  expect((file as File).name).toBe('picture-1.png');
+  expect(revision).toBe('resource-revision');
 });
 
 it('shows a failed save in words', async () => {
   runtime.intent.mockResolvedValue({ status: 'failed' });
   renderOutputs([output(1)]);
-  await choose('Image 1', 'Save to workspace');
+  await choose('Picture 1', 'Save to workspace');
   expect(await screen.findByRole('alert')).toBeVisible();
+});
+
+it('reads the working files only when the toggle shows them', async () => {
+  runtime.outputs.mockResolvedValue({
+    items: [
+      output(5, 'video', {
+        name: 'recording',
+        role: 'working',
+        file_name: 'generated-recording.mp4',
+      }),
+    ],
+  });
+  renderOutputs([film()], { workingCount: 4 });
+  expect(runtime.outputs).not.toHaveBeenCalled();
+  expect(screen.queryByRole('list', { name: 'Working files' })).toBeNull();
+  const toggle = screen.getByRole('switch', { name: 'Show working files' });
+  expect(toggle).not.toBeChecked();
+  await act(async () => fireEvent.click(toggle));
+  expect(runtime.outputs).toHaveBeenCalledWith(
+    { conversation_id: 'conversation-a', show: 'working' },
+    expect.any(AbortSignal),
+  );
+  expect(await screen.findByRole('list', { name: 'Working files' })).toBe(
+    screen.getByRole('list', { name: 'Working files' }),
+  );
+  expect(tiles('Working files')).toEqual(['Open Recording']);
+  await act(async () => fireEvent.click(toggle));
+  expect(screen.queryByRole('list', { name: 'Working files' })).toBeNull();
+});
+
+it('names a film’s voice lines apart, numbered in the order they were made', async () => {
+  // The video tool names each "<film> <scene>"; listed newest first.
+  const voice = (n: number, scene: string, at: string) =>
+    output(n, 'audio', {
+      name: `Sign-up in 30 seconds ${scene}`,
+      file_name: `Sign-up in 30 seconds ${scene}.wav`,
+      role: 'working',
+      created_at: at,
+    });
+  runtime.outputs.mockResolvedValue({
+    items: [
+      voice(3, 's9b01c2', '2026-11-22T10:00:03Z'),
+      voice(2, 's210f2d', '2026-11-22T10:00:02Z'),
+      output(4, 'audio', {
+        name: 'music-calm',
+        file_name: 'music-calm.wav',
+        role: 'working',
+      }),
+      voice(1, 's4e5a6b', '2026-11-22T10:00:01Z'),
+    ],
+  });
+  renderOutputs([film()], { workingCount: 4 });
+  await act(async () =>
+    fireEvent.click(screen.getByRole('switch', { name: 'Show working files' })),
+  );
+  await screen.findByRole('list', { name: 'Working files' });
+  expect(tiles('Working files')).toEqual([
+    'Open Voice 3 · Sign-up in 30 seconds',
+    'Open Voice 2 · Sign-up in 30 seconds',
+    'Open Music calm',
+    'Open Voice 1 · Sign-up in 30 seconds',
+  ]);
+  // The number leads, so it shows where the tile cuts the name short.
+  expect(
+    within(screen.getByRole('list', { name: 'Working files' })).getByText(
+      'Voice 1 · Sign-up in 30 seconds',
+    ),
+  ).toBeInTheDocument();
+});
+
+it('hides the toggle in a chat with no working files', () => {
+  renderOutputs([output(1)]);
+  expect(screen.queryByRole('switch')).toBeNull();
 });

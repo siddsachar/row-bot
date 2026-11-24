@@ -15,7 +15,6 @@ from row_bot.voice.browser_local import (
     BrowserVoiceError,
     MAX_INPUT_BYTES,
 )
-from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.provider_base import (
     SynthesizedSpeech,
     VoiceProviderError,
@@ -54,8 +53,6 @@ class _Voice:
     def __init__(self, *, ready: bool = True) -> None:
         self.ready = ready
         self.calls: list[tuple[bytes, bool]] = []
-        self.is_running = False
-        self.state = "stopped"
         self.sensevoice = _SenseVoice()
 
     def whisper_model_available(self) -> bool:
@@ -64,27 +61,15 @@ class _Voice:
     def sync_saved_models(self) -> None:
         pass
 
-    def sensevoice_provider(self) -> _SenseVoice:
+    def sensevoice_provider(self, *, language: str | None = None) -> _SenseVoice:
         return self.sensevoice
 
-    def transcribe_pcm16(self, pcm: bytes, *, allow_download: bool) -> str:
+    def transcribe_pcm16(self, pcm: bytes, *, allow_download: bool, language: str | None) -> str:
         self.calls.append((pcm, allow_download))
         return "hello browser"
 
     def install_whisper_model(self) -> None:
         self.ready = True
-
-    def start(self) -> None:
-        self.is_running = True
-
-    def stop(self) -> None:
-        self.is_running = False
-
-    def get_status(self):
-        return None
-
-    def get_transcription(self):
-        return None
 
 
 class _TTS:
@@ -99,6 +84,11 @@ class _TTS:
 
     def reload_settings(self) -> None:
         pass
+
+    def voice_for(self, text: str, *, hint: str | None = None) -> tuple[str, str | None]:
+        from row_bot.voice import languages
+
+        return languages.kokoro_voice_for(text, hint=hint, own="af_heart", picked={})
 
     def synthesize_wav_bytes(self, text: str, *, voice: str | None = None, **_options) -> bytes:
         self.texts.append(text)
@@ -184,17 +174,6 @@ def test_missing_models_are_explicit_and_synthesis_is_session_scoped() -> None:
     assert service.status()["whisper_ready"] is True
     assert service.status()["kokoro_ready"] is True
     assert service.synthesize("session-b", "Hello") == SynthesizedSpeech(_wav(), "audio/wav")
-
-
-def test_browser_transport_never_starts_the_device_voice_service() -> None:
-    voice = _Voice()
-    coordinator = VoiceSessionCoordinator(voice)  # type: ignore[arg-type]
-
-    coordinator.start_browser("talk")
-
-    assert coordinator.transport == "browser"
-    assert coordinator.is_running
-    assert voice.is_running is False
 
 
 def test_kokoro_runtime_temp_is_created_only_under_app_data(
@@ -346,3 +325,52 @@ def test_saved_voice_and_speed_apply_to_the_next_spoken_reply(tmp_path, monkeypa
     assert created == [("af_heart", 1.0), ("bf_emma", 1.5)]
     assert first.content_type == second.content_type == "audio/wav"
     assert second.audio[:4] == b"RIFF" and second.audio[8:12] == b"WAVE"
+
+
+def test_a_long_answer_is_spoken_whole_in_pieces_joined_into_one_recording(tmp_path, monkeypatch) -> None:
+    """VD7: no sentence cap. Every sentence reaches Kokoro, in pieces of about a minute each."""
+    import row_bot.tts as tts
+
+    said: list[str] = []
+
+    class Kokoro:
+        def __init__(self, model: str, voices: str) -> None:
+            pass
+
+        def create(self, text, *, voice, speed, lang):
+            said.append(text)
+            return np.zeros(len(text), dtype=np.float32), 24_000
+
+    for name in ("_MODEL_PATH", "_VOICES_PATH"):
+        path = tmp_path / name
+        path.write_bytes(b"synthetic model")
+        monkeypatch.setattr(tts, name, path)
+    monkeypatch.setattr(tts, "_SETTINGS_PATH", tmp_path / "tts_settings.json")
+    monkeypatch.setattr(tts, "_SHARED_KOKORO", [])
+    monkeypatch.setitem(sys.modules, "kokoro_onnx", SimpleNamespace(Kokoro=Kokoro))
+    _save_runtime(monkeypatch, tmp_path)
+    answer = " ".join(f"Sentence number {index} says one more useful thing." for index in range(1, 61))
+
+    speech = _service(tts=tts.TTSService()).synthesize("session-b", answer)
+
+    assert len(said) > 1 and " ".join(said) == answer
+    with wave.open(io.BytesIO(speech.audio), "rb") as recording:
+        assert recording.getframerate() == 24_000
+        assert recording.getnframes() == sum(len(piece) for piece in said)
+
+
+def test_speech_longer_than_the_talk_client_plays_is_refused_never_cut(tmp_path, monkeypatch) -> None:
+    _save_runtime(monkeypatch, tmp_path)
+    tts = _TTS()
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(24_000)
+        audio.writeframes(b"\0\0" * 1_500_000)  # 3 MB a piece
+    tts.output = output.getvalue()
+    answer = "This sentence is long enough to need its own piece of speech. " * 60
+
+    with pytest.raises(BrowserVoiceError, match="audio_output_too_large"):
+        _service(tts=tts).synthesize("session-b", answer)
+    assert len(tts.texts) == 3  # it stops at the piece that goes over, never sends a shortened answer

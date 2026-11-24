@@ -408,16 +408,19 @@ def build_tool_discovery_tools(
     *,
     context_tokens: int,
     in_turn: Callable[[ExternalToolRecord], bool] | None = None,
+    invokable: Sequence[ExternalToolRecord] = (),
 ) -> tuple[StructuredTool, StructuredTool]:
     """Build native bridges over one immutable authorized external snapshot.
 
     The catalog is the whole authorized snapshot, so it stays the same from turn to turn. *in_turn*
     says, when search runs, whether a record is part of this turn (an @mention or a media request
     can leave tools out of one turn); search leaves the others out, and the target refuses a call.
+    *invokable*: bound tools tool_invoke also runs (not in the catalog), as one moved from on demand.
     """
 
     frozen_records = tuple(records)
-    by_name = {record.name: record for record in frozen_records}
+    by_name = {record.name: record for record in invokable}
+    by_name.update({record.name: record for record in frozen_records})
     documents = tuple(record.search_document() for record in frozen_records)
     records_by_id = {record.name: record for record in frozen_records}
     builtin_records = [record for record in frozen_records if record.source == "core"]

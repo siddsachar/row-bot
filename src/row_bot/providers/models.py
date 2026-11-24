@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+import re
 from typing import Any, Mapping
+
+
+def gpt_generation(model_id: str) -> int:
+    """An OpenAI GPT model's major version ("openai/gpt-6.1-sol" is 6, "gpt-4o" 4); 0 for any other model."""
+    found = re.match(r"gpt-(\d+)", str(model_id or "").split("/")[-1].strip().lower())
+    return int(found.group(1)) if found else 0
 
 
 class AuthMethod(StrEnum):

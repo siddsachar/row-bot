@@ -150,20 +150,34 @@ class Shot:
         right, bottom = self.from_screen(x + width, y + height)
         return left, top, right, bottom
 
-    def control_at(self, x: float, y: float) -> Control | None:
-        """The control under a point: the smallest one there that a click acts on, named by what it says."""
+    def _hits(self, x: float, y: float) -> tuple[list[CuaElement], CuaElement | None]:
+        """The controls under a point, the smallest first, and the one a click there acts on (the smallest that a
+        click acts on, else the smallest)."""
 
         hits: list[tuple[int, CuaElement]] = []
         for element in self.elements:
             left, top, right, bottom = self._box(element)
             if left <= x < right and top <= y < bottom and right > left and bottom > top:
                 hits.append(((right - left) * (bottom - top), element))
-        if not hits:
-            return None
         hits.sort(key=lambda hit: hit[0])
-        actionable = [element for _area, element in hits if role_of(element.role) in _ROLE_WORDS]
-        chosen = actionable[0] if actionable else hits[0][1]
-        label = chosen.label or next((element.label for _area, element in hits if element.label), "")
+        found = [element for _area, element in hits]
+        return found, next((element for element in found if role_of(element.role) in _ROLE_WORDS),
+                           found[0] if found else None)
+
+    def control_box(self, x: float, y: float) -> tuple[float, float, float, float] | None:
+        """Where on the screen the control under a point is (x, y, width, height, as Cua gives them), or None."""
+
+        chosen = self._hits(x, y)[1]
+        return None if chosen is None else (float(chosen.bounds[0]), float(chosen.bounds[1]),
+                                            float(chosen.bounds[2]), float(chosen.bounds[3]))
+
+    def control_at(self, x: float, y: float) -> Control | None:
+        """The control under a point: the smallest one there that a click acts on, named by what it says."""
+
+        found, chosen = self._hits(x, y)
+        if chosen is None:
+            return None
+        label = chosen.label or next((element.label for element in found if element.label), "")
         return Control(role=chosen.role, label=label)
 
     def controls(self, budget: int) -> str:

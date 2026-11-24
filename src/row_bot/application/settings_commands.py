@@ -25,6 +25,7 @@ from uuid import UUID
 
 from row_bot import learning
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.voice import cloud_speech
 from row_bot.runtime import admissions
 
 from .settings_snapshot import read_settings_snapshot
@@ -70,11 +71,17 @@ _SECRET_FIELDS = {
     ("accounts", "github.credential"): "GITHUB_TOKEN",
     ("accounts", "x.client_id"): "X_CLIENT_ID",
     ("accounts", "x.client_secret"): "X_CLIENT_SECRET",
+    # Cloud speech keys that have no provider in Providers (Deepgram, AssemblyAI, ElevenLabs, Cartesia).
+    **{("voice", field): name for field, name in cloud_speech.KEY_FIELDS.items()},
 }
 _ENUMS = {
-    ("voice", "runtime.talk_provider"): {"local", "openai_realtime"},
+    ("voice", "runtime.talk_provider"): {"local", *cloud_speech.LISTEN_IDS},
     ("voice", "runtime.dictation_provider"): {"local"},
-    ("voice", "runtime.speech_output_provider"): {"local"},
+    ("voice", "runtime.turn_eagerness"): {"relaxed", "normal", "eager"},
+    ("voice", "runtime.speech_output_provider"): {"local", *cloud_speech.SPEAK_IDS},
+    # A cloud voice's presets; ElevenLabs' described voice is checked against the saved one below.
+    **{("voice", f"runtime.{option.voice_field}"): {voice for voice, _ in option.voices}
+       for option in cloud_speech.SPEAK_OPTIONS if option.voices and option.describe != "design"},
     ("voice", "runtime.realtime_voice"): {
         "alloy",
         "ash",
@@ -127,10 +134,8 @@ _ENUMS = {
 _RETIRED_FIELDS = {("tools", "compression_mode")}
 _BOOL_FIELDS = {
     ("voice", "runtime.captions_enabled"),
-    ("voice", "runtime.talk_auto_start"),
-    ("voice", "runtime.realtime_fallback_to_local"),
-    ("voice", "tts.enabled"),
-    ("voice", "tts.auto_speak"),
+    ("voice", "runtime.push_to_talk"),
+    ("voice", "runtime.wake_word"),
     ("system", "shell.enabled"),
     ("system", "shell.allow_data_folder"),
     ("system", "browser.enabled"),
@@ -160,6 +165,7 @@ _ACTION_FIELDS = {
     ("voice", "tts.install"),
     ("voice", "whisper.install"),
     ("voice", "sensevoice.install"),
+    ("voice", "elevenlabs.design_voice"),
     ("system", "browser.install"),
     ("system", "computer_use.install"),
     ("system", "computer_use.check"),
@@ -186,6 +192,8 @@ _ACTION_FAILURES = {
     ("voice", "tts.install"): "The read-aloud voice couldn't be downloaded.",
     ("voice", "whisper.install"): "The speech model couldn't be downloaded.",
     ("voice", "sensevoice.install"): "The speech model couldn't be downloaded.",
+    ("voice", "elevenlabs.design_voice"): (
+        "ElevenLabs couldn't make that voice. Describe it in at least 20 characters, and check your key."),
     ("documents", "local_model.download"): "The search model couldn't be downloaded.",
     ("documents", "local_model.repair"): "The search model couldn't be repaired.",
 }
@@ -194,10 +202,12 @@ _TEXT_FIELDS = {
     ("voice", "runtime.talk_model"): 128,
     ("voice", "runtime.dictation_model"): 128,
     ("voice", "runtime.speech_output_model"): 128,
-    ("voice", "runtime.speech_output_voice"): 64,
     ("system", "shell.blocked_patterns"): 4096,
     ("preferences", "identity.name"): 128,
     ("preferences", "identity.personality"): 200,
+    # "Describe a voice": a short description, sent to that company only when used.
+    **{("voice", f"runtime.{option.description_field}"): cloud_speech.MAX_DESCRIPTION
+       for option in cloud_speech.SPEAK_OPTIONS if option.describe},
 }
 _LIST_FIELDS = {
     ("system", "file_operations.selected"): {
@@ -333,6 +343,19 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
                 value = list(dict.fromkeys(canonical_origin(item) for item in value))
             except ValueError:
                 raise SettingsCommandError("invalid_settings_command") from None
+    elif key == ("voice", "runtime.elevenlabs_voice"):
+        from row_bot.voice.runtime import load_voice_runtime_settings
+
+        found = cloud_speech.option("elevenlabs", "speak")
+        if found is None or value not in cloud_speech.voice_choices(found, load_voice_runtime_settings()):
+            raise SettingsCommandError("invalid_settings_command")
+    elif key == ("voice", "runtime.realtime_model"):
+        # Live voice's OpenAI Realtime model: a gpt-realtime model name.
+        if (
+            type(value) is not str
+            or not re.fullmatch(r"gpt-realtime[A-Za-z0-9._-]{0,115}", value)
+        ):
+            raise SettingsCommandError("invalid_settings_command")
     elif key == ("voice", "tts.speed"):
         if (
             type(value) not in {int, float}
@@ -362,6 +385,15 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
     elif key == ("learning", "monthly_token_limit"):
         # None: no limit (Learning's spending still shows); 0: no Learning model calls.
         if value is not None and (type(value) is not int or not 0 <= value <= learning.MAX_MONTHLY_TOKEN_LIMIT):
+            raise SettingsCommandError("invalid_settings_command")
+    elif page == "voice" and (field == "runtime.speech_language" or field.startswith("tts.language_voices.")):
+        from row_bot.voice import languages
+
+        if field == "runtime.speech_language":
+            allowed = {languages.AUTO, *languages.LANGUAGES}
+        else:
+            allowed = set(languages.KOKORO_VOICES.get(field.removeprefix("tts.language_voices."), ()))
+        if type(value) is not str or value not in allowed:
             raise SettingsCommandError("invalid_settings_command")
     elif page == "tools" and field.endswith(".enabled"):
         tool_id = field.removesuffix(".enabled")
@@ -484,6 +516,11 @@ def review_settings_update(
         summary = "Download and install Kokoro speech output locally"
     elif (page, field) == ("voice", "sensevoice.install"):
         summary = "Download and install SenseVoice Small locally"
+    elif (page, field) == ("voice", "elevenlabs.design_voice"):
+        summary = (
+            "Send your voice description (words only) to ElevenLabs with your key, save the voice it makes "
+            "in your ElevenLabs account and speak with it. ElevenLabs bills the design."
+        )
     elif (page, field) == ("voice", "whisper.install"):
         from row_bot.hosting import on_server
 
@@ -609,7 +646,8 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
     elif page == "voice" and field == "local.whisper_model":
         path, keys = root / "voice_settings.json", ("whisper_model",)
     elif page == "voice" and field.startswith("tts."):
-        path, keys = root / "tts_settings.json", (field.split(".", 1)[1],)
+        # tts.voice, tts.speed; tts.language_voices.fr is "language_voices" › "fr".
+        path, keys = root / "tts_settings.json", tuple(field.split(".")[1:])
     elif page == "documents" and field.startswith("embedding."):
         path, keys = root / "embedding_config.json", (field.split(".", 1)[1],)
     elif page == "documents" and field == "processing_model":
@@ -643,6 +681,11 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         document = _read_document(path)
         if page == "system" and field.startswith("remote_access."):
             document.setdefault("version", 2)
+        if path.name == "voice_runtime_settings.json":
+            from row_bot.voice.runtime import retire_realtime_listen
+
+            # An older "Listen with: OpenAI Realtime" is rewritten before any voice setting is saved.
+            retire_realtime_listen(document)
         _set_path(document, keys, value)
         _write_document(path, document)
     if page == "preferences" and field == "updates.channel":
@@ -849,7 +892,26 @@ def _run_voice_action(field: str) -> None:
 
         VoiceService().install_sensevoice_model()
         return
+    if field == "elevenlabs.design_voice":
+        _design_elevenlabs_voice()
+        return
     raise SettingsCommandError("settings_action_unavailable")
+
+
+def _design_elevenlabs_voice() -> None:
+    """Make an ElevenLabs voice from the saved description (words only) and speak with it."""
+    from row_bot.voice.cloud_tts import design_voice
+    from row_bot.voice.provider_base import VoiceProviderError
+    from row_bot.voice.runtime import load_voice_runtime_settings, save_voice_settings
+
+    description = " ".join(load_voice_runtime_settings().voice_descriptions.get("elevenlabs", "").split())
+    if len(description) < cloud_speech.MIN_DESIGN_DESCRIPTION:
+        raise SettingsCommandError("voice_description_too_short")
+    try:
+        voice_id = design_voice(description)
+    except VoiceProviderError as error:
+        raise SettingsCommandError(error.code) from None
+    save_voice_settings({"elevenlabs_designed_voice": voice_id, "elevenlabs_voice": cloud_speech.DESIGNED_VOICE})
 
 
 def _run_system_action(field: str) -> dict[str, str] | None:

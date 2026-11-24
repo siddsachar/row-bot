@@ -178,10 +178,10 @@ export default function Home({
   // What the sidebar's indicator counts, listed first in Monitor (rows 12,
   // 13): the sidebar's own shared read, not a second one.
   const loadAttention = identity ? controller.attention : undefined;
-  // The phone's Ask box offers dictation and Talk where this host has them (D3).
-  const [voice, setVoice] = useState({ dictate: false, talk: false });
+  // Home's Ask box offers dictation and Talk where this host has them (D3, V7).
+  const [voice, setVoice] = useState<{ dictate: boolean; talk: boolean }>();
   useEffect(() => {
-    if (!phone || !identity || tab !== 'overview') return;
+    if (!identity || tab !== 'overview') return;
     const abort = new AbortController();
     controller.dictationCapability(abort.signal).then(
       (value) => {
@@ -194,7 +194,7 @@ export default function Home({
       () => undefined,
     );
     return () => abort.abort();
-  }, [controller, identity, phone, tab]);
+  }, [controller, identity, tab]);
   const { value: attention, refresh: refreshAttention } =
     useAttention(loadAttention);
   const reloadMonitor = () => {

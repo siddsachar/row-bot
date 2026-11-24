@@ -105,7 +105,7 @@ def test_ollama_registers_the_gguf_with_its_renderer_and_context_and_is_ready_af
     assert name == tag and modelfile == (f"FROM {gguf.resolve()}\nRENDERER qwen3.5\nPARSER qwen3.5\n"
                                          "PARAMETER num_ctx 32768\n")
     assert (folder / "Modelfile").read_text(encoding="utf-8") == modelfile
-    assert saved == [(tag, {"context": 32768, "reasoning": "off"})]  # O30, O24
+    assert saved == [(tag, {"context": 32768, "reasoning": "off", "owner": "learning"})]  # O30, O24, #1045
     assert refreshed == [1]  # capabilities come from Ollama's own /api/show (O33)
     assert [call[0] for call in verifier.calls] == ["probe", "tool_turn"]
     assert ollama.deleted == [] and ollama.unloaded == [tag]  # no graphics memory held after the checks

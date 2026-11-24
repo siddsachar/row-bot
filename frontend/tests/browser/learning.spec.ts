@@ -150,6 +150,8 @@ async function openChatMenu(page: Page, info: TestInfo, title: string) {
 test('Learning is on from the start: Home says so once, Teach a reply and undo it, then switch a chat off', async ({
   page,
 }, info) => {
+  // 17 screens in light and dark, each with an axe scan, and nine page loads: more than 60 s on a busy runner.
+  test.slow();
   // "Learn new skills" lives in Settings › Learning, not Preferences (D29).
   await fixture(page, 'stand-ins');
   await fixture(page, 'gpu');

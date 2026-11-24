@@ -40,6 +40,7 @@
     }
   },
   "additionalProperties": false,
+  "description": "A Row-Bot Voice lease; its live states travel over the voice socket.",
   "properties": {
     "expires_in_ms": {
       "maximum": 360000,
@@ -50,46 +51,19 @@
     "handle": {
       "$ref": "#/$defs/DictationHandle"
     },
-    "max_audio_bytes": {
-      "const": 33554432,
-      "title": "Max Audio Bytes",
-      "type": "integer"
-    },
-    "max_utterance_ms": {
-      "const": 300000,
-      "title": "Max Utterance Ms",
-      "type": "integer"
-    },
     "quiesced": {
       "title": "Quiesced",
       "type": "boolean"
     },
-    "run_id": {
-      "anyOf": [
-        {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9:_-]+$",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Run Id"
-    },
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },
     "state": {
       "enum": [
+        "starting",
         "listening",
-        "receiving",
-        "transcribing",
-        "thinking",
-        "speaking",
         "stopping",
         "stopped"
       ],
@@ -97,7 +71,7 @@
       "type": "string"
     },
     "transport": {
-      "const": "browser_local",
+      "const": "row_bot_voice",
       "title": "Transport",
       "type": "string"
     }
@@ -108,10 +82,7 @@
     "state",
     "quiesced",
     "expires_in_ms",
-    "run_id",
-    "transport",
-    "max_audio_bytes",
-    "max_utterance_ms"
+    "transport"
   ],
   "title": "TalkSnapshot",
   "type": "object"

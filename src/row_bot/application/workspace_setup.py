@@ -514,11 +514,9 @@ def conversation_workspace(service: Any, identity: str) -> dict:
     ready = status["state"] == "ready" or bool(status["backup_name"])
     from row_bot.application.context_status import read_usage
     from row_bot.application.reasoning_controls import reasoning_view
-    from row_bot.application.attachments import list_generated_outputs
     from row_bot.application.conversation_writer import writer_status
     return {"conversation_id": identity, "revision": str(row["client_revision"]), "controls": controls,
             "model_status": status,
-            "generated_outputs": list_generated_outputs(identity),
             "writer_status": writer_status(identity),
             "context_usage": read_usage(service, identity, controls),
             "reasoning": reasoning_view(identity, model),
@@ -562,7 +560,7 @@ def _people_facing_profiles(current: str) -> list[dict]:
     return profiles[:256]
 
 
-def _sees_images(model_ref: str) -> bool | None:
+def sees_images(model_ref: str) -> bool | None:
     """False when attached images can't be seen here; None when unknown."""
     try:
         from row_bot.vision import vision_model_compatibility
@@ -627,7 +625,7 @@ def model_status(service: Any, controls: dict, conversation_id: str = "") -> dic
     provider_id = str(selection.get("provider_id") or "")
     from row_bot.providers.catalog import provider_billing
 
-    base = {"local": provider_billing(provider_id) == "local", "sees_images": _sees_images(model_ref),
+    base = {"local": provider_billing(provider_id) == "local", "sees_images": sees_images(model_ref),
             "backup_name": ""}
     if service.readiness_factory is not None:
         ready = bool(service.readiness_factory(controls))

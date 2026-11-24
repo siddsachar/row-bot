@@ -34,9 +34,9 @@ import {
   Button,
   IconButton,
   Input,
+  ListSkeleton,
   Menu,
   Segmented,
-  Skeleton,
   Toolbar,
   ToolbarSeparator,
   type MenuAction,
@@ -1116,12 +1116,23 @@ export default function ConversationLibrary({
           <SearchResults onContinue={(cursor) => void runSearch(cursor)} />
         </div>
       ) : !rows ? (
-        <>
-          <Skeleton label="Loading all conversations" />
-          <Button disabled={refreshing} onClick={() => void refresh()}>
-            Retry library
-          </Button>
-        </>
+        error && !refreshing ? (
+          <Button onClick={() => void refresh()}>Retry library</Button>
+        ) : (
+          <>
+            {/* The summary's line, so the rows arrive without moving the page. */}
+            <div className="library-bar">
+              {!phone && (
+                <p className="library-summary">Loading conversations…</p>
+              )}
+            </div>
+            <ListSkeleton
+              label="Loading all conversations"
+              rows={phone ? 9 : 14}
+              className="library-list-loading"
+            />
+          </>
+        )
       ) : (
         <>
           <div className="library-bar" data-selecting={showBar || undefined}>

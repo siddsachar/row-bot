@@ -38,7 +38,7 @@ An incognito chat keeps what you say in it out of Row-Bot's memory.
 ## The Conversation
 
 - **Header**: the conversation's name, **Find** to search it (⌘F / Ctrl+F), **Export**, and **Conversation details** (⌘. / Ctrl+.).
-- **Transcript**: your messages and Row-Bot's replies, each with a small speaker mark (your Buddy's picture for Row-Bot), plus tool steps, how long Row-Bot thought, charts, images, generated media, approval cards and the agents a turn started.
+- **Transcript**: your messages and Row-Bot's replies, each with a small speaker mark (your Buddy's picture for Row-Bot), plus tool steps, how long Row-Bot thought, charts, images, generated media, approval cards and the agents a turn started. The finished work Row-Bot presents shows large in its reply; what it made on the way folds into one **working files** row under the reply's steps (see [Finished Work And Working Files](/docs/chat/tools-approvals-and-terminal#finished-work-and-working-files)).
 - **Composer**: type the next request. Enter sends and Shift+Enter adds a line. **Send** becomes **Stop** while Row-Bot replies. A message you type while the previous one is still being sent stays in the composer on its own.
 - **Retry** and **Send again** run your last message again in place of its answer, without a second copy of the message, when nothing is running or waiting for an approval. A turn that already used tools stays on record, so its retry is sent as a new message.
 - **Maths** in a reply is typeset:
@@ -76,7 +76,7 @@ What a fork does not do:
   See [Approvals](/docs/chat/tools-approvals-and-terminal).
 - The **+** menu (**Add files and more**) holds **Attach file**, **Add resource…** (a design or code folder), **Skills…**, **Apps**, **Agent** (each agent with a line on what it does), and **Mode**: **Agent** uses tools and agents, **Chat only** answers without tools.
 - **Skill chips** above the composer show the skills in use, including default ones; × removes one from this conversation. **Skills…** (or `/skills`) opens **Smart Skills**, which ends with **Find more skills** to open Settings › Skills.
-- **Voice** buttons use Dictate or Talk when voice is set up. One stretch of speech can run up to five minutes.
+- **Voice** buttons: the microphone dictates into the draft, and **Talk** opens the voice bar for a spoken conversation (its menu also offers Live voice). One stretch of speech can run up to five minutes. See [Voice And Buddy](/docs/voice-and-buddy/).
 
 ## Apps In A Chat
 
@@ -181,6 +181,8 @@ The details beside a conversation show what it is working on, its outputs and go
 - **Workflow**: for a workflow's conversation, its schedule, next run and last run; the button opens its runs.
 - **Linked conversations**: the conversation that started this one, and the ones it started.
 
+**Outputs** shows each thing the conversation made once, whatever it is (a film, a picture, a sound, a document): its final version, or its latest draft marked **Draft**, with its other versions in its **⋯** menu. Recordings, frames, contact sheets and voice lines made on the way stay out of sight until you turn on **Show working files**. **Save to workspace** copies a file, under its own name, into the **Saved outputs** folder of your workspace. **Library › Media** lists the same outputs across conversations, finished ones first, with **Uploads** and **Working files** on their own chips; on a phone, **Chats › Files** does.
+
 ## Waiting For Something
 
 A chat can wait for something and carry on by itself when it happens: a background process to finish, a check to pass (a build, a CI run, a deploy, a page showing a word), a time, or another conversation or workflow to finish. Nothing runs while it waits, so it costs nothing.
@@ -212,14 +214,14 @@ When a conversation gets long, Row-Bot first clears older tool output from what 
 
 On a cloud model, Row-Bot writes that summary ahead of time, after a reply, once the conversation is close to the point. When the point comes, the summary is ready and the reply goes on without the pause. The ring's details then say **A summary of older messages is ready**. Nothing else changes: it is the same summary, it counts as compaction in your usage, and it is set aside if you edit an earlier message or change the model. Local models summarize at the point, as before, so a summary never holds your computer's model while you type.
 
-Compaction starts near the end of the model's window, leaving room for the reply and the summary: at about 967,000 tokens on a 1M-token model, and at 167,000 to 177,000 on a 200,000-token one, depending on the provider. Smaller local models keep about a quarter of the window free. A **Reading limit** in [Settings › Models](/docs/settings/models#reading-limit) makes the window smaller.
+Compaction starts near the end of the model's window, leaving room for the reply and the summary: at about 967,000 tokens on a 1M-token model, and at 167,000 to 177,000 on a 200,000-token one, depending on the provider. Smaller local models keep about a quarter of the window free. A **Cloud reading limit** in [Settings › Models](/docs/settings/models#cloud-reading-limit) makes a cloud model's window smaller; a local model's context is in its own settings.
 
 ## The Details Card
 
 **Conversation details** stays open on a wide window as a card under the header's buttons, beside the conversation. With less room it sits in a rail along the conversation's right edge, so it never covers the messages, and the conversation centres in the space beside it. In a narrower window it opens from the header's **Conversation details** button instead. It shows:
 
 - **Working on**: the designs and code folders bound to this conversation. Choose one to open its panel, or unbind it from its **⋯** menu. **Add resource** binds another.
-- **Outputs**: images and videos the conversation made, linked to where they appear.
+- **Outputs**: each thing the conversation made, its final or its latest draft, with **Show working files** (see [Conversation Details](#conversation-details)).
 - **Goal**: the conversation's goal and its progress. Without one, the card shows only a small **Set a goal**. See [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
 - **Agents**: the agents this conversation started, each with its status, **Message** and **Stop**.
 
@@ -256,7 +258,7 @@ In the native Windows and macOS apps, drag Buddy from the sidebar onto the deskt
 - **Export** in the header opens the conversation's actions: change its **Name**, **Pin** it to the top of the sidebar, or **Export** it as **Markdown** or **PDF**, then **Save export** to choose where the file goes.
 - A sidebar row's **⋯** menu exports or deletes one conversation too.
 - **Conversation library**, at the end of the sidebar's list, lists every conversation; its **Pages** view lists every page Row-Bot made.
-- Its **Media** view holds every picture, video and sound from your chats: recordings, video edits, voice lines, music and pictures, newest first. Search names, tags and chats, show only **Pictures**, **Videos** or **Sound**, and tag an item with the tag button. Each opens its chat. Row-Bot finds them too, and can copy one into another chat or workflow. An incognito chat's files never show there.
+- Its **Media** view lists the pictures, videos and sounds from your chats, newest first, from the same list as each conversation's **Outputs**. **Made** (the default) shows what Row-Bot made for you: each output's final, else its latest draft, and what AI models made. **Uploads** shows the files you added, and **Working files** what was made on the way, such as recordings, frames and voice lines. Search names, tags and chats, show only **Pictures**, **Videos** or **Sound**, and tag an item with the tag button. Each opens its chat. Row-Bot finds them too, and can copy one into another chat or workflow. An incognito chat's files never show there.
 
 <Screenshot id="conversation-library" alt="Row-Bot conversation library with search, the type filter and selected conversations." caption="The conversation library searches titles and messages, filters by type, and acts on a selection from the bar at the top." />
 

@@ -277,15 +277,23 @@ class BlobReader:
         for _ in range(node.size):
             fields = self.fields(current, {"type", "payload"})
             kind = self.text(fields["type"], 32) if "type" in fields else ""
-            payload = self.fields(fields["payload"], {"media_ref", "mime_type", "code"}) if "payload" in fields else {}
+            payload = (self.fields(fields["payload"], {"media_ref", "mime_type", "code", "role", "name", "prompt"})
+                       if "payload" in fields else {})
             if kind == "media.available":
                 reference = self.text(payload["media_ref"], 256) if "media_ref" in payload else ""
                 mime_type = self.text(payload["mime_type"], 128) if "mime_type" in payload else ""
+                # What the file is to the person (finals first), and a presented final's name and caption.
+                role = self.text(payload["role"], 16) if "role" in payload else ""
+                name = self.text(payload["name"], 1024) if "name" in payload else ""
+                prompt = self.text(payload["prompt"], 4096) if "prompt" in payload else ""
                 if _PUBLIC_REFERENCE.fullmatch(reference) and mime_type in PUBLIC_MIME_TYPES:
                     media.append(
                         {
                             "type": kind,
-                            "payload": {"media_ref": reference, "mime_type": mime_type},
+                            "payload": {"media_ref": reference, "mime_type": mime_type,
+                                        **({"role": role} if role in {"final", "draft", "working"} else {}),
+                                        **({"name": name} if name else {}),
+                                        **({"prompt": prompt} if prompt else {})},
                         }
                     )
             elif kind == "media.error":

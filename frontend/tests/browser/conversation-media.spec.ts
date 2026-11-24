@@ -92,6 +92,8 @@ test('the first edit asks once to download ffmpeg, then shows the download with 
   );
 
   await download.getByRole('button', { name: 'Stop', exact: true }).click();
+  // Once it ends the edit is a working file (finals first), opened on demand.
+  await transcript.getByText('1 working file', { exact: true }).click();
   await expect(
     transcript.getByRole('group', { name: `${SUMMARY}: Stopped by you` }),
   ).toBeVisible();
@@ -120,6 +122,8 @@ test('a long edit shows its progress with Stop', async ({ page }, info) => {
   );
 
   await live.getByRole('button', { name: 'Stop', exact: true }).click();
+  // Once it ends the edit is a working file (finals first), opened on demand.
+  await transcript.getByText('1 working file', { exact: true }).click();
   const stopped = transcript.getByRole('group', {
     name: `${SUMMARY}: Stopped by you`,
   });
@@ -127,7 +131,7 @@ test('a long edit shows its progress with Stop', async ({ page }, info) => {
   await expect(stopped.getByRole('button', { name: 'Stop' })).toHaveCount(0);
 });
 
-test('the edited video shows in the chat with a player', async ({
+test('the edited video is a working file in the chat, with a player', async ({
   page,
 }, info) => {
   await page.setViewportSize(DESKTOP);
@@ -135,6 +139,10 @@ test('the edited video shows in the chat with a player', async ({
   await send(page, 's4 edit fixture');
 
   const transcript = page.getByRole('log', { name: 'Conversation' });
+  // An edit is a working file (finals first): folded under its step.
+  const fold = transcript.getByText('1 working file', { exact: true });
+  await expect(fold).toBeVisible({ timeout: 20_000 });
+  await fold.click();
   const saved = transcript.getByRole('group', {
     name: new RegExp(`^${SUMMARY}: 0:\\d\\d(\\.\\d)? · \\d+ KB$`),
   });
@@ -184,7 +192,7 @@ test('the edited video shows in the chat with a player', async ({
   await expect(transcript.getByText('Edited a video')).toBeVisible();
 });
 
-test('a contact sheet of many screenshots shows in the chat', async ({
+test('a contact sheet of many screenshots is a working file, opened on demand', async ({
   page,
 }, info) => {
   await page.setViewportSize(DESKTOP);
@@ -193,6 +201,11 @@ test('a contact sheet of many screenshots shows in the chat', async ({
 
   const transcript = page.getByRole('log', { name: 'Conversation' });
   await expect(transcript.getByText(/Step 9 goes wrong/).last()).toBeVisible();
+  // Row-Bot's own check: not shown until the person opens its working files.
+  await expect(
+    transcript.getByRole('img', { name: 'Contact sheet' }),
+  ).toHaveCount(0);
+  await transcript.getByText('1 working file', { exact: true }).click();
   const sheet = transcript.getByRole('img', { name: 'Contact sheet' }).last();
   await expect(sheet).toBeVisible();
   await everywhere(page, info, 'contact-sheet', () =>

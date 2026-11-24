@@ -20,6 +20,8 @@ import time
 from typing import Any, Callable, Mapping, Protocol
 from urllib.parse import urlsplit
 
+from row_bot.voice_hotkey import HOTKEYS
+
 _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
 # A Proactive place the desktop Buddy may open in the main window (see buddy.native_host.MAIN_TARGET).
@@ -31,7 +33,8 @@ _SHELL_PATH = re.compile(r"/app-v2(?:/(?:[A-Za-z0-9_-]|%[0-9A-Fa-f]{2})+)*/?")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
                          "terminal_open", "terminal_external", "buddy_placement", "buddy_follow",
-                         "buddy_pet", "main_window", "reveal_saved"})
+                         "buddy_pet", "main_window", "reveal_saved", "voice_hotkey"})
+
 # A file a Save dialog wrote, shown in its folder later by a token (never its path); the newest few.
 _SAVED_TOKEN = re.compile(r"[0-9a-f]{32}")
 _SAVED_KEPT = 8
@@ -164,6 +167,7 @@ class NativeDriver(Protocol):
     def main_window(self, conversation_id: str | None, target: str | None = None) -> bool: ...
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None: ...
     def reveal(self, path: Path) -> bool: ...
+    def voice_hotkey(self, key: str | None) -> bool: ...
     def capabilities(self) -> list[str]: ...
 
 
@@ -235,6 +239,7 @@ class PyWebViewDriver:
                  read_buddy_target: Callable[[], dict[str, Any] | None] | None = None,
                  show_main_window: Callable[[str | None], bool] | None = None,
                  buddy_pet: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
+                 voice_hotkey: Callable[[str | None], bool] | None = None,
                  allowed: frozenset[str] | None = None) -> None:
         if publish_buddy_target is not None and read_buddy_target is not None:
             # One window either publishes what it shows or follows; never both.
@@ -250,6 +255,7 @@ class PyWebViewDriver:
         self._read_buddy_target = read_buddy_target
         self._show_main_window = show_main_window
         self._buddy_pet = buddy_pet
+        self._voice_hotkey = voice_hotkey
         self._allowed = allowed
 
     def capabilities(self) -> list[str]:
@@ -259,7 +265,8 @@ class PyWebViewDriver:
                                ("buddy_placement", self._buddy_placement),
                                ("buddy_follow", self._publish_buddy_target or self._read_buddy_target),
                                ("buddy_pet", self._buddy_pet),
-                               ("main_window", self._show_main_window)):
+                               ("main_window", self._show_main_window),
+                               ("voice_hotkey", self._voice_hotkey)):
             if callback is not None:
                 result.append(name)
         # A window role may narrow what its document can reach (the desktop
@@ -304,6 +311,9 @@ class PyWebViewDriver:
 
     def buddy_pet(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self._buddy_pet(payload) if self._buddy_pet else None
+
+    def voice_hotkey(self, key: str | None) -> bool:
+        return bool(self._voice_hotkey and self._voice_hotkey(key))
 
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> Path | bool | None:
         """The file written (so Show in folder can find it), None when cancelled, False when not saved."""
@@ -696,6 +706,18 @@ class NativeClientBridge:
                     if not self._valid(proof) or epoch != self._epoch:
                         return _unavailable("native_proof_required")
                 return {"status": "ok", "value": None} if result else _unavailable()
+            if operation == "voice_hotkey":
+                key = payload.get("key")
+                if set(payload) != {"key"} or not (key is None or isinstance(key, str) and key in HOTKEYS):
+                    return _unavailable("invalid_request")
+                result = self._driver.voice_hotkey(key)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        # The document changed while arming: never leave its key held.
+                        if key is not None:
+                            self._driver.voice_hotkey(None)
+                        return _unavailable("native_proof_required")
+                return {"status": "ok", "value": None} if result else _unavailable("hotkey_unavailable")
             if operation == "buddy_pet":
                 if (payload.get("action") not in _PET_ACTIONS
                         or len(json.dumps(payload, separators=(",", ":"))) > 1024):

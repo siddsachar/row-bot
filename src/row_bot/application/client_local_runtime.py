@@ -89,12 +89,15 @@ def snapshot() -> dict[str, Any]:
     installed_ids = {model.id for model in install.installed_models()}
     rows = []
     for model in models.CATALOG:
+        chosen = local_runtime.chosen_context(model.id) if model.id in installed_ids else None
         rows.append({
             "id": model.id,
             "name": model.name,
             "model_ref": local_runtime.model_ref(model.id),
             "size_bytes": model.size,
-            "fit": models.fit(model, found),
+            "fit": models.fit(model, found, chosen),
+            # The window it is served at here (what it reads), with the person's choice (U1).
+            "context_tokens": models.context_for(model, found, chosen),
             "everyday": model.everyday,
             "quantization": model.quantization,
             "older": model.older,
@@ -202,12 +205,25 @@ def remove(model_id: str | None = None) -> dict[str, Any]:
     return {**snapshot(), "freed_bytes": int(freed)}
 
 
+def _windows() -> dict[str, int]:
+    found = hardware.peek()
+    return {model.id: models.context_for(model, found, local_runtime.chosen_context(model.id))
+            for model in install.installed_models()}
+
+
 def repair() -> dict[str, Any]:
     """Read this computer's hardware again (a new card, a newer driver) and forget the last failure."""
 
     global _failure
     _failure = None
+    before = _windows()
     hardware.peek(refresh=True)
+    if _windows() != before:
+        # A new card or driver changes the windows the models are served at; the server takes them when it starts.
+        from row_bot.local_runtime import server
+
+        server.stop("repair")
+        server.save_endpoint()
     worker = installer()
     if not worker.running():
         worker.progress = None

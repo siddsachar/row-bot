@@ -8,7 +8,7 @@ import {
   Send,
   type LucideIcon,
 } from 'lucide-react';
-import { Button, Field, Input } from '../../ui/primitives';
+import { Button, Field, Input, SettingRow, Toggle } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import { QrCode } from '../../ui/QrCode';
 import { AppLink } from '../../ui/app-link';
@@ -20,7 +20,7 @@ import { CHANNEL_GUIDES, START_NOTES } from './connect-guides';
 export type ChannelFieldStatus = {
   key: string;
   label: string;
-  field_type: 'text' | 'password' | 'number' | 'slider';
+  field_type: 'text' | 'password' | 'number' | 'slider' | 'toggle';
   storage: 'env' | 'config';
   help_text: string;
   configured: boolean | null;
@@ -28,6 +28,8 @@ export type ChannelFieldStatus = {
   fingerprint: string;
   externally_managed: boolean;
   writable: boolean;
+  /** A switch's current value (toggle fields only). */
+  value?: boolean | null;
 };
 export type PairedChannelIdentity = {
   identity_id: string;
@@ -82,7 +84,7 @@ export type ChannelCommandPayload = {
   revision: string;
   operation: ChannelOperation;
   field_key: string | null;
-  value: string | number | null;
+  value: string | number | boolean | null;
   identity_id: string | null;
 };
 export type ChannelCommand = {
@@ -418,11 +420,14 @@ export default function ChannelSettings({
     operation: ChannelOperation,
     field: ChannelFieldStatus | null = null,
     identityId: string | null = null,
+    switchTo: boolean | null = null,
   ) => {
     const current = session.getSnapshot();
     if (!current.active || current.busy || current.pending) return;
-    let value: string | number | null = null;
-    if (field) {
+    let value: string | number | boolean | null = null;
+    if (field?.field_type === 'toggle') {
+      value = switchTo;
+    } else if (field) {
       const raw = current.drafts[`${channel.channel_id}:${field.key}`] ?? '';
       if (raw.length > 16384) {
         session.update({ message: 'The channel value is too large.' });
@@ -544,8 +549,39 @@ export default function ChannelSettings({
 
   const locked = !state.active || Boolean(state.busy) || Boolean(state.pending);
 
+  /** An on/off setting (a voice-note reply, say): saved the moment it's switched. */
+  const switchRow = (channel: ChannelStatus, field: ChannelFieldStatus) => {
+    const id = `channel-${channel.channel_id}-${field.key}`;
+    return (
+      <SettingRow
+        key={field.key}
+        label={field.label}
+        htmlFor={id}
+        description={field.help_text || undefined}
+        control={
+          <Toggle
+            id={id}
+            label={field.label}
+            checked={field.value === true}
+            disabled={locked || !field.writable}
+            onChange={(event) =>
+              void requestReview(
+                channel,
+                'configure',
+                field,
+                null,
+                event.currentTarget.checked,
+              )
+            }
+          />
+        }
+      />
+    );
+  };
+
   /** One saved field: a write-only input with Save and Clear. */
   const fieldEditor = (channel: ChannelStatus, field: ChannelFieldStatus) => {
+    if (field.field_type === 'toggle') return switchRow(channel, field);
     const draftKey = `${channel.channel_id}:${field.key}`;
     return (
       <div className="stack" key={field.key}>
@@ -602,8 +638,15 @@ export default function ChannelSettings({
     const guide = CHANNEL_GUIDES[channel.channel_id];
     if (!guide) return [];
     const guided = new Set(guide.map((step) => step.field));
-    return channel.fields.filter((field) => !guided.has(field.key));
+    return channel.fields.filter(
+      (field) => !guided.has(field.key) && field.field_type !== 'toggle',
+    );
   };
+  /** A core channel's switches, shown with it rather than under More settings. */
+  const switches = (channel: ChannelStatus) =>
+    CHANNEL_GUIDES[channel.channel_id]
+      ? channel.fields.filter((field) => field.field_type === 'toggle')
+      : [];
 
   /**
    * The channel's connect sheet (parity rows 42–44, B139): its own steps
@@ -630,7 +673,9 @@ export default function ChannelSettings({
       steps.push({
         id: 'settings',
         text: 'Fill in its settings.',
-        done: channel.fields.every((field) => field.configured === true),
+        done: channel.fields.every(
+          (field) => field.field_type === 'toggle' || field.configured === true,
+        ),
         children: (
           <div className="stack">
             {channel.fields.map((field) => fieldEditor(channel, field))}
@@ -920,6 +965,7 @@ export default function ChannelSettings({
               title={`Connect ${channel.display_name}`}
               steps={channelSteps(channel)}
             />
+            {switches(channel).map((field) => switchRow(channel, field))}
             {extraFields(channel).length > 0 && (
               <details className="settings-plugin-details">
                 <summary>More settings</summary>

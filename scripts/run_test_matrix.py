@@ -164,6 +164,31 @@ BROWSER_SMOKE_SPECS = (
     # Back and sheets for the native shells (A3): Back closes the open sheet or menu first, one level per Back,
     # then leaves; theme-color follows the theme; no pull-to-refresh; the desktop unchanged. Appended likewise.
     "phone-back",
+    # Row-Bot Voice (V1): a spoken turn through the real capture worklet, socket and engine; the voice bar in
+    # every state at desktop and phone width, light and dark. Appended likewise.
+    "voice-duplex",
+    # Live voice (V4): the Talk menu's providers, the disclosure before first use, a relayed session in the
+    # voice bar, several starts on one page; desktop and phone, light and dark. Appended likewise.
+    "live-voice",
+    # Streaming speech models (V1b): Settings › Voice's pick for this computer, Download, progress, Remove, at
+    # desktop and phone width, light and dark. Appended likewise.
+    "voice-speech-models",
+    # Languages (V8): Settings › Voice › Language, the English-only notice and the voices per language; the bar's
+    # captions in French and Arabic (right to left); desktop and phone, light and dark. Appended likewise.
+    "voice-languages",
+    # Presence and control (V7): the microphone and speaker picker with devices plugged in and pulled out, the
+    # Windows app's hold-to-talk key, Talk from Home, the iPhone's listening limits. Appended likewise.
+    "voice-presence",
+    # The wake word (V10): off until turned on in Settings, its mark while it listens, hearing it (a stand-in
+    # model) starts Row-Bot Voice, one click stops it; absent on a phone; desktop and phone, light and dark.
+    "wake-word",
+    # Eyes (V6): share the camera or screen during voice, a still goes with the spoken turn and shows in the
+    # person's message; the sharing controls at desktop and phone width, light and dark. Appended likewise.
+    "voice-share",
+    # Finals first, end to end (W1, W2, W8): a film's working files fold and its final shows large; a whole video
+    # made in a chat (generate, record with beats, make, review, change, present) and its Outputs pane, one tile
+    # per output with versions and working files; desktop and phone, light and dark. Appended likewise.
+    "media-finals",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

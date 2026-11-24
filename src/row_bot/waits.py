@@ -7,6 +7,7 @@ What it can wait for:
   for a command with no text, until it exits 0;
 - a time ("in 30 minutes", "at 14:00");
 - another conversation finishes its turn, or a workflow finishes its run;
+- a video project's video is made (set by the video tool when a render outlasts the call, never by the agent);
 - a watch (B4): a command, a page or a question checked again and again, which speaks up only when the result
   changes (the watch section below).
 
@@ -36,8 +37,8 @@ from row_bot.utils.times import utc_text
 
 _LOG = logging.getLogger(__name__)
 
-Kind = Literal["process", "check", "time", "conversation", "watch"]
-KINDS: tuple[str, ...] = ("process", "check", "time", "conversation", "watch")
+Kind = Literal["process", "check", "time", "conversation", "watch", "video"]
+KINDS: tuple[str, ...] = ("process", "check", "time", "conversation", "watch", "video")
 ACTIVE = ("waiting", "due", "paused")  # A paused one is only ever a watch.
 MAX_PER_CONVERSATION = 5
 MAX_HOURS = 24.0  # A process, check or conversation wait.
@@ -310,6 +311,21 @@ def _check_conversation(record: dict[str, Any]) -> Outcome:
     return Outcome(True, f"“{name}” finished its turn.") if moved else Outcome(False, "")
 
 
+def _check_video(record: dict[str, Any]) -> Outcome:
+    """A video project's version (or its export in a shape) is made, failed or stopped: its status, as the video
+    tool says it."""
+    from row_bot import video_projects
+
+    spec = record["spec"]
+    project = video_projects.get(str(spec.get("project_id") or ""), record["conversation_id"])
+    version = project.version(int(spec.get("number") or 0)) if project is not None else None
+    if project is None or version is None:
+        return Outcome(True, "That video isn't kept any more.")
+    if not video_projects.render_of(version, str(spec.get("shape") or ""))[1]:
+        return Outcome(False, "")
+    return Outcome(True, video_projects.summary(project, version.number))
+
+
 def check(record: dict[str, Any], now: float) -> Outcome:
     """Whether a wait's thing has happened (or its time has come), and what happened."""
     kind, spec = record["kind"], record["spec"]
@@ -317,6 +333,8 @@ def check(record: dict[str, Any], now: float) -> Outcome:
         return Outcome(now >= record["next_at"], "It's time.")
     if kind == "process":
         return _check_process(spec)
+    if kind == "video":
+        return _check_video(record)
     if kind == "conversation":
         return _check_conversation(record)
     return _check_page(spec) if spec.get("url") else _check_command(record["conversation_id"], spec)

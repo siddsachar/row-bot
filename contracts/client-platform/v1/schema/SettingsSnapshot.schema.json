@@ -352,6 +352,127 @@
       "title": "BuddySettingsSnapshot",
       "type": "object"
     },
+    "CloudSpeechOption": {
+      "additionalProperties": false,
+      "description": "A cloud listening or speaking option for Row-Bot Voice: who gets the audio (listen) or the\ntext (speak), its approximate price, and whether its key is saved (never the key).",
+      "properties": {
+        "company": {
+          "maxLength": 64,
+          "title": "Company",
+          "type": "string"
+        },
+        "describe": {
+          "default": "",
+          "enum": [
+            "",
+            "style",
+            "design"
+          ],
+          "title": "Describe",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Description",
+          "type": "string"
+        },
+        "designed": {
+          "default": false,
+          "title": "Designed",
+          "type": "boolean"
+        },
+        "id": {
+          "enum": [
+            "deepgram",
+            "assemblyai",
+            "openai_transcribe",
+            "gemini_transcribe",
+            "elevenlabs",
+            "cartesia",
+            "gemini_tts"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsCredentialState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "key_field": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Field"
+        },
+        "key_saved": {
+          "title": "Key Saved",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "part": {
+          "enum": [
+            "listen",
+            "speak"
+          ],
+          "title": "Part",
+          "type": "string"
+        },
+        "price": {
+          "maxLength": 96,
+          "title": "Price",
+          "type": "string"
+        },
+        "price_checked": {
+          "maxLength": 32,
+          "title": "Price Checked",
+          "type": "string"
+        },
+        "voice": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Voice",
+          "type": "string"
+        },
+        "voices": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Voices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "part",
+        "label",
+        "company",
+        "price",
+        "price_checked",
+        "key_saved"
+      ],
+      "title": "CloudSpeechOption",
+      "type": "object"
+    },
     "DocumentEmbeddingSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -750,6 +871,45 @@
       "title": "KnowledgeTypeCount",
       "type": "object"
     },
+    "KokoroLanguageVoices": {
+      "additionalProperties": false,
+      "properties": {
+        "es": {
+          "maxLength": 32,
+          "title": "Es",
+          "type": "string"
+        },
+        "fr": {
+          "maxLength": 32,
+          "title": "Fr",
+          "type": "string"
+        },
+        "hi": {
+          "maxLength": 32,
+          "title": "Hi",
+          "type": "string"
+        },
+        "it": {
+          "maxLength": 32,
+          "title": "It",
+          "type": "string"
+        },
+        "pt": {
+          "maxLength": 32,
+          "title": "Pt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "es",
+        "fr",
+        "hi",
+        "it",
+        "pt"
+      ],
+      "title": "KokoroLanguageVoices",
+      "type": "object"
+    },
     "LearningSettingsSnapshot": {
       "additionalProperties": false,
       "description": "Learning's saved settings (Settings \u203a Learning).",
@@ -852,6 +1012,70 @@
         "past_chats"
       ],
       "title": "LearningSourcesSnapshot",
+      "type": "object"
+    },
+    "LiveVoiceProvider": {
+      "additionalProperties": false,
+      "description": "A Live voice option: who hears the audio, its approximate price, and whether its key is saved.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "company": {
+          "maxLength": 64,
+          "title": "Company",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "openai",
+            "gemini",
+            "grok"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "price": {
+          "maxLength": 64,
+          "title": "Price",
+          "type": "string"
+        },
+        "price_checked": {
+          "maxLength": 32,
+          "title": "Price Checked",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "available",
+            "realtime_key_missing",
+            "host_unavailable"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "shares": {
+          "default": false,
+          "title": "Shares",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "company",
+        "price",
+        "price_checked",
+        "available",
+        "reason"
+      ],
+      "title": "LiveVoiceProvider",
       "type": "object"
     },
     "MigrationSettingsSnapshot": {
@@ -2106,6 +2330,158 @@
       "title": "UtilitySettingsSnapshot",
       "type": "object"
     },
+    "VoiceLanguageNotice": {
+      "additionalProperties": false,
+      "description": "An engine in use that can't understand the language chosen, or the one it keeps hearing.",
+      "properties": {
+        "alternatives": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "engine": {
+          "maxLength": 64,
+          "title": "Engine",
+          "type": "string"
+        },
+        "heard": {
+          "title": "Heard",
+          "type": "boolean"
+        },
+        "language": {
+          "maxLength": 8,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "language_label": {
+          "maxLength": 64,
+          "title": "Language Label",
+          "type": "string"
+        },
+        "switch_field": {
+          "enum": [
+            "runtime.talk_model",
+            "runtime.dictation_model"
+          ],
+          "title": "Switch Field",
+          "type": "string"
+        },
+        "switch_value": {
+          "maxLength": 128,
+          "title": "Switch Value",
+          "type": "string"
+        },
+        "understands": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Understands",
+          "type": "array"
+        },
+        "use": {
+          "enum": [
+            "talk",
+            "dictation"
+          ],
+          "title": "Use",
+          "type": "string"
+        }
+      },
+      "required": [
+        "use",
+        "engine",
+        "understands",
+        "language",
+        "language_label",
+        "heard",
+        "alternatives",
+        "switch_field",
+        "switch_value"
+      ],
+      "title": "VoiceLanguageNotice",
+      "type": "object"
+    },
+    "VoiceLanguageSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "notices": {
+          "items": {
+            "$ref": "#/$defs/VoiceLanguageNotice"
+          },
+          "maxItems": 4,
+          "title": "Notices",
+          "type": "array"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 64,
+          "title": "Options",
+          "type": "array"
+        },
+        "spoken": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Spoken",
+          "type": "array"
+        },
+        "voice_options": {
+          "items": {
+            "$ref": "#/$defs/VoiceLanguageVoiceOptions"
+          },
+          "maxItems": 16,
+          "title": "Voice Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "options",
+        "spoken",
+        "voice_options",
+        "notices"
+      ],
+      "title": "VoiceLanguageSnapshot",
+      "type": "object"
+    },
+    "VoiceLanguageVoiceOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "language": {
+          "maxLength": 8,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/SettingsChoice"
+          },
+          "maxItems": 16,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "language",
+        "label",
+        "options"
+      ],
+      "title": "VoiceLanguageVoiceOptions",
+      "type": "object"
+    },
     "VoiceLocalSettingsSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -2159,13 +2535,27 @@
           "title": "Dictation Provider",
           "type": "string"
         },
-        "realtime_fallback_to_local": {
-          "title": "Realtime Fallback To Local",
+        "push_to_talk": {
+          "default": false,
+          "title": "Push To Talk",
           "type": "boolean"
+        },
+        "realtime_model": {
+          "default": "gpt-realtime-2",
+          "maxLength": 128,
+          "title": "Realtime Model",
+          "type": "string"
         },
         "realtime_voice": {
           "maxLength": 32,
           "title": "Realtime Voice",
+          "type": "string"
+        },
+        "speech_language": {
+          "default": "auto",
+          "maxLength": 8,
+          "minLength": 2,
+          "title": "Speech Language",
           "type": "string"
         },
         "speech_output_model": {
@@ -2178,15 +2568,6 @@
           "title": "Speech Output Provider",
           "type": "string"
         },
-        "speech_output_voice": {
-          "maxLength": 64,
-          "title": "Speech Output Voice",
-          "type": "string"
-        },
-        "talk_auto_start": {
-          "title": "Talk Auto Start",
-          "type": "boolean"
-        },
         "talk_model": {
           "maxLength": 128,
           "title": "Talk Model",
@@ -2196,6 +2577,21 @@
           "maxLength": 64,
           "title": "Talk Provider",
           "type": "string"
+        },
+        "turn_eagerness": {
+          "default": "normal",
+          "enum": [
+            "relaxed",
+            "normal",
+            "eager"
+          ],
+          "title": "Turn Eagerness",
+          "type": "string"
+        },
+        "wake_word": {
+          "default": false,
+          "title": "Wake Word",
+          "type": "boolean"
         }
       },
       "required": [
@@ -2205,11 +2601,8 @@
         "dictation_model",
         "speech_output_provider",
         "speech_output_model",
-        "speech_output_voice",
         "realtime_voice",
-        "captions_enabled",
-        "talk_auto_start",
-        "realtime_fallback_to_local"
+        "captions_enabled"
       ],
       "title": "VoiceRuntimeSettingsSnapshot",
       "type": "object"
@@ -2225,6 +2618,14 @@
           "title": "Availability",
           "type": "string"
         },
+        "cloud_speech": {
+          "items": {
+            "$ref": "#/$defs/CloudSpeechOption"
+          },
+          "maxItems": 16,
+          "title": "Cloud Speech",
+          "type": "array"
+        },
         "dictation_providers": {
           "items": {
             "$ref": "#/$defs/SettingsChoice"
@@ -2233,11 +2634,19 @@
           "title": "Dictation Providers",
           "type": "array"
         },
+        "language": {
+          "$ref": "#/$defs/VoiceLanguageSnapshot"
+        },
+        "live_providers": {
+          "items": {
+            "$ref": "#/$defs/LiveVoiceProvider"
+          },
+          "maxItems": 8,
+          "title": "Live Providers",
+          "type": "array"
+        },
         "local": {
           "$ref": "#/$defs/VoiceLocalSettingsSnapshot"
-        },
-        "openai_realtime_credential": {
-          "$ref": "#/$defs/SettingsCredentialState"
         },
         "realtime_voice_options": {
           "items": {
@@ -2291,31 +2700,28 @@
         "runtime",
         "local",
         "tts",
-        "openai_realtime_credential",
+        "live_providers",
         "talk_providers",
         "dictation_providers",
         "speech_output_providers",
         "whisper_options",
         "realtime_voice_options",
-        "tts_voice_options"
+        "tts_voice_options",
+        "language"
       ],
       "title": "VoiceSettingsSnapshot",
       "type": "object"
     },
     "VoiceTtsSettingsSnapshot": {
       "additionalProperties": false,
+      "description": "Kokoro, the voice that speaks Read aloud and Talk's replies: its voice and speed.",
       "properties": {
-        "auto_speak": {
-          "title": "Auto Speak",
-          "type": "boolean"
-        },
-        "enabled": {
-          "title": "Enabled",
-          "type": "boolean"
-        },
         "installed": {
           "title": "Installed",
           "type": "boolean"
+        },
+        "language_voices": {
+          "$ref": "#/$defs/KokoroLanguageVoices"
         },
         "speed": {
           "maximum": 2.0,
@@ -2331,10 +2737,9 @@
       },
       "required": [
         "installed",
-        "enabled",
         "voice",
         "speed",
-        "auto_speak"
+        "language_voices"
       ],
       "title": "VoiceTtsSettingsSnapshot",
       "type": "object"

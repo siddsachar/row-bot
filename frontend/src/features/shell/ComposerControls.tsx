@@ -74,8 +74,10 @@ import {
 } from './approval-levels';
 import { ATTACHMENT_LIMITS } from './attachment-limits';
 import { useIncognitoSwitch } from './incognito';
+import { currentThinkingLabel } from './slash-arguments';
 import { targetGroups, type TargetKind } from './ResourceTargets';
 import '../../ui/styles/phone-composer.css';
+import { modelSettingsPath } from '../local-runtime/LocalModelSheet';
 
 /**
  * The composer's left cluster: a + menu (attach, add resource, skills, agent
@@ -456,14 +458,7 @@ export default function ComposerControls({
         selection,
       },
     });
-  const thinkingLabel =
-    reasoning?.choices.find(
-      (item) =>
-        JSON.stringify(item.selection) === JSON.stringify(reasoning.selection),
-    )?.label ??
-    (reasoning?.selection.kind === 'budget'
-      ? `${reasoning.selection.budget} tokens`
-      : 'Provider default');
+  const thinkingLabel = currentThinkingLabel(reasoning);
   const trigger = (
     <Dropdown.Trigger asChild>
       <Button
@@ -1118,6 +1113,7 @@ export default function ComposerControls({
         onConnect={providerSheet}
         onReconnect={() => providerSheet(controls.model_selection?.provider_id)}
         onManage={() => navigate('/settings/models')}
+        onModelSettings={(modelRef) => navigate(modelSettingsPath(modelRef))}
         onSetup={() => navigate('/setup')}
         onVisibility={(item, action) => void changeVisibility(item, action)}
         search={searchModels}

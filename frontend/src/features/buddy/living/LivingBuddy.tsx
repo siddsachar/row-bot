@@ -7,7 +7,7 @@ import { pagePointer } from './pointer';
 import { BuddyRenderer, viewFor, type Framing } from './renderer';
 import { buildRig, parseRig, type BuiltRig } from './rig';
 import { claimLiveSlot, schedule, wake } from './scheduler';
-import { buddyVoiceLevel } from './voice';
+import { buddyListening, buddyVoiceLevel } from './voice';
 import './LivingBuddy.css';
 
 type Loaded = { rig: BuiltRig; art: ImageBitmap; patches: ImageBitmap | null };
@@ -190,7 +190,9 @@ export function LivingBuddy({
               pointerAge = seen.age;
             }
             const frame = controller.update(dt, {
-              activity: current.snapshot.activity ?? 'idle',
+              activity: buddyListening()
+                ? 'listening'
+                : (current.snapshot.activity ?? 'idle'),
               animation: status.animation,
               eventId: status.event_id,
               mood: status.mood,

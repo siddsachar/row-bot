@@ -572,6 +572,11 @@ def engine_variables(root: Path | None = None) -> dict[str, str]:
         # cross-entropy budget so a resumed run doesn't stop on its first step.
         "UNSLOTH_EXPERIMENTAL_HYBRID_PACKING": "0",
         "UNSLOTH_CE_LOSS_TARGET_GB": "1",
+        # W9: rows of every length fragment PyTorch's cached memory up to the cap (W8), and after an
+        # evaluation hands it back the next long step can fail to grow it again (the 16 GB tier, 23 Nov).
+        # Windows has no expandable segments; instead unused blocks go back above 80% of the cap and
+        # blocks over 256 MiB aren't split. idris's replay: 12.9 GiB at its peak instead of 15.3, same speed.
+        "PYTORCH_CUDA_ALLOC_CONF": "garbage_collection_threshold:0.8,max_split_size_mb:256",
     }
 
 

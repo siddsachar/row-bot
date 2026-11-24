@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from row_bot.learning.training import engine, fetch, lockfile
-from row_bot.learning.training.worker import PROTOCOL_PATH, TELEMETRY_ENV, venv_launcher
+from row_bot.learning.training.worker import PROTOCOL_PATH, TELEMETRY_ENV, venv_launcher, worker_environment
 from tests.fixtures.learning import save_learning_settings
 from tests.fixtures.learning_engine import (
     FakeIndex,
@@ -216,6 +216,9 @@ def test_the_worker_runs_the_engines_base_interpreter_never_a_venv_launcher(setu
     assert command.env["UNSLOTH_CE_LOSS_TARGET_GB"] == "1"
     assert command.env["TRITON_CACHE_DIR"].startswith(str(engine.cache_dir(setup.root)))
     assert not set(command.env) & set(TELEMETRY_ENV)  # the worker sets those itself, last
+    # W9: the training process itself runs with the allocator's anti-fragmentation settings.
+    started = worker_environment(setup.root / "run", command.env)
+    assert started["PYTORCH_CUDA_ALLOC_CONF"] == "garbage_collection_threshold:0.8,max_split_size_mb:256"
 
 
 def test_uv_comes_from_its_verified_wheel(tmp_path):

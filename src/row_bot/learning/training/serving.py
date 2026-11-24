@@ -530,7 +530,10 @@ def serve(
             logger.warning("Learning couldn't refresh the local model catalog", exc_info=True)
         if save_model_settings is None:
             from row_bot.models import set_local_model_settings as save_model_settings
-        save_model_settings(served, context=int(serve_context), reasoning="off")
+        from row_bot.models import LEARNING_OWNER
+
+        # Marked Learning's (#1045): the person's settings sheet and the family presets leave it as trained.
+        save_model_settings(served, context=int(serve_context), reasoning="off", owner=LEARNING_OWNER)
         reference = make_ref("ollama", served)
         probe = dict(verifier.probe(reference, runtime=runtime, model_id=served))
     else:
