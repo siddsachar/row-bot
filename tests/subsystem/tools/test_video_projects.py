@@ -1353,3 +1353,116 @@ def test_a_recipe_sets_the_words_a_short_has_big_captions_and_a_youtube_video_op
     assert video_projects.chapters(youtube.latest, youtube.title, [0.0, 40.0, 45.0, 80.0], 80.0) == [], \
         "a chapter under ten seconds is dropped, and two aren't enough for YouTube"
 
+
+
+# ── Real footage (C4) ───────────────────────────────────────────────────────
+
+TALKING = ((0.8, 1.0, "So,"), (1.1, 1.4, "um,"), (1.5, 1.9, "today"), (1.9, 2.1, "we"), (2.1, 2.4, "open"),
+           (2.4, 2.5, "the"), (2.5, 2.9, "box."), (4.0, 4.3, "And"), (4.3, 4.6, "here"), (4.6, 4.8, "it"),
+           (4.8, 5.2, "is."))
+
+
+@pytest.fixture
+def hearing(monkeypatch):
+    """The local speech model is here and hears TALKING in any clip, at the file's own times."""
+    from row_bot import sound
+
+    heard: list[tuple] = []
+
+    def transcribe(*args):
+        heard.append(args)
+        return [sound.Segment(0.8, 5.2, "So, um, today we open the box. And here it is.", TALKING)], "en"
+
+    monkeypatch.setattr(sound, "can_transcribe", lambda: True)
+    monkeypatch.setattr(sound, "transcribe", transcribe)
+    monkeypatch.setattr(sound, "transcribe_bytes", lambda _data, _suffix, *rest: transcribe(*rest))
+    return heard
+
+
+def test_a_vlog_cuts_its_clips_pauses_cleans_their_voices_and_its_captions_follow_the_cut(studio, hearing):
+    """C4: a vlog's clips that speak for themselves keep only their speech (the um and every pause cut down to a
+    breath), their voices are cleaned, and captions of that speech fall where it shows once the pauses are gone. A
+    scene with a line said over it keeps all of its clip; the video's own choice wins over its recipe's."""
+    from row_bot import video_projects
+
+    vlog = video_projects.create("conversation-a", "Unboxing", [
+        {"source": "signup.mp4", "end": 6, "card": "Unboxing"}, {"source": "pricing.mp4", "end": 3,
+                                                                 "line": "Then pick a plan."}],
+        captions=True, look={"recipe": "vlog"})
+    assert video_projects.talk_of(vlog.latest) == (True, True) and video_projects.hears(vlog.latest)
+    assert "Speech: the clips' pauses and fillers cut and their voices cleaned." in video_projects.summary(vlog)
+
+    video_projects.make(vlog, 1)
+    _wait(vlog.project_id, 1)
+    request = studio["started"][-1]
+    talking, narrated = request.steps[0].scenes
+    assert talking.keeps == ((0.7, 1.1), (1.4, 3.05), (3.9, 5.35)) and narrated.keeps == ()
+    assert [word for _start, _end, word in talking.words][:3] == ["So,", "today", "we"], "the um is cut"
+    assert talking.words[1][:2] == (0.5, 0.9), "'today' where it shows once the pauses are gone"
+    assert [(step.role, step.clean) for step in request.steps if step.op == "sound"] == [("original", True)]
+
+    plain = video_projects.change(vlog, by="you", look={"tidy": False, "clean_voice": False})
+    assert video_projects.talk_of(plain) == (False, False) and not video_projects.hears(plain)
+    video_projects.make(vlog, plain.number)
+    _wait(vlog.project_id, plain.number)
+    assert studio["started"][-1].steps[0].scenes[0].keeps == () and not any(
+        step.op == "sound" for step in studio["started"][-1].steps)
+    assert hearing == [(0.0, 6.0), (0.0, None)], "its clip's part and its voice line, each heard once and kept"
+
+
+def test_b_roll_over_a_scene_shows_at_its_times_or_while_its_words_are_said(studio, hearing):
+    """C4: b-roll on a scene, from a clip or a picture, at seconds from the scene's start or while words of it are
+    said; its files are checked and read like any footage, and a missing one is named by its scene."""
+    import io
+
+    from PIL import Image
+
+    from row_bot import video_projects
+    from row_bot.application.attachments import register_attachment
+
+    picture = io.BytesIO()
+    Image.new("RGB", (64, 36), (200, 40, 40)).save(picture, format="JPEG")
+    register_attachment("conversation-a", "box.jpg", picture.getvalue())
+    project = video_projects.create("conversation-a", "Unboxing", [
+        {"source": "signup.mp4", "end": 6, "cover": [{"source": "box.jpg", "words": "open the box"},
+                                                     {"source": "pricing.mp4", "start": 4, "end": 5.5}]}])
+    assert "b-roll box.jpg “open the box”, pricing.mp4 4–5.5 s" in video_projects.summary(project)
+    changed = video_projects.change(project, by="you", note="Shorter", scenes=[
+        {"scene_id": project.latest.scenes[0].scene_id, "source": "signup.mp4", "end": 5}])
+    assert changed.scenes[0].cover == project.version(1).scenes[0].cover, "a scene changed without its b-roll keeps it"
+
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    request = studio["started"][-1]
+    assert request.steps[0].scenes[0].covers == (("box.jpg", 2.1, 3.6), ("pricing.mp4", 4.0, 5.5))
+    assert sorted(request.covers) == ["box.jpg", "pricing.mp4"] and [item.label for item in request.sources] == [
+        "signup.mp4"], "b-roll is read as b-roll, not as a scene's footage"
+
+    with pytest.raises(video_projects.ProjectError, match="its b-roll needs when"):
+        video_projects.create("conversation-a", "Bad", [{"source": "signup.mp4", "cover": [{"source": "box.jpg"}]}])
+    with pytest.raises(video_projects.ProjectError, match="Scene 1"):
+        video_projects.create("conversation-a", "Gone", [{"source": "signup.mp4",
+                                                          "cover": [{"source": "nowhere.jpg", "start": 0, "end": 2}]}])
+
+
+def test_making_a_tidy_video_without_the_speech_model_asks_for_it_first(studio, monkeypatch):
+    from types import SimpleNamespace
+
+    from row_bot import ffmpeg_runtime, voice, video_projects
+    from row_bot.tools import approval_gate, video_project_tool
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    monkeypatch.setattr(voice, "get_voice_service", lambda: SimpleNamespace(
+        whisper_size="small", whisper_model_available=lambda: False))
+    asked: list[str] = []
+    monkeypatch.setattr(approval_gate, "approval_check", lambda payload, **_: asked.append(payload["question"]) or (
+        "The person didn't allow downloading the speech model; nothing was downloaded.", ""))
+
+    said = video_project_tool._video(action="create", title="Unboxing", scenes=[{"source": "signup.mp4", "end": 6}],
+                                     recipe="vlog")
+
+    assert said.startswith("The person didn't allow downloading the speech model")
+    assert asked == ["Transcribing needs the speech model (Whisper small, about 244 MB) from Hugging Face. "
+                     "Download it now?"]
+    assert video_projects.list_projects("conversation-a")[0].latest.status == "", "nothing made"

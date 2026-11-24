@@ -70,6 +70,8 @@ MAX_CUE = 80
 MAX_LOGLINE = 160
 MAX_SPEAKER = 40
 MAX_EFFECTS = 4
+# B-roll a whole video lays over its scenes (C4): as many as one edit takes.
+MAX_COVERS = 12
 # Music made to fit a version's cut, instead of a music file.
 FIT = "fit"
 # A scene's footage: the person's own clip, a picture, an AI shot, a title card or a screen recording.
@@ -81,11 +83,12 @@ SHAPES = ("16:9", "1:1", "9:16", "4:5")
 # The kinds of video (G1): each a few defaults for its look (C5) and its words (C7), which a version's own choices
 # override. A vertical short is 9:16 with big word captions on unless the video says otherwise, and ends without the
 # brand kit's end card; a new film, YouTube video, vlog, explainer or demo opens with its title (its first scene's
-# card, there to change); a YouTube video or an explainer lists its chapters.
+# card, there to change); a YouTube video or an explainer lists its chapters. A vlog's clips have their pauses and
+# fillers cut and their voice cleaned (C4).
 RECIPES: dict[str, dict[str, Any]] = {
     "film": {"grade": "cinematic", "grain": True, "letterbox": True, "opening": True},
     "youtube": {"opening": True, "chapters": True},
-    "vlog": {"opening": True, "caption_style": "clean"},
+    "vlog": {"opening": True, "caption_style": "clean", "tidy": True, "clean_voice": True},
     "montage": {"grade": "vivid", "transitions": "crossfade"},
     "explainer": {"opening": True, "chapters": True},
     "demo": {"opening": True},
@@ -133,6 +136,9 @@ class Scene:
     # ambience (``video_sound.EFFECTS``, or sound files in the chat by name).
     speaker: str = ""
     effects: list[str] = field(default_factory=list)
+    # Its b-roll (C4): clips or pictures shown over its picture while its own sound goes on, each {"source", and
+    # "start" and "end" (seconds from the scene's start) or "words" (while those words of it are said)}.
+    cover: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -179,6 +185,9 @@ class Version:
     transitions: str = ""
     # How its captions look (C7, ``video_brand.CAPTION_STYLES``): "" the recipe's, else the brand kit's.
     caption_style: str = ""
+    # Its clips' own speech (C4): pauses and fillers cut, and the voice cleaned (None: the recipe's).
+    tidy: bool | None = None
+    clean_voice: bool | None = None
     # Its publish kit (C10, ``video_publish.make``): made when the person names a platform; {} none.
     publish: dict[str, Any] = field(default_factory=dict)
 
@@ -236,6 +245,7 @@ def _scene_from(data: dict[str, Any]) -> Scene:
         shows=str(data.get("shows") or ""), frame=str(data.get("frame") or ""), cue=str(data.get("cue") or ""),
         approved=bool(data.get("approved")), speaker=str(data.get("speaker") or ""),
         effects=[str(item) for item in data.get("effects") or []][:MAX_EFFECTS],
+        cover=[dict(item) for item in data.get("cover") or [] if isinstance(item, dict)][:MAX_COVERS],
     )
 
 
@@ -388,7 +398,8 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
     named: dict[str, int] = {}
     for number, item in enumerate(raw, start=1):
         data = item if isinstance(item, dict) else dict(item)
-        for value in (_text(data.get("source"), 512), _text(data.get("frame"), 512)):
+        covering = [_text(shot.get("source"), 512) for shot in data.get("cover") or [] if isinstance(shot, dict)]
+        for value in (_text(data.get("source"), 512), _text(data.get("frame"), 512), *covering):
             if value:
                 named.setdefault(value, number)
     if len(named) > MAX_SOURCES:
@@ -413,6 +424,8 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
         # Effects left out keep the scene's own; a new scene's are those its music cue names ("rain, then thunder").
         effects = (_effects(data["effects"], number) if data.get("effects") is not None
                    else list(old.effects) if old else effect_words(cue))
+        cover = (_covers(data["cover"], number) if data.get("cover") is not None
+                 else [dict(shot) for shot in old.cover] if old else [])
         given = kept("footage", 16)
         if given and given not in FOOTAGE:
             raise ProjectError(f"Scene {number}: its footage is one of clip, picture, ai, card or screen.")
@@ -462,10 +475,30 @@ def _clean_scenes(raw: list[Any], conversation_id: str, before: list[Scene], all
                       speed=round(speed, 3) if source else 1.0,
                       zoom=(zoom or None) if source else None, card=card, line=line, voice=voice,
                       voiced=voiced, voiced_as=voiced_as, fit=fit if source else None, footage=footage,
-                      shows=shows, frame=frame, cue=cue, speaker=speaker, effects=effects)
+                      shows=shows, frame=frame, cue=cue, speaker=speaker, effects=effects, cover=cover)
         scene.approved = old is not None and old.approved and _same(scene, old)
         scenes.append(scene)
+    if sum(len(scene.cover) for scene in scenes) > MAX_COVERS:
+        raise ProjectError(f"At most {MAX_COVERS} b-roll shots fit in one video.")
     return scenes
+
+
+def _covers(given: Any, number: int) -> list[dict[str, Any]]:
+    """A scene's b-roll as given, checked (C4): each a clip or picture, shown from start to end (seconds from the
+    scene's start) or while its words are said."""
+    shots: list[dict[str, Any]] = []
+    for item in given or []:
+        data = item if isinstance(item, dict) else dict(item)
+        source, words = _text(data.get("source"), 512), _text(data.get("words"), MAX_LINE)
+        start = _number(data.get("start"), "its b-roll's start", number)
+        end = _number(data.get("end"), "its b-roll's end", number)
+        if not source:
+            raise ProjectError(f"Scene {number}: its b-roll needs its source, a clip or a picture.")
+        if not words and (start is None or end is None or end - start < 0.1):
+            raise ProjectError(f"Scene {number}: its b-roll needs when: start and end (seconds from the scene's "
+                               "start), or the words it shows over.")
+        shots.append({"source": source, "words": words} if words else {"source": source, "start": start, "end": end})
+    return shots
 
 
 def _effects(given: Any, number: int) -> list[str]:
@@ -489,7 +522,7 @@ def _effects(given: Any, number: int) -> list[str]:
 
 # What a scene is: a change to any of these is a change to the scene (its approval goes, and the panel marks it).
 CONTENT = ("source", "start", "end", "speed", "zoom", "card", "line", "fit", "footage", "shows", "frame", "cue",
-           "speaker", "effects")
+           "speaker", "effects", "cover")
 
 
 def _same(scene: Scene, other: Scene) -> bool:
@@ -551,7 +584,8 @@ def _finish_fields(data: dict[str, Any]) -> dict[str, Any]:
 
     return {"recipe": known("recipe", RECIPES), "grade": known("grade", GRADES), "grain": either("grain"),
             "letterbox": either("letterbox"), "transitions": known("transitions", TRANSITIONS),
-            "caption_style": known("caption_style", CAPTION_STYLES)}
+            "caption_style": known("caption_style", CAPTION_STYLES), "tidy": either("tidy"),
+            "clean_voice": either("clean_voice")}
 
 
 def _choice(value: Any, allowed: tuple[str, ...] | dict[str, Any], name: str) -> str:
@@ -572,13 +606,33 @@ def _look(values: dict[str, Any]) -> dict[str, Any]:
                                ("caption_style", CAPTION_STYLES, "The caption style")):
         if values.get(key) is not None:
             checked[key] = _choice(values[key], allowed, name)
-    for key in ("grain", "letterbox"):
+    for key in ("grain", "letterbox", "tidy", "clean_voice"):
         if values.get(key) is not None:
             checked[key] = bool(values[key])
     return checked
 
 
-LOOK = ("recipe", "grade", "grain", "letterbox", "transitions", "caption_style")
+LOOK = ("recipe", "grade", "grain", "letterbox", "transitions", "caption_style", "tidy", "clean_voice")
+
+
+def talk_of(version: Version) -> tuple[bool, bool]:
+    """Whether a version's clips have their pauses and fillers cut, and their voice cleaned (C4): its own choice,
+    else its recipe's."""
+    kind = RECIPES.get(version.recipe, {})
+    return (kind.get("tidy", False) if version.tidy is None else version.tidy,
+            kind.get("clean_voice", False) if version.clean_voice is None else version.clean_voice)
+
+
+def _talks(scene: Scene) -> bool:
+    """A scene carried by its own clip's speech: a clip with no line said over it."""
+    return bool(scene.source) and not scene.line and footage_of(scene) == "clip"
+
+
+def hears(version: Version) -> bool:
+    """Whether making a version needs the local speech model (C4): pauses cut from a clip's speech, or b-roll laid
+    at its words."""
+    return any(_talks(scene) and (talk_of(version)[0] or any(shot.get("words") for shot in scene.cover))
+               for scene in version.scenes)
 
 
 def caption_style_of(version: Version) -> str:
@@ -1104,22 +1158,21 @@ def footage(project: Project, version: Version) -> tuple[dict[str, Any], list[tu
     missing: list[tuple[int, str]] = []
     refused: list[tuple[int, str]] = []
     for number, scene in enumerate(version.scenes, start=1):
-        if not scene.source:
-            continue
-        if scene.source not in found:
-            try:
-                path = outside_path(scene.source, project.conversation_id)
-                if path is not None and path not in allowed:
-                    found[scene.source] = ""
-                else:
-                    media = resolve(scene.source, project.conversation_id, allowed=allowed)
-                    found[scene.source] = media[0] if len(media) == 1 else None
-            except (SourceError, OSError, ValueError):
-                found[scene.source] = None
-        if found[scene.source] == "":
-            refused.append((number, scene.source))
-        elif found[scene.source] is None:
-            missing.append((number, scene.source))
+        for source in [scene.source] * bool(scene.source) + [shot["source"] for shot in scene.cover]:
+            if source not in found:
+                try:
+                    path = outside_path(source, project.conversation_id)
+                    if path is not None and path not in allowed:
+                        found[source] = ""
+                    else:
+                        media = resolve(source, project.conversation_id, allowed=allowed)
+                        found[source] = media[0] if len(media) == 1 else None
+                except (SourceError, OSError, ValueError):
+                    found[source] = None
+            if found[source] == "":
+                refused.append((number, source))
+            elif found[source] is None:
+                missing.append((number, source))
     return {source: media for source, media in found.items() if media}, missing, refused
 
 
@@ -1187,7 +1240,12 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
         if missing or refused:
             raise SourceError(" ".join(words for words in (missing and missing_words(missing),
                                                            refused and refused_words(refused)) if words))
-        sources, media = list(found), list(found.values())
+        used = {scene.source for scene in version.scenes if scene.source}
+        sources = [source for source in found if source in used]
+        media = [found[source] for source in sources]
+        covers = {shot["source"]: found[shot["source"]] for scene in version.scenes for shot in scene.cover}
+        tidy, clean = talk_of(version)
+        keeps = _tidied(project, version, found) if tidy else {}
         cuts = [SceneCut(input=sources.index(scene.source) if scene.source else None, start=scene.start,
                          end=scene.end, speed=scene.speed,
                          zoom=tuple(scene.zoom) if scene.zoom else None, card=scene.card, line=scene.line,
@@ -1199,7 +1257,8 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          if scene.source and not scene.zoom else (),
                          waits=scene_waits(scene.source, scene.start, scene.end) if scene.source else (),
                          effects=tuple(scene.effects), cue=scene.cue,
-                         matched=footage_of(scene) in ("clip", "ai", "picture"))
+                         matched=footage_of(scene) in ("clip", "ai", "picture"),
+                         keeps=keeps.get(scene.scene_id, ()))
                 for scene in version.scenes]
         fitted = version.music == FIT
         extra = [name for name in (version.narration, "" if fitted else version.music) if name]
@@ -1210,11 +1269,17 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                 sounds[name] = (path, data or b"", suffix)
         look = _brand_look() if version.brand else None
         narrated: tuple[Any, ...] = ()
+        heard: dict[str, tuple[Any, ...]] = {}
         if version.captions:  # Word by word, as they're said (C7), in the video's caption style.
-            heard, narrated = caption_words(project, version, sounds, lasts, found)
+            heard, narrated = caption_words(project, version, sounds, lasts, found, keeps)
             cuts = [replace(cut, words=heard.get(scene.scene_id, ())) for cut, scene in zip(cuts, version.scenes)]
             if look is not None or caption_style_of(version) != "box":
                 look = replace(look or Look(), captions=caption_style_of(version))
+        elif any(shot.get("words") for scene in version.scenes for shot in scene.cover):
+            heard, _narration = caption_words(project, version, sounds, lasts, found, keeps, wanted={
+                scene.scene_id for scene in version.scenes if any(shot.get("words") for shot in scene.cover)})
+        cuts = [replace(cut, covers=_laid(scene, heard.get(scene.scene_id, ()), index))
+                for index, (cut, scene) in enumerate(zip(cuts, version.scenes), start=1)]
         if look is not None and not RECIPES.get(version.recipe, {}).get("end_card", True):
             look = replace(look, outro="")
         steps = [Step(op="scenes", scenes=cuts, style="caption" if version.captions else "",
@@ -1224,6 +1289,8 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
         if version.music:  # A music file, or music made to fit the cut (``SCORE``, made with the video).
             steps.append(Step(op="sound", source=SCORE if fitted else version.music, role="music",
                               volume=version.music_volume))
+        if clean:  # The clips' own speech cleaned, then brought to the video's loudness (C4).
+            steps.append(Step(op="sound", role="original", clean=True))
         kit = video_brand.load()
         known = {value: scene_footage(value, item.ref or "") for value, item in zip(sources, media, strict=True)}
         edit = video_edits.start(video_edits.Request(
@@ -1233,7 +1300,7 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
             footage=[known.get(scene.source, Footage()) for scene in version.scenes],
             role="draft", output_id=project.project_id, version=number, scene_cache=scene_cache(project),
             score=(version.music_mood or kit.music_mood) if fitted else "", on_beat=version.on_beat,
-            loudness=kit.loudness if version.brand else None,
+            loudness=kit.loudness if version.brand else None, covers=covers,
         ))
         if shape:
             fresh = get(project_id, conversation_id)
@@ -1250,64 +1317,94 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
 
 
 def caption_words(project: Project, version: Version, sounds: dict[str, tuple[Any, bytes, str]],
-                  lasts: dict[str, float], found: dict[str, Any]) -> tuple[dict[str, tuple[Any, ...]], tuple[Any, ...]]:
+                  lasts: dict[str, float], found: dict[str, Any],
+                  keeps: dict[str, tuple[tuple[float, float], ...]] | None = None,
+                  wanted: set[str] | None = None) -> tuple[dict[str, tuple[Any, ...]], tuple[Any, ...]]:
     """Each captioned scene's words in time (C7; seconds from its start on the video), and one narration's over the
     whole video: a line at the times its voice says it, heard by the local speech model when it's installed, else
     spread over the voice by its letters; a scene with no line, its own clip's speech, heard only by the speech
-    model. What was heard is kept with the project, so a make again hears nothing again."""
+    model, where it shows once its pauses are cut (*keeps*, C4). What was heard is kept with the project, so a make
+    again hears nothing again. *wanted*: only these scenes' words (b-roll laid at its words), and no narration's."""
     from row_bot import sound
-    from row_bot.video_editing import aligned_words, estimated_words
+    from row_bot.video_editing import aligned_words, estimated_words, kept_words
 
     hearing = sound.can_transcribe()
-    shelf = scene_cache(project).with_name(f"{project.project_id}-words")
+    shelf = _words_shelf(project)
     words: dict[str, tuple[Any, ...]] = {}
     for scene in version.scenes:
+        if wanted is not None and scene.scene_id not in wanted:
+            continue
         if scene.line and scene.voice and _says_lines(version) and scene.voice in sounds:
-            heard = _heard(shelf, f"voice|{scene.voice}|{scene.voiced}|{scene.voiced_as}", sounds[scene.voice]) \
-                if hearing else None
+            heard = sound.heard(shelf, f"voice|{scene.voice}|{scene.voiced}|{scene.voiced_as}",
+                                sounds[scene.voice]) if hearing else None
             words[scene.scene_id] = (aligned_words(scene.line, heard) if heard
                                      else estimated_words(scene.line, lasts.get(scene.voice, 0.0)))
         elif not scene.line and hearing and footage_of(scene) in ("clip", "ai") and scene.source in found:
-            media = found[scene.source]
-            identity = media.ref or f"{media.path}:{media.path.stat().st_size}:{media.path.stat().st_mtime_ns}"
-            source = (media.path, b"", media.path.suffix) if media.path else (
-                None, media.read_bytes(1 << 31), Path(media.label).suffix or ".mp4")
-            heard = _heard(shelf, f"clip|{identity}|{scene.start}|{scene.end}", source, scene.start, scene.end)
-            words[scene.scene_id] = tuple(
-                (round((start - scene.start) / scene.speed, 3), round((end - scene.start) / scene.speed, 3), word)
-                for start, end, word in heard or [] if start >= scene.start - 0.05)
+            heard = [word for word in _clip_heard(shelf, scene, found[scene.source]) or []
+                     if word[0] >= scene.start - 0.05]
+            parts = (keeps or {}).get(scene.scene_id) or ((scene.start, float("inf")),)
+            words[scene.scene_id] = tuple((round(start / scene.speed, 3), round(end / scene.speed, 3), word)
+                                          for start, end, word in kept_words(heard, parts))
     narrated: tuple[Any, ...] = ()
-    if version.narration and hearing and version.narration in sounds:
-        narrated = tuple(_heard(shelf, f"narration|{version.narration}", sounds[version.narration]) or ())
+    if wanted is None and version.narration and hearing and version.narration in sounds:
+        narrated = tuple(sound.heard(shelf, f"narration|{version.narration}", sounds[version.narration]) or ())
     return words, narrated
 
 
-def _heard(shelf: Path, key: str, source: tuple[Any, bytes, str], start: float = 0.0,
-           end: float | None = None) -> list[tuple[float, float, str]] | None:
-    """The words the local speech model hears in a sound (a voice file, a clip's part, a narration), each with its
-    time in the file; kept by *key*. None when nothing could be heard."""
-    import hashlib
+def _words_shelf(project: Project) -> Path:
+    """Where a project keeps the words heard in its sounds."""
+    return scene_cache(project).with_name(f"{project.project_id}-words")
 
+
+def _clip_heard(shelf: Path, scene: Scene, media: Any) -> list[tuple[float, float, str]] | None:
+    """The words heard in a scene's part of its clip, seconds on the clip (kept: heard once)."""
     from row_bot import sound
 
-    kept = shelf / f"{hashlib.sha256(key.encode()).hexdigest()[:32]}.json"
-    try:
-        return [(float(start), float(end), str(word)) for start, end, word in json.loads(kept.read_text("utf-8"))]
-    except (OSError, ValueError, TypeError):
-        pass
-    path, data, suffix = source
-    try:
-        segments, _language = (sound.transcribe(path, start, end) if path is not None
-                               else sound.transcribe_bytes(data, suffix, start, end))
-    except (sound.SoundError, OSError, ValueError):
-        logger.info("No words were heard for a caption")
-        return None
-    heard = [word for segment in segments for word in segment.words]
-    shelf.mkdir(parents=True, exist_ok=True)
-    partial = kept.with_name(f"{kept.name}.{uuid.uuid4().hex[:6]}.part")
-    partial.write_text(json.dumps(heard), encoding="utf-8", newline="\n")
-    os.replace(partial, kept)
-    return heard
+    identity = media.ref or f"{media.path}:{media.path.stat().st_size}:{media.path.stat().st_mtime_ns}"
+    source = (media.path, b"", media.path.suffix) if media.path else (
+        None, media.read_bytes(1 << 31), Path(media.label).suffix or ".mp4")
+    return sound.heard(shelf, f"clip|{identity}|{scene.start}|{scene.end}", source, scene.start, scene.end)
+
+
+def _tidied(project: Project, version: Version, found: dict[str, Any]) -> dict[str, tuple[tuple[float, float], ...]]:
+    """The parts each clip scene carried by its own speech keeps once its pauses and fillers are cut (C4), seconds on
+    its clip, from what the local speech model hears in it; a scene with nothing to cut keeps all of it."""
+    from row_bot import sound
+    from row_bot.video_editing import kept_parts, pauses_and_fillers
+
+    talking = [scene for scene in version.scenes if _talks(scene) and scene.source in found]
+    if talking and not sound.can_transcribe():
+        raise ValueError("Cutting the pauses needs the Whisper speech model: the person installs it in Settings › "
+                         "Voice, or the video is made with tidy off.")
+    shelf = _words_shelf(project)
+    keeps: dict[str, tuple[tuple[float, float], ...]] = {}
+    for scene in talking:
+        length = float("inf") if scene.end is None else scene.end - scene.start
+        heard = [(start - scene.start, end - scene.start, word) for start, end, word in
+                 _clip_heard(shelf, scene, found[scene.source]) or [] if start >= scene.start - 0.05]
+        cuts = pauses_and_fillers(heard, None if scene.end is None else length)
+        if heard and cuts:
+            keeps[scene.scene_id] = tuple((round(start + scene.start, 3), until + scene.start)
+                                          for start, until in kept_parts(cuts, 0.0, length))
+    return keeps
+
+
+def _laid(scene: Scene, words: tuple[Any, ...], number: int) -> tuple[tuple[str, float, float], ...]:
+    """A scene's b-roll as the render lays it (C4): (source, from, until), seconds from its start on the video; one
+    laid at its words shows while they're said (``said``), at least ``SHORTEST_COVER``."""
+    from row_bot.video_editing import SHORTEST_COVER, EditError, said
+
+    laid = []
+    for shot in scene.cover:
+        if not shot.get("words"):
+            laid.append((shot["source"], float(shot["start"]), float(shot["end"])))
+            continue
+        try:
+            start, end = said(list(words), shot["words"])
+        except EditError as error:
+            raise ValueError(f"Scene {number}'s b-roll {shot['source']}: {error}") from None
+        laid.append((shot["source"], start, max(end, start + SHORTEST_COVER)))
+    return tuple(laid)
 
 
 def scene_cache(project: Project) -> Path:
@@ -1496,6 +1593,14 @@ def _status(version: Version, edit: Any) -> str:
     return {"saved": "made", "failed": "failed", "stopped": "stopped"}.get(edit.status, "rendering")
 
 
+def _cover_words(shots: list[dict[str, Any]]) -> str:
+    """A scene's b-roll as its summary line says it: "b-roll box.jpg “opens the box”, shelf.mp4 2–5 s"."""
+    if not shots:
+        return ""
+    return "b-roll " + ", ".join(f"{shot['source']} “{shot['words']}”" if shot.get("words")
+                                 else f"{shot['source']} {shot['start']:g}–{shot['end']:g} s" for shot in shots)
+
+
 # A made video's checks are the finished check (C8): its sound, picture and words were read and its review sheet
 # looked at once by the vision model, so Row-Bot fixes what they list instead of looking again itself.
 REVIEW = ("Review sheet: {sheet} (frames of each scene, for the person to open). The checks above already "
@@ -1549,6 +1654,7 @@ def summary(project: Project, number: int | None = None) -> str:
                   f"music \"{scene['cue']}\"" if scene["cue"] else "",
                   f"said by {scene['speaker']}" if scene["speaker"] else "",
                   f"effects {', '.join(scene['effects'])}" if scene["effects"] else "",
+                  _cover_words(shown.scenes[index - 1].cover) if shown is not None else "",
                   "approved" if scene["approved"] else ""]
         extra = ", ".join(item for item in extras if item)
         line = f" — \"{scene['line']}\"" if scene["line"] else ""
@@ -1585,6 +1691,10 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["recipe"] or any(looks):
         lines.append(f"Look: {data['recipe'] + ', ' if data['recipe'] else ''}"
                      f"{', '.join(item for item in looks if item) or 'natural, cuts'}.")
+    tidy, clean = talk_of(shown) if shown is not None else (False, False)
+    if tidy or clean:
+        lines.append("Speech: " + " and ".join(words for words, on in (
+            ("the clips' pauses and fillers cut", tidy), ("their voices cleaned", clean)) if on) + ".")
     if data["captions"] and shown is not None:
         from row_bot import sound
 
