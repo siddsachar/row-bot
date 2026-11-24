@@ -200,12 +200,12 @@ test('facts: add one with its source, edit one, and retire one after a confirm',
   );
   expect(await screen.findByText('The fact is saved')).toBeInTheDocument();
   expect(facts()).toHaveTextContent('Visitors sign in at reception.');
-  expect(
-    sent(api, 'POST', `/api/brain/spaces/${COMPANY_SPACE}/facts`),
-  ).toEqual({
-    text: 'Visitors sign in at reception.',
-    source_document_id: HANDBOOK,
-  });
+  expect(sent(api, 'POST', `/api/brain/spaces/${COMPANY_SPACE}/facts`)).toEqual(
+    {
+      text: 'Visitors sign in at reception.',
+      source_document_id: HANDBOOK,
+    },
+  );
 
   await userEvent.click(
     screen.getByRole('button', {

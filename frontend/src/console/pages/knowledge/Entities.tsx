@@ -372,8 +372,8 @@ export function Entities({
             ) : (
               <EmptyState title="No knowledge yet">
                 Row-Bot finds the people, teams, projects and other things in
-                this space’s documents and facts, and lists them here for you
-                to tidy.
+                this space’s documents and facts, and lists them here for you to
+                tidy.
               </EmptyState>
             )
           ) : (

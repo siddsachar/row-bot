@@ -125,9 +125,7 @@ export function GroupPicker({
           items={value}
           nameOf={(group) => group}
           what={what}
-          onRemove={(group) =>
-            onChange(value.filter((item) => item !== group))
-          }
+          onRemove={(group) => onChange(value.filter((item) => item !== group))}
         />
       )}
       <div className="console-picker-add">

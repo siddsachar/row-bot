@@ -21,7 +21,6 @@ import { plural, same, spaceSummary } from './words';
 
 type Listed = Space & { documents: number };
 
-
 /** Add a space, or change its name and who reads and owns it. */
 function SpaceForm({
   space,

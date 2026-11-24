@@ -102,7 +102,10 @@ export function Documents({
       if (document.hidden || reading) return;
       reading = true;
       request<{ documents: BrainDocument[] }>(path)
-        .then((answer) => update(() => answer.documents), () => undefined)
+        .then(
+          (answer) => update(() => answer.documents),
+          () => undefined,
+        )
         .finally(() => {
           reading = false;
         });
