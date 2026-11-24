@@ -2360,8 +2360,9 @@ class ClientPlatformService:
                    "Approved" if approved else "Edited" if edited else "Denied", approval_id=approval_id)
             if approved and payload.get("scope") in {"turn", "chat"} and alone is None:
                 from row_bot.application import approval_grants
+                from row_bot.company.enforce import allows_standing_approvals
                 kinds = approval_grants.approval_kinds(interrupt)
-                if kinds:
+                if kinds and allows_standing_approvals():  # Never kept below a company ceiling of Auto (C3b).
                     approval_grants.grant(conversation_id, kinds, payload["scope"])
             answered = ({"interrupt_ids": [edited[0]], "resume_values": {edited[0]: edited[1]}} if edited
                         else {"interrupt_ids": [alone_id], "resume_values": {alone_id: approved}} if asks_again

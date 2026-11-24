@@ -248,7 +248,11 @@ def _local_address_refusal(session: BrowserSession, thread_id: str, url: str, to
         return (_local.PRIVATE_NETWORK_REFUSAL, "") if _local.private_network_target(url) else (None, "")
     if _local.is_row_bot_origin(origin):
         return _local.row_bot_refusal(origin), ""
-    if session.local_address_grant(thread_id, origin) is not None:
+    from row_bot.company.enforce import allows_standing_approvals
+
+    # Below a company ceiling of Auto an address the person allowed earlier asks again at each opening (C3b);
+    # the grant made then still lets that page's own requests through (browser.guard).
+    if allows_standing_approvals() and session.local_address_grant(thread_id, origin) is not None:
         return None, ""
     label = _local.address_label(origin)
     if _local.row_bot_server(origin, thread_id):

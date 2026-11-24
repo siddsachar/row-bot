@@ -539,8 +539,15 @@ def company_listed(row: dict, reference: dict) -> str:
     ref, reference = str(row["owner_ref"]), reference if isinstance(reference, dict) else {}
     if row["kind"] == "plugin":
         return "" if enforce.allows_plugin(ref, policy) else enforce.APP_HELD["plugins"]
-    if row["kind"] == "mcp":  # Listed as "<catalog>:<id>": the id is what a saved server keeps as source.id.
-        names = (row["name"], ref, ref.partition(":")[2])
+    if row["kind"] == "mcp":
+        # Only the catalog names an add from this listing would be bound to (``enforce.mcp_provenance``): a
+        # listing Row-Bot checks, never its display name.
+        entry = reference.get("entry")
+        entry = entry if isinstance(entry, dict) else vars(entry) if entry is not None else {}
+        catalog, _, entry_id = ref.partition(":")
+        metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        names = (enforce.mcp_catalog_names(catalog, entry_id, str(metadata.get("canonical_name") or ""))
+                 if catalog in {"curated", "official"} else ())
         return enforce.app_refusal("mcp_servers", *names, policy=policy) or ""
     if row["kind"] == "skill":
         names = (ref, str(reference.get("install_ref") or ""), str(reference.get("entry_id") or ""))

@@ -381,8 +381,12 @@ def install_plugin(
     from row_bot.plugins.devtools import compute_plugin_checksum
     from row_bot.package_files import contained_path
     operation_id = operation_id or str(uuid.uuid4())
-    from row_bot.company.enforce import APP_HELD, allows_plugin
+    from row_bot.company.enforce import APP_HELD, CUSTOM_TOOL_PREFIX, allows_plugin, current
 
+    if plugin_id.startswith(CUSTOM_TOOL_PREFIX) and current() is not None:
+        # The prefix names Row-Bot's own Custom Tools, which a company's rule treats apart (C3b).
+        return InstallResult(False, plugin_id, "That name is kept for Custom Tools made in Row-Bot.",
+                             code="plugin_id_reserved")
     if not allows_plugin(plugin_id):
         # The person's company doesn't allow it (C3b): nothing is downloaded or changed.
         return InstallResult(False, plugin_id, APP_HELD["plugins"], code="company_policy")

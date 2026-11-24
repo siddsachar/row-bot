@@ -72,7 +72,7 @@ def _lc_tool(name: str) -> StructuredTool:
 def _registered(monkeypatch, names: tuple[str, ...]) -> None:
     tools = [SimpleNamespace(name=name) for name in names]
     monkeypatch.setattr(tool_registry, "get_all_tools", lambda: tools)
-    monkeypatch.setattr(tool_registry, "is_enabled", lambda name: True)
+    monkeypatch.setattr(tool_registry, "is_switched_on", lambda name: True)
 
 
 def _asker(answer):
@@ -95,6 +95,17 @@ def test_a_tool_group_the_company_switched_off_is_not_among_the_enabled_tools(co
 
     company(None)
     assert [tool.name for tool in tool_registry.get_enabled_tools()] == ["browser", "shell", "weather"]
+
+
+def test_a_tool_the_company_switched_off_isnt_enabled_and_its_switch_reads_as_the_person_set_it(
+        company, monkeypatch):
+    monkeypatch.setattr(tool_registry, "_ensure_config_scope", lambda: None)
+    monkeypatch.setattr(tool_registry, "_enabled", {"browser": True, "computer_use": True})
+
+    company({"tools": {"disabled_groups": ["browser"]}})
+    assert tool_registry.is_enabled("browser") is False  # The browser pane, readiness, Buddy's checks.
+    assert tool_registry.is_switched_on("browser") is True  # Settings' switch.
+    assert tool_registry.is_enabled("computer_use") is True
 
 
 def _prepare_graph(agent, monkeypatch, groups: dict[str, list[StructuredTool]]):
@@ -252,12 +263,27 @@ def test_a_plugin_the_company_doesnt_allow_cant_be_added(company, tmp_path):
     result = installer.install_plugin("acme-tools", source_dir=tmp_path / "acme-tools")
 
     assert (result.success, result.code, result.message) == (False, "company_policy", enforce.APP_HELD["plugins"])
+    # The Custom Tools prefix isn't a package name while a company's rules apply.
+    company({"apps": {"plugins": "any"}})
+    reserved = installer.install_plugin("custom-tool-notes", source_dir=tmp_path / "custom-tool-notes")
+    assert (reserved.success, reserved.code) == (False, "plugin_id_reserved")
+
+
+def _custom_tools(monkeypatch, promoted: set[str], installed: set[str] = frozenset()) -> None:
+    from row_bot.developer import tool_capsules
+    from row_bot.plugins import devtools, installer
+
+    monkeypatch.setattr(tool_capsules, "list_promoted_capsules",
+                        lambda: [SimpleNamespace(promoted_plugin_id=plugin_id) for plugin_id in sorted(promoted)])
+    monkeypatch.setattr(installer, "is_installed", lambda plugin_id: plugin_id in installed)
+    monkeypatch.setattr(devtools, "iter_linked_plugin_dirs", lambda: {})
 
 
 def test_an_installed_plugin_the_company_doesnt_allow_doesnt_run_and_keeps_its_switch(company, monkeypatch):
     from row_bot.plugins import registry as plugin_registry
     from row_bot.plugins import state as plugin_state
 
+    _custom_tools(monkeypatch, {"custom-tool-notes"})
     saved = {"acme-tools": {"enabled": True}, "custom-tool-notes": {"enabled": True}}
     monkeypatch.setattr(plugin_state, "_ensure_loaded", lambda: None)
     monkeypatch.setattr(plugin_state, "_state", saved)
@@ -280,6 +306,18 @@ def test_an_installed_plugin_the_company_doesnt_allow_doesnt_run_and_keeps_its_s
     assert saved == {"acme-tools": {"enabled": True}, "custom-tool-notes": {"enabled": True}}  # Kept as set.
 
 
+def test_only_a_custom_tool_made_in_row_bot_counts_as_one(company, monkeypatch):
+    # A package that took the prefix, or an id no Custom Tool was promoted under, follows the plugin rule.
+    _custom_tools(monkeypatch, {"custom-tool-notes", "custom-tool-shadow"}, installed={"custom-tool-shadow"})
+    company({"apps": {"plugins": "none"}})
+
+    assert enforce.is_custom_tool("custom-tool-notes") is True
+    assert enforce.allows_plugin("custom-tool-notes") is True
+    assert enforce.is_custom_tool("custom-tool-shadow") is False
+    assert enforce.allows_plugin("custom-tool-shadow") is False
+    assert enforce.allows_plugin("custom-tool-made-up") is False
+
+
 @pytest.fixture
 def mcp_config(tmp_path, monkeypatch):
     from row_bot import tasks
@@ -296,16 +334,85 @@ def _server(name: str) -> dict:
     return {"operation": "add", "fields": {"name": name, "transport": "stdio", "command": "synthetic-command"}}
 
 
-def test_an_mcp_server_the_company_doesnt_allow_cant_be_added(company, mcp_config):
+def _paste(name: str, server: dict) -> dict:
+    return {"operation": "import", "import_json": json.dumps({"mcpServers": {name: server}})}
+
+
+def _curated():
+    from row_bot.mcp_client.marketplace import CURATED_STARTER_CATALOG, entry_to_server_config
+
+    entry = CURATED_STARTER_CATALOG[0]
+    return entry, entry_to_server_config(entry)
+
+
+def test_an_mcp_server_counts_as_allowed_only_by_the_catalog_listing_row_bot_recorded(company, mcp_config):
     from row_bot.application import capability_configuration_controls as controls
 
-    company({"apps": {"mcp_servers": "allow-list", "allowed_mcp_servers": ["github"]}})
+    entry, listed = _curated()
+    company({"apps": {"mcp_servers": "allow-list", "allowed_mcp_servers": [f"curated:{entry.id}", "github"]}})
     revision = controls.read_mcp_configuration().revision
 
+    def review(intent):
+        return controls.review_mcp_configuration_command(revision, intent, validate=lambda: None)
+
+    # The listing itself, added from the catalog: allowed.
+    assert review(_paste("Anything", listed))["operation"] == "import"
+    # A name the person chose is never a match, typed or pasted.
+    for intent in (_server("github"), _paste("github", {"command": "synthetic-command"})):
+        with pytest.raises(controls.CapabilityConfigurationError, match="company_policy"):
+            review(intent)
+    # Pasted claims of where it came from count for nothing: another launch under the listing's name and id…
+    forged = {**listed, "transport": "stdio", "command": "synthetic-command", "url": ""}
     with pytest.raises(controls.CapabilityConfigurationError, match="company_policy"):
-        controls.review_mcp_configuration_command(revision, _server("Synthetic"), validate=lambda: None)
-    allowed = controls.review_mcp_configuration_command(revision, _server("github"), validate=lambda: None)
-    assert allowed["operation"] == "add"
+        review(_paste("Forged", forged))
+    # …the catalog names and launch Row-Bot records…
+    claimed = {"command": "synthetic-command", "source": {
+        "marketplace": "manual", enforce.MCP_CATALOG_NAMES: ["github"],
+        enforce.MCP_LAUNCH: enforce.mcp_launch({"command": "synthetic-command"})}}
+    with pytest.raises(controls.CapabilityConfigurationError, match="company_policy"):
+        review(_paste("Claimed", claimed))
+    # …and a plugin's own marks, even where the company allows a plugin's servers.
+    company({"apps": {"mcp_servers": "none", "plugins": "any"}})
+    as_plugin = {"command": "synthetic-command", "source": {"kind": "plugin", "plugin_id": "custom-tool-x"},
+                 "plugin_prepared": {"python": "x"}}
+    with pytest.raises(controls.CapabilityConfigurationError, match="company_policy"):
+        review(_paste("Plugin", as_plugin))
+    # Saved as pasted, nothing of that is kept.
+    saved = enforce.mcp_provenance({**as_plugin, "name": "Plugin"})
+    assert "plugin_prepared" not in saved and "kind" not in saved["source"] and "plugin_id" not in saved["source"]
+
+
+def test_an_mcp_server_stops_matching_once_its_launch_is_edited(company):
+    from row_bot.integrations import facts
+
+    entry, listed = _curated()
+    company({"apps": {"mcp_servers": "allow-list", "allowed_mcp_servers": [f"curated:{entry.id}"]}})
+    saved = enforce.mcp_provenance({**listed, "name": "Renamed by the person"})
+
+    assert enforce.mcp_refusal("Renamed by the person", saved) is None
+    row = facts.entry("mcp", "x", "x", _mcp={"name": "Renamed by the person", "cfg": saved})
+    assert facts.company_held(row) == ""
+    edited = {**saved, "transport": "stdio", "command": "synthetic-command", "url": ""}
+    assert enforce.mcp_refusal("Renamed by the person", edited) == enforce.APP_HELD["mcp_servers"]
+    # An official Registry listing is known by its record's canonical name, without a version.
+    assert enforce.mcp_catalog_names("official", "abc", "io.example/server@1.2.0") == (
+        "official:abc", "io.example/server")
+
+
+def test_a_plugins_mcp_server_is_known_only_from_the_plugins_overlay(company, monkeypatch):
+    from row_bot.plugins import mcp as plugin_mcp
+
+    cfg = {"transport": "stdio", "command": "plugin-command", "source": {"kind": "plugin", "plugin_id": "acme"}}
+    monkeypatch.setattr(plugin_mcp, "plugin_mcp_servers", lambda: {"plugin_acme_notes": dict(cfg)})
+
+    company({"apps": {"mcp_servers": "none", "plugins": "allow-list", "allowed_plugins": ["acme"]}})
+    assert enforce.mcp_refusal("plugin_acme_notes", cfg) is None
+    # The same marks on a server of another name, or another launch, are the MCP rule's.
+    assert enforce.mcp_refusal("pasted", cfg) == enforce.APP_HELD["mcp_servers"]
+    other = {**cfg, "command": "something-else"}
+    assert enforce.mcp_refusal("plugin_acme_notes", other) == enforce.APP_HELD["mcp_servers"]
+    company({"apps": {"mcp_servers": "any", "plugins": "none"}})
+    assert enforce.mcp_refusal("plugin_acme_notes", cfg) == enforce.APP_HELD["plugins"]
 
 
 def test_an_installed_mcp_server_the_company_doesnt_allow_isnt_started_or_checked(company, mcp_config, monkeypatch):
@@ -328,9 +435,27 @@ def test_an_installed_mcp_server_the_company_doesnt_allow_isnt_started_or_checke
     assert checked["ok"] is False and "your company" in checked["error"]
     assert connected == []
     assert runtime._servers == {}
-    # A plugin's own server follows its plugin's rule.
-    assert enforce.mcp_refusal("held", {**cfg, "source": {"kind": "plugin", "plugin_id": "acme"}}) == (
-        enforce.APP_HELD["plugins"])
+
+
+def test_an_mcp_server_held_while_it_runs_is_stopped_and_refuses_every_use(company, mcp_config, monkeypatch):
+    from row_bot.mcp_client import runtime
+
+    held = runtime.McpServerRuntime("held", {"transport": "stdio", "command": "synthetic-command", "source": {}})
+    held.session = SimpleNamespace()
+    monkeypatch.setattr(runtime, "_servers", {"held": held})
+    monkeypatch.setattr(runtime, "_statuses", {})
+    stopped: list[str] = []
+    monkeypatch.setattr(runtime, "stop_server", lambda name: stopped.append(name))
+
+    company(None)
+    assert runtime.held_servers() == []
+    company({"apps": {"mcp_servers": "none"}})
+    assert runtime.stop_held_servers() == ["held"] and stopped == ["held"]
+    for use in (held.list_resources(), held.read_resource("file:///notes"), held.list_prompts(),
+                held.get_prompt("summary"), held.read_view("ui://view", deadline=1e12),
+                held.call_tool_for_view("search", {}, deadline=1e12), held.call_tool("search", {})):
+        with pytest.raises(PermissionError, match="your company"):
+            asyncio.run(use)
 
 
 def test_a_skills_hub_skill_the_company_doesnt_allow_cant_be_added(company, monkeypatch):
@@ -356,21 +481,31 @@ def test_an_installed_skills_hub_skill_the_company_doesnt_allow_isnt_used_and_th
     from row_bot.skill_discovery import collect_enabled_skill_records
     from row_bot.skills_hub import provenance
 
-    def skill(name: str) -> SimpleNamespace:
+    def skill(name: str, tools: tuple[str, ...] = (), on_demand: bool = False) -> SimpleNamespace:
         return SimpleNamespace(name=name, display_name=name.title(), icon="✨", description="", tags=[],
-                               activation={}, instructions="Do it.", path="")
+                               activation={}, instructions="Do it.", path="", tools=list(tools),
+                               on_demand=on_demand, inline=False)
 
-    monkeypatch.setattr(skills, "get_enabled_manual_skills_snapshot", lambda: [skill("review"), skill("mine")])
-    monkeypatch.setattr(skills, "is_tool_guide", lambda found: False)
+    found = [skill("review"), skill("mine"), skill("hub-guide", ("shell",)), skill("hub-flow", ("shell",), True)]
+    monkeypatch.setattr(skills, "get_all_skills", lambda: found)
+    monkeypatch.setattr(skills, "_enabled", {"review": True, "mine": True})
     monkeypatch.setattr(plugin_registry, "get_enabled_plugin_skill_records", lambda: [])
-    record = SimpleNamespace(install_ref="skills_sh:acme/skills/review", metadata={})
-    monkeypatch.setattr(provenance, "get_record", lambda name: record if name == "review" else None)
+    records = {name: SimpleNamespace(install_ref=f"skills_sh:acme/skills/{name}", metadata={})
+               for name in ("review", "hub-guide", "hub-flow")}
+    monkeypatch.setattr(provenance, "get_record", lambda name: records.get(name))
+
+    def used() -> tuple[list[str], list[str], list[str]]:
+        return ([record.canonical_id for record in collect_enabled_skill_records(load_manual=False)],
+                [guide.name for guide in skills.active_tool_guides(["shell"])],
+                [flow.name for flow in skills.get_on_demand_tool_skills(["shell"])])
 
     company({"apps": {"skills_hub": "none"}})
-    assert [found.canonical_id for found in collect_enabled_skill_records(load_manual=False)] == ["mine"]
+    assert used() == (["mine"], [], [])  # Tool guides and on-demand skills from the hub included.
 
     company({"apps": {"skills_hub": "allow-list", "allowed_skills": ["skills_sh:acme/skills/review"]}})
-    assert [found.canonical_id for found in collect_enabled_skill_records(load_manual=False)] == ["review", "mine"]
+    assert used() == (["review", "mine"], [], [])
+    company(None)
+    assert used() == (["review", "mine"], ["hub-guide"], ["hub-flow"])
 
 
 class _ChannelRegistry:
@@ -411,10 +546,9 @@ class _ChannelAccounts:
         return {"configured": False, "source": "", "fingerprint": ""}
 
 
-def test_a_chat_channel_the_company_doesnt_allow_cant_be_started_or_deliver(company, tmp_path, monkeypatch):
+def test_a_chat_channel_the_company_doesnt_allow_cant_be_set_up_or_started(company, tmp_path, monkeypatch):
     from row_bot import tasks
     from row_bot.application import channel_controls as controls
-    from row_bot.channels import registry as channel_registry
     from row_bot.runtime import admissions
     from tests.fixtures.channels import FakeChannel
 
@@ -437,19 +571,40 @@ def test_a_chat_channel_the_company_doesnt_allow_cant_be_started_or_deliver(comp
     company(None)
     assert review()["operation"] == "start"
 
-    # A channel that was running when the company stopped allowing it sends nothing.
-    channel._running = True
+
+
+def test_a_channel_the_company_stops_allowing_is_stopped_and_sends_nothing(company, monkeypatch):
+    from row_bot.channels import registry as channel_registry
+    from row_bot.channels.base import ChannelHeld
+    from tests.fixtures.channels import FakeChannel
+
+    channel = FakeChannel(name="whatsapp", display_name="Synthetic WhatsApp")
     monkeypatch.setitem(channel_registry._channels, "whatsapp", channel)
-    company({"apps": {"channels": "allow-list", "allowed_channels": ["slack"]}})
-    assert channel_registry.deliver("whatsapp", "someone", "hello") == ("delivery_failed", enforce.APP_HELD["channels"])
-    assert channel.messages == []
+
+    async def scenario() -> list[str]:
+        assert await channel.start() is True  # Started while no company held it.
+        channel.send_message("someone", "before")
+        company({"apps": {"channels": "allow-list", "allowed_channels": ["slack"]}})
+        # Every send is refused, whichever part of Row-Bot asks (one guard on the channel itself).
+        with pytest.raises(ChannelHeld, match="your company"):
+            channel.send_message("someone", "after")
+        assert channel_registry.deliver("whatsapp", "someone", "after")[0] == "delivery_failed"
+        stopped = channel_registry.stop_held_channels()  # As a change of policy does.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        return stopped
+
+    assert asyncio.run(scenario()) == ["whatsapp"]
+    assert not channel.is_running()
+    assert [message.text for message in channel.messages] == ["before"]
 
 
 def test_an_app_the_company_doesnt_allow_is_marked_in_the_catalog_and_its_card(company):
     from row_bot.integrations import facts, plans, sources
 
+    entry, listed = _curated()
     company({"apps": {"plugins": "allow-list", "allowed_plugins": ["acme-ok"],
-                      "mcp_servers": "allow-list", "allowed_mcp_servers": ["github"]}})
+                      "mcp_servers": "allow-list", "allowed_mcp_servers": [f"curated:{entry.id}", "github"]}})
     found = sources.Found()
     found.add(facts.entry("plugin", "acme-tools", "Acme tools", installed=False, lifecycle="available"),
               {"kind": "plugin", "reference": "acme-tools"})
@@ -468,8 +623,11 @@ def test_an_app_the_company_doesnt_allow_is_marked_in_the_catalog_and_its_card(c
     assert facts.company_held(installed) == enforce.APP_HELD["plugins"]
     server = facts.entry("mcp", "evil", "evil", _mcp={"name": "evil", "cfg": {"source": {}}})
     assert facts.company_held(server) == enforce.APP_HELD["mcp_servers"]
-    named = facts.entry("mcp", "gh", "GitHub", _mcp={"name": "mine", "cfg": {"source": {"id": "github"}}})
-    assert facts.company_held(named) == ""  # Allowed by its catalog id.
+    # A catalog listing by its catalog names, never by its display name.
+    listing = facts.entry("mcp", f"curated:{entry.id}", "Anything", installed=False, lifecycle="available")
+    assert facts.company_listed(listing, {"kind": "mcp", "entry": entry}) == ""
+    named = facts.entry("mcp", "hermes_mcp:github", "github", installed=False, lifecycle="available")
+    assert facts.company_listed(named, {"kind": "hermes_mcp", "name": "github"}) == enforce.APP_HELD["mcp_servers"]
 
 
 # -- export -------------------------------------------------------------------------------------------
@@ -499,6 +657,13 @@ def test_chat_export_and_the_data_backup_are_refused_on_the_server_while_export_
         assert refused.value.code == "company_policy"
 
 
+def test_a_backup_never_carries_the_company_and_a_restore_never_replaces_it():
+    from row_bot import profile_restore
+
+    assert profile_restore.kept_in_place("company.json")
+    assert profile_restore.kept_in_place("company_policy.json")
+
+
 # -- lockdown, the disclosure, and no company -----------------------------------------------------------
 
 def test_lockdown_enforces_lockdown_policy(company, monkeypatch, agent_context):
@@ -517,7 +682,8 @@ def test_lockdown_enforces_lockdown_policy(company, monkeypatch, agent_context):
 
 def test_settings_lists_c3bs_settings_in_plain_words(company):
     restrictive = resolve(parse_policy({
-        "tools": {"disabled_groups": ["shell"]}, "approvals": {"max_level": "approve"},
+        "tools": {"disabled_groups": ["shell"], "disabled_tools": ["run_command"]},
+        "approvals": {"max_level": "approve"},
         "apps": {"plugins": "none", "mcp_servers": "any", "skills_hub": "any", "channels": "any"},
         "data": {"chat_export": False, "share_to_company": False}}))
 
@@ -527,13 +693,14 @@ def test_settings_lists_c3bs_settings_in_plain_words(company):
     assert words["apps.plugins"] == "Your company limits which plugins you can add"
     assert words["data.chat_export"] == "Your company turned off chat export"
     assert words["data.share_to_company"] == "Your company turned off Share to company"
-    assert not {"apps.mcp_servers", "apps.skills_hub", "apps.channels", "tools.disabled_tools"} & set(words)
+    assert words["tools.disabled_tools"] == "Your company switched off some single tools"
+    assert not {"apps.mcp_servers", "apps.skills_hub", "apps.channels"} & set(words)
     rules = {rule["setting"]: rule["value"] for rule in policy.rules(restrictive)}
     assert (rules["approvals.max_level"], rules["apps.plugins"], rules["tools.disabled_groups"]) == (
         "Ask", "None", "shell")
 
     assert enforce.limits(restrictive) == {
-        "tools_off": ["shell"], "max_level": "approve", "chat_export": False,
+        "tools_off": ["run_command", "shell"], "max_level": "approve", "chat_export": False,
         "plugins": {"mode": "none", "allowed": []}, "mcp_servers": {"mode": "any", "allowed": []},
         "skills_hub": {"mode": "any", "allowed": []}, "channels": {"mode": "any", "allowed": [
             "discord", "slack", "sms", "telegram"]}}
@@ -553,6 +720,7 @@ def test_with_no_company_joined_nothing_changes(company, monkeypatch, agent_cont
     monkeypatch.setattr(plugin_state, "_state", {"acme-tools": {"enabled": True}})
     assert plugin_state.is_plugin_enabled("acme-tools") is True
     assert enforce.mcp_refusal("anything", {"source": {}}) is None
+    assert tool_registry.is_switched_on("shell") is True
     assert enforce.allows_app("channels", "whatsapp")
     assert enforce.allows_chat_export()
     assert enforce.allows_standing_approvals()

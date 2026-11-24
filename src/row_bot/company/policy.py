@@ -255,7 +255,24 @@ def _changed() -> None:
     ways = sys.modules.get("row_bot.integrations.builtin")
     if ways is not None:
         ways.changed()  # Apps shows a channel the company now holds (or lets go) as it is (C3b).
+    # What the company now holds stops (C3b): its running channels and MCP servers (the servers in the
+    # background: each stop waits for its program). Only where they run: a module not imported runs nothing.
+    channels, mcp = sys.modules.get("row_bot.channels.registry"), sys.modules.get("row_bot.mcp_client.runtime")
+    if channels is not None:
+        try:
+            channels.stop_held_channels()
+        except Exception as error:  # noqa: BLE001 - each held channel's sends are refused all the same
+            logger.warning("Channels the company holds couldn't be stopped (%s)", type(error).__name__)
+    if mcp is not None and mcp.held_servers():
+        threading.Thread(target=_stop_mcp, args=(mcp,), daemon=True, name="row-bot-company-mcp").start()
     publish("models")
+
+
+def _stop_mcp(mcp: Any) -> None:
+    try:
+        mcp.stop_held_servers()
+    except Exception as error:  # noqa: BLE001 - each held server's calls are refused all the same
+        logger.warning("MCP servers the company holds couldn't be stopped (%s)", type(error).__name__)
 
 
 # -- the state ----------------------------------------------------------------------------------------

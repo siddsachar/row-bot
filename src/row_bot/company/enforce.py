@@ -16,9 +16,11 @@ down, or None when no company is joined, and then nothing here changes anything.
 - **Apps** (``apps.plugins``, ``mcp_servers``, ``skills_hub``, ``channels``: none, allow-list or any). An
   allow-list entry matches any of the names Row-Bot knows the app by (``allows_app``):
   - a plugin: its id (the manifest's, which is also its catalog id). A Custom Tool, made in Row-Bot and
-    registered as a plugin, isn't a third-party plugin: it runs while the Custom Tool Builder is on;
-  - an MCP server: its name in Row-Bot or, for one added from a catalog, the catalog entry's id
-    (``source.id``); a server a plugin brings follows the plugin's rule;
+    registered as a plugin (``is_custom_tool``), isn't a third-party plugin: it runs while the Custom Tool
+    Builder is on;
+  - an MCP server: only the catalog it was added from, as Row-Bot recorded it then (``<catalog>:<id>``, or an
+    official Registry record's canonical name), never a name the person chose; one added by hand or pasted
+    runs only under ``any`` (``mcp_provenance``); a server a plugin brings follows the plugin's rule;
   - a Skills Hub skill (anything added through the hub: a catalog listing, a link, an uploaded file): its
     install reference (what the hub installs from, such as ``skills_sh:owner/repo/skill``), or in a catalog
     listing its entry id; skills the person wrote in Row-Bot are not Skills Hub skills;
@@ -154,29 +156,139 @@ def app_refusal(kind: AppKind, *names: str, policy: Policy | None = None) -> str
 CUSTOM_TOOL_PREFIX = "custom-tool-"
 
 
+def is_custom_tool(plugin_id: str) -> bool:
+    """Whether a plugin id is a Custom Tool: made in Row-Bot (a tool capsule promoted under this id) and not an
+    installed or linked package that happens to use the reserved prefix."""
+    if not str(plugin_id).startswith(CUSTOM_TOOL_PREFIX):
+        return False
+    try:
+        from row_bot.developer.tool_capsules import list_promoted_capsules
+        from row_bot.plugins.devtools import iter_linked_plugin_dirs
+        from row_bot.plugins.installer import is_installed
+
+        if is_installed(plugin_id) or plugin_id in iter_linked_plugin_dirs():
+            return False
+        return any(capsule.promoted_plugin_id == plugin_id for capsule in list_promoted_capsules())
+    except Exception as error:  # noqa: BLE001 - unknown is not a Custom Tool: the plugin rule applies
+        logger.info("Custom Tools couldn't be read (%s)", type(error).__name__)
+        return False
+
+
 def allows_plugin(plugin_id: str, policy: Policy | None = None) -> bool:
-    """Whether a plugin may run. A Custom Tool (made in Row-Bot, registered as a plugin named ``custom-tool-…``)
-    isn't a third-party plugin: it runs while the company leaves the Custom Tool Builder on."""
+    """Whether a plugin may run. A Custom Tool (``is_custom_tool``) isn't a third-party plugin: it runs while the
+    company leaves the Custom Tool Builder on."""
     policy = policy or current()
     if policy is None:
         return True
-    if str(plugin_id).startswith(CUSTOM_TOOL_PREFIX):
+    if is_custom_tool(plugin_id):
         return "custom_tool_builder" not in policy.tools.disabled_groups
     return allows_app("plugins", plugin_id, policy=policy)
 
 
+# -- MCP servers: where one came from -------------------------------------------------------------------
+#
+# A server counts as a catalog listing only when Row-Bot itself vouched for it as it was added: a server added
+# from a catalog it checks (its own curated recipes, whose launch must be the recipe's, and the official MCP
+# Registry, which the publication gate checks against the Registry's record) keeps, in its ``source``, the
+# catalog names it was added as and a digest of how it launches then. Nothing pasted or typed can set them
+# (``mcp_provenance`` drops them, and a plugin's marks, from what an import brings), and an edit that changes
+# the launch makes the server stop matching. A server added by hand, or pasted, is known by no catalog name:
+# it runs only where the company allows any MCP server. A plugin's own server is recognised only from the
+# plugins' overlay, never from what a configuration says about itself.
+
+MCP_CATALOG_NAMES = "company_catalog_names"
+MCP_LAUNCH = "company_launch"
+_LAUNCH_KEYS = ("transport", "command", "args", "url", "cwd", "bundle")
+_VERIFIED_CATALOGS = frozenset({"curated", "official"})
+_PLUGIN_KEYS = ("plugin_data", "plugin_prepared")
+
+
+def mcp_launch(cfg: Mapping[str, Any]) -> str:
+    """A digest of how a server launches (its transport, program, arguments, address, folder and bundle)."""
+    import hashlib
+    import json
+
+    launch = {key: cfg.get(key) or None for key in _LAUNCH_KEYS}
+    transport = str(launch["transport"] or ("streamable_http" if launch["url"] else "stdio"))
+    launch["transport"] = {"http": "streamable_http", "streamable-http": "streamable_http"}.get(transport, transport)
+    return hashlib.sha256(json.dumps(launch, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def mcp_catalog_names(catalog: str, entry_id: str, registry_name: str = "") -> tuple[str, ...]:
+    """The names an allow-list may use for a listing: ``<catalog>:<id>``, and an official Registry record's
+    canonical name (without a version)."""
+    names = [f"{catalog}:{entry_id}"] if catalog and entry_id else []
+    if catalog == "official" and registry_name:
+        names.append(registry_name.split("@", 1)[0])
+    return tuple(names)
+
+
+def _curated_launch(entry_id: str) -> str | None:
+    from row_bot.mcp_client.marketplace import CURATED_STARTER_CATALOG, entry_to_server_config
+
+    entry = next((item for item in CURATED_STARTER_CATALOG if item.id == entry_id), None)
+    return None if entry is None else mcp_launch(entry_to_server_config(entry))
+
+
+def mcp_provenance(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """An imported server as it is saved: a plugin's marks and any catalog names it claims are dropped; its
+    ``source`` keeps describing it. It is bound to its catalog names and launch only when it is a listing
+    Row-Bot checks (``_VERIFIED_CATALOGS``)."""
+    import copy
+
+    result = copy.deepcopy(dict(cfg))
+    for key in _PLUGIN_KEYS:
+        result.pop(key, None)
+    raw = result.get("source")
+    source = {key: value for key, value in (raw.items() if isinstance(raw, Mapping) else ())
+              if key not in {"kind", "plugin_id", MCP_CATALOG_NAMES, MCP_LAUNCH}}
+    catalog, entry_id = str(source.get("marketplace") or ""), str(source.get("id") or "")
+    launch = mcp_launch(result)
+    verified = catalog in _VERIFIED_CATALOGS and bool(entry_id) and (
+        catalog == "official" or _curated_launch(entry_id) == launch)
+    if verified:
+        source[MCP_CATALOG_NAMES] = list(mcp_catalog_names(catalog, entry_id, str(source.get("registry_name") or "")))
+        source[MCP_LAUNCH] = launch
+    if raw is not None or source:
+        result["source"] = source
+    return result
+
+
+def _plugin_server(name: str, cfg: Mapping[str, Any]) -> str | None:
+    """The plugin whose overlay brings this server (same name, same launch), or None."""
+    try:
+        from row_bot.plugins.mcp import plugin_mcp_servers
+
+        overlay = plugin_mcp_servers().get(name)
+    except Exception as error:  # noqa: BLE001 - not known to be a plugin's: the MCP rule applies
+        logger.info("Plugin MCP servers couldn't be read (%s)", type(error).__name__)
+        return None
+    if not isinstance(overlay, Mapping) or mcp_launch(overlay) != mcp_launch(cfg):
+        return None
+    source = overlay.get("source")
+    plugin_id = source.get("plugin_id") if isinstance(source, Mapping) else None
+    return str(plugin_id) if plugin_id else None
+
+
 def mcp_server_names(name: str, cfg: Mapping[str, Any] | None) -> tuple[AppKind, tuple[str, ...]]:
-    """Which rule an MCP server follows, and the names it is known by: a plugin's own server follows its
-    plugin; any other its name in Row-Bot and its catalog id."""
-    source = (cfg or {}).get("source") if isinstance(cfg, Mapping) else None
+    """Which rule an MCP server follows, and the catalog names it is known by (none for one added by hand)."""
+    cfg = cfg if isinstance(cfg, Mapping) else {}
+    plugin_id = _plugin_server(str(name or ""), cfg)
+    if plugin_id:
+        return "plugins", (plugin_id,)
+    source = cfg.get("source")
     source = source if isinstance(source, Mapping) else {}
-    if source.get("kind") == "plugin":
-        return "plugins", (str(source.get("plugin_id") or ""),)
-    return "mcp_servers", (str(name or ""), str(source.get("id") or ""))
+    names = source.get(MCP_CATALOG_NAMES)
+    if source.get(MCP_LAUNCH) != mcp_launch(cfg) or not isinstance(names, list):
+        return "mcp_servers", ()
+    return "mcp_servers", tuple(str(item) for item in names)
 
 
 def mcp_refusal(name: str, cfg: Mapping[str, Any] | None, policy: Policy | None = None) -> str | None:
     """The words for an MCP server the company doesn't allow, or None."""
+    policy = policy or current()
+    if policy is None:
+        return None
     kind, names = mcp_server_names(name, cfg)
     if kind == "plugins":
         return None if allows_plugin(names[0], policy) else APP_HELD["plugins"]
@@ -220,14 +332,17 @@ def limits(policy: Policy | None) -> dict[str, Any] | None:
     def app(kind: AppKind) -> dict[str, Any]:
         return {"mode": getattr(policy.apps, kind), "allowed": sorted(getattr(policy.apps, _ALLOWED[kind]))}
 
-    return {"tools_off": sorted(policy.tools.disabled_groups), "max_level": policy.approvals.max_level,
+    # Registry tools and single model-facing tools alike: Settings shows either as locked.
+    return {"tools_off": sorted(policy.tools.disabled_groups | policy.tools.disabled_tools),
+            "max_level": policy.approvals.max_level,
             "chat_export": policy.data.chat_export, "plugins": app("plugins"), "mcp_servers": app("mcp_servers"),
             "skills_hub": app("skills_hub"), "channels": app("channels")}
 
 
 __all__ = [
     "APP_HELD", "BLOCKED", "CUSTOM_TOOL_PREFIX", "SET_BY_COMPANY", "TOOL_REFUSED", "above_ceiling",
-    "allows_app", "allows_chat_export", "allows_plugin", "allows_standing_approvals", "app_refusal", "blocked_words", "cap", "ceiling",
+    "allows_app", "allows_chat_export", "allows_plugin", "is_custom_tool", "mcp_catalog_names", "mcp_launch",
+    "mcp_provenance", "MCP_CATALOG_NAMES", "MCP_LAUNCH", "allows_standing_approvals", "app_refusal", "blocked_words", "cap", "ceiling",
     "ceiling_blocks", "current", "keep_tools", "limits", "mcp_refusal", "mcp_server_names", "skill_held",
     "skill_names", "tool_off", "tool_refusal",
 ]

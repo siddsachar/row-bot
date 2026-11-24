@@ -182,15 +182,22 @@ def get_all_tools() -> list["BaseTool"]:
 def get_enabled_tools() -> list["BaseTool"]:
     """Return only the tools the user has enabled (less any their company switched off, C3b: their own switch is
     kept as they set it)."""
-    from row_bot.company.enforce import keep_tools
+    return [t for t in get_all_tools() if is_enabled(t.name)]
 
-    kept = set(keep_tools([t.name for t in get_all_tools() if is_enabled(t.name)]))
-    return [t for t in get_all_tools() if t.name in kept]
+
+def is_switched_on(name: str) -> bool:
+    """The person's own switch for a tool, as Settings shows it (whatever their company allows)."""
+    _ensure_config_scope()
+    return _enabled.get(name, False)
 
 
 def is_enabled(name: str) -> bool:
-    _ensure_config_scope()
-    return _enabled.get(name, False)
+    """Whether a tool may be used: switched on, and not switched off by the person's company (C3b)."""
+    if not is_switched_on(name):
+        return False
+    from row_bot.company.enforce import keep_tools
+
+    return bool(keep_tools([name]))
 
 
 def set_enabled(name: str, value: bool) -> None:
