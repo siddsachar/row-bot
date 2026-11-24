@@ -1,0 +1,24 @@
+/* The Review page: a share's text in its details, and the approve and reject
+ * forms. The app's tokens only. */
+.review-count {
+  color: var(--text-secondary);
+}
+.review-details {
+  display: grid;
+  gap: var(--space-3);
+}
+.review-text {
+  max-width: 72ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.review-textarea.input {
+  height: auto;
+  min-height: 88px;
+  padding-block: var(--space-2);
+  resize: vertical;
+}
+.review-outcome {
+  color: var(--text-secondary);
+}

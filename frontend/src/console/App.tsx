@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom';
 import {
   Cpu,
+  Inbox,
   Laptop,
   LogIn,
   LogOut,
@@ -32,6 +33,7 @@ import type { Me, Person } from './types';
 import PeoplePage from './pages/PeoplePage';
 import DevicesPage from './pages/DevicesPage';
 import ModelsPage from './pages/ModelsPage';
+import ReviewPage from './pages/ReviewPage';
 import PolicyPage from './pages/PolicyPage';
 import AuditPage from './pages/AuditPage';
 
@@ -39,6 +41,7 @@ const PAGES = [
   { path: 'people', label: 'People', icon: Users, page: PeoplePage },
   { path: 'devices', label: 'Devices', icon: Laptop, page: DevicesPage },
   { path: 'models', label: 'Models', icon: Cpu, page: ModelsPage },
+  { path: 'review', label: 'Review', icon: Inbox, page: ReviewPage },
   { path: 'policy', label: 'Policy', icon: ShieldCheck, page: PolicyPage },
   { path: 'audit', label: 'Audit', icon: ScrollText, page: AuditPage },
 ];
