@@ -36,6 +36,7 @@ import {
 import Preferences from './Preferences';
 import LearningSettings from '../learning/LearningSettings';
 import ProactiveSettings from './ProactiveSettings';
+import CompanyDocuments from '../company/CompanyDocuments';
 import CompanySettings from '../company/CompanySettings';
 import { useCompanyLimits } from '../company/limits';
 import ActivitySettings from './ActivitySettings';
@@ -953,6 +954,8 @@ export default function SettingRoute() {
                 }}
               />
             </SettingsGroup>
+            {/* Row-Bot for Teams (B3): the spaces the person owns; nothing without one. */}
+            <CompanyDocuments controller={controller} />
             {settingsSnapshot && mutation ? (
               <DocumentEmbeddingSnapshot
                 snapshot={settingsSnapshot.documents}

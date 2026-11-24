@@ -1,4 +1,9 @@
-import type { CompanyView } from '../../api/types';
+import type {
+  CompanyDocument,
+  CompanyDocumentsView,
+  CompanyView,
+} from '../../api/types';
+import type { Tone } from '../../ui/primitives';
 
 /** What joining does, in one line (Settings › Company, not joined). */
 export const JOIN_LINE =
@@ -188,4 +193,119 @@ export function auditFields(
       help: 'What you or Row-Bot wrote, your files, what a tool was asked to do or what it found.',
     },
   ];
+}
+
+/** A file's size in words: "24 KB", "1.5 MB". */
+export function sizeWords(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  const megabytes = bytes / (1024 * 1024);
+  return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)} MB`;
+}
+
+/** The types a company's server reads: ".docx, .md or .txt". */
+export function typesWords(types: readonly string[]): string {
+  return types.length > 1
+    ? `${types.slice(0, -1).join(', ')} or ${types[types.length - 1]}`
+    : (types[0] ?? '');
+}
+
+// The server's reasons for an admin, said to a space owner.
+const OWNER_REASONS: Record<string, string> = {
+  'Add an embeddings model in Models':
+    'Found by its words for now: your company’s admin hasn’t added a search model yet.',
+  'Add a chat model in Models':
+    'Its knowledge waits for your company’s admin to add a chat model.',
+};
+
+function reasonWords(reason: string): string {
+  return OWNER_REASONS[reason] ?? reason;
+}
+
+/**
+ * A company document's status (B3): its word and tone, and why it waits or
+ * failed, from the server's status and reason (B1a) and how far its
+ * knowledge got (B7).
+ */
+export function documentStatus(document: CompanyDocument): {
+  tone: Tone;
+  label: string;
+  detail: string | null;
+} {
+  const reason = document.status_reason;
+  switch (document.status) {
+    case 'queued':
+      return reason
+        ? { tone: 'warning', label: 'Waiting', detail: reasonWords(reason) }
+        : { tone: 'info', label: 'Waiting to be read', detail: null };
+    case 'processing':
+      return { tone: 'info', label: 'Reading', detail: null };
+    case 'failed':
+      return {
+        tone: 'danger',
+        label: 'Couldn’t be read',
+        detail: reason ?? 'Replace it with a file that can be read.',
+      };
+    case 'ready':
+      break;
+  }
+  const graph = document.graph_reason;
+  switch (document.graph_status) {
+    case 'pending':
+    case 'extracting':
+      return { tone: 'info', label: 'Finding knowledge', detail: null };
+    case 'waiting':
+      return {
+        tone: 'warning',
+        label: 'Searchable',
+        detail: graph ? reasonWords(graph) : null,
+      };
+    case 'failed':
+      return {
+        tone: 'warning',
+        label: 'Searchable',
+        detail: graph
+          ? `Its knowledge couldn’t be read: ${graph}`
+          : 'Its knowledge couldn’t be read.',
+      };
+    default:
+      return { tone: 'success', label: 'Ready', detail: null };
+  }
+}
+
+/** Whether the company's server is still working on a document (the list reads itself again). */
+export function documentWorking(document: CompanyDocument): boolean {
+  return (
+    (document.status === 'queued' && !document.status_reason) ||
+    document.status === 'processing' ||
+    (document.status === 'ready' &&
+      (document.graph_status === 'pending' ||
+        document.graph_status === 'extracting'))
+  );
+}
+
+/** How an upload, replace or delete went, for the file named. */
+export function outcomeWords(
+  outcome: NonNullable<CompanyDocumentsView['outcome']>,
+  name: string,
+  view: Pick<CompanyDocumentsView, 'max_upload_bytes' | 'supported_types'>,
+): string {
+  switch (outcome) {
+    case 'uploaded':
+      return `${name} was added. Your company’s server reads it next.`;
+    case 'replaced':
+      return `${name} replaced the earlier file. Your company’s server reads it next.`;
+    case 'removed':
+      return `${name} was deleted.`;
+    case 'too_large':
+      return `${name} is larger than the ${sizeWords(view.max_upload_bytes)} your company allows.`;
+    case 'unsupported_type':
+      return `${name} can’t be added. Add ${typesWords(view.supported_types)} files.`;
+    case 'invalid_file':
+      return `${name} can’t be added: your company’s server doesn’t accept its name. Rename it, then try again.`;
+    case 'not_owner':
+      return 'You no longer own this space, so its documents can’t be changed here.';
+    case 'not_found':
+      return 'That document or space isn’t there any more.';
+  }
 }

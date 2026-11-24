@@ -75,3 +75,23 @@
   font-size: var(--text-13);
   overflow-wrap: anywhere;
 }
+
+/*
+ * Settings › Documents' company documents (B3): the space picker and Add sit
+ * in the group's head; a state or a notice is one row in its surface.
+ */
+.company-documents .settings-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.company-documents-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.company-documents-state p,
+.company-documents-notice {
+  flex: 1;
+  margin: 0;
+}

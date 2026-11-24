@@ -3291,6 +3291,34 @@ export class ClientController {
     this.query(() => this.transport.companyGraph?.(query, signal));
   companyEntity = (entityId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.companyEntity?.(entityId, signal));
+  /**
+   * Row-Bot for Teams (B3): a space owner's company documents in Settings ›
+   * Documents. Each call answers the space's list as it is afterwards.
+   */
+  companyDocuments = (spaceId?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyDocuments?.(spaceId, signal));
+  uploadCompanyDocument = (
+    spaceId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.uploadCompanyDocument?.(spaceId, file, name, signal),
+    );
+  replaceCompanyDocument = (
+    documentId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.replaceCompanyDocument?.(documentId, file, name, signal),
+    );
+  removeCompanyDocument = (documentId: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.removeCompanyDocument?.(documentId, signal),
+    );
   /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
   speechModels = (signal?: AbortSignal) =>
     this.query(() => this.transport.speechModels?.(signal));

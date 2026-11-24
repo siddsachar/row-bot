@@ -970,6 +970,47 @@ export class HttpTransport implements ClientTransport {
   companyEntity(entityId: string, signal?: AbortSignal) {
     return wire.getCompanyEntity(this.base, this.session(), entityId, signal);
   }
+  companyDocuments(spaceId: string | undefined, signal?: AbortSignal) {
+    return wire.getCompanyDocuments(this.base, this.session(), spaceId, signal);
+  }
+  uploadCompanyDocument(
+    spaceId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.uploadCompanyDocument(
+      this.base,
+      this.session(),
+      spaceId,
+      file,
+      name,
+      signal,
+    );
+  }
+  replaceCompanyDocument(
+    documentId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.replaceCompanyDocument(
+      this.base,
+      this.session(),
+      documentId,
+      file,
+      name,
+      signal,
+    );
+  }
+  removeCompanyDocument(documentId: string, signal?: AbortSignal) {
+    return wire.removeCompanyDocument(
+      this.base,
+      this.session(),
+      documentId,
+      signal,
+    );
+  }
   speechModels(signal?: AbortSignal) {
     return wire.getSpeechModels(this.base, this.session(), signal);
   }

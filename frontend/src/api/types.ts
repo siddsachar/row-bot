@@ -1414,6 +1414,27 @@ export interface ClientTransport {
     entityId: string,
     signal?: AbortSignal,
   ): Promise<Wire.CompanyEntityView>;
+  /** Row-Bot for Teams (B3): a space owner's company documents; each call answers the space's list. */
+  companyDocuments?(
+    spaceId: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
+  uploadCompanyDocument?(
+    spaceId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
+  replaceCompanyDocument?(
+    documentId: string,
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
+  removeCompanyDocument?(
+    documentId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanyDocumentsView>;
   speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
   installSpeechModel?(
     body: Wire.SpeechModelInstallRequest,

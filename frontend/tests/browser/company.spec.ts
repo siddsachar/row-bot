@@ -650,3 +650,99 @@ test('company knowledge: the Company scope beside Mine, its graph, filters and a
   await expect(page.getByRole('link', { name: 'Sign in again' })).toBeVisible();
   await shoot(page, info, 'company-knowledge-disconnected');
 });
+
+// Company documents (B3): a space owner adds a document to their space in
+// Settings › Documents. The company's documents are answered here; nothing
+// reaches a company server.
+
+const companyDocument = (over: View = {}): View => ({
+  id: 'd0000000-0000-4000-8000-000000000002',
+  title: 'Accounts 2026',
+  file_name: 'accounts.md',
+  byte_count: 2048,
+  status: 'ready',
+  status_reason: null,
+  graph_status: 'done',
+  graph_reason: null,
+  version: 1,
+  uploaded_at: '2026-11-20T09:00:00+00:00',
+  ...over,
+});
+
+const companyDocuments = (
+  documents: View[],
+  outcome: string | null = null,
+): View => ({
+  schema_version: 1,
+  state: 'ready',
+  company: COMPANY,
+  reason: null,
+  spaces: [{ id: SALES_SPACE, name: 'Sales', kind: 'group', is_owner: true }],
+  space_id: SALES_SPACE,
+  documents,
+  max_upload_bytes: 25 * 1024 * 1024,
+  supported_types: ['.docx', '.markdown', '.md', '.txt'],
+  outcome,
+});
+
+test('company documents: an owner adds a document to their space in Settings › Documents', async ({
+  page,
+}, info) => {
+  const state = { view: joined, asked: [] as string[] };
+  await companyRoutes(page, state);
+  let documents = [companyDocument()];
+  const uploads: { name: string | undefined; body: string | null }[] = [];
+  await page.route('**/api/v1/company/documents**', (route: Route) =>
+    route.fulfill({ status: 200, json: companyDocuments(documents) }),
+  );
+  await page.route(
+    '**/api/v1/company/spaces/*/documents',
+    async (route: Route) => {
+      const request = route.request();
+      uploads.push({
+        name: request.headers()['x-file-name'],
+        body: request.postData(),
+      });
+      documents = [
+        companyDocument({
+          id: 'd0000000-0000-4000-8000-000000000009',
+          title: 'holiday-notes',
+          file_name: 'holiday-notes.md',
+          byte_count: 24,
+          status: 'queued',
+          graph_status: 'pending',
+        }),
+        ...documents,
+      ];
+      await route.fulfill({
+        status: 200,
+        json: companyDocuments(documents, 'uploaded'),
+      });
+    },
+  );
+
+  await page.goto('/app-v2/settings/documents');
+  const group = page.getByRole('region', { name: 'Company documents' });
+  await expect(group).toBeVisible({ timeout: 15_000 });
+  await expect(group.getByText('Accounts 2026')).toBeVisible();
+  await expect(group.getByText('Ready', { exact: true })).toBeVisible();
+  await shoot(page, info, 'company-documents');
+
+  const chooser = page.waitForEvent('filechooser');
+  await group.getByRole('button', { name: 'Add a document to Sales' }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'holiday-notes.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('Holiday policy: 25 days.'),
+  });
+  await expect(group.getByRole('status')).toHaveText(
+    'holiday-notes.md was added. Your company’s server reads it next.',
+  );
+  await expect(group.getByText('Waiting to be read')).toBeVisible();
+  expect(uploads).toEqual([
+    { name: 'holiday-notes.md', body: 'Holiday policy: 25 days.' },
+  ]);
+  await shoot(page, info, 'company-documents-added');
+});
