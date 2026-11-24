@@ -309,7 +309,7 @@ def _build(include_readiness: bool) -> _Built:
     counts: dict[str, int] = {}
     for row in rows:
         counts[row.provider_id] = counts.get(row.provider_id, 0) + 1
-        labels.setdefault(row.provider_id, withheld_names.get(row.provider_id, row.provider_id))
+        labels.setdefault(row.provider_id, withheld_names.get(row.provider_id, row.provider_display_name or row.provider_id))
     local_install = {item["model_id"]: _boolean(item.get("installed")) for item in saved.ollama_rows if isinstance(item.get("model_id"), str)}
     from row_bot import local_runtime
     from row_bot.providers.model_visibility import is_personal_model_endpoint

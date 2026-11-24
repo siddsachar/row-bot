@@ -343,6 +343,12 @@ their exports, an offline lockdown). The events follow `contracts/audit/v1/`; th
   `before`, `limit`), `GET /api/admin/audit/verify` and `GET /api/admin/audit/export` (JSON Lines, 10,000
   events a file, `after` for the next one; each export is itself recorded). People can't read it, not even
   their own events.
+- **What a Row-Bot reports**, metadata only: `tool.called` for each action that went through its approval gate,
+  whatever was decided (the tool's name and app, the approval level in force, risk, surface, who decided, a
+  rule's id, the outcome); `data.exported` (scope `person`) when a chat is exported or the data backed up;
+  `device.locked_down` (with `offline_days`) once an offline lockdown has ended. Never a summary, a prompt, a
+  tool's arguments or its result. A Row-Bot keeps up to 10,000 events (5 MB) while it can't reach the server,
+  dropping the oldest beyond that, and sends them in batches of 100 at most once a minute.
 - **Retention:** every event is kept. There is no expiry in this version; size the database for it (each event is
   a few hundred bytes).
 

@@ -108,6 +108,24 @@
   },
   "additionalProperties": false,
   "properties": {
+    "company_max_level": {
+      "anyOf": [
+        {
+          "enum": [
+            "block",
+            "approve",
+            "auto",
+            "full"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Company Max Level"
+    },
     "conversation_id": {
       "anyOf": [
         {

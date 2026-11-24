@@ -193,6 +193,8 @@ BROWSER_NIGHTLY_SPECS = (
     "settings-claude-plan", "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
     "terminal", "theme", "visual-alignment", "voice", "workflows", "hosted-first-run", "place-words",
     "memory-guidance", "hosted-settings", "backup-model", "hermes-import",
+    # Settings › Company (Row-Bot for Teams, C1b): join, joined, leave, disconnected, unreachable, an error.
+    "company",
 )
 # Apps in chat connect fake apps and run fake turns: a backend of their own, so no other spec sees them.
 BROWSER_APPS_SPECS = ("apps-in-chat", "app-views")
@@ -216,7 +218,7 @@ BROWSER_PHONE_SPECS = (
     "learning-hugging-face",
     "learning-other-models",
     "settings-claude-plan", "install-count", "hosted-first-run", "place-words", "memory-guidance",
-    "hosted-settings", "backup-model", "hermes-import", "first-run-local",
+    "hosted-settings", "backup-model", "hermes-import", "first-run-local", "company",
 )
 # Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
 BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")

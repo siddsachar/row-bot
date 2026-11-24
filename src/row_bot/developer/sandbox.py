@@ -70,7 +70,9 @@ def decide_action(mode: ApprovalMode, action: DeveloperAction, *, by_person: boo
     Hands-off need nothing more (Ask still confirms).
     """
     label = _ACTION_LABELS[action]
-    normalized = normalize_approval_mode(mode)
+    from row_bot.company.enforce import cap
+
+    normalized = cap(normalize_approval_mode(mode))  # Worded from the level it runs at (C3b).
     decision = decision_for_action(
         normalized, read_only=action in {"read", "run_safe_command"}, by_person=by_person,
     )

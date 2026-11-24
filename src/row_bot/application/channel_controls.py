@@ -667,6 +667,12 @@ def _review(
     )
     if snapshot["revision"] != revision:
         raise ChannelControlError("revision_conflict")
+    if operation in {"configure", "start", "pair", "test"}:
+        from row_bot.company.enforce import allows_app
+
+        if not allows_app("channels", channel_id):
+            # The person's company doesn't allow it (C3b): it can be stopped and cleared, never set up or started.
+            raise ChannelControlError("company_policy")
     normalized: Any = None
     selected: Any | None = None
     if operation == "configure":
