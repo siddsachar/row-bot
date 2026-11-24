@@ -2,6 +2,14 @@
 
 ---
 
+## v5.4.0
+
+### For Hosts
+
+TODO: breaking changes for hosts, a new recommended size or new host settings; or "No changes for hosts."
+
+---
+
 ## v5.3.4 - Proactive Row-Bot, Models On Your Computer, And A Living Buddy
 
 Row-Bot 5.3.4 starts speaking first: Proactive Row-Bot notices a reply you're still
