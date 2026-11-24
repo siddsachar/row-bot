@@ -49,6 +49,28 @@ REPLY = "Hello from the company"
 GATEWAY_OPENAI = "/api/gateway/openai/v1/chat/completions"
 GATEWAY_ANTHROPIC = "/api/gateway/anthropic/v1/messages"
 AUDIT_INGEST = "/api/audit/events"
+# B1a's spaces and B7's company knowledge graph, as the server reads them for the fixture person: the company
+# space and a group space they own.
+COMPANY_SPACE = "5a000000-0000-4000-8000-000000000001"
+SALES_SPACE = "5a000000-0000-4000-8000-000000000002"
+BRAIN_SPACES = [{"id": COMPANY_SPACE, "name": "Company", "kind": "company", "is_owner": False},
+                {"id": SALES_SPACE, "name": "Sales", "kind": "group", "is_owner": True}]
+ATLAS, ADA, ORION, OLD = (f"e0000000-0000-4000-8000-00000000000{number}" for number in range(1, 5))
+_ENTITY = {"aliases": [], "status": "active", "updated_at": "2026-11-20T09:00:00+00:00", "orphan": False}
+BRAIN_NODES = [
+    {**_ENTITY, "id": ATLAS, "space_id": COMPANY_SPACE, "subject": "Atlas", "entity_type": "project",
+     "description": "The billing platform rebuild.", "aliases": ["Project Atlas"], "relation_count": 2},
+    {**_ENTITY, "id": ADA, "space_id": COMPANY_SPACE, "subject": "Ada Lovelace", "entity_type": "person",
+     "description": "Leads the platform team.", "relation_count": 1},
+    {**_ENTITY, "id": ORION, "space_id": SALES_SPACE, "subject": "Orion Foods", "entity_type": "customer",
+     "description": "A customer since 2024.", "relation_count": 1},
+]
+BRAIN_EDGES = [
+    {"id": "f0000000-0000-4000-8000-000000000001", "space_id": COMPANY_SPACE, "source_id": ADA, "target_id": ATLAS,
+     "relation_type": "leads", "status": "active", "origin": "extracted", "updated_at": "2026-11-20T09:00:00+00:00"},
+    {"id": "f0000000-0000-4000-8000-000000000002", "space_id": SALES_SPACE, "source_id": ORION, "target_id": ATLAS,
+     "relation_type": "uses", "status": "active", "origin": "manual", "updated_at": "2026-11-21T09:00:00+00:00"},
+]
 # S5's ingest: what a Row-Bot may report, and how much at once.
 DEVICE_ACTIONS = frozenset({"tool.called", "data.exported", "device.locked_down"})
 MAX_AUDIT_BATCH = 100
@@ -157,6 +179,12 @@ class FakeCompanyServer:
         self.audit_answers: list[httpx.Response] = []
         # The background audit sends the app started (held: a test fires them).
         self.timers: list[HeldTimer] = []
+        # The company brain (B1a's spaces, B7's graph and entities), read as the fixture person; None: a server
+        # without it (every brain route 404s). Entity answers are B7's, by id; one missing is 404.
+        self.brain_spaces: list[dict] | None = [dict(space) for space in BRAIN_SPACES]
+        self.brain_nodes: list[dict] = [dict(node) for node in BRAIN_NODES]
+        self.brain_edges: list[dict] = [dict(edge) for edge in BRAIN_EDGES]
+        self.brain_entities: dict[str, dict] = {}
         self._numbers = itertools.count(1)
         self._lock = threading.Lock()
         self.transport = httpx.MockTransport(self.handle)
@@ -283,6 +311,47 @@ class FakeCompanyServer:
             return self._gateway(request)
         if (request.method, path) == ("POST", AUDIT_INGEST):
             return self._ingest(request)
+        if request.method == "GET" and path.startswith("/api/brain/") and self.brain_spaces is not None:
+            if self._bearer(request) is None:
+                return httpx.Response(401, json={"error": "invalid_token"})
+            return self._brain(request)
+        return httpx.Response(404, json={"error": "not_found"})
+
+    def _brain(self, request: httpx.Request) -> httpx.Response:
+        """B1a's ``GET /api/brain/spaces`` and B7's ``GET /api/brain/graph`` and ``/api/brain/entities/{id}``."""
+        path, params = request.url.path, request.url.params
+        readable = {space["id"]: space for space in self.brain_spaces or []}
+        if path == "/api/brain/spaces":
+            return httpx.Response(200, json={"spaces": list(readable.values())})
+        if path == "/api/brain/graph":
+            asked = [space for space in params.get("spaces", "").split(",") if space]
+            if any(space not in readable for space in asked):
+                return httpx.Response(404, json={"error": "space_not_found"})
+            spaces = set(asked or readable)
+            needle = params.get("q", "").casefold()
+            limit = int(params.get("limit", "300"))
+            found = [node for node in self.brain_nodes if node["space_id"] in spaces and (
+                not needle or any(needle in name.casefold() for name in [node["subject"], *node["aliases"]]))]
+            found.sort(key=lambda node: (-node["relation_count"], node["subject"], node["id"]))
+            shown = found[:limit]
+            ids = {node["id"] for node in shown}
+            every = {node["id"] for node in found}
+            edges = [edge for edge in self.brain_edges if edge["source_id"] in ids and edge["target_id"] in ids]
+            total_relations = sum(1 for edge in self.brain_edges
+                                  if edge["source_id"] in every and edge["target_id"] in every)
+            return httpx.Response(200, json={
+                "nodes": shown, "edges": edges,
+                "spaces": [{key: readable[space][key] for key in ("id", "name", "kind")}
+                           for space in dict.fromkeys(node["space_id"] for node in shown)],
+                "total_entities": len(found), "total_relations": total_relations,
+                "shown_entities": len(shown), "shown_relations": len(edges),
+                "truncated": len(shown) < len(found) or len(edges) < total_relations,
+                "entity_types": sorted({node["entity_type"] for node in shown})})
+        if path.startswith("/api/brain/entities/"):
+            answer = self.brain_entities.get(path.removeprefix("/api/brain/entities/"))
+            if answer is None:
+                return httpx.Response(404, json={"error": "entity_not_found"})
+            return httpx.Response(200, json=answer)
         return httpx.Response(404, json={"error": "not_found"})
 
     def _ingest(self, request: httpx.Request) -> httpx.Response:

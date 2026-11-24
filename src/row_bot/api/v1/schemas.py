@@ -2973,6 +2973,88 @@ class CompanyJoinRequest(WireModel):
     device_name: str = Field(default="", max_length=200)
 
 
+# Row-Bot for Teams (B8): whether the company's knowledge could be read. Not joined; disconnected; locked down
+# (C3a: nothing is asked); unreachable (its reason "busy" or "storage_unavailable" when known); or not found (an
+# entity).
+CompanyKnowledgeState = Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable", "not_found"]
+CompanyKnowledgeReason = Literal["lease_expired", "not_confirmed", "busy", "storage_unavailable"]
+
+
+class CompanyGraphSpace(WireModel):
+    """A company knowledge space the person may read (B8), and whether they own it (owners curate it in the
+    admin console)."""
+
+    id: OpaqueId
+    name: str = Field(max_length=160)
+    kind: Literal["company", "group"]
+    is_owner: bool
+
+
+class CompanyGraphView(WireModel):
+    """Knowledge home's Company scope (B8): the company's knowledge graph, filtered by its server to what the
+    person may read, as the personal graph's nodes and edges. Read only."""
+
+    schema_version: Literal[1]
+    state: Literal["ready", "not_joined", "disconnected", "locked_down", "unreachable"]
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    nodes: list[KnowledgeGraphNode] = Field(max_length=1000)
+    edges: list[KnowledgeGraphEdge] = Field(max_length=3000)
+    # Every space the person may read; and the ones shown (empty: all of them).
+    spaces: list[CompanyGraphSpace] = Field(max_length=512)
+    space_ids: list[OpaqueId] = Field(max_length=64)
+    total_entities: int = Field(ge=0, le=9007199254740991)
+    total_relations: int = Field(ge=0, le=9007199254740991)
+    shown_entities: int = Field(ge=0, le=1000)
+    shown_relations: int = Field(ge=0, le=3000)
+    truncated: bool
+    entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(max_length=64)
+
+
+class CompanyEntity(WireModel):
+    id: OpaqueId
+    subject: str = Field(max_length=256)
+    entity_type: str = Field(max_length=64)
+    description: str = Field(max_length=1024)
+    aliases: list[Annotated[str, StringConstraints(max_length=160)]] = Field(max_length=16)
+    status: Literal["active", "archived"]
+    space_id: OpaqueId
+    space_name: str = Field(max_length=160)
+    updated_at: str = Field(max_length=128)
+    # When an owner last curated it in the admin console; None when it is as extraction found it.
+    edited_at: str | None = Field(max_length=128)
+
+
+class CompanyEntityRelation(WireModel):
+    relation_type: str = Field(max_length=64)
+    direction: Literal["outgoing", "incoming"]
+    peer_id: OpaqueId
+    peer_subject: str = Field(max_length=256)
+    peer_type: str = Field(max_length=64)
+
+
+class CompanyCitation(WireModel):
+    """Where the company's knowledge mentions an entity: "From <space>: <document>", and the words there."""
+
+    kind: Literal["document", "fact"]
+    space: str = Field(max_length=160)
+    document: str | None = Field(max_length=300)
+    excerpt: str = Field(max_length=2000)
+
+
+class CompanyEntityView(WireModel):
+    """One entity of the company's knowledge graph (B8), read only."""
+
+    schema_version: Literal[1]
+    state: CompanyKnowledgeState
+    company: str | None = Field(max_length=256)
+    reason: CompanyKnowledgeReason | None
+    entity: CompanyEntity | None
+    relations: list[CompanyEntityRelation] = Field(max_length=200)
+    mentions: list[CompanyCitation] = Field(max_length=50)
+    mention_count: int = Field(ge=0, le=9007199254740991)
+
+
 SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
 
 

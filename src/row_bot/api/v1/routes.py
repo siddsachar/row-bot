@@ -7362,6 +7362,25 @@ def create_router(
 
         return await company_view(request, leave)
 
+    # Row-Bot for Teams (B8): Knowledge home's Company scope, read only. The company's server filters its
+    # knowledge graph to what the person may read; with no company joined nothing is asked.
+    @router.get("/company/graph")
+    async def company_graph(request: Request, spaces: str = "", q: str = "", limit: int = 300) -> JSONResponse:
+        await session(request)
+        from row_bot.company import brain
+
+        wanted = [space for space in spaces.split(",")[: brain.MAX_SPACES] if space]
+        view = await call(brain.graph, wanted, q, limit)
+        return await respond(request, dto.CompanyGraphView, view or brain.empty_graph("not_joined"))
+
+    @router.get("/company/entities/{entity_id}")
+    async def company_entity(request: Request, entity_id: str) -> JSONResponse:
+        await session(request)
+        from row_bot.company import brain
+
+        view = await call(brain.entity, entity_id)
+        return await respond(request, dto.CompanyEntityView, view or brain.empty_entity("not_joined"))
+
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
         # One short message to the model the person just chose (its provider is
