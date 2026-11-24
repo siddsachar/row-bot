@@ -4,7 +4,13 @@ import { clientError } from '../../api/errors';
 import { useClientSelector, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { commandReceipts, ReceiptStorageError } from './command-receipts';
-import { takeHomeDraft, unusedChat } from './new-chat';
+import {
+  startVoiceOnOpen,
+  takeHomeDraft,
+  unusedChat,
+  type HomeVoice,
+} from './new-chat';
+import { primeVoicePlayback } from '../voice/voice-audio';
 
 // Refusals at the door, before any command runs: this window isn't signed in, its address isn't allowed,
 // or it has no session.
@@ -75,6 +81,7 @@ export default function useNewChat() {
    * Starts a chat. `firstMessage` is sent once the chat is ready unless
    * `send` is false, when it only waits in the composer as a draft.
    * `incognito` starts one that nothing is read from for memory (N11).
+   * `voice` starts dictation or Talk in it once it opens (Home's mic and Talk, D3).
    */
   async function newChat(
     firstMessage = '',
@@ -82,7 +89,8 @@ export default function useNewChat() {
     {
       send = true,
       incognito = false,
-    }: { send?: boolean; incognito?: boolean } = {},
+      voice,
+    }: { send?: boolean; incognito?: boolean; voice?: HomeVoice } = {},
   ) {
     if (
       operation.current ||
@@ -91,6 +99,8 @@ export default function useNewChat() {
     )
       return;
     operation.current = true;
+    // Talk from Home: its playback starts in this tap (Safari and iPhone need one).
+    if (voice === 'talk') primeVoicePlayback();
     setFirstPrompt(null);
     setCreatingChat(true);
     const selection = controller.getSelectionVersion();
@@ -108,6 +118,7 @@ export default function useNewChat() {
     let fresh: string | null = null;
     const opened = (conversationId: string) => {
       setFocusConversationId(conversationId);
+      if (voice) startVoiceOnOpen(conversationId, voice);
       // Typed on Home while the chat was on its way: it waits in the new chat's composer (M12). A message
       // asked from Home is that text, already on its way.
       const typed = takeHomeDraft();

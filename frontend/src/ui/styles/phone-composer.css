@@ -1,0 +1,202 @@
+/*
+ * The phone's + sheet below 768px (B2, D9 A): Camera, Photos and Files
+ * tiles, then Use an app, Skills and Chat settings ›, with Chat settings one
+ * level down in the same sheet. Desktop and tablets keep the + menu: every
+ * rule here is keyed on .composer-plus-sheet, which only the phone sets.
+ */
+.composer-plus-sheet.menu {
+  min-width: min(320px, calc(100vw - 24px));
+  padding-inline: 12px;
+}
+
+/* ------------------------------------------------------- attach tiles */
+
+.composer-attach-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 4px;
+}
+.composer-attach-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 80px;
+  padding: 12px 4px;
+  border-radius: 14px;
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--motion-fast);
+}
+.composer-attach-tile > svg {
+  flex: none;
+  color: var(--text-secondary);
+}
+.composer-attach-tile[data-highlighted] {
+  background: var(--surface-hover);
+}
+.composer-attach-tile:active {
+  background: var(--surface-pressed, var(--surface-hover));
+}
+:root[data-input-modality='keyboard'] .composer-attach-tile[data-highlighted] {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.composer-attach-tile[data-disabled] {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.composer-attach-tile[data-disabled] > svg {
+  color: inherit;
+}
+.composer-attach-limit {
+  padding: 8px 4px 4px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------ rows */
+
+.composer-plus-sheet .composer-sheet-row {
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 4px;
+}
+.composer-plus-sheet .composer-sheet-row + .composer-sheet-row {
+  box-shadow: 0 -1px 0 var(--border-hairline);
+}
+.composer-plus-sheet .composer-sheet-row[data-highlighted] {
+  box-shadow: none;
+}
+.composer-sheet-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.composer-sheet-row .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-15);
+}
+/* Up to two lines under the name, then cut short. */
+.composer-sheet-row .menu-item-label small {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-13);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.composer-sheet-row > .menu-item-meta {
+  flex: none;
+  font-size: var(--text-14);
+}
+.composer-sheet-row > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------- Chat settings' heading */
+
+.composer-sheet-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 4px -4px;
+}
+.composer-plus-sheet .menu-item.composer-sheet-back {
+  flex: none;
+  justify-content: center;
+  width: 44px;
+  min-width: 0;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+.composer-sheet-title {
+  color: var(--text-primary);
+  font-size: var(--text-17);
+  font-weight: var(--weight-semibold);
+}
+.composer-sheet-group-label {
+  padding: 8px 12px 4px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+
+/* Incognito's switch: the app's toggle, drawn from the item's state. */
+.composer-sheet-switch > .toggle-track {
+  color: var(--text-muted);
+}
+.composer-sheet-switch[data-state='checked'] > .toggle-track {
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+}
+.composer-sheet-switch[data-state='checked'] > .toggle-track::after {
+  background: var(--surface);
+  transform: translateX(16px);
+}
+.composer-sheet-switch[data-disabled] > .toggle-track {
+  opacity: 0.5;
+}
+
+/* --------------------------- the context line in Conversation details */
+
+/* First in the phone's details, ruled off from what follows. */
+.context-rail-body > .context-line {
+  padding-top: 0;
+  border-top: 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.context-line-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  text-align: start;
+}
+button.context-line-row {
+  cursor: pointer;
+}
+button.context-line-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.context-line-row .context-ring-svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.context-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.context-line-row > svg:last-child {
+  flex: none;
+  color: var(--text-muted);
+}

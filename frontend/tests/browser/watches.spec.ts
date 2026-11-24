@@ -33,16 +33,21 @@ async function views(page: Page, info: TestInfo, name: string, focus: Locator) {
   await page.emulateMedia({ colorScheme: 'light' });
 }
 
-/** Evidence at desktop and phone size, light and dark. */
+/**
+ * Evidence at desktop and phone size, light and dark. `phone` is what a
+ * phone shows in its place, when that differs (C2: a workflow's sheet, or
+ * "Open this on your computer" for its editor and settings).
+ */
 async function everywhere(
   page: Page,
   info: TestInfo,
   name: string,
   focus: Locator,
+  phone: Locator = focus,
 ) {
   await views(page, info, name, focus);
   await page.setViewportSize(PHONE);
-  await views(page, info, `${name}-phone`, focus);
+  await views(page, info, `${name}-phone`, phone);
   await page.setViewportSize(DESKTOP);
 }
 
@@ -185,6 +190,8 @@ test('an ended watch offers to become a workflow; saving the workflow puts the w
     info,
     'watch-workflow-editor',
     page.getByLabel('Name', { exact: true }),
+    // A phone edits workflows on the computer (C2, D11 A).
+    page.getByRole('region', { name: 'The workflow editor' }),
   );
   await page
     .getByRole('button', { name: 'Save workflow', exact: true })

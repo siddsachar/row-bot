@@ -3,25 +3,31 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+import io
 import subprocess
 import threading
 import time
 from typing import Any, Callable
+import wave
 
 from row_bot.tts import TTSService
 from row_bot.voice import SAMPLE_RATE, VoiceService, get_voice_service
-from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderStatus
+from row_bot.voice.provider_base import SynthesizedSpeech, VoiceProviderError, VoiceProviderStatus
 from row_bot.voice.providers import (
     SpeechMode,
     speech_output_provider,
     speech_to_text_provider,
 )
+from row_bot.voice.speech_policy import speech_pieces
 
 # A dictated prompt or a spoken turn of up to five minutes (5.3.1 A4; 30 s cut long ones off).
 MAX_INPUT_BYTES = 32 * 1024 * 1024
-MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_UTTERANCE_SECONDS = 300
-MAX_TEXT_CHARS = 4_000
+# A spoken answer is said whole (VD7): a long one is synthesized in pieces of at most MAX_TEXT_CHARS
+# (about a minute of speech) and joined into one recording of at most MAX_OUTPUT_BYTES (about three
+# minutes, what the Talk client plays).
+MAX_TEXT_CHARS = 1_000
+MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_TRANSCRIPT_CHARS = 20_000
 DECODE_TIMEOUT_SECONDS = 60
 REQUESTS_PER_MINUTE = 12
@@ -45,6 +51,26 @@ def _is_wav(audio: bytes) -> bool:
 
 # Speech the browser may be sent, by content type, with its signature check.
 SPEECH_OUTPUT_TYPES: dict[str, Callable[[bytes], bool]] = {"audio/wav": _is_wav}
+
+
+def _joined_wav(pieces: list[SynthesizedSpeech]) -> SynthesizedSpeech:
+    """Pieces of one answer's speech, one after another in a single WAV recording."""
+    frames: list[bytes] = []
+    params = None
+    for piece in pieces:
+        with wave.open(io.BytesIO(piece.audio), "rb") as reader:
+            shape = (reader.getnchannels(), reader.getsampwidth(), reader.getframerate())
+            if params is not None and shape != params:
+                raise BrowserVoiceError("voice_output_unavailable", status_code=409)
+            params = shape
+            frames.append(reader.readframes(reader.getnframes()))
+    output = io.BytesIO()
+    with wave.open(output, "wb") as writer:
+        writer.setnchannels(params[0])
+        writer.setsampwidth(params[1])
+        writer.setframerate(params[2])
+        writer.writeframes(b"".join(frames))
+    return SynthesizedSpeech(output.getvalue(), "audio/wav")
 
 
 class BrowserVoiceError(RuntimeError):
@@ -122,11 +148,14 @@ class BrowserLocalVoiceService:
 
     def synthesize(self, session_key: str, text: str, *,
                    validate: Callable[[], None] | None = None) -> SynthesizedSpeech:
-        clean = str(text or "").strip()
-        if not clean:
+        """All of *text* as one recording: piece by piece when it is long, never cut short.
+
+        A piece in a language the voice can't speak is left out (it stays on screen); when no piece can
+        be spoken, ``voice_language_unspoken``.
+        """
+        pieces = speech_pieces(str(text or "").strip(), MAX_TEXT_CHARS)
+        if not pieces:
             raise BrowserVoiceError("text_required")
-        if len(clean) > MAX_TEXT_CHARS:
-            raise BrowserVoiceError("text_too_large", status_code=413)
         with self._job(session_key):
             if validate is not None:
                 validate()
@@ -134,19 +163,31 @@ class BrowserLocalVoiceService:
             status = provider.status()
             if not status.ready:
                 raise BrowserVoiceError(status.unavailable_code, status_code=409)
-            if validate is not None:
-                validate()
-            speech = provider.synthesize(clean)
-            if validate is not None:
-                validate()
-            if not isinstance(speech, SynthesizedSpeech) or not isinstance(speech.audio, bytes):
-                raise BrowserVoiceError("voice_output_unavailable", status_code=409)
-            if not speech.audio or len(speech.audio) > MAX_OUTPUT_BYTES:
-                raise BrowserVoiceError("audio_output_too_large", status_code=413)
-            valid = SPEECH_OUTPUT_TYPES.get(speech.content_type)
-            if valid is None or not valid(speech.audio):
-                raise BrowserVoiceError("voice_output_unavailable", status_code=409)
-            return speech
+            spoken: list[SynthesizedSpeech] = []
+            total = 0
+            for piece in pieces:
+                if validate is not None:
+                    validate()
+                try:
+                    speech = provider.synthesize(piece)
+                except VoiceProviderError as error:  # A cloud voice that failed or lost its key.
+                    raise BrowserVoiceError(error.code, status_code=503) from None
+                if validate is not None:
+                    validate()
+                if not isinstance(speech, SynthesizedSpeech) or not isinstance(speech.audio, bytes):
+                    raise BrowserVoiceError("voice_output_unavailable", status_code=409)
+                if speech.unspoken:
+                    continue
+                total += len(speech.audio)
+                if not speech.audio or total > MAX_OUTPUT_BYTES:
+                    raise BrowserVoiceError("audio_output_too_large", status_code=413)
+                valid = SPEECH_OUTPUT_TYPES.get(speech.content_type)
+                if valid is None or not valid(speech.audio):
+                    raise BrowserVoiceError("voice_output_unavailable", status_code=409)
+                spoken.append(speech)
+            if not spoken:
+                raise BrowserVoiceError("voice_language_unspoken", status_code=422)
+            return spoken[0] if len(spoken) == 1 else _joined_wav(spoken)
 
     def install_whisper(self, session_key: str) -> None:
         with self._job(session_key):

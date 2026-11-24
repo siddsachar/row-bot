@@ -1843,3 +1843,263 @@ it('offers the draft and the post, never Try again, for a reply X takes only fro
   expect(within(row).getByRole('button', { name: 'Dismiss' })).toBeVisible();
   expect(retry).not.toHaveBeenCalled();
 });
+
+// The phone's Home (C1, D2–D4, D13) ------------------------------------------
+
+/** A window under 768px: the phone layout. */
+function onPhone() {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+const voice = { dictate: true, talk: true };
+
+it('a phone shows Needs you with Approve and Deny, then Now and Recent, over the docked Ask box', async () => {
+  onPhone();
+  proactive.on = true;
+  const forYou = vi.fn(() => <section aria-label="For you" />);
+  const offer = vi.fn((waiting: number) => (
+    <p aria-label="Notifications offer">{waiting} waiting</p>
+  ));
+  runtime.approval.mockResolvedValue({
+    id: 'approval-mail',
+    status: 'pending',
+    revision: '0',
+    nonce: 'nonce-mail',
+    policy_revision: '1',
+    action_label: 'send_gmail_message',
+    reason: 'To orders@riverside.example',
+  });
+  show({
+    conversations: [
+      conversation('chat-a', 'Research sprint', {
+        generation_state: [generation('running')],
+        updated_at: at(26, 9, 20),
+      }),
+      conversation('chat-b', 'Menu ideas', { updated_at: at(25, 18) }),
+    ],
+    loadApprovals: vi.fn().mockResolvedValue(approvals(approval())),
+    loadAttention: attention(),
+    loadTasks: vi
+      .fn()
+      .mockResolvedValue(
+        page([task('digest', 'Morning digest', { next_run: at(26, 10) })]),
+      ),
+    monitor: learned(12),
+    setup: setupSnapshot(),
+    onNewResource: handlers.onNewResource,
+    forYou,
+    notificationsOffer: offer,
+    voice,
+  });
+  expect(
+    await screen.findByRole('button', { name: 'Approve: Send an email?' }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Deny: Send an email?' }),
+  ).toBeVisible();
+  expect(sections()).toEqual(['Needs you1', 'Now', 'Recent']);
+  expect(buttonNames('Now')).toEqual(['Open Research sprint']);
+  expect(within(list('Now')).getByText('Writing a reply')).toBeVisible();
+  expect(buttonNames('Recent')).toEqual([
+    'Open Research sprint',
+    'Open Menu ideas',
+  ]);
+  // In context (D13): the offer comes under Needs you, given what waits.
+  expect(screen.getByLabelText('Notifications offer')).toHaveTextContent(
+    '1 waiting',
+  );
+  // The Proactive explainer, Later today, Today, Explore and quick starts stay off the phone.
+  expect(forYou).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Today' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Explore' })).toBeNull();
+  expect(screen.queryByRole('group', { name: 'Quick starts' })).toBeNull();
+  // One Ask box, docked last.
+  const ask = screen.getByRole('textbox', { name: 'Ask Row-Bot' });
+  expect(ask.closest('.phone-home-dock')).not.toBeNull();
+  expect(screen.getAllByRole('textbox', { name: 'Ask Row-Bot' })).toHaveLength(
+    1,
+  );
+  proactive.on = false;
+});
+
+it('a phone approves from Home in one tap, through approval.resolve', async () => {
+  onPhone();
+  const loadApprovals = vi.fn().mockResolvedValue(approvals(approval()));
+  runtime.approval.mockResolvedValue({
+    id: 'approval-mail',
+    status: 'pending',
+    revision: 'rev-3',
+    nonce: 'nonce-3',
+    policy_revision: '1',
+    action_label: 'send_gmail_message',
+  });
+  show({ loadApprovals, loadAttention: attention() });
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Approve: Send an email?' }),
+  );
+  expect(runtime.intent).toHaveBeenCalledWith(
+    'approval-mail',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-3' },
+    'rev-3',
+  );
+  // Needs you reads again at once.
+  await waitFor(() =>
+    expect(loadApprovals.mock.calls.length).toBeGreaterThan(1),
+  );
+});
+
+it('the docked Ask box: + opens a new chat to add to, mic and Talk start voice in one tap, typing offers Start chat', async () => {
+  onPhone();
+  show({ voice });
+  const controls = () =>
+    within(
+      screen.getByRole('textbox', { name: 'Ask Row-Bot' }).closest('form')!,
+    )
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+  expect(controls()).toEqual([
+    'Add photos or files in a new chat',
+    'Dictate in a new chat',
+    'Talk',
+  ]);
+  await userEvent.click(screen.getByRole('button', { name: 'Talk' }));
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', {
+    send: false,
+    voice: 'talk',
+  });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Dictate in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', {
+    send: false,
+    voice: 'dictate',
+  });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Add photos or files in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', { send: false });
+
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Ask Row-Bot' }),
+    'Plan Friday',
+  );
+  expect(controls()).toEqual([
+    'Add photos or files in a new chat',
+    'Start chat',
+  ]);
+  await userEvent.click(screen.getByRole('button', { name: 'Start chat' }));
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('Plan Friday');
+});
+
+it('the docked Ask box says when this host has no dictation or Talk', () => {
+  onPhone();
+  show({ voice: { dictate: false, talk: false } });
+  expect(
+    screen.getByRole('button', {
+      name: 'Dictation is unavailable on this host.',
+    }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Talk is unavailable on this host.' }),
+  ).toBeDisabled();
+});
+
+it('a phone shows an update as the sidebar would, until Remind me later', async () => {
+  onPhone();
+  const loadAttention = vi.fn().mockResolvedValue({
+    schema_version: 1,
+    problems: [],
+    update: { version: '5.3.5', ready: false },
+  });
+  const first = show({ loadAttention });
+  expect(
+    await screen.findByRole('link', {
+      name: 'Update to 5.3.5 available. Open Updates',
+    }),
+  ).toHaveAttribute('href', '/settings/updates');
+  first.unmount();
+  localStorage.setItem(
+    'row-bot.update-reminder.v1',
+    JSON.stringify({ version: '5.3.5', until: Date.now() + 60_000 }),
+  );
+  show({ loadAttention });
+  await waitFor(() => expect(loadAttention).toHaveBeenCalled());
+  expect(screen.queryByRole('link', { name: /Open Updates/ })).toBeNull();
+  localStorage.clear();
+});
+
+it('a desktop keeps its Home: the Ask box in the greeting, quick starts, Today, no Now or dock', async () => {
+  const offer = vi.fn(() => null);
+  show({
+    conversations: [
+      conversation('chat-a', 'Research sprint', {
+        generation_state: [generation('running')],
+      }),
+    ],
+    loadApprovals: vi.fn().mockResolvedValue(approvals(approval())),
+    loadAttention: attention(),
+    onNewResource: handlers.onNewResource,
+    notificationsOffer: offer,
+    voice,
+  });
+  await screen.findByRole('button', {
+    name: 'Review: Send an email to Riverside Flour',
+  });
+  expect(screen.getByRole('group', { name: 'Quick starts' })).toBeVisible();
+  expect(sections()).toEqual(['Needs you1', 'Recent', 'Today']);
+  expect(document.querySelector('.phone-home-dock')).toBeNull();
+  expect(offer).toHaveBeenCalledWith(1);
+});
+
+it('the desktop Ask box talks or dictates in a new chat, as the phone’s does, and typing offers Start chat', async () => {
+  show({ voice });
+  const controls = () =>
+    within(
+      screen.getByRole('textbox', { name: 'Ask Row-Bot' }).closest('form')!,
+    )
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+  expect(controls()).toEqual([
+    'Add files in a new chat',
+    'Dictate in a new chat',
+    'Talk in a new chat',
+  ]);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Talk in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', {
+    send: false,
+    voice: 'talk',
+  });
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Dictate in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('', {
+    send: false,
+    voice: 'dictate',
+  });
+  await userEvent.type(
+    screen.getByRole('textbox', { name: 'Ask Row-Bot' }),
+    'Plan Friday',
+  );
+  expect(controls()).toEqual(['Add files in a new chat', 'Start chat']);
+});
+
+it('the desktop Ask box says when this host can’t talk, and offers no dictation it lacks', () => {
+  show({ voice: { dictate: false, talk: false } });
+  expect(
+    screen.getByRole('button', { name: 'Talk is unavailable on this host.' }),
+  ).toBeDisabled();
+  expect(
+    screen.queryByRole('button', { name: 'Dictate in a new chat' }),
+  ).toBeNull();
+});

@@ -6,6 +6,7 @@
       "default": "follow",
       "enum": [
         "follow",
+        "spotlight",
         "still"
       ],
       "title": "Camera",
@@ -14,8 +15,10 @@
     "captions": {
       "enum": [
         "box",
+        "clean",
         "bold",
-        "title"
+        "title",
+        "word"
       ],
       "title": "Captions",
       "type": "string"
@@ -25,8 +28,19 @@
       "title": "Colour",
       "type": "string"
     },
+    "font": {
+      "default": "sans",
+      "enum": [
+        "sans",
+        "modern",
+        "serif",
+        "display"
+      ],
+      "title": "Font",
+      "type": "string"
+    },
     "framing": {
-      "default": "framed",
+      "default": "full",
       "enum": [
         "framed",
         "full"
@@ -54,6 +68,13 @@
       "title": "Logo Corner",
       "type": "string"
     },
+    "loudness": {
+      "default": -14.0,
+      "maximum": -10,
+      "minimum": -24,
+      "title": "Loudness",
+      "type": "number"
+    },
     "music_mood": {
       "enum": [
         "calm",
@@ -67,6 +88,16 @@
     "outro": {
       "maxLength": 120,
       "title": "Outro",
+      "type": "string"
+    },
+    "titles": {
+      "default": "studio",
+      "enum": [
+        "studio",
+        "minimal",
+        "bold"
+      ],
+      "title": "Titles",
       "type": "string"
     },
     "voice": {

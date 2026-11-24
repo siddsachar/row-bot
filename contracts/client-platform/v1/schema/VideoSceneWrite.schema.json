@@ -8,6 +8,36 @@
       "title": "Card",
       "type": "string"
     },
+    "cue": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cue"
+    },
+    "effects": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Effects"
+    },
     "end": {
       "anyOf": [
         {
@@ -20,6 +50,38 @@
       ],
       "default": null,
       "title": "End"
+    },
+    "footage": {
+      "anyOf": [
+        {
+          "enum": [
+            "clip",
+            "picture",
+            "ai",
+            "card",
+            "screen"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Footage"
+    },
+    "frame": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Frame"
     },
     "line": {
       "default": "",
@@ -34,11 +96,37 @@
       "title": "Scene Id",
       "type": "string"
     },
+    "shows": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Shows"
+    },
     "source": {
       "default": "",
       "maxLength": 512,
       "title": "Source",
       "type": "string"
+    },
+    "speaker": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Speaker"
     },
     "speed": {
       "default": 1,

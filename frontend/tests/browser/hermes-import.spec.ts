@@ -42,6 +42,18 @@ for (const appearance of ['light', 'dark'] as const) {
     const source = await seed(page);
     await page.emulateMedia({ colorScheme: appearance });
     await page.goto('/app-v2/settings/data');
+    if (phone(info)) {
+      // It reads another assistant's folder on the computer: a phone says to
+      // open it there (C3, as Memory's import does).
+      await expect(
+        page.getByRole('region', { name: 'Importing from another assistant' }),
+      ).toContainText('Open this on your computer');
+      await expect(page.locator('summary', { hasText: 'Import…' })).toHaveCount(
+        0,
+      );
+      await shoot(page, info, 'hermes-import-on-your-computer', appearance);
+      return;
+    }
     await page.locator('summary', { hasText: 'Import…' }).click();
     await page.getByLabel('Source folder').fill(source);
     await page.getByRole('button', { name: 'Scan folders' }).click();
@@ -123,10 +135,20 @@ for (const appearance of ['light', 'dark'] as const) {
     await shoot(page, info, 'c-review', appearance);
 
     // Leaving the panel keeps them waiting in Settings › Memory › Import
-    // memories, to review later (W13).
+    // memories, to review later (W13): on the computer, since a phone leaves
+    // import there (B4, D12 A).
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await page.goto('/app-v2/settings/memory');
+    if (phone(info)) {
+      await expect(
+        page.getByText('The graph, import and clean-up are on your computer.'),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Import memories' }),
+      ).toHaveCount(0);
+      await page.setViewportSize({ width: 1280, height: 800 });
+    }
     await page.getByRole('button', { name: 'Import memories' }).click();
     const later = page.getByRole('dialog', { name: 'Import memories' });
     const waiting = later.getByRole('list', {

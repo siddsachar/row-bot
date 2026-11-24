@@ -124,12 +124,8 @@ test('a background workflow run reaches the sidebar and Home at once (B407)', as
   await writeEvidence(info, 'background-run-timing', inSidebar);
   await views(page, info, 'background-run');
   await page.setViewportSize(PHONE);
-  await page
-    .getByRole('button', { name: 'Toggle navigation', exact: true })
-    .click();
-  await expect(
-    page.getByRole('dialog').getByRole('button', { name: RUN }).first(),
-  ).toBeVisible();
+  // A phone has no drawer (D1): Home's Needs you shows the run's approval.
+  await expect(needs.getByText(ASK)).toBeVisible();
   await views(page, info, 'background-run-phone');
 });
 
@@ -150,8 +146,11 @@ test('Monitor counts a background run and the sidebar says its approval waits (B
   expect(streams(), 'the live stream stayed open').toBe(1);
   await writeEvidence(info, 'background-run-monitor-timing', inMonitor);
   await views(page, info, 'background-run-monitor');
+  // A phone keeps Monitor on the computer (D5); Home's Needs you has the approval.
   await page.setViewportSize(PHONE);
-  await lane.scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole('region', { name: 'System Monitor' }),
+  ).toContainText('Open this on your computer');
   await views(page, info, 'background-run-monitor-phone');
 });
 

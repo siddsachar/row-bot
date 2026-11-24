@@ -392,3 +392,16 @@ def test_attention_is_quiet_when_healthy_and_names_what_needs_you(tmp_path, monk
         elsewhere = remote.get("/api/v1/monitor/attention", headers=remote_headers)
         assert elsewhere.status_code == 200, elsewhere.text
         assert elsewhere.json()["update"] == {"version": "9.1.0", "ready": False}
+
+
+def test_monitor_shows_row_bot_voice_timing_once_it_has_spoken(tmp_path, monkeypatch):
+    from row_bot.voice.engine import latency
+
+    _monitor_store(tmp_path, monkeypatch)
+    log = latency.LatencyLog()
+    monkeypatch.setattr(latency, "recent_turns", log)
+    assert "voice" not in client_monitor.read_monitor_snapshot(include_logs=False)
+    for total in (700, 900, 1500):
+        log.record({"voice_to_voice": total - 40, "voice_to_ear": total})
+    snapshot = client_monitor.read_monitor_snapshot(include_logs=False)
+    assert snapshot["voice"] == {"turns": 3, "first_audio_p50_ms": 900, "first_audio_p90_ms": 1500}

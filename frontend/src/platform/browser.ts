@@ -7,6 +7,7 @@ import {
 import type {
   CapabilityResult,
   ClientPlatform,
+  FilePickerOptions,
   MediaTransport,
   Selection,
 } from './types';
@@ -26,6 +27,7 @@ export function createBrowserPlatform(
     kind: 'file' | 'folder',
     signal?: AbortSignal,
     multiple = false,
+    picker: FilePickerOptions = {},
   ): Promise<CapabilityResult<Selection>> {
     if (signal?.aborted) return Promise.resolve({ status: 'cancelled' });
     if (!activated())
@@ -42,6 +44,10 @@ export function createBrowserPlatform(
     }
     // Attaching takes several files per pick (U18).
     if (multiple) input.multiple = true;
+    // The phone's Camera and Photos tiles (B2): images only, and the camera
+    // straight away for Camera.
+    if (picker.accept) input.accept = picker.accept;
+    if (picker.capture) input.setAttribute('capture', picker.capture);
     input.hidden = true;
     input.setAttribute(
       'aria-label',
@@ -108,8 +114,8 @@ export function createBrowserPlatform(
         capabilities: capabilityList(),
       },
     }),
-    selectFile: (signal, intent) =>
-      select('file', signal, intent?.intent === 'attachment'),
+    selectFile: (signal, intent, picker) =>
+      select('file', signal, intent?.intent === 'attachment', picker),
     selectFolder: (signal) => select('folder', signal),
     upload: (conversationId, file, signal) =>
       protect(() => media.upload(conversationId, file, signal)),
@@ -152,6 +158,7 @@ export function createBrowserPlatform(
     showMainWindow: async () => unavailable('main_window_requires_native'),
     moveWindow: () => false,
     openTerminal: async () => unavailable('terminal_requires_native'),
+    voiceHotkey: async () => unavailable('voice_hotkey_requires_native'),
     openExternalTerminal: async () => unavailable('terminal_requires_native'),
     save: async (reference, name, signal) => {
       if (!safeDownloadName(name)) return unavailable('invalid_name');

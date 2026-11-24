@@ -1,39 +1,7 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { usePlace } from '../../api/place';
-import {
-  Activity,
-  AppWindow,
-  ArrowUpCircle,
-  Bot,
-  Brain,
-  ChevronLeft,
-  Cloud,
-  Cpu,
-  Database,
-  FileText,
-  GraduationCap,
-  History,
-  KeyRound,
-  Lightbulb,
-  Mic,
-  Palette,
-  Search,
-  Settings2,
-  Shield,
-  SlidersHorizontal,
-  Sparkles,
-  UsersRound,
-  Wrench,
-  X,
-} from 'lucide-react';
+import { ChevronLeft, Search, X } from 'lucide-react';
 import { Field, Input, Kbd } from '../../ui/primitives';
 import { settingsReturnPath } from './return-path';
 import { PHONE_LAYOUT, useMedia } from '../../ui/use-media';
@@ -53,31 +21,11 @@ import {
   useSettingsAnchor,
 } from './anatomy';
 import { useWorkspaceActions } from '../shell/workspace-actions';
-
-type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
-
-const icons: Record<string, Icon> = {
-  preferences: SlidersHorizontal,
-  appearance: Palette,
-  buddy: Bot,
-  proactive: Lightbulb,
-  learning: GraduationCap,
-  providers: Cloud,
-  models: Cpu,
-  voice: Mic,
-  knowledge: Brain,
-  documents: FileText,
-  tracker: Activity,
-  tools: Wrench,
-  apps: AppWindow,
-  skills: Sparkles,
-  profiles: UsersRound,
-  system: Shield,
-  activity: History,
-  access: KeyRound,
-  updates: ArrowUpCircle,
-  data: Database,
-};
+import { SettingIcon } from './settings-icons';
+import PhoneSettingsList, {
+  phoneParent,
+  phoneTitle,
+} from './PhoneSettingsList';
 
 const descriptions: Record<string, string> = {
   preferences: 'How Row-Bot introduces itself, opens and tidies up overnight.',
@@ -105,10 +53,11 @@ const descriptions: Record<string, string> = {
   data: 'Back up and restore, import from other assistants, and irreversible clean-up.',
 };
 
-export function SettingIcon({ id, size = 18 }: { id: string; size?: number }) {
-  const Icon = icons[id] ?? Settings2;
-  return <Icon size={size} aria-hidden />;
-}
+/** A phone's words where its page differs from the computer's (C3). */
+const phoneDescriptions: Record<string, string> = {
+  buddy: 'Your companion, and when Row-Bot brings something up before you ask.',
+  knowledge: 'What Row-Bot remembers about you, and how it remembers.',
+};
 
 function typingTarget(target: EventTarget | null) {
   return (
@@ -120,11 +69,14 @@ function typingTarget(target: EventTarget | null) {
 
 export default function SettingsShell({
   leaf,
+  more = false,
   learning = false,
   children,
 }: {
   /** The open page; none for a phone's list of pages (D6). */
   leaf?: SettingsLeaf;
+  /** A phone's More settings: the pages outside This phone and Row-Bot. */
+  more?: boolean;
   /** A build with Learning (preview): its page is listed (O34). */
   learning?: boolean;
   children?: ReactNode;
@@ -134,9 +86,11 @@ export default function SettingsShell({
   const location = useLocation();
   const compactControls = useWorkspaceActions()?.compactControls;
   // A phone lists the pages first and opens one at a time, with its way
-  // back to the list; the tab bar replaces Close (D6).
+  // back to the list; the tab bar replaces Close (D6). Its header is one
+  // row, "‹ Models", and the app's Search finds settings (D7).
   const phone = useMedia(PHONE_LAYOUT);
-  const mode = phone ? (leaf ? 'page' : 'list') : undefined;
+  const mode = phone ? (leaf ? 'page' : more ? 'more' : 'list') : undefined;
+  const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState<HTMLDivElement | null>(null);
@@ -151,8 +105,9 @@ export default function SettingsShell({
     if (content && !location.hash) content.scrollTop = 0;
     // Only a new page resets focus and scroll, not a new row anchor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
-  useSettingsAnchor(content);
+  }, [location.pathname, more]);
+  // A phone's list holds This phone's rows (#notifications from Home).
+  useSettingsAnchor(leaf ? content : listRoot);
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (
@@ -235,18 +190,30 @@ export default function SettingsShell({
           className="settings-shell-header"
           data-compact-controls={compactControls ? 'true' : undefined}
         >
-          {mode === 'page' ? (
+          {mode === 'page' || mode === 'more' ? (
             <Link
               className="icon-button settings-back"
-              to="/settings"
-              aria-label="Back to Settings"
+              to={leaf ? phoneParent(leaf.id).href : '/settings'}
+              aria-label={
+                leaf ? phoneParent(leaf.id).label : 'Back to Settings'
+              }
             >
               <ChevronLeft size={20} aria-hidden />
             </Link>
           ) : (
             compactControls?.navigation
           )}
-          <h1>Settings</h1>
+          {mode === 'page' && leaf ? (
+            <h1 ref={heading} tabIndex={-1}>
+              {phoneTitle(leaf)}
+            </h1>
+          ) : mode === 'more' ? (
+            <h1 ref={heading} tabIndex={-1}>
+              More settings
+            </h1>
+          ) : (
+            <h1>Settings</h1>
+          )}
           {compactControls?.commands}
           {!phone && (
             <Link
@@ -285,147 +252,164 @@ export default function SettingsShell({
             </Field>
           </div>
         )}
-        <nav
-          className="settings-side-navigation"
-          aria-label="Settings sections"
-        >
-          <label className="settings-navigation-search">
-            <span className="visually-hidden">Find a setting</span>
-            <Search size={14} aria-hidden className="settings-search-icon" />
-            <Input
-              ref={search}
-              type="search"
-              placeholder="Search settings"
-              value={query}
-              aria-controls={searching ? `${resultId}-results` : undefined}
-              aria-activedescendant={
-                current >= 0 ? optionId(current) : undefined
-              }
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(0);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && query) {
-                  event.preventDefault();
-                  setQuery('');
-                } else if (
-                  (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
-                  results.length
-                ) {
-                  event.preventDefault();
-                  const step = event.key === 'ArrowDown' ? 1 : -1;
-                  setActive((current + step + results.length) % results.length);
-                } else if (event.key === 'Enter' && current >= 0) {
-                  event.preventDefault();
-                  openResult(results[current]);
+        {mode === 'list' || mode === 'more' ? (
+          // A phone's grouped list (D6 A); it scrolls under the header.
+          <div className="phone-settings-frame" key={mode} ref={setListRoot}>
+            <PhoneSettingsList more={more} learning={learning} />
+          </div>
+        ) : null}
+        {/* A phone has no second search: the app header's Search finds
+            settings (D7). */}
+        {!phone && (
+          <nav
+            className="settings-side-navigation"
+            aria-label="Settings sections"
+          >
+            <label className="settings-navigation-search">
+              <span className="visually-hidden">Find a setting</span>
+              <Search size={14} aria-hidden className="settings-search-icon" />
+              <Input
+                ref={search}
+                type="search"
+                placeholder="Search settings"
+                value={query}
+                aria-controls={searching ? `${resultId}-results` : undefined}
+                aria-activedescendant={
+                  current >= 0 ? optionId(current) : undefined
                 }
-              }}
-            />
-            {!query && (
-              <span className="settings-search-kbd" aria-hidden>
-                <Kbd keys="/" />
-              </span>
-            )}
-          </label>
-          {searching ? (
-            <div className="settings-search-results" id={`${resultId}-results`}>
-              {pages.length > 0 && (
-                <div className="settings-nav-group">
-                  <span className="settings-nav-label" aria-hidden>
-                    Pages
-                  </span>
-                  <ul aria-label="Matching pages">
-                    {pages.map((item, index) => (
-                      <li key={item.id}>
-                        <Link
-                          {...optionProps(index)}
-                          to={item.href}
-                          aria-current={
-                            item.id === leaf?.id ? 'page' : undefined
-                          }
-                          onClick={() => setQuery('')}
-                        >
-                          <SettingIcon id={item.id} size={16} />
-                          <span>{item.label}</span>
-                          <small aria-hidden>{item.category}</small>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActive(0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && query) {
+                    event.preventDefault();
+                    setQuery('');
+                  } else if (
+                    (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+                    results.length
+                  ) {
+                    event.preventDefault();
+                    const step = event.key === 'ArrowDown' ? 1 : -1;
+                    setActive(
+                      (current + step + results.length) % results.length,
+                    );
+                  } else if (event.key === 'Enter' && current >= 0) {
+                    event.preventDefault();
+                    openResult(results[current]);
+                  }
+                }}
+              />
+              {!query && (
+                <span className="settings-search-kbd" aria-hidden>
+                  <Kbd keys="/" />
+                </span>
               )}
-              {(rows.length > 0 || profileLibrary) && (
-                <div className="settings-nav-group">
-                  <span className="settings-nav-label" aria-hidden>
-                    Settings
-                  </span>
-                  <ul aria-label="Matching settings">
-                    {rows.map((row, index) => (
-                      <li key={`${row.leaf}:${row.anchor}`}>
-                        <Link
-                          {...optionProps(pages.length + index)}
-                          to={settingsRowHref(row)}
-                          onClick={() => setQuery('')}
-                        >
-                          <SettingIcon id={row.leaf} size={16} />
-                          <span>{row.label}</span>
-                          <small aria-hidden>{leafLabel(row.leaf)}</small>
-                        </Link>
-                      </li>
-                    ))}
-                    {profileLibrary && (
-                      // The sidebar's Agents dialog (B260).
-                      <li>
-                        <Link
-                          {...optionProps(pages.length + rows.length)}
-                          to={agentProfileLibrary.href}
-                          onClick={() => setQuery('')}
-                        >
-                          <SettingIcon id="profiles" size={16} />
-                          <span>{agentProfileLibrary.label}</span>
-                          <small aria-hidden>Agents</small>
-                        </Link>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              )}
-              {!pages.length && !rows.length && !profileLibrary && (
-                <p className="muted settings-no-results">No settings found.</p>
-              )}
-            </div>
-          ) : (
-            <div className="settings-category-list">
-              {settingsGroups.map((group) => (
-                <div className="settings-nav-group" key={group.id}>
-                  {/* A label, not a heading: group names ("System", "Models")
-                    repeat page titles. The list carries the name. */}
-                  <span className="settings-nav-label" aria-hidden>
-                    {group.label}
-                  </span>
-                  <ul aria-label={group.label}>
-                    {leaves
-                      .filter((item) => item.group === group.id)
-                      .map((item) => (
+            </label>
+            {searching ? (
+              <div
+                className="settings-search-results"
+                id={`${resultId}-results`}
+              >
+                {pages.length > 0 && (
+                  <div className="settings-nav-group">
+                    <span className="settings-nav-label" aria-hidden>
+                      Pages
+                    </span>
+                    <ul aria-label="Matching pages">
+                      {pages.map((item, index) => (
                         <li key={item.id}>
                           <Link
+                            {...optionProps(index)}
                             to={item.href}
                             aria-current={
                               item.id === leaf?.id ? 'page' : undefined
                             }
+                            onClick={() => setQuery('')}
                           >
                             <SettingIcon id={item.id} size={16} />
                             <span>{item.label}</span>
+                            <small aria-hidden>{item.category}</small>
                           </Link>
                         </li>
                       ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-        </nav>
+                    </ul>
+                  </div>
+                )}
+                {(rows.length > 0 || profileLibrary) && (
+                  <div className="settings-nav-group">
+                    <span className="settings-nav-label" aria-hidden>
+                      Settings
+                    </span>
+                    <ul aria-label="Matching settings">
+                      {rows.map((row, index) => (
+                        <li key={`${row.leaf}:${row.anchor}`}>
+                          <Link
+                            {...optionProps(pages.length + index)}
+                            to={settingsRowHref(row)}
+                            onClick={() => setQuery('')}
+                          >
+                            <SettingIcon id={row.leaf} size={16} />
+                            <span>{row.label}</span>
+                            <small aria-hidden>{leafLabel(row.leaf)}</small>
+                          </Link>
+                        </li>
+                      ))}
+                      {profileLibrary && (
+                        // The sidebar's Agents dialog (B260).
+                        <li>
+                          <Link
+                            {...optionProps(pages.length + rows.length)}
+                            to={agentProfileLibrary.href}
+                            onClick={() => setQuery('')}
+                          >
+                            <SettingIcon id="profiles" size={16} />
+                            <span>{agentProfileLibrary.label}</span>
+                            <small aria-hidden>Agents</small>
+                          </Link>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+                {!pages.length && !rows.length && !profileLibrary && (
+                  <p className="muted settings-no-results">
+                    No settings found.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="settings-category-list">
+                {settingsGroups.map((group) => (
+                  <div className="settings-nav-group" key={group.id}>
+                    {/* A label, not a heading: group names ("System", "Models")
+                    repeat page titles. The list carries the name. */}
+                    <span className="settings-nav-label" aria-hidden>
+                      {group.label}
+                    </span>
+                    <ul aria-label={group.label}>
+                      {leaves
+                        .filter((item) => item.group === group.id)
+                        .map((item) => (
+                          <li key={item.id}>
+                            <Link
+                              to={item.href}
+                              aria-current={
+                                item.id === leaf?.id ? 'page' : undefined
+                              }
+                            >
+                              <SettingIcon id={item.id} size={16} />
+                              <span>{item.label}</span>
+                            </Link>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </nav>
+        )}
         {leaf && (
           <div
             className="settings-page-content"
@@ -433,17 +417,23 @@ export default function SettingsShell({
             ref={setContent}
           >
             <header className="settings-pane-header">
-              <span className="settings-pane-icon" aria-hidden>
-                <SettingIcon id={leaf.id} size={18} />
-              </span>
+              {/* A phone names the page once, in the header row (D7). */}
+              {!phone && (
+                <span className="settings-pane-icon" aria-hidden>
+                  <SettingIcon id={leaf.id} size={18} />
+                </span>
+              )}
               <div className="settings-pane-title">
-                <h2 ref={heading} tabIndex={-1}>
-                  {leaf.label}
-                </h2>
+                {!phone && (
+                  <h2 ref={heading} tabIndex={-1}>
+                    {leaf.label}
+                  </h2>
+                )}
                 <p>
                   {leaf.id === 'system' && place.kind !== 'this_computer'
                     ? `Where Row-Bot works ${place.on}, and what it may do there.`
-                    : descriptions[leaf.id]}
+                    : (phone && phoneDescriptions[leaf.id]) ||
+                      descriptions[leaf.id]}
                 </p>
                 <div className="settings-pane-status" ref={setStatusSlot} />
               </div>

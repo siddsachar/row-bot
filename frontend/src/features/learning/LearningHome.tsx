@@ -729,7 +729,9 @@ export default function LearningHome({
   onOpenSettings: (anchor?: string) => void;
 }) {
   const notify = useNotify();
-  const [busy, setBusy] = useState(false);
+  // The command under way: on a large profile it takes seconds, and the header says so.
+  const [pending, setPending] = useState<'pause' | 'resume' | null>(null);
+  const busy = pending !== null;
   const [reviewing, setReviewing] = useState(false);
   const [changeOpen, setChangeOpen] = useState<string | null>(null);
   const [methodOpen, setMethodOpen] = useState(false);
@@ -737,13 +739,13 @@ export default function LearningHome({
   const snapshot = io.snapshot;
   const comparison = snapshot?.personal_model.comparison;
   async function command(action: 'pause' | 'resume') {
-    setBusy(true);
+    setPending(action);
     try {
       notify((await io.run(action)).summary);
     } catch (cause) {
       notify(clientError(cause).message, 'danger');
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
   if (!snapshot)
@@ -766,8 +768,17 @@ export default function LearningHome({
       <header className="home-page-header">
         <h2>Learning</h2>
         <StatusDot
-          tone={paused ? 'neutral' : 'success'}
-          label={paused ? 'Paused' : 'On'}
+          tone={paused || pending ? 'neutral' : 'success'}
+          label={
+            pending === 'pause'
+              ? 'Pausing…'
+              : pending === 'resume'
+                ? 'Resuming…'
+                : paused
+                  ? 'Paused'
+                  : 'On'
+          }
+          pulse={busy}
           showLabel
         />
         <p className="home-caption">{headerLine(snapshot)}</p>
@@ -779,8 +790,16 @@ export default function LearningHome({
           className="icon-action"
           actions={[
             paused
-              ? { label: 'Resume', onSelect: () => void command('resume') }
-              : { label: 'Pause', onSelect: () => void command('pause') },
+              ? {
+                  label: 'Resume',
+                  disabled: busy,
+                  onSelect: () => void command('resume'),
+                }
+              : {
+                  label: 'Pause',
+                  disabled: busy,
+                  onSelect: () => void command('pause'),
+                },
             { label: 'Learning settings', onSelect: () => onOpenSettings() },
             {
               label: 'Delete learning data…',

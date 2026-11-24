@@ -160,3 +160,86 @@ it('finds saved workflows and opens their runs rather than starting them', async
     expect.objectContaining({ id: 'task-brief' }),
   );
 });
+
+it('finds the pages and media Row-Bot made in phone Search, and opens them', async () => {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  const onOpenFile = vi.fn();
+  const page = {
+    id: 'page:p1',
+    label: 'Launch checklist',
+    kind: 'page' as const,
+    conversationId: 'conversation-a',
+    conversationTitle: 'A place for your ideas',
+    pageId: 'p1',
+  };
+  render(
+    <MemoryRouter>
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <CommandPalette
+          phone
+          commands={[]}
+          loadFiles={async () => [
+            page,
+            {
+              id: 'media:m1',
+              label: 'launch-teaser.mp4',
+              kind: 'video',
+              conversationId: 'conversation-2',
+              conversationTitle: '',
+            },
+          ]}
+          onOpenConversation={vi.fn()}
+          onOpenSearchHit={vi.fn()}
+          onOpenSetting={vi.fn()}
+          onOpenFile={onOpenFile}
+        />
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  await act(async () => undefined);
+  fireEvent.change(
+    screen.getByRole('searchbox', { name: 'Search chats, files and settings' }),
+    { target: { value: 'launch' } },
+  );
+  const files = screen.getByRole('group', { name: 'Files' });
+  expect(within(files).getAllByRole('option')).toHaveLength(2);
+  fireEvent.click(
+    within(files).getByRole('option', { name: /^Launch checklist/ }),
+  );
+  expect(onOpenFile).toHaveBeenCalledWith(page);
+
+  // A chat found by its title shows once, not again among the messages.
+  const hit = {
+    conversation_id: 'conversation-a',
+    title: 'A place for your ideas',
+    row_id: null,
+    checkpoint_revision: '',
+  };
+  fireEvent.change(
+    screen.getByRole('searchbox', { name: 'Search chats, files and settings' }),
+    { target: { value: 'ideas' } },
+  );
+  act(() =>
+    (controller as unknown as { update(patch: object): void }).update({
+      search: {
+        items: [
+          { ...hit, message_id: null, excerpt: hit.title },
+          { ...hit, message_id: 'm1', excerpt: 'Some ideas for the garden' },
+        ],
+      },
+    }),
+  );
+  expect(
+    within(screen.getByRole('group', { name: 'Chats' })).getAllByRole('option'),
+  ).toHaveLength(1);
+  expect(
+    within(screen.getByRole('group', { name: 'Messages' })).getAllByRole(
+      'option',
+    ),
+  ).toHaveLength(1);
+});

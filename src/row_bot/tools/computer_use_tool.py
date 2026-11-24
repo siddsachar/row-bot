@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import platform
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,8 +44,12 @@ class ComputerInput(BaseModel):
 
 
 class ComputerRecordInput(BaseModel):
-    action: str = Field(description="start or stop")
+    action: str = Field(description="start, stop, or beat: mark this moment while it records")
     minutes: int = Field(default=0, description="For start: stop by itself after this many minutes (default 5, at most 10)")
+    beat: Literal["live", "work", "cut"] = Field(
+        default="live", description="For beat: live (watch as it is), work (a wait to speed up) or cut (leave out)")
+    note: str = Field(default="", description="For beat: what happens next, in a few words (its title)")
+    line: str = Field(default="", description="For beat: the words said over this part (voiced in the video)")
 
 
 def _context() -> tuple[str, str]:
@@ -175,15 +179,24 @@ def computer(
         if action == "list_apps":
             result = service.list_apps()
         elif action == "open_app":
-            result = _result(f"Opened {app}." if app else "Opened.", service.open_app(str(app or "")), thread_id)
+            opened = service.open_app(str(app or ""))
+            if (capture := _screen_capture(thread_id)) is not None:
+                capture.act("open")  # A new window: a video's camera eases out before it.
+            result = _result(f"Opened {app}." if app else "Opened.", opened, thread_id)
         elif action == "screenshot":
             shot = service.screenshot(str(app or ""))
             result = _result("Took a screenshot.", shot, thread_id)
         else:
             if app:
                 service.use(str(app))
-            done, shot = service.act(action, x=x, y=y, to_x=to_x, to_y=to_y, text=str(text or ""),
-                                     keys=str(keys or ""), scroll=str(scroll or ""), seconds=seconds)
+            capture = _screen_capture(thread_id)
+            try:
+                done, shot = service.act(action, x=x, y=y, to_x=to_x, to_y=to_y, text=str(text or ""),
+                                         keys=str(keys or ""), scroll=str(scroll or ""), seconds=seconds,
+                                         before_input=_logger(capture, action) if capture is not None else None)
+            finally:
+                if capture is not None:
+                    capture.act_done()
             result = _result(done, shot, thread_id)
         service.note_problem(thread_id, None)
         return result
@@ -193,6 +206,54 @@ def computer(
         return error.text()
     except concurrent.futures.CancelledError:
         raise
+
+
+# What a screen recording logs of each action (C9): clicks and typing on their control, scrolls on the whole screen.
+_LOGGED = {"click": "click", "double_click": "click", "right_click": "click", "type": "type", "scroll": "scroll"}
+# A control larger than this share of the screen across or down is logged as the point clicked, not its box.
+_LARGEST_CONTROL = 0.5
+
+
+def _screen_capture(thread_id: str) -> Any:
+    """This chat's screen recording while it runs (it logs what is done, C9), else None."""
+    from row_bot import recordings
+
+    record = recordings.active_for(thread_id, "screen")
+    return record.capture if record is not None and hasattr(record.capture, "act") else None
+
+
+def on_display(shot: Any, point: tuple[float, float]) -> tuple[float, float, float, float] | None:
+    """Where on the main display (the screen a recording records) a point of a window's picture is: the control
+    under it (x, y, width, height, 0–1 across the display), or the point itself when the control is most of the
+    screen or there is none; None when it isn't on the main display, or the system doesn't say where that is."""
+    from row_bot.computer_use import display
+
+    size = display.main_display_size()
+    if size is None:
+        return None
+    width, height = size
+    screen_x, screen_y = shot.to_screen(*point)
+    if not (0 <= screen_x < width and 0 <= screen_y < height):
+        return None
+    control = shot.control_box(*point)
+    if control is not None and control[2] / width <= _LARGEST_CONTROL and control[3] / height <= _LARGEST_CONTROL:
+        return control[0] / width, control[1] / height, control[2] / width, control[3] / height
+    return screen_x / width, screen_y / height, 0.0, 0.0
+
+
+def _logger(capture: Any, action: str) -> Any:
+    """What logs an action into the screen recording as its input is sent."""
+    kind = _LOGGED.get(action)
+
+    def log(shot: Any, point: tuple[float, float] | None) -> None:
+        if kind is None:
+            return
+        box = on_display(shot, point) if point is not None else None
+        if kind == "click" and box is None:
+            return  # Off the main display: not in the recording.
+        capture.act(kind, box)
+
+    return log
 
 
 def _screen_recording_approval(minutes: int) -> dict[str, Any]:
@@ -208,19 +269,27 @@ def _screen_recording_approval(minutes: int) -> dict[str, Any]:
     }
 
 
-def computer_record(action: str, minutes: int = 0) -> str:
-    """Start or stop recording the whole screen through Cua (F2); plain words, never JSON."""
+def computer_record(action: str, minutes: int = 0, beat: str = "live", note: str = "", line: str = "") -> str:
+    """Start or stop recording the whole screen through Cua (F2), or mark a beat while it records; plain words,
+    never JSON."""
 
     from row_bot import recordings
     from row_bot.computer_use.recording import ScreenRecording, setup_problem
 
     action = str(action or "").strip().casefold()
-    if action not in {"start", "stop"}:
-        return 'Use action "start" or "stop".'
+    if action not in {"start", "stop", "beat"}:
+        return 'Use action "start", "stop" or "beat".'
     try:
         conversation, _generation = _context()
     except ComputerError:
         return "Recording the screen works in Row-Bot on this computer, not from a channel chat."
+    if action == "beat":
+        capture = _screen_capture(conversation)
+        if capture is None:
+            return "The screen isn't being recorded in this chat: start a recording first."
+        if beat not in recordings.BEATS:
+            return "A beat is live, work or cut."
+        return recordings.beat_words(beat, capture.beat(beat, note, line), line)
     if action == "stop":
         record = recordings.active_for(conversation, "screen")
         if record is None:
@@ -335,8 +404,8 @@ class ComputerUseTool(BaseTool):
                                          args_schema=ComputerInput),
             StructuredTool.from_function(
                 func=computer_record, name="computer_record", args_schema=ComputerRecordInput,
-                description=("Record the whole screen to a video in the chat: start (asks first), do the steps, "
-                             "then stop."),
+                description=("Record the whole screen to a video in the chat: start (asks first), do the steps "
+                             "(for a video, a beat before each, as in browser_record), then stop."),
             ),
         ]
 

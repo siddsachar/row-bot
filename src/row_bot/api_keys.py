@@ -237,7 +237,10 @@ def saved_key_names() -> set[str]:
     from row_bot.channels.passive_catalog import core_channel_secret_names
     from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV
 
+    from row_bot.voice.cloud_speech import KEY_FIELDS as VOICE_KEY_FIELDS
+
     names.update(PROVIDER_API_KEY_ENV.values())
+    names.update(VOICE_KEY_FIELDS.values())
     names.update(core_channel_secret_names())
     # Tools and channels loaded in this process declare their own keys.
     tools = sys.modules.get("row_bot.tools.registry")

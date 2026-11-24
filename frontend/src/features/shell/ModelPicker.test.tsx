@@ -1,4 +1,12 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { useRef, useState } from 'react';
 import { expect, it, vi } from 'vitest';
 import type {
   ConversationModelStatus,
@@ -688,4 +696,93 @@ it('says new chats start on a Thinking level only right after it is chosen here'
   fireEvent.click(screen.getByRole('radio', { name: 'Default' }));
   rerender(picker(reasoning({ kind: 'provider_default' }), true, onThinking));
   expect(screen.queryByText(note)).toBeNull();
+});
+
+function Anchored() {
+  const [open, setOpen] = useState(false);
+  const field = useRef<HTMLDivElement>(null);
+  const plus = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Model under the title
+      </button>
+      <button type="button" ref={plus}>
+        Add files and more
+      </button>
+      <div ref={field} />
+      <ModelPicker
+        models={models}
+        current="model:codex:gpt-5.6-sol"
+        status={{ state: 'ready', local: false }}
+        disabled={false}
+        open={open}
+        onOpenChange={setOpen}
+        onChoose={vi.fn()}
+        reasoning={null}
+        thinkingLabel="Default"
+        onThinking={vi.fn()}
+        onConnect={vi.fn()}
+        onManage={vi.fn()}
+        anchor={field}
+        returnFocusTo={() => plus.current}
+      />
+    </>
+  );
+}
+
+it('gives focus back to what opened a picker over the field, such as a phone header’s model (B1)', async () => {
+  render(<Anchored />);
+  const opener = screen.getByRole('button', { name: 'Model under the title' });
+  opener.focus();
+  await act(async () => fireEvent.click(opener));
+  const picker = screen.getByRole('dialog', { name: 'Choose a model' });
+  expect(
+    within(picker).getByRole('combobox', { name: 'Search models' }),
+  ).toHaveFocus();
+  await act(async () =>
+    fireEvent.keyDown(within(picker).getByRole('combobox'), {
+      key: 'Escape',
+    }),
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  await waitFor(() => expect(opener).toHaveFocus());
+  // Never the composer's + it would otherwise go back to.
+  expect(
+    screen.getByRole('button', { name: 'Add files and more' }),
+  ).not.toHaveFocus();
+});
+
+it('opens a local model’s own settings from the picker, and offers none for a cloud model', () => {
+  const onModelSettings = vi.fn();
+  const { onOpenChange, rerender } = show(
+    'model:ollama:qwen3.8:27b',
+    { state: 'ready', local: true },
+    { open: true, onModelSettings },
+  );
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Settings for qwen3.8:27b' }),
+  );
+
+  expect(onModelSettings).toHaveBeenCalledWith('model:ollama:qwen3.8:27b');
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+  rerender(
+    <ModelPicker
+      models={models}
+      current="model:codex:gpt-5.6-sol"
+      status={{ state: 'ready', local: false }}
+      disabled={false}
+      open
+      onOpenChange={vi.fn()}
+      onChoose={vi.fn()}
+      onConnect={vi.fn()}
+      onManage={vi.fn()}
+      onModelSettings={onModelSettings}
+      onThinking={vi.fn()}
+      reasoning={null}
+      thinkingLabel="Default"
+    />,
+  );
+  expect(screen.queryByRole('button', { name: /^Settings for/ })).toBeNull();
 });

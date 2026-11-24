@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Film, Image, Music, RefreshCw, Search, Tag } from 'lucide-react';
+import { LayoutGrid, RefreshCw, Search, Tag } from 'lucide-react';
 import { clientError } from '../../api/errors';
-import type { MediaItem } from '../../api/types';
+import type { OutputView } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import {
   Button,
@@ -10,23 +10,51 @@ import {
   ErrorState,
   IconButton,
   Input,
+  ListSkeleton,
   Segmented,
-  Skeleton,
 } from '../../ui/primitives';
 import { absoluteTime } from '../../ui/format';
 import { formatBytes } from './MediaPreview';
 import { shortTime } from './conversation-groups';
+import {
+  OUTPUT_ICONS,
+  OUTPUT_KIND_WORDS,
+  SHOW_OPTIONS,
+  outputTitles,
+  versionWords,
+  type OutputShow,
+} from './outputs';
 
-type Kind = '' | MediaItem['kind'];
+type Kind = '' | OutputView['kind'];
 
-const ICONS = { image: Image, video: Film, audio: Music } as const;
-
-/** A picture's own thumbnail; a video or a sound its kind's icon. */
-function Thumb({ item }: { item: MediaItem }) {
+/**
+ * A picture's own thumbnail; anything else its kind's icon. A picture is
+ * read once it nears the screen: hundreds of them read at once took the
+ * server's whole view budget, and the next screen waited behind them.
+ */
+export function Thumb({ item }: { item: Pick<OutputView, 'ref' | 'kind'> }) {
   const { controller } = useRuntime();
   const [src, setSrc] = useState('');
+  const [near, setNear] = useState(false);
+  const holder = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    if (item.kind !== 'image') return;
+    const element = holder.current;
+    if (item.kind !== 'image' || near || !element) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true);
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [item.kind, near]);
+  useEffect(() => {
+    if (item.kind !== 'image' || !near) return;
     const abort = new AbortController();
     let url = '';
     controller.attachmentThumbnail(item.ref, abort.signal).then(
@@ -41,12 +69,16 @@ function Thumb({ item }: { item: MediaItem }) {
       abort.abort();
       if (url) URL.revokeObjectURL(url);
     };
-  }, [controller, item.kind, item.ref]);
-  const Icon = ICONS[item.kind];
+  }, [controller, item.kind, item.ref, near]);
+  const Icon = OUTPUT_ICONS[item.kind];
   return src ? (
     <img className="media-library-thumb" src={src} alt="" />
   ) : (
-    <span className="media-library-thumb media-library-icon" aria-hidden>
+    <span
+      ref={holder}
+      className="media-library-thumb media-library-icon"
+      aria-hidden
+    >
       <Icon size={22} />
     </span>
   );
@@ -55,9 +87,11 @@ function Thumb({ item }: { item: MediaItem }) {
 /** Edit an item's tags in place: comma-separated, saved on Enter or blur. */
 function Tags({
   item,
+  title,
   onSaved,
 }: {
-  item: MediaItem;
+  item: OutputView;
+  title: string;
   onSaved: (tags: string[]) => void;
 }) {
   const { controller } = useRuntime();
@@ -83,7 +117,7 @@ function Tags({
     return (
       <form className="media-library-tags-edit" onSubmit={save}>
         <Input
-          aria-label={`Tags for ${item.name}`}
+          aria-label={`Tags for ${title}`}
           value={text}
           autoFocus
           placeholder="x post, demo"
@@ -111,8 +145,8 @@ function Tags({
         size="sm"
         label={
           (item.tags ?? []).length
-            ? `Edit tags for ${item.name}`
-            : `Add tags to ${item.name}`
+            ? `Edit tags for ${title}`
+            : `Add tags to ${title}`
         }
         onClick={() => {
           setText((item.tags ?? []).join(', '));
@@ -125,39 +159,91 @@ function Tags({
   );
 }
 
+const KIND_OPTIONS: { value: OutputView['kind'] | 'all'; label: string }[] = [
+  { value: 'all', label: 'Every kind' },
+  { value: 'image', label: 'Pictures' },
+  { value: 'video', label: 'Videos' },
+  { value: 'audio', label: 'Sound' },
+  { value: 'document', label: 'Documents' },
+];
+
+const EMPTY: Record<OutputShow, { title: string; body: string }> = {
+  made: {
+    title: 'Nothing made yet',
+    body: 'Finished films, pictures, sounds and documents from your chats show here, to find and use again in any chat or workflow.',
+  },
+  uploads: {
+    title: 'No uploads yet',
+    body: 'Files you add to your chats show here.',
+  },
+  working: {
+    title: 'No working files',
+    body: 'Recordings, frames, contact sheets, voice lines and drafts Row-Bot makes on the way show here.',
+  },
+};
+
 /**
- * Library › Media (5.3.1 B3): every picture, video and sound in the chats,
- * newest first, with search, a kind filter and tags. Each opens its chat,
- * and Row-Bot finds them too (media_find), so a workflow can reuse them.
+ * Library › Media (5.3.1 B3, W3): what the chats made, from the one outputs
+ * list the Outputs pane and the phone's Files show too. Finished items by
+ * default; Uploads and Working files on request. Search, a kind filter and
+ * tags; each opens its chat, and Row-Bot finds them too (media_find).
  */
 export default function LibraryMedia() {
   const { controller } = useRuntime();
-  const [items, setItems] = useState<MediaItem[] | null>(null);
+  const [items, setItems] = useState<OutputView[] | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [show, setShow] = useState<OutputShow>('made');
   const [kind, setKind] = useState<Kind>('');
   const [attempt, setAttempt] = useState(0);
+  // The next page of a long list (its `next`), and whether it is being read.
+  const [next, setNext] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  const filter = { show, query: query.trim(), kind: kind || undefined };
 
   useEffect(() => {
     const abort = new AbortController();
     setError('');
+    setNext(null);
     const timer = window.setTimeout(() => {
-      controller.media({ query: query.trim(), kind }, abort.signal).then(
-        (page) => {
-          if (!abort.signal.aborted) setItems(page?.items ?? []);
-        },
-        (cause) => {
-          if (!abort.signal.aborted) setError(clientError(cause).message);
-        },
-      );
+      controller
+        .outputs(
+          { show, query: query.trim(), kind: kind || undefined },
+          abort.signal,
+        )
+        .then(
+          (page) => {
+            if (abort.signal.aborted) return;
+            setItems(page?.items ?? []);
+            setNext(page?.next ?? null);
+          },
+          (cause) => {
+            if (!abort.signal.aborted) setError(clientError(cause).message);
+          },
+        );
     }, 200);
     return () => {
       abort.abort();
       window.clearTimeout(timer);
     };
-  }, [controller, query, kind, attempt]);
+  }, [controller, query, show, kind, attempt]);
+
+  async function showMore() {
+    if (!next || more) return;
+    setMore(true);
+    try {
+      const page = await controller.outputs({ ...filter, before: next });
+      setItems((list) => [...(list ?? []), ...(page?.items ?? [])]);
+      setNext(page?.next ?? null);
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setMore(false);
+    }
+  }
 
   const now = new Date();
+  const titleOf = outputTitles(items ?? []);
   return (
     <section className="media-library" aria-label="Media">
       <div className="media-library-bar">
@@ -173,15 +259,28 @@ export default function LibraryMedia() {
         </label>
         <Segmented
           size="sm"
+          label="Show"
+          value={show}
+          onChange={(value) => {
+            setItems(null);
+            setShow(value);
+          }}
+          options={SHOW_OPTIONS}
+        />
+        <Segmented
+          size="sm"
           label="Kind of media"
           value={kind || 'all'}
           onChange={(value) => setKind(value === 'all' ? '' : (value as Kind))}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'image', label: 'Pictures' },
-            { value: 'video', label: 'Videos' },
-            { value: 'audio', label: 'Sound' },
-          ]}
+          options={KIND_OPTIONS.map((option) => {
+            const Icon =
+              option.value === 'all' ? LayoutGrid : OUTPUT_ICONS[option.value];
+            return {
+              ...option,
+              icon: <Icon size={15} aria-hidden />,
+              hideLabel: true,
+            };
+          })}
         />
         <IconButton
           label="Refresh media"
@@ -200,56 +299,87 @@ export default function LibraryMedia() {
           {error}
         </ErrorState>
       ) : !items ? (
-        <Skeleton label="Loading media" />
+        <ListSkeleton
+          label="Loading media"
+          rows={10}
+          className="media-library-loading"
+        />
       ) : items.length === 0 ? (
         query || kind ? (
           <EmptyState title="Nothing matches">
             Try other words, or another kind.
           </EmptyState>
         ) : (
-          <EmptyState title="No media yet">
-            Recordings, video edits, voice lines, music and pictures from your
-            chats show here, to find and use again in any chat or workflow.
-          </EmptyState>
+          <EmptyState title={EMPTY[show].title}>{EMPTY[show].body}</EmptyState>
         )
       ) : (
         <ul className="media-library-list" aria-label="Media items">
-          {items.map((item) => (
-            <li key={item.ref} className="media-library-row">
-              <Link
-                className="media-library-link"
-                to={`/conversations/${encodeURIComponent(item.conversation_id)}`}
-                aria-label={`${item.name}, in ${item.conversation_title || 'a chat'}`}
+          {items.map((item) => {
+            const title = titleOf(item);
+            const chat = item.conversation_title || 'a chat';
+            return (
+              <li
+                key={`${item.conversation_id}:${item.id}`}
+                className="media-library-row"
               >
-                <Thumb item={item} />
-                <span className="media-library-text">
-                  <span className="media-library-name">{item.name}</span>
-                  <span className="media-library-meta">
-                    {formatBytes(item.size)} · In{' '}
-                    {item.conversation_title || 'a chat'}
+                <Link
+                  className="media-library-link"
+                  to={`/conversations/${encodeURIComponent(item.conversation_id)}`}
+                  aria-label={`${title}, in ${chat}`}
+                >
+                  <Thumb item={item} />
+                  <span className="media-library-text">
+                    <span className="media-library-name">
+                      {title}
+                      {item.role === 'draft' && (
+                        <span className="media-library-draft">Draft</span>
+                      )}
+                    </span>
+                    <span className="media-library-meta">
+                      {[
+                        OUTPUT_KIND_WORDS[item.kind],
+                        versionWords(item),
+                        formatBytes(item.size),
+                        `In ${chat}`,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
                   </span>
-                </span>
-              </Link>
-              <Tags
-                item={item}
-                onSaved={(tags) =>
-                  setItems((list) =>
-                    (list ?? []).map((entry) =>
-                      entry.ref === item.ref ? { ...entry, tags } : entry,
-                    ),
-                  )
-                }
-              />
-              <time
-                className="library-row-date"
-                dateTime={item.added_at}
-                title={absoluteTime(item.added_at)}
-              >
-                {shortTime(item.added_at, now)}
-              </time>
-            </li>
-          ))}
+                </Link>
+                <Tags
+                  item={item}
+                  title={title}
+                  onSaved={(tags) =>
+                    setItems((list) =>
+                      (list ?? []).map((entry) =>
+                        entry.id === item.id ? { ...entry, tags } : entry,
+                      ),
+                    )
+                  }
+                />
+                <time
+                  className="library-row-date"
+                  dateTime={item.updated_at}
+                  title={absoluteTime(item.updated_at)}
+                >
+                  {shortTime(item.updated_at, now)}
+                </time>
+              </li>
+            );
+          })}
         </ul>
+      )}
+      {!error && items && next && (
+        <Button
+          variant="ghost"
+          className="media-library-more"
+          aria-busy={more}
+          disabled={more}
+          onClick={() => void showMore()}
+        >
+          {more ? 'Loading…' : 'Show more'}
+        </Button>
       )}
     </section>
   );

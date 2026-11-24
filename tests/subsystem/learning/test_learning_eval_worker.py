@@ -414,6 +414,35 @@ def test_row_bots_own_server_is_handed_over_while_it_runs_with_its_current_key(m
     assert unsupported == ["new"]
 
 
+def test_personal_arms_free_the_card_from_the_built_in_server_unless_an_arm_runs_on_it(monkeypatch):
+    import sys
+    import types
+
+    from row_bot.providers import custom
+
+    released: list[bool] = []
+    built_in = types.ModuleType("row_bot.local_runtime.server")
+    built_in.release_gpu = lambda: released.append(True) or True
+    monkeypatch.setitem(sys.modules, "row_bot.local_runtime.server", built_in)
+    endpoints = {
+        "custom_openai_row-bot-personal-row-bot": {"id": "row-bot-personal-row-bot", "profile": "llama_cpp",
+                                                   "base_url": "http://127.0.0.1:8123/v1", "managed": "learning"},
+        "custom_openai_llamacpp": {"id": "llamacpp", "profile": "llama_cpp", "base_url": "http://127.0.0.1:8125/v1",
+                                   "managed": "local"},
+    }
+    monkeypatch.setattr(custom, "get_custom_endpoint", lambda provider: dict(endpoints[provider]))
+    monkeypatch.setattr(custom, "managed_connection", lambda found, start=True: ("http://127.0.0.1:8124/v1", "key-1"))
+    personal = eval_worker.WorkerArm("new", "model:custom_openai_row-bot-personal-row-bot:row-bot-personal-v2")
+    on_built_in = eval_worker.WorkerArm("main", "model:custom_openai_llamacpp:qwen3.5-9b")
+
+    eval_worker.gather([personal])
+    assert released == [True]  # the personal arm loads alone
+
+    released.clear()
+    eval_worker.gather([personal, on_built_in])
+    assert released == []  # the built-in server keeps running for its own arm
+
+
 def test_each_arm_on_row_bots_server_hands_its_own_probe_to_the_worker(tmp_path, monkeypatch):
     import row_bot.providers.config as provider_config
     from row_bot.providers import custom
@@ -461,6 +490,25 @@ def test_a_local_endpoints_key_is_saved_with_its_endpoint_so_the_worker_can_use_
 
     assert runtime.provider_status(provider)["configured"] is True  # Row-Bot's readiness asks this first
     assert auth_store.get_provider_secret(provider, "api_key") == "key-1" and "key-1" in secrets
+
+
+def test_the_workers_copy_of_a_models_settings_keeps_whose_they_are(tmp_path, monkeypatch):
+    """Learning's entries reach the worker still marked Learning's (served as trained, never given a preset or the
+    person's choice), whatever the model is called; the person's own stay the person's."""
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    monkeypatch.setattr(models, "_local_model_settings", {})
+
+    eval_worker._setup_providers({"providers": {"local_model_settings": {  # noqa: SLF001
+        "arm-9b:abcd1234": {"context": 32768, "reasoning": "off", "owner": "learning"},
+        "qwen3.5:9b": {"context": 16384}}}}, [])
+
+    assert models.is_learning_local_entry(models.local_settings_key("ollama", "arm-9b:abcd1234"),
+                                          models.local_model_settings("arm-9b:abcd1234"))
+    assert models.person_local_model_settings("ollama", "arm-9b:abcd1234") == {}
+    assert models.local_model_settings("qwen3.5:9b") == {"context": 16384}
+    assert models.person_local_model_settings("ollama", "qwen3.5:9b") == {"context": 16384}
 
 
 def test_only_a_passing_practice_task_brings_back_its_turn_as_sent(data_dir, monkeypatch):

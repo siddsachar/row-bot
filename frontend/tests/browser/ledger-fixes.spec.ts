@@ -103,11 +103,18 @@ test('a monthly workflow reads as Monthly, and delivery lists only set-up channe
     const delivery = rail.getByRole('group', { name: 'Send results to' });
     await expect(delivery).toContainText('Always in this app');
     await expect(delivery).not.toContainText('WhatsApp');
-    await everywhere(page, info, 'monthly-preset');
+    await views(page, info, 'monthly-preset');
     await delivery.scrollIntoViewIfNeeded();
-    await everywhere(page, info, 'delivery-list', () =>
-      delivery.scrollIntoViewIfNeeded(),
-    );
+    await views(page, info, 'delivery-list');
+    // A phone edits workflows on the computer (C2, D11 A): the same editor
+    // says so there, and is back as it was on a wider window.
+    await page.setViewportSize(PHONE);
+    await expect(
+      page.getByRole('region', { name: 'The workflow editor' }),
+    ).toContainText('Open this on your computer');
+    await views(page, info, 'workflow-editor-phone');
+    await page.setViewportSize(DESKTOP);
+    await expect(delivery).toContainText('Always in this app');
   } finally {
     await seed(page, '/__s12_fixture/remove');
     await seed(page, '/__p6_fixture/views/remove');
@@ -194,11 +201,24 @@ test('an approval for an app tool reads as the app and the action, and a phone s
     await expect(card).not.toContainText('mcp_');
     // Its step row names the app too, never "MCP counter create tally" (B391).
     const log = page.getByRole('log', { name: 'Conversation', exact: true });
-    await expect(log.getByText(/Counter · Create tally/).first()).toBeVisible();
+    // The steps fold under one line, which reads "Waiting for your approval"
+    // once the turn waits on the card: open them to read the step.
+    const activity = log.getByRole('group', { name: 'Tool activity' });
+    const fold = activity.locator('summary').first();
+    await fold.click();
+    await expect(
+      activity
+        .getByRole('list', { name: 'Steps' })
+        .getByText(/Counter · Create tally/),
+    ).toBeVisible();
     // (Its raw name stays in the step's own collapsed details.)
     await expect(log).not.toContainText('MCP');
+    await fold.click();
     const approve = card.getByRole('button', { name: 'Approve', exact: true });
-    await expect(approve).not.toHaveText('Approve'); // Ctrl ↵ with a keyboard.
+    // Ctrl ↵ where a keyboard is likely: a fine pointer (B389), never touch.
+    if (await page.evaluate(() => matchMedia('(pointer: fine)').matches))
+      await expect(approve).not.toHaveText('Approve');
+    else await expect(approve).toHaveText('Approve');
     await everywhere(page, info, 'approval-plain-title', async () => {
       if ((page.viewportSize()?.width ?? 0) < 641)
         await expect(approve).toHaveText('Approve');

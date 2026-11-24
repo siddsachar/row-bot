@@ -100,6 +100,15 @@ def _openai_compatible(url: str, _monkeypatch: pytest.MonkeyPatch) -> Any:
     return ChatOpenAICompatible(model_name="m", api_key="k", base_url=f"{url}/v1", endpoint=endpoint)
 
 
+def _local_openai_compatible(url: str, _monkeypatch: pytest.MonkeyPatch) -> Any:
+    # A server on this computer (llama.cpp, LM Studio, vLLM): its own idle limit, and Stop as anywhere.
+    from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+    endpoint = {"provider_id": "custom_openai_llamacpp-stop", "base_url": f"{url}/v1", "transport": "openai_chat",
+                "profile": "llama_cpp", "execution_location": "local"}
+    return ChatOpenAICompatible(model_name="m", base_url=f"{url}/v1", endpoint=endpoint)
+
+
 def _codex(url: str, monkeypatch: pytest.MonkeyPatch) -> Any:
     from row_bot.providers import codex
     from row_bot.providers.transports.codex_responses import ChatCodexResponses
@@ -132,6 +141,7 @@ FAMILIES = {
     "openrouter": Family(_runtime_model("openrouter", "openai/gpt-4.1", "OPENROUTER_API_BASE", "/api/v1"),
                          CHAT_FIRST, CHAT_ANSWER, True),
     "openai_compatible": Family(_openai_compatible, CHAT_FIRST, CHAT_ANSWER, False),
+    "local_openai_compatible": Family(_local_openai_compatible, CHAT_FIRST, CHAT_ANSWER, False),
     "codex": Family(_codex, RESPONSES_FIRST, RESPONSES_ANSWER, False),
     "xai_sign_in": Family(_xai_sign_in, RESPONSES_FIRST, RESPONSES_ANSWER, False),
     "ollama_cloud": Family(_ollama_cloud, OLLAMA_FIRST, OLLAMA_ANSWER, False, "application/x-ndjson"),

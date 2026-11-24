@@ -1,0 +1,236 @@
+/*
+ * The phone's Chats tab (A2, D10 A): Chats | Files, search on top, labelled
+ * chips, and rows in cards with no checkboxes. These classes only render
+ * below 768px; desktop and tablets keep the Library as it was.
+ */
+.library-page.phone-chats {
+  gap: 12px;
+  margin: 0 0 16px;
+}
+/* The chip rows scroll inside the page instead of widening it. */
+.library-page.phone-chats > *,
+.phone-chats .library-toolbar > * {
+  min-width: 0;
+}
+.segmented.phone-chats-switch {
+  display: flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+.segmented.phone-chats-switch .segmented-option {
+  flex: 1;
+  min-height: 40px;
+  border-radius: 9px;
+  font-size: var(--text-15);
+}
+.segmented.phone-chats-switch .segmented-option[aria-checked='true'] {
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
+}
+.phone-chats .library-toolbar {
+  display: grid;
+  gap: 10px;
+}
+.library-files {
+  display: grid;
+  gap: 12px;
+}
+.button.library-files-more {
+  justify-self: center;
+  min-height: 44px;
+}
+.phone-chats .library-search > .input {
+  min-height: 44px;
+  border-radius: 12px;
+  /* 16px keeps iOS from zooming in on focus. */
+  font-size: 16px;
+}
+
+/* Labelled filter chips that scroll sideways to the screen's edge. */
+.segmented.phone-chips {
+  display: flex;
+  gap: 8px;
+  margin-inline: -16px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.segmented.phone-chips::-webkit-scrollbar {
+  display: none;
+}
+.segmented.phone-chips .segmented-option {
+  flex: none;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: var(--text-14);
+}
+.segmented.phone-chips .segmented-option[aria-checked='true'] {
+  border-color: transparent;
+  background: var(--text-primary);
+  color: var(--surface);
+  box-shadow: none;
+}
+
+/* The selection bar shows only in select mode. */
+.phone-chats .library-bar:empty {
+  display: none;
+}
+.phone-chats .library-bar[data-selecting] {
+  margin: 0;
+  padding: 0 4px;
+}
+
+/* Rows: one card per group, a finger-sized row, no checkbox. */
+.phone-chat-list .library-group {
+  margin: 16px 4px 6px;
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-semibold);
+}
+.phone-chat-list .library-group:first-child {
+  margin-top: 4px;
+}
+.phone-chat-list ul,
+.phone-chat-list-rows {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  list-style: none;
+  overflow: hidden;
+}
+/* Loading: the rows' card, below where the first group's heading goes. */
+.phone-chats .skeleton-list:has(.skeleton-row) {
+  gap: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+.phone-chats .library-list-loading {
+  margin-top: calc(10px + var(--leading-13));
+  padding-top: 0;
+}
+.phone-chats .skeleton-row {
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 14px 8px 10px;
+}
+/* A file's row has a second line: what it is, and its chat. */
+.library-files .skeleton-row {
+  min-height: calc(18px + var(--leading-15) + var(--leading-13));
+}
+.phone-chats .skeleton-row + .skeleton-row {
+  border-top: 1px solid var(--border-hairline);
+}
+.phone-chats .skeleton-row .skeleton-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.phone-row {
+  position: relative;
+  /* A long-press opens the row's actions, not the system's link menu or a
+     text selection. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.phone-row + .phone-row {
+  border-top: 1px solid var(--border-hairline);
+}
+.phone-row[data-selected] {
+  background: color-mix(in srgb, var(--accent-solid) 10%, transparent);
+}
+.phone-row-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 14px 8px 10px;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  text-decoration: none;
+  outline-offset: -2px;
+}
+.phone-row-main:active {
+  background: var(--surface-pressed);
+}
+.phone-row-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+.phone-row-main[aria-pressed] .phone-row-icon {
+  background: none;
+}
+.phone-row-icon[data-checked] {
+  color: var(--accent-solid);
+}
+.phone-row-icon .media-library-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.phone-row-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.phone-row-title,
+.phone-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phone-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-15);
+  line-height: var(--leading-15);
+  font-weight: var(--weight-medium);
+}
+.phone-row-meta {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.phone-row-date {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  font-variant-numeric: tabular-nums;
+}
+/* The long-press menu's trigger: present for the menu to anchor to, never
+   seen. */
+.phone-row-menu.button {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+}

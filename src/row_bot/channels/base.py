@@ -50,7 +50,9 @@ class ConfigField:
     label : str
         Human-readable label (``"Bot Token"``).
     field_type : str
-        Widget type: ``"text"`` | ``"password"`` | ``"number"`` | ``"slider"``.
+        Widget type: ``"text"`` | ``"password"`` | ``"number"`` | ``"slider"`` |
+        ``"toggle"`` (an on/off switch saved in ``channels_config.json``; its
+        *default* is its value until the person changes it).
     storage : str
         Where the value lives: ``"env"`` → ``api_keys`` env vars,
         ``"config"`` → ``channels_config.json``.

@@ -8,9 +8,11 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  ArrowLeft,
   Bot,
   CornerDownLeft,
   FileText,
+  LayoutTemplate,
   MessageSquare,
   Monitor,
   Moon,
@@ -23,12 +25,13 @@ import {
   Workflow,
 } from 'lucide-react';
 import { useClientState, useRuntime } from '../../runtime';
-import { Kbd } from '../../ui/primitives';
+import { IconButton, Kbd } from '../../ui/primitives';
 import { useOptionalTheme } from '../../ui/theme';
 import type { Appearance } from '../../ui/theme-model';
-import type { ConversationView, SearchHit } from '../../api/types';
+import type { ConversationView, OutputView, SearchHit } from '../../api/types';
 import { fuzzyScore } from './fuzzy';
 import { ConversationGlyph } from './ConversationGlyph';
+import { OUTPUT_ICONS } from './outputs';
 import {
   conversationKinds,
   type ConversationKind,
@@ -44,6 +47,7 @@ const KIND_WORDS: Record<ConversationKind, string> = {
   workflow: 'workflow workflows',
 };
 import {
+  agentProfileLibrary,
   keywordsOf,
   visibleLeaves,
   visibleSettingsRows,
@@ -54,6 +58,7 @@ import {
 export type PaletteGroup =
   | 'Actions'
   | 'Conversations'
+  | 'Files'
   | 'Messages'
   | 'Commands'
   | 'Settings'
@@ -70,6 +75,34 @@ export type PaletteCommand = {
 };
 
 export type PaletteAgent = { id: string; label: string; description?: string };
+
+/** Something Row-Bot made, found by phone Search: a page or a piece of media. */
+export type PaletteFile = {
+  id: string;
+  label: string;
+  kind: 'page' | OutputView['kind'];
+  conversationId: string;
+  conversationTitle: string;
+  pageId?: string;
+};
+
+const FILE_ICONS = { page: LayoutTemplate, ...OUTPUT_ICONS } as const;
+
+/** A list read once when the palette opens; empty until it arrives. */
+function useLoaded<T>(load?: (signal: AbortSignal) => Promise<T[]>): T[] {
+  const [items, setItems] = useState<T[]>([]);
+  useEffect(() => {
+    if (!load) return;
+    const abort = new AbortController();
+    load(abort.signal)
+      .then((value) => {
+        if (!abort.signal.aborted) setItems(value);
+      })
+      .catch(() => undefined);
+    return () => abort.abort();
+  }, [load]);
+  return items;
+}
 
 type Item = {
   id: string;
@@ -106,6 +139,7 @@ const LEGACY_SETTING_NAMES: Record<string, string> = {
 
 const GROUP_ORDER: readonly PaletteGroup[] = [
   'Conversations',
+  'Files',
   'Actions',
   'Commands',
   'Agents',
@@ -120,6 +154,7 @@ const LITERAL_SCORE = 850;
 const LIMITS: Record<PaletteGroup, number> = {
   Actions: 5,
   Conversations: 8,
+  Files: 6,
   Messages: 6,
   Commands: 8,
   Settings: 6,
@@ -170,33 +205,45 @@ const APPEARANCES: {
  * history. Raycast-style: a single field, grouped results, keyboard first.
  * Enter runs a result only when it matches what was typed; one that only
  * matches scattered letters must be chosen with the arrow keys (U25).
+ *
+ * On a phone it is Search (D15): chats, files and settings, for a finger. No
+ * commands, appearance actions or keyboard hints, and a back arrow to leave.
  */
 export default function CommandPalette({
   commands,
+  phone = false,
   loadAgents,
   loadWorkflows,
   loadSwitches,
+  loadFiles,
   onOpenConversation,
   onOpenSearchHit,
   onOpenSetting,
   onStartAgent,
   onOpenWorkflow,
+  onOpenFile,
   onClose,
 }: {
   commands: PaletteCommand[];
+  /** Phone Search: chats, files and settings only. */
+  phone?: boolean;
   /** Read once when the palette opens; agents join the results. */
   loadAgents?: (signal: AbortSignal) => Promise<PaletteAgent[]>;
   /** Read once when the palette opens; saved workflows join the results. */
   loadWorkflows?: (signal: AbortSignal) => Promise<PaletteAgent[]>;
   /** Read on the first letters typed; settings switches with their state. */
   loadSwitches?: (signal: AbortSignal) => Promise<PaletteSwitchAction[]>;
+  /** Read once when the palette opens; pages and media join the results. */
+  loadFiles?: (signal: AbortSignal) => Promise<PaletteFile[]>;
   onOpenConversation: (conversation: ConversationView) => void;
   onOpenSearchHit: (hit: SearchHit) => void;
   onOpenSetting: (href: string) => void;
   onStartAgent?: (agent: PaletteAgent) => void;
   /** Opens the workflow's runs, where Run now starts it. */
   onOpenWorkflow?: (workflow: PaletteAgent) => void;
-  /** After an action done in place (an appearance change). */
+  /** Opens the file's chat, with a page beside it. */
+  onOpenFile?: (file: PaletteFile) => void;
+  /** After an action done in place (an appearance change), and phone Search's back arrow. */
   onClose?: () => void;
 }) {
   const state = useClientState();
@@ -212,28 +259,9 @@ export default function CommandPalette({
   // Results follow the typed query synchronously so Enter never runs a
   // result computed for an earlier query.
   const trimmed = query.trim();
-  const [agents, setAgents] = useState<PaletteAgent[]>([]);
-  useEffect(() => {
-    if (!loadAgents) return;
-    const abort = new AbortController();
-    loadAgents(abort.signal)
-      .then((value) => {
-        if (!abort.signal.aborted) setAgents(value);
-      })
-      .catch(() => undefined);
-    return () => abort.abort();
-  }, [loadAgents]);
-  const [workflows, setWorkflows] = useState<PaletteAgent[]>([]);
-  useEffect(() => {
-    if (!loadWorkflows) return;
-    const abort = new AbortController();
-    loadWorkflows(abort.signal)
-      .then((value) => {
-        if (!abort.signal.aborted) setWorkflows(value);
-      })
-      .catch(() => undefined);
-    return () => abort.abort();
-  }, [loadWorkflows]);
+  const agents = useLoaded(loadAgents);
+  const workflows = useLoaded(loadWorkflows);
+  const files = useLoaded(loadFiles);
   const [switches, setSwitches] = useState<PaletteSwitchAction[] | null>(null);
   const typing = trimmed.length > 0;
   useEffect(() => {
@@ -304,7 +332,8 @@ export default function CommandPalette({
         if (score > -Infinity)
           results.push({
             id: `intent:${intent.id}`,
-            group: 'Actions',
+            // Each opens a settings page; a phone has no other actions.
+            group: phone ? 'Settings' : 'Actions',
             label: intent.label,
             detail: intent.detail,
             icon: intent.id.startsWith('connect-') ? (
@@ -349,7 +378,7 @@ export default function CommandPalette({
         });
       }
       // This device's appearance: "dark mode".
-      if (appearance && update)
+      if (appearance && update && !phone)
         for (const option of APPEARANCES) {
           const score = intentScore(trimmed, option.phrases);
           if (score === null) continue;
@@ -389,6 +418,23 @@ export default function CommandPalette({
             run: () => onOpenConversation(row),
           });
       }
+      if (onOpenFile)
+        for (const file of files) {
+          const score = fuzzyScore(trimmed, file.label, file.conversationTitle);
+          const Icon = FILE_ICONS[file.kind];
+          if (score !== null)
+            results.push({
+              id: `file:${file.id}`,
+              group: 'Files',
+              label: file.label,
+              detail: file.conversationTitle
+                ? `In ${file.conversationTitle}`
+                : 'In a chat',
+              icon: <Icon size={16} />,
+              score,
+              run: () => onOpenFile(file),
+            });
+        }
       for (const command of commands) {
         const score = fuzzyScore(trimmed, command.label, command.keywords);
         if (score !== null)
@@ -425,6 +471,25 @@ export default function CommandPalette({
             score,
             href: leaf.href,
             run: () => onOpenSetting(leaf.href),
+          });
+      }
+      // The Agents dialog, found as Settings' own search finds it: on a phone
+      // it stands in for the Agents command (B260).
+      if (phone) {
+        const score = fuzzyScore(
+          trimmed,
+          agentProfileLibrary.label,
+          agentProfileLibrary.keywords,
+        );
+        if (score !== null)
+          results.push({
+            id: 'setting:agent-profiles',
+            group: 'Settings',
+            label: agentProfileLibrary.label,
+            icon: <Bot size={16} />,
+            score,
+            href: agentProfileLibrary.href,
+            run: () => onOpenSetting(agentProfileLibrary.href),
           });
       }
       // Individual settings rows, below pages that match as well.
@@ -485,6 +550,15 @@ export default function CommandPalette({
       // shows only the start of its snippet.
       const shown = new Set<string>();
       search?.items.forEach((hit, index) => {
+        // A phone lists a chat once: its title found again adds nothing.
+        if (
+          phone &&
+          !hit.message_id &&
+          results.some(
+            (item) => item.id === `conversation:${hit.conversation_id}`,
+          )
+        )
+          return;
         const detail = plainSnippet(hit.excerpt);
         const key = `${hit.conversation_id}\n${detail.slice(0, 60)}`;
         if (shown.has(key)) return;
@@ -548,13 +622,16 @@ export default function CommandPalette({
     agents,
     appearance,
     commands,
+    files,
     learning,
     onClose,
     onOpenConversation,
+    onOpenFile,
     onOpenSearchHit,
     onOpenSetting,
     onStartAgent,
     onOpenWorkflow,
+    phone,
     state.conversations,
     state.search,
     switches,
@@ -612,21 +689,45 @@ export default function CommandPalette({
     else groups.push({ group: item.group, entries: [{ item, index }] });
   });
 
+  const heading = (group: PaletteGroup) =>
+    !trimmed && group === 'Conversations'
+      ? 'Recent'
+      : phone && group === 'Conversations'
+        ? 'Chats'
+        : group;
+
   return (
-    <div className="command-palette" aria-label="Command palette">
+    <div
+      className={`command-palette${phone ? ' phone-search' : ''}`}
+      aria-label={phone ? 'Search' : 'Command palette'}
+    >
       <div className="command-palette-field">
-        <Search size={18} aria-hidden />
+        {phone ? (
+          <IconButton label="Close search" onClick={onClose}>
+            <ArrowLeft size={20} aria-hidden />
+          </IconButton>
+        ) : (
+          <Search size={18} aria-hidden />
+        )}
         <input
           data-initial-focus
           className="command-palette-input"
           type="search"
-          aria-label="Find a workspace command"
+          aria-label={
+            phone
+              ? 'Search chats, files and settings'
+              : 'Find a workspace command'
+          }
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={current >= 0 ? optionId(current) : undefined}
           autoComplete="off"
           spellCheck={false}
-          placeholder="Search conversations, commands, settings…"
+          placeholder={
+            phone
+              ? 'Search chats, files and settings'
+              : 'Search conversations, commands, settings…'
+          }
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={navigate}
@@ -652,11 +753,11 @@ export default function CommandPalette({
           <div
             className="command-palette-group"
             role="group"
-            aria-label={trimmed || group !== 'Conversations' ? group : 'Recent'}
+            aria-label={heading(group)}
             key={group}
           >
             <div className="command-palette-heading" aria-hidden>
-              {trimmed || group !== 'Conversations' ? group : 'Recent'}
+              {heading(group)}
             </div>
             {entries.map(({ item, index }) => (
               <div
@@ -701,30 +802,32 @@ export default function CommandPalette({
           </p>
         )}
       </div>
-      {items.length > 0 && current < 0 && (
+      {!phone && items.length > 0 && current < 0 && (
         <p className="command-palette-note" role="status">
           {readingSettings
             ? 'Reading your settings…'
             : 'Nothing matches exactly. Choose a result with the arrow keys.'}
         </p>
       )}
-      <footer className="command-palette-footer" aria-hidden>
-        <span>
-          <Kbd keys="ArrowUp" />
-          <Kbd keys="ArrowDown" /> Navigate
-        </span>
-        <span>
-          <Kbd keys="Enter" /> Open
-        </span>
-        <span>
-          <Kbd keys="Escape" /> Close
-        </span>
-        {trimmed.length < 2 && (
-          <span className="command-palette-hint">
-            <MessageSquare size={12} /> Type two letters to search messages
+      {!phone && (
+        <footer className="command-palette-footer" aria-hidden>
+          <span>
+            <Kbd keys="ArrowUp" />
+            <Kbd keys="ArrowDown" /> Navigate
           </span>
-        )}
-      </footer>
+          <span>
+            <Kbd keys="Enter" /> Open
+          </span>
+          <span>
+            <Kbd keys="Escape" /> Close
+          </span>
+          {trimmed.length < 2 && (
+            <span className="command-palette-hint">
+              <MessageSquare size={12} /> Type two letters to search messages
+            </span>
+          )}
+        </footer>
+      )}
     </div>
   );
 }

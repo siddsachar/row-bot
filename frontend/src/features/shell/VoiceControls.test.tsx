@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { DictationHandle, DictationSnapshot } from '../../api/types';
 import VoiceControls, { type VoiceControlsProps } from './VoiceControls';
+import { startVoiceOnOpen } from './new-chat';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -404,4 +405,33 @@ it('stops capture when the host withdraws dictation capability', async () => {
   expect(p.transcribe).not.toHaveBeenCalled();
   expect(p.stop).toHaveBeenCalledWith(handle);
   expect(screen.getByRole('button', { name: 'Dictate' })).toBeDisabled();
+});
+
+it('starts dictating once in a chat opened from Home’s mic, the tap there being the gesture (D3)', async () => {
+  startVoiceOnOpen('conversation-A', 'dictate');
+  const p = props();
+  const view = render(<VoiceControls {...p} available={false} />);
+  expect(p.start).not.toHaveBeenCalled();
+  view.rerender(<VoiceControls {...p} />);
+  await screen.findByRole('button', { name: 'Finish dictation' });
+  expect(p.start).toHaveBeenCalledTimes(1);
+  expect(media).toHaveBeenCalledWith({ audio: true });
+  view.unmount();
+
+  // Once: the chat opened again waits for its own Dictate.
+  const again = props();
+  render(<VoiceControls {...again} />);
+  expect(again.start).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Dictate' })).toBeVisible();
+});
+
+it('a Talk request from Home never starts dictation, nor one for another chat', () => {
+  startVoiceOnOpen('conversation-A', 'talk');
+  const p = props();
+  const view = render(<VoiceControls {...p} />);
+  expect(p.start).not.toHaveBeenCalled();
+  view.unmount();
+  startVoiceOnOpen('conversation-B', 'dictate');
+  render(<VoiceControls {...p} />);
+  expect(p.start).not.toHaveBeenCalled();
 });

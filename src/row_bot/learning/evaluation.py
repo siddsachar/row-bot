@@ -1017,7 +1017,10 @@ def _served(case: ReplayCase, arm: Arm) -> tuple[list[Any], list[dict[str, Any]]
         return None
     system: list[str] = []
     messages: list[dict[str, Any]] = []
-    for item in _as_seen(case, arm):
+    seen = _as_seen(case, arm)
+    # The media tools the chat kept bound (M7). A case keeps no approvals: its list counts from the turn's start.
+    keep = shape.kept_media(envelope, dataset_module.saved_when_built(seen))
+    for item in seen:
         converted = dataset_module.openai_message(item)  # raises ValueError on content it can't send
         if converted is None:
             continue
@@ -1027,7 +1030,7 @@ def _served(case: ReplayCase, arm: Arm) -> tuple[list[Any], list[dict[str, Any]]
             messages.append(converted)
     reference = _unbridged(case.reference)
     problem = shape.serve_problem(system, messages, None if case.tools is None else [dict(item) for item in case.tools],
-                                  [name for name, _ in reference.tool_calls], envelope)
+                                  [name for name, _ in reference.tool_calls], envelope, keep=keep)
     return _langchain(problem.system, problem.messages), problem.tools, problem
 
 

@@ -8,14 +8,16 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
+  ChevronDown,
   ExternalLink,
   Folder,
   FolderOpen,
+  MessageSquare,
   Play,
   RefreshCw,
 } from 'lucide-react';
 import { Button, IconButton, InlineEmpty, Skeleton } from '../../ui/primitives';
-import { humanizeToken } from '../../ui/format';
+import { humanizeToken, parseTimestamp } from '../../ui/format';
 import { When, runStatus } from '../home/home-format';
 import ApprovalCard from '../shell/ApprovalCard';
 import { approvalTag } from '../shell/approval-levels';
@@ -42,6 +44,13 @@ export interface TaskRunProps {
   onFinished?: () => void;
   /** Open this workflow's settings at its Code folder (its folder was removed, N9). */
   onChooseFolder?: () => void;
+  /**
+   * `phone`: the workflow's sheet (C2, D11 A): Run now and Open chat, then
+   * the recent runs, each opening to its answer, its approval card and Stop.
+   */
+  layout?: 'drawer' | 'phone';
+  /** The workflow's chat for Open chat, until its review names it. */
+  chatId?: string | null;
 }
 
 /** A run's status in words: one its code folder stopped needs you, not a safety block (N9). */
@@ -76,7 +85,10 @@ export default function TaskRun({
   openConversation,
   onFinished,
   onChooseFolder,
+  layout = 'drawer',
+  chatId = null,
 }: TaskRunProps) {
+  const phone = layout === 'phone';
   const [review, setReview] = useState<TaskRunReview | null>(null);
   const [history, setHistory] = useState<TaskRunPage | null>(null);
   const [selected, setSelected] = useState<TaskRunSummary | null>(null);
@@ -110,7 +122,11 @@ export default function TaskRun({
         if (abort.signal.aborted || ticket !== epoch.current) return;
         setReview(nextReview);
         setHistory(nextHistory);
-        setSelected(nextHistory.items[0] ?? null);
+        // A phone opens the newest run only while it is going or waits for you.
+        const newest = nextHistory.items[0] ?? null;
+        setSelected(
+          phone && newest && terminal.has(newest.status) ? null : newest,
+        );
         setLoading(false);
       },
       (cause: unknown) => {
@@ -124,6 +140,8 @@ export default function TaskRun({
       more.current?.abort();
       epoch.current += 1;
     };
+    // The layout is fixed for the drawer's or sheet's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, loadReview, loadHistory, reload]);
 
   const selectedId = selected?.id ?? null;
@@ -284,6 +302,252 @@ export default function TaskRun({
     selected && selected.steps_total > 1 && !terminal.has(selected.status)
       ? Math.min(1, selected.steps_done / selected.steps_total)
       : null;
+  const runNowDisabled =
+    !review ||
+    loading ||
+    !!busy ||
+    stale ||
+    (!review.notify_only && review.steps_total === 0);
+  function stopRun(current: TaskRunSummary) {
+    const ticket = epoch.current;
+    void actOnRun('stop', async () => {
+      const result = await stop(taskId, current.id);
+      if (ticket !== epoch.current) return;
+      updateRun(result.run);
+      setNotice(
+        result.quiesced
+          ? 'The run has stopped and its worker has finished.'
+          : 'Stop requested. Waiting for the run to finish.',
+      );
+    });
+  }
+  // What a run did and how far it is: the drawer's selected run, and a
+  // phone's opened run row.
+  const detail = (current: TaskRunSummary, answered = false) => (
+    <>
+      {current.late_for && (
+        <p className="home-caption">
+          Ran late: Row-Bot was closed at {wallTimeOf(current.late_for)}.
+        </p>
+      )}
+      {current.notice &&
+        // A phone's opened run row says its answer already.
+        !answered &&
+        current.status !== 'waiting' &&
+        // A run that acted says so in its list below, with links, not twice.
+        !(current.actions?.length ?? 0) && (
+          <p className="task-run-notice">{current.notice}</p>
+        )}
+      {(current.actions?.length ?? 0) > 0 && (
+        <ul className="task-run-actions-list" aria-label="What it did">
+          {(current.actions ?? []).map((action, index) => (
+            <li key={index}>
+              <span className="task-run-action-title">{action.title}</span>
+              <span className="task-run-action-result">{action.result}</span>
+              {action.link && (
+                <a
+                  href={action.link}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label={`Open: ${action.result}`}
+                >
+                  <ExternalLink size={13} aria-hidden />
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {progress !== null && (
+        <div className="task-run-progress">
+          <progress
+            max={current.steps_total}
+            value={current.steps_done}
+            aria-label="Run progress"
+          />
+          <span>
+            Message {Math.min(current.steps_done + 1, current.steps_total)} of{' '}
+            {current.steps_total}
+          </span>
+        </div>
+      )}
+      {current.status === 'starting' && (
+        <p className="home-caption">
+          Dispatch may still be starting or its outcome may be unconfirmed.
+          Refresh or open the conversation; this request will not run again
+          automatically.
+        </p>
+      )}
+      {current.status === 'stopping' && (
+        <p className="home-caption">
+          Stop is requested. Completion and cleanup are not yet confirmed.
+        </p>
+      )}
+    </>
+  );
+  // The card the run waits on: the exact action, account or recipient and full text.
+  const waitingCard = (current: TaskRunSummary) =>
+    current.status === 'waiting' &&
+    current.approval_id && (
+      <ApprovalCard
+        key={current.approval_id}
+        id={current.approval_id}
+        onResolved={() => setReload((value) => value + 1)}
+      />
+    );
+  const alerts = (
+    <>
+      {error && (
+        <p className="task-builder-alert" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="home-caption" role="status">
+          {notice}
+        </p>
+      )}
+    </>
+  );
+  const moreRows = (
+    <>
+      {earlierRows > 0 && (
+        <p className="home-caption">
+          {earlierRows} earlier loaded runs are outside this 200-row view.
+          Refresh returns to the newest runs.
+        </p>
+      )}
+      {history?.next_cursor && (
+        <Button
+          className="small"
+          disabled={!!busy || stale}
+          onClick={() => void moreHistory()}
+        >
+          Load more runs
+        </Button>
+      )}
+    </>
+  );
+  if (phone) {
+    // Every run is a turn of the workflow's one conversation (F31).
+    const chat =
+      review?.conversation_id ||
+      chatId ||
+      history?.items[0]?.conversation_id ||
+      null;
+    return (
+      <section
+        className="task-run phone-task-run"
+        aria-label="Task runs and approvals"
+      >
+        <div className="phone-workflow-actions">
+          <Button
+            variant="primary"
+            disabled={runNowDisabled}
+            onClick={() => void runNow()}
+          >
+            <Play size={18} aria-hidden />
+            {busy === 'run' ? 'Starting…' : 'Run now'}
+          </Button>
+          {chat && (
+            <Button onClick={() => openConversation(chat)}>
+              <MessageSquare size={18} aria-hidden />
+              Open chat
+            </Button>
+          )}
+        </div>
+        {alerts}
+        {loading ? (
+          <Skeleton label="Loading recent runs" />
+        ) : (
+          <>
+            <h3 className="phone-workflow-runs-title">Recent runs</h3>
+            {!history?.items.length ? (
+              <InlineEmpty>No runs yet. Run it when you are ready.</InlineEmpty>
+            ) : (
+              <ul
+                className="phone-chat-list-rows phone-workflow-runs"
+                aria-label="Recent runs"
+              >
+                {history.items.map((item) => {
+                  const shown = item.id === selected?.id ? selected : null;
+                  const view = runView(shown ?? item);
+                  const live = Boolean(shown && !terminal.has(shown.status));
+                  return (
+                    <li
+                      key={item.id}
+                      className="phone-row phone-workflow-run"
+                      data-open={shown ? 'true' : undefined}
+                    >
+                      <button
+                        type="button"
+                        className="phone-row-main"
+                        aria-expanded={Boolean(shown)}
+                        disabled={!!busy}
+                        onClick={() => setSelected(shown ? null : item)}
+                      >
+                        <span
+                          className="task-run-row-dot"
+                          data-tone={view.tone}
+                          aria-hidden
+                        />
+                        <span className="phone-row-text">
+                          <span className="phone-row-title">
+                            {runTime(item.started_at)}
+                          </span>
+                          <span className="phone-row-meta">
+                            {(shown ?? item).notice || view.label}
+                          </span>
+                        </span>
+                        <ChevronDown
+                          size={18}
+                          className="phone-workflow-run-chevron"
+                          aria-hidden
+                        />
+                      </button>
+                      {shown && (
+                        <div className="phone-workflow-run-detail">
+                          <p className="phone-workflow-run-status">
+                            <span
+                              className="task-run-pill"
+                              data-tone={view.tone}
+                            >
+                              <span aria-hidden className="task-run-pill-dot" />
+                              {view.label}
+                            </span>
+                            <span className="home-caption">
+                              Started{' '}
+                              <When
+                                value={shown.started_at}
+                                fallback="at an unknown time"
+                              />
+                            </span>
+                          </p>
+                          {detail(shown, true)}
+                          {live && (
+                            <Button
+                              variant="danger"
+                              className="small"
+                              disabled={!!busy}
+                              onClick={() => stopRun(shown)}
+                            >
+                              Stop run
+                            </Button>
+                          )}
+                          {waitingCard(shown)}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {moreRows}
+          </>
+        )}
+      </section>
+    );
+  }
   return (
     <section className="task-run" aria-label="Task runs and approvals">
       <h2 className="visually-hidden">Run and history</h2>
@@ -321,13 +585,7 @@ export default function TaskRun({
           <Button
             variant="primary"
             className="small"
-            disabled={
-              !review ||
-              loading ||
-              !!busy ||
-              stale ||
-              (!review.notify_only && review.steps_total === 0)
-            }
+            disabled={runNowDisabled}
             onClick={() => void runNow()}
           >
             <Play size={14} aria-hidden />
@@ -335,16 +593,7 @@ export default function TaskRun({
           </Button>
         </div>
       </div>
-      {error && (
-        <p className="task-builder-alert" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p className="home-caption" role="status">
-          {notice}
-        </p>
-      )}
+      {alerts}
       {loading ? (
         <Skeleton label="Loading run review and history" />
       ) : (
@@ -370,70 +619,7 @@ export default function TaskRun({
                   </span>
                 )}
               </header>
-              {selected.late_for && (
-                <p className="home-caption">
-                  Ran late: Row-Bot was closed at{' '}
-                  {wallTimeOf(selected.late_for)}.
-                </p>
-              )}
-              {selected.notice &&
-                selected.status !== 'waiting' &&
-                // A run that acted says so in its list below, with links, not twice.
-                !(selected.actions?.length ?? 0) && (
-                  <p className="task-run-notice">{selected.notice}</p>
-                )}
-              {(selected.actions?.length ?? 0) > 0 && (
-                <ul className="task-run-actions-list" aria-label="What it did">
-                  {(selected.actions ?? []).map((action, index) => (
-                    <li key={index}>
-                      <span className="task-run-action-title">
-                        {action.title}
-                      </span>
-                      <span className="task-run-action-result">
-                        {action.result}
-                      </span>
-                      {action.link && (
-                        <a
-                          href={action.link}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          aria-label={`Open: ${action.result}`}
-                        >
-                          <ExternalLink size={13} aria-hidden />
-                        </a>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {progress !== null && (
-                <div className="task-run-progress">
-                  <progress
-                    max={selected.steps_total}
-                    value={selected.steps_done}
-                    aria-label="Run progress"
-                  />
-                  <span>
-                    Message{' '}
-                    {Math.min(selected.steps_done + 1, selected.steps_total)} of{' '}
-                    {selected.steps_total}
-                  </span>
-                </div>
-              )}
-              {selected.status === 'starting' && (
-                <p className="home-caption">
-                  Dispatch may still be starting or its outcome may be
-                  unconfirmed. Refresh or open the conversation; this request
-                  will not run again automatically.
-                </p>
-              )}
-              {selected.status === 'stopping' && (
-                <p className="home-caption">
-                  Stop is requested. Completion and cleanup are not yet
-                  confirmed.
-                </p>
-              )}
-
+              {detail(selected)}
               <div className="task-run-actions">
                 {selected.fix === 'choose_folder' && onChooseFolder && (
                   <Button
@@ -456,33 +642,13 @@ export default function TaskRun({
                     variant="danger"
                     className="small"
                     disabled={!!busy}
-                    onClick={() => {
-                      const current = selected,
-                        ticket = epoch.current;
-                      void actOnRun('stop', async () => {
-                        const result = await stop(taskId, current.id);
-                        if (ticket !== epoch.current) return;
-                        updateRun(result.run);
-                        setNotice(
-                          result.quiesced
-                            ? 'The run has stopped and its worker has finished.'
-                            : 'Stop requested. Waiting for the run to finish.',
-                        );
-                      });
-                    }}
+                    onClick={() => stopRun(selected)}
                   >
                     Stop run
                   </Button>
                 )}
               </div>
-              {selected.status === 'waiting' && selected.approval_id && (
-                // The run waits on this card: the exact action, account or recipient and full text.
-                <ApprovalCard
-                  key={selected.approval_id}
-                  id={selected.approval_id}
-                  onResolved={() => setReload((value) => value + 1)}
-                />
-              )}
+              {waitingCard(selected)}
             </section>
           )}
           <h3 className="task-run-history-title">History</h3>
@@ -524,25 +690,32 @@ export default function TaskRun({
               })}
             </ul>
           )}
-          {earlierRows > 0 && (
-            <p className="home-caption">
-              {earlierRows} earlier loaded runs are outside this 200-row view.
-              Refresh returns to the newest runs.
-            </p>
-          )}
-          {history?.next_cursor && (
-            <Button
-              className="small"
-              disabled={!!busy || stale}
-              onClick={() => void moreHistory()}
-            >
-              Load more runs
-            </Button>
-          )}
+          {moreRows}
         </>
       )}
     </section>
   );
+}
+
+/** When a run started, on a phone's run row: "Today 8:00", "Yesterday 8:00", "Tue 8:00", "3 Nov". */
+export function runTime(value: string, now = new Date()): string {
+  const date = parseTimestamp(value);
+  if (!date) return 'Unknown time';
+  const start = (day: Date) =>
+    new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const days = Math.round((start(now) - start(date)) / 86_400_000);
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+  if (days <= 0) return `Today ${time}`;
+  if (days === 1) return `Yesterday ${time}`;
+  if (days < 7)
+    return `${new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date)} ${time}`;
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
 }
 
 function profileWords(id: string) {

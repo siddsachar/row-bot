@@ -1,11 +1,14 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { expect, it, onTestFinished, vi } from 'vitest';
 import type {
   EntitySummaryPage,
   KnowledgeSettingsSnapshot,
   SettingsSnapshot,
 } from '../../api/types';
 import MemorySettings, { type KnowledgeMaintenanceIO } from './MemorySettings';
+import type { MemoryImportIO } from '../knowledge/memory-import-io';
+import type { MemoryReviewIO } from '../knowledge/memory-review-io';
+import { PHONE_LAYOUT } from '../../ui/use-media';
 import {
   SettingsDraftOwner,
   type SettingsMutationIO,
@@ -203,3 +206,63 @@ it.each(['missing', 'unavailable'] as const)(
     ).toBeDisabled();
   },
 );
+
+/** A phone-width window, as `usePhone` reads it, for the rest of the test. */
+function onPhoneWidth() {
+  const media = vi.mocked(window.matchMedia);
+  const original = media.getMockImplementation();
+  media.mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === PHONE_LAYOUT,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  onTestFinished(() => {
+    media.mockImplementation(original!);
+  });
+}
+
+it('on a phone opens Your memories with their count; import, clean-up and the graph numbers stay on the computer', () => {
+  onPhoneWidth();
+  render(
+    <MemorySettings
+      snapshot={snapshot}
+      importIO={{} as MemoryImportIO}
+      reviewIO={{} as MemoryReviewIO}
+    />,
+  );
+  expect(screen.getByRole('switch', { name: 'Enable Memory' })).toBeChecked();
+  expect(
+    screen.getByRole('link', { name: 'Your memories (599)' }),
+  ).toHaveAttribute('href', '/app-v2/?tab=knowledge');
+  expect(screen.queryByRole('link', { name: 'Open Knowledge' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Import memories' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Review memory' })).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'How your memories link' }),
+  ).toBeNull();
+  expect(
+    screen.getByText('The graph, import and clean-up are on your computer.'),
+  ).toBeVisible();
+});
+
+it('on a phone a link to the graph numbers says to open them on the computer', () => {
+  onPhoneWidth();
+  window.history.replaceState(
+    null,
+    '',
+    '/app-v2/settings/knowledge#memory-graph',
+  );
+  onTestFinished(() => window.history.replaceState(null, '', '/'));
+  render(<MemorySettings snapshot={snapshot} />);
+  const notice = screen.getByRole('region', { name: 'How your memories link' });
+  expect(notice).toHaveTextContent('Open this on your computer');
+  expect(notice).toHaveTextContent('The memory graph needs a bigger screen.');
+  expect(
+    within(notice).getByRole('link', { name: 'Go to Home' }),
+  ).toHaveAttribute('href', '/app-v2/');
+  expect(screen.queryByText('Groups of linked memories')).toBeNull();
+});

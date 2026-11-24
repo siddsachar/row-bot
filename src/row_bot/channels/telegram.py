@@ -50,6 +50,7 @@ from row_bot.channels.media_capture import grab_vision_capture as _grab_vision_c
 from row_bot.channels.media_capture import grab_generated_image as _grab_generated_image
 from row_bot.channels.media_capture import grab_generated_video as _grab_generated_video
 from row_bot.channels.thread_repair import is_corrupt_thread_error as _is_corrupt_thread_error
+from row_bot.channels import voice_replies
 from row_bot.channels.streaming import (
     ChannelDeliveryResult,
     ChannelDeliveryUncertain,
@@ -1707,10 +1708,13 @@ def _telegram_goal_callbacks(
 async def _run_agent_for_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE,
     user_text: str,
+    *,
+    voice_reply: bool = False,
 ) -> None:
     """Shared flow: auth → interrupt check → agent → response.
 
-    Used by text, voice, photo and document handlers.
+    Used by text, voice, photo and document handlers. *voice_reply* (a voice note came in and the
+    channel's switch is on) runs the turn spoken and sends the answer as a voice note after its text.
     """
     chat_id = update.effective_chat.id
     msg = update.message
@@ -1744,7 +1748,7 @@ async def _run_agent_for_message(
         answer, interrupt_data, captured_images, captured_video_paths, delivery = await _stream_agent_turn_to_telegram(
             update.effective_chat,
             user_text,
-            config,
+            voice_replies.spoken_config(config) if voice_reply else config,
             message_thread_id=_telegram_message_thread_id(msg),
             draft_id_seed=getattr(msg, "message_id", None),
         )
@@ -1827,6 +1831,30 @@ async def _run_agent_for_message(
         )
         for url in yt_urls:
             await update.effective_chat.send_message(url)
+    if voice_reply and clean_answer and not interrupt_data:
+        await _send_voice_reply(
+            update.effective_chat, clean_answer, message_thread_id=_telegram_message_thread_id(msg),
+        )
+
+
+async def _send_voice_reply(chat, answer: str, *, message_thread_id: int | None = None) -> None:
+    """The answer as a native voice note, after its text (V9); nothing more when one can't be made."""
+    try:
+        await chat.send_action("record_voice")
+    except Exception:
+        log.debug("Telegram's recording indicator could not be shown", exc_info=True)
+    note = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: voice_replies.make_voice_note(answer, max_bytes=voice_replies.TELEGRAM_MAX_BYTES),
+    )
+    if note is None:
+        return
+    kwargs = {"message_thread_id": message_thread_id} if message_thread_id else {}
+    try:
+        await chat.send_voice(
+            voice=note.audio, duration=max(1, round(note.seconds)), filename="reply.ogg", **kwargs,
+        )
+    except Exception:
+        log.warning("A Telegram voice-note reply could not be sent", exc_info=True)
 
 
 async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2262,7 +2290,7 @@ async def _answer_album(items: list[_AlbumItem]) -> None:
         ),
     )
     if not turn.usable:
-        await update.message.reply_text("⚠️ Could not read those attachments.")
+        await update.message.reply_text(turn.notice or "⚠️ Could not read those attachments.")
         return
     await _run_agent_for_message(update, context, turn.text)
 
@@ -2297,7 +2325,7 @@ async def _single_attachment_turn(
         ),
     )
     if not turn.usable:
-        await update.message.reply_text(unreadable)
+        await update.message.reply_text(turn.notice or unreadable)
         return None
     return turn
 
@@ -2358,7 +2386,10 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     turn = await _single_attachment_turn(
         update,
         context,
-        InboundAttachment(filename=filename, data=bytes(data), content_type=mime or "audio/ogg"),
+        InboundAttachment(
+            filename=filename, data=bytes(data), content_type=mime or "audio/ogg",
+            voice_note=update.message.voice is not None,
+        ),
         unreadable="⚠️ Could not transcribe your voice note.",
     )
     if turn is None:
@@ -2366,7 +2397,10 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if turn.transcripts:
         await update.message.reply_text(f"🎤 _{turn.transcripts[0]}_", parse_mode="Markdown")
-    await _run_agent_for_message(update, context, turn.text)
+    await _run_agent_for_message(
+        update, context, turn.text,
+        voice_reply=voice_replies.reply_by_voice("telegram", voice_note_in=turn.voice_note),
+    )
 
 
 async def _handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2876,6 +2910,7 @@ class TelegramChannel(Channel):
                 env_key="TELEGRAM_USER_ID",
                 help_text="Your numeric user ID (access control)",
             ),
+            voice_replies.voice_replies_field(),
         ]
 
     async def start(self) -> bool:

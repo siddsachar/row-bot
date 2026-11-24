@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ConversationWorkspace, ModelChoice } from '../../api/types';
+import type {
+  ConversationWorkspace,
+  ModelChoice,
+  ResourceView,
+} from '../../api/types';
 import { OverlayProvider } from '../../ui/overlays';
 import ComposerControls from './ComposerControls';
 
@@ -10,6 +14,11 @@ const mock = vi.hoisted(() => ({
     status: 'ready',
     workspace: null as ConversationWorkspace | null,
     handshake: { models: [] as ModelChoice[] },
+    conversation: null as {
+      id: string;
+      revision: string;
+      incognito?: boolean;
+    } | null,
   },
   version: 1,
   navigate: vi.fn(),
@@ -26,7 +35,10 @@ vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
   useRuntime: () => ({ controller: mock.controller }),
 }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => mock.navigate }));
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mock.navigate,
+  useInRouterContext: () => false,
+}));
 beforeEach(() => {
   vi.resetAllMocks();
   mock.version = 1;
@@ -49,6 +61,7 @@ beforeEach(() => {
   );
   mock.state.status = 'ready';
   mock.state.selectedConversationId = 'conversation-a';
+  mock.state.conversation = null;
   mock.state.handshake.models = [
     {
       provider_id: 'fixture',
@@ -760,4 +773,236 @@ it('switches a ready app on or off for this chat, shows why the profile leaves o
     fireEvent.click(apps.getByRole('menuitem', { name: 'Find more apps' })),
   );
   expect(mock.navigate).toHaveBeenCalledWith('/settings/apps');
+});
+
+// ------------------------------------------------- the phone's + sheet (B2)
+
+/** A phone sheet row that opens the next level, in the same sheet. */
+async function below(sheet: ReturnType<typeof within>, name: RegExp) {
+  await act(async () => fireEvent.click(sheet.getByRole('menuitem', { name })));
+  return within(screen.getByRole('menu'));
+}
+
+async function chatSettings(more: ReturnType<typeof within>) {
+  await act(async () =>
+    fireEvent.click(more.getByRole('menuitem', { name: /^Chat settings/ })),
+  );
+  return within(screen.getByRole('menu', { name: 'Chat settings' }));
+}
+
+it("opens the phone's + on Camera, Photos and Files, then the chat's apps, skills and settings", async () => {
+  const onAttach = vi.fn();
+  render(
+    <ComposerControls onError={vi.fn()} onAttach={onAttach} phone singleLine />,
+  );
+  const more = await menu('Add files and more');
+  // The model is in the header and the context line in the details.
+  expect(more.queryByRole('menuitem', { name: /^Model/ })).toBeNull();
+  expect(
+    more.queryByText('Context will appear after the next response'),
+  ).toBeNull();
+  expect(more.queryByRole('menuitem', { name: /^Approvals/ })).toBeNull();
+  const tiles = within(more.getByRole('group', { name: 'Attach' }));
+  expect(
+    tiles.getAllByRole('menuitem').map((tile) => tile.textContent),
+  ).toEqual(['Camera', 'Photos', 'Files']);
+  // The limit is said before anything is refused (U18).
+  expect(
+    tiles.getByRole('menuitem', { name: 'Photos' }),
+  ).toHaveAccessibleDescription(/^Up to \d+ MB each$/);
+  expect(
+    more.getByRole('menuitem', { name: /^Chat settings/ }),
+  ).toHaveTextContent('Approvals: Ask · Agent: Writer · Mode: Agent');
+  await act(async () =>
+    fireEvent.click(tiles.getByRole('menuitem', { name: 'Camera' })),
+  );
+  expect(onAttach).toHaveBeenLastCalledWith({
+    accept: 'image/*',
+    capture: 'environment',
+  });
+  for (const [name, picker] of [
+    ['Photos', { accept: 'image/*' }],
+    ['Files', {}],
+  ] as const) {
+    const sheet = await menu('Add files and more');
+    await act(async () =>
+      fireEvent.click(sheet.getByRole('menuitem', { name })),
+    );
+    expect(onAttach).toHaveBeenLastCalledWith(picker);
+  }
+});
+
+it('goes one level down to Chat settings and back to + in the same sheet', async () => {
+  render(<ComposerControls onError={vi.fn()} phone singleLine />);
+  const settings = await chatSettings(await menu('Add files and more'));
+  expect(
+    settings
+      .getAllByRole('menuitem')
+      .map((item) => item.getAttribute('aria-label') ?? item.textContent),
+  ).toEqual([
+    'Back',
+    expect.stringMatching(/^Approvals/),
+    expect.stringMatching(/^Agent/),
+    expect.stringMatching(/^Mode/),
+  ]);
+  // A choice is one more level down, and ‹ goes back up to Chat settings.
+  const agents = await below(settings, /^Agent/);
+  expect(screen.getByRole('menu', { name: 'Agent' })).toBeInTheDocument();
+  expect(agents.getByRole('menuitemradio', { name: 'Writer' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await act(async () =>
+    fireEvent.click(agents.getByRole('menuitem', { name: 'Back' })),
+  );
+  expect(screen.getByRole('menu', { name: 'Chat settings' })).toBeVisible();
+  await act(async () =>
+    fireEvent.click(settings.getByRole('menuitem', { name: 'Back' })),
+  );
+  const plus = within(screen.getByRole('menu', { name: 'Add files and more' }));
+  // ← and Escape go back to + too, as out of a submenu.
+  for (const key of ['ArrowLeft', 'Escape']) {
+    const again = await chatSettings(plus);
+    await act(async () =>
+      fireEvent.keyDown(again.getByRole('menuitem', { name: /^Agent/ }), {
+        key,
+      }),
+    );
+    expect(
+      screen.getByRole('menu', { name: 'Add files and more' }),
+    ).toBeInTheDocument();
+  }
+});
+
+it("changes Approvals from the phone's Chat settings, asking once before Hands-off", async () => {
+  withApproval('approve');
+  render(
+    <OverlayProvider>
+      <ComposerControls onError={vi.fn()} phone singleLine />
+    </OverlayProvider>,
+  );
+  let settings = await chatSettings(await menu('Add files and more'));
+  expect(
+    settings.getByRole('menuitem', { name: /^Approvals/ }),
+  ).toHaveTextContent('Ask');
+  let levels = await below(settings, /^Approvals/);
+  await act(async () =>
+    fireEvent.click(levels.getByRole('menuitemradio', { name: /^Auto/ })),
+  );
+  expect(mock.controller.intent).toHaveBeenLastCalledWith(
+    'conversation-a',
+    'conversation.controls',
+    expect.objectContaining({ approval_mode: 'auto' }),
+    '17',
+  );
+  mock.controller.intent.mockClear();
+  settings = await chatSettings(await menu('Add files and more'));
+  levels = await below(settings, /^Approvals/);
+  await act(async () =>
+    fireEvent.click(levels.getByRole('menuitemradio', { name: /^Hands-off/ })),
+  );
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Turn on Hands-off?',
+  });
+  // Nothing changes until the person turns it on.
+  expect(mock.controller.intent).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Turn on' })),
+  );
+  expect(mock.controller.intent.mock.calls[0][2]).toMatchObject({
+    approval_mode: 'full',
+    confirm_full_autonomy: true,
+  });
+});
+
+it("keeps Hands-off on view beside a phone's + while it is on", () => {
+  withApproval('full', {
+    full_autonomy_confirmed: true,
+    full_autonomy_available: true,
+  });
+  render(<ComposerControls onError={vi.fn()} phone />);
+  expect(screen.queryByRole('button', { name: /^Approvals/ })).toBeNull();
+  expect(screen.getByRole('status')).toHaveTextContent('Hands-off');
+});
+
+it("switches Incognito in place from the phone's Chat settings", async () => {
+  mock.state.conversation = {
+    id: 'conversation-a',
+    revision: '17',
+    incognito: false,
+  };
+  render(
+    <OverlayProvider>
+      <ComposerControls onError={vi.fn()} phone singleLine />
+    </OverlayProvider>,
+  );
+  const settings = await chatSettings(await menu('Add files and more'));
+  const incognito = settings.getByRole('menuitemcheckbox', {
+    name: /^Incognito/,
+  });
+  expect(incognito).toHaveAttribute('aria-checked', 'false');
+  expect(incognito).toHaveTextContent('Keep this chat out of memory');
+  await act(async () => fireEvent.click(incognito));
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.incognito',
+    { incognito: true },
+    '17',
+  );
+  // The sheet stays open on Chat settings.
+  expect(screen.getByRole('menu', { name: 'Chat settings' })).toBeVisible();
+});
+
+it("chooses the design a phone's chat writes to, or adds one, in Chat settings", async () => {
+  const onChange = vi.fn();
+  const onAddResource = vi.fn();
+  const deck = {
+    binding: {
+      binding_id: 'binding-deck',
+      kind: 'artifact',
+      resource_id: 'deck-1',
+    },
+    title: 'Community workshop deck',
+    available: true,
+  } as unknown as ResourceView;
+  const { rerender } = render(
+    <ComposerControls
+      onError={vi.fn()}
+      phone
+      singleLine
+      onAddResource={onAddResource}
+      targets={{ resources: [deck], selected: ['binding-deck'], onChange }}
+    />,
+  );
+  let settings = await chatSettings(await menu('Add files and more'));
+  expect(
+    settings.getByRole('menuitem', { name: /^Work in a folder or design/ }),
+  ).toHaveTextContent('Community workshop deck');
+  const targets = await below(settings, /^Work in a folder or design/);
+  expect(
+    targets.getByRole('menuitemradio', { name: 'Community workshop deck' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  await act(async () =>
+    fireEvent.click(targets.getByRole('menuitemradio', { name: 'None' })),
+  );
+  expect(onChange).toHaveBeenCalledWith('artifact', null);
+  // With nothing bound yet, the row adds a folder or design.
+  rerender(
+    <ComposerControls
+      onError={vi.fn()}
+      phone
+      singleLine
+      onAddResource={onAddResource}
+      targets={{ resources: [], selected: [], onChange }}
+    />,
+  );
+  settings = await chatSettings(await menu('Add files and more'));
+  await act(async () =>
+    fireEvent.click(
+      settings.getByRole('menuitem', { name: 'Work in a folder or design' }),
+    ),
+  );
+  expect(onAddResource).toHaveBeenCalledWith(
+    screen.getByRole('button', { name: 'Add files and more' }),
+  );
 });

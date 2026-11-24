@@ -307,3 +307,34 @@ export class PwaClient {
 
 /** One browser presentation owner shared by the notice and System status. */
 export const appPwaClient = new PwaClient();
+
+/**
+ * The status bar's colour (`theme-color`) follows the theme the app shows,
+ * which Settings › This phone › Theme can set apart from the system's: both
+ * of index.html's per-scheme tags take the app's surface colour (the phone
+ * header's), so whichever the system picks matches the bar under it.
+ */
+export function followThemeColor(doc: Document = document): () => void {
+  const root = doc.documentElement;
+  const view = doc.defaultView;
+  if (!view) return () => {};
+  let shown = '';
+  const apply = () => {
+    const color = view
+      .getComputedStyle(root)
+      .getPropertyValue('--surface')
+      .trim();
+    if (!color || color === shown) return;
+    shown = color;
+    for (const meta of doc.querySelectorAll('meta[name="theme-color"]'))
+      meta.setAttribute('content', color);
+  };
+  // The theme writes data-theme and then its colours on the root's style.
+  const observer = new view.MutationObserver(apply);
+  observer.observe(root, {
+    attributes: true,
+    attributeFilter: ['data-theme', 'style'],
+  });
+  apply();
+  return () => observer.disconnect();
+}

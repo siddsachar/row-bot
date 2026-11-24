@@ -88,10 +88,23 @@ def test_row_bot_status_resolves_explicit_xai_oauth_media_label(monkeypatch):
     assert normalize_media_model("grok-imagine-video", video_gen_tool.get_available_video_models()) == "grok-imagine-video"
 
 
+def test_row_bot_status_voice_says_read_aloud_is_ready_once_kokoro_is_installed(monkeypatch):
+    from row_bot.tools.row_bot_status_tool import _query_voice
+    from row_bot.tts import TTSService
+
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
+    monkeypatch.setattr(TTSService, "is_installed", lambda self: True)
+
+    lines = _query_voice().splitlines()
+
+    assert "- Read aloud and spoken replies: Kokoro, installed" in lines
+    assert not any("not installed" in line for line in lines if line.startswith("- Read aloud"))
+
+
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     from row_bot.tools.row_bot_status_tool import _query_voice
 
-    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
 
     output = _query_voice()
 
@@ -99,8 +112,11 @@ def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     assert "Talk model:" in output
     assert "Dictation provider:" in output
     assert "Speech output provider:" in output
-    assert "Realtime fallback:" in output
-    assert "OpenAI Realtime:" in output
+    assert ("- Read aloud and spoken replies: Kokoro, not installed (only the person can start the download: "
+            "[Voice](/settings/voice#read-aloud))") in output
+    assert "Realtime fallback" not in output and "TTS enabled" not in output
+    assert ("- Live voice: OpenAI Realtime, Gemini Live and Grok Voice need a key "
+            "(the person adds it in [Providers](/settings/models#providers-api))") in output
     assert "User-facing modes: Talk, Dictate" in output
     assert "Dictate policy: STT-only" in output
     assert "Realtime brain strategy: row-bot-consult" in output
@@ -117,7 +133,7 @@ def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
     from row_bot.runtime import executions
     from row_bot.tools.row_bot_status_tool import _query_voice
 
-    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key", lambda name: "")
     registry = executions.GenerationRuntimeRegistry()
     monkeypatch.setattr(executions, "generation_registry", registry)
     handle = registry.register("thread123")
@@ -461,3 +477,17 @@ def test_provider_status_summarizes_custom_probe_without_reprobe(tmp_path, monke
     assert "stream tools ok" in output
     assert "vision not run (manual vision capability disabled)" in output
 
+
+
+@pytest.mark.parametrize("saved,line", [
+    ({"openai", "google"}, "- Live voice: OpenAI Realtime and Gemini Live ready; Grok Voice needs a key "
+                           "(the person adds it in [Providers](/settings/models#providers-api))"),
+    ({"openai", "google", "xai"}, "- Live voice: OpenAI Realtime, Gemini Live and Grok Voice ready\n"),
+])
+def test_row_bot_status_voice_says_which_live_voice_fronts_need_a_key(monkeypatch, saved, line):
+    from row_bot.tools.row_bot_status_tool import _query_voice
+
+    monkeypatch.setattr("row_bot.voice.provider_base.provider_api_key",
+                        lambda credential: "synthetic-key" if credential in saved else "")
+    output = _query_voice() + "\n"
+    assert line in output and "synthetic-key" not in output

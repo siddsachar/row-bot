@@ -1,17 +1,16 @@
 /**
- * Swipe in from a phone's left edge to open the conversation list (D10). The
- * header's navigation button opens the same list; the swipe is a shortcut for
- * the thumb. It starts only within the edge strip, never while a sheet or a
- * dialog is open, and opens once a mostly sideways pull passes the distance.
+ * Swipe in from a phone's left edge to go back, as ‹ does in a chat (D1).
+ * It starts only within the edge strip, never while a sheet, a dialog or a
+ * menu is open, and fires once a mostly sideways pull passes the distance.
  */
 
 /** The strip along the left edge that starts the swipe, in px. */
 const EDGE = 24;
-/** A pull this far to the right opens the list. */
-const OPEN_DISTANCE = 56;
+/** A pull this far to the right counts as the swipe. */
+const SWIPE_DISTANCE = 56;
 
 export function installEdgeSwipe(
-  open: () => void,
+  onSwipe: () => void,
   doc: Document = document,
 ): () => void {
   let start: { x: number; y: number } | null = null;
@@ -37,9 +36,9 @@ export function installEdgeSwipe(
       start = null;
       return;
     }
-    if (dx >= OPEN_DISTANCE) {
+    if (dx >= SWIPE_DISTANCE) {
       start = null;
-      open();
+      onSwipe();
     }
   };
 

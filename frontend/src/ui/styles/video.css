@@ -1,4 +1,4 @@
-/* The Video panel (5.3.1 B3): the player, then the video as scenes, then the review card. */
+/* The Video panel (5.3.1 B3): the player, then the video as storyboard cards (C1), then the review card. */
 .video-panel {
   display: flex;
   flex-direction: column;
@@ -147,8 +147,10 @@
 }
 .video-scenes-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
 }
 .video-scenes-head h3,
 .video-review h3 {
@@ -184,36 +186,84 @@
   border-color: var(--status-info-text);
   background: var(--status-info-background);
 }
-.video-scene-thumb {
+.video-scene[data-approved='true'] {
+  border-color: var(--status-success-border);
+}
+/* A card's frame: a still of its footage, loaded as it comes near; its type and length over it. */
+.video-scene-frame {
   position: relative;
+  display: block;
   flex: none;
   align-self: flex-start;
-  width: 112px;
+  width: 144px;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   padding: 0;
   border: 0;
   border-radius: var(--radius-control);
   background: var(--surface-sunken);
+}
+button.video-scene-frame {
   cursor: pointer;
 }
-.video-scene-thumb video {
+.video-scene-frame img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  pointer-events: none;
 }
-.video-scene-thumb:focus-visible {
+.video-scene-frame:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.video-scene-thumb-empty {
+.video-scene-frame-empty {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  padding: var(--space-2) var(--space-2) var(--space-4);
   color: var(--text-muted);
+}
+.video-scene-frame-empty svg {
+  width: 22px;
+  height: 22px;
+}
+.video-scene-frame-empty[data-footage='card'] {
+  color: var(--accent-on-solid);
+  background: var(--accent-solid);
+}
+.video-scene-frame-card {
+  display: -webkit-box;
+  overflow: hidden;
   font-size: var(--type-size-metadata);
-  cursor: default;
+  font-weight: var(--weight-semibold);
+  line-height: 1.25;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.video-scene-frame-type,
+.video-scene-frame-length {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: rgba(17, 24, 39, 0.72);
+}
+.video-scene-frame-type {
+  top: 4px;
+  left: 4px;
+}
+.video-scene-frame-length {
+  right: 4px;
+  bottom: 4px;
+  font-variant-numeric: tabular-nums;
 }
 .video-scene-body {
   display: flex;
@@ -244,6 +294,31 @@
   color: var(--text-secondary);
   background: var(--surface-sunken);
 }
+.video-scene-badge[data-tone='success'] {
+  color: var(--status-success-text);
+  background: var(--status-success-background);
+}
+.video-scene-badge[data-tone='info'] {
+  color: var(--status-info-text);
+  background: var(--status-info-background);
+}
+.video-scene-shows,
+.video-scene-planned,
+.video-scene-cue {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.video-scene-planned {
+  color: var(--status-info-text);
+}
+.video-scene-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
 .video-scene-line {
   width: 100%;
   min-height: 2.5em;
@@ -256,6 +331,119 @@
   align-items: center;
   gap: var(--space-2);
 }
+/* A scene's sound (C6): who says its line, then its effects as small removable chips and one add button. */
+.video-scene-sound {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.video-scene-speaker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
+.video-scene-speaker input {
+  width: 9.5rem;
+}
+.video-scene-effects {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-scene-effect {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: var(--space-1);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.video-scene-effect[data-ambience='true'] {
+  color: var(--status-info-text);
+  background: var(--status-info-background);
+}
+.video-scene-effect .icon-action {
+  min-width: 24px;
+  min-height: 24px;
+}
+/* Each character's voice, under the storyboard's controls. */
+.video-caption-style {
+  width: auto;
+}
+.video-chapters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.video-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-chapters span {
+  display: inline-block;
+  min-width: 3.5em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.video-look {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-look .video-cast-name {
+  margin-right: var(--space-2);
+}
+.video-look .video-grade {
+  width: auto;
+  margin-right: var(--space-1);
+}
+.video-cast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-cast-name {
+  color: var(--text-muted);
+}
+.video-cast-member {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.video-cast-member span {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.video-cast-member .select {
+  width: auto;
+  max-width: 14rem;
+}
+.video-storyboard-music {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
 .video-scene-controls .select {
   width: auto;
 }
@@ -264,8 +452,59 @@
   min-width: 140px;
 }
 .video-scene-actions {
-  display: inline-flex;
-  margin-left: auto;
+  flex-wrap: wrap;
+  margin-left: calc(-1 * var(--space-1));
+}
+.video-scene-comment {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+.video-scene-comment textarea {
+  flex: 1;
+  min-height: 2.5em;
+  resize: vertical;
+  field-sizing: content;
+}
+/* A storyboard, before anything is made: what it is, how far it's approved, and Make. */
+.video-panel-logline {
+  margin: calc(-1 * var(--space-2)) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.video-storyboard-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.video-storyboard-sum {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.video-storyboard-sum strong {
+  color: var(--text-primary);
+  font-size: var(--type-size-body);
+  font-weight: var(--weight-semibold);
+}
+.video-storyboard-sum small {
+  color: var(--status-info-text);
+  font-size: var(--type-size-metadata);
+}
+.video-panel-made {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
 }
 .video-scene-seconds,
 .video-scene-trim label {
@@ -354,6 +593,124 @@
 }
 .video-export-name small {
   color: var(--text-muted);
+}
+/* The publish kit (C10): where it's going, its thumbnails, the post's words and the subtitles. */
+.video-publish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-hairline);
+}
+.video-publish-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.video-publish-ask {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.video-publish-ask .select {
+  width: auto;
+  min-width: 10rem;
+}
+.video-publish-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.video-publish-thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 9rem;
+}
+.video-publish-thumbnail[data-shape='9:16'] {
+  width: 4.5rem;
+}
+.video-publish-thumbnail[data-shape='1:1'],
+.video-publish-thumbnail[data-shape='4:5'] {
+  width: 6rem;
+}
+.video-publish-thumbnail img,
+.video-publish-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+.video-publish-thumbnail[data-shape='9:16']
+  :is(img, .video-publish-placeholder) {
+  aspect-ratio: 9 / 16;
+}
+.video-publish-thumbnail[data-shape='1:1']
+  :is(img, .video-publish-placeholder) {
+  aspect-ratio: 1;
+}
+.video-publish-thumbnail[data-shape='4:5']
+  :is(img, .video-publish-placeholder) {
+  aspect-ratio: 4 / 5;
+}
+.video-publish-thumbnail-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  font-variant-numeric: tabular-nums;
+}
+.video-publish-words {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+.video-publish-words > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--space-2);
+}
+.video-publish-words dt {
+  grid-column: 1;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.video-publish-words dd {
+  grid-column: 1;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+  overflow-wrap: anywhere;
+}
+.video-publish-words :is(.icon-action, .video-publish-files) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+.video-publish-files {
+  display: flex;
+  gap: var(--space-1);
+}
+.video-publish-description {
+  display: -webkit-box;
+  max-height: 9em;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
 }
 .video-scenes-head .video-captions + .video-captions {
   margin-left: var(--space-3);
@@ -460,6 +817,7 @@
 .video-block,
 .video-line-block,
 .video-card-block,
+.video-effect-block,
 .video-music-block {
   position: absolute;
   top: 0;
@@ -519,6 +877,14 @@
 .video-line-block {
   background: var(--status-info-background);
 }
+.video-line-block strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.video-effect-block[data-ambience='true'] {
+  opacity: 0.85;
+  border-style: dashed;
+}
 .video-timeline-playhead {
   position: absolute;
   top: 0;
@@ -535,8 +901,15 @@
   .video-scene {
     gap: var(--space-2);
   }
-  .video-scene-thumb {
-    width: 72px;
+  .video-scene-frame {
+    width: 104px;
+  }
+  /* A small frame names its footage by its icon; the card's own words name it in full. */
+  .video-scene-frame-label {
+    display: none;
+  }
+  .video-scene-frame-type {
+    padding: 2px 4px;
   }
   .video-panel-versions {
     width: 100%;

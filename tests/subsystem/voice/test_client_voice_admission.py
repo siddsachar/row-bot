@@ -150,7 +150,7 @@ def test_submission_passes_frozen_server_policy_without_wire_or_handle_content(s
     accepted = []
     original_start = service._start
     def start(*args, **kwargs):
-        assert kwargs['frozen_context']['configurable'] == lease.chat_context['_policy']
+        assert kwargs['frozen_context']['configurable'] == {**lease.chat_context['_policy'], 'voice_mode': True}
         accepted.append(kwargs['frozen_context'])
         return original_start(*args, **kwargs)
     monkeypatch.setattr(service, '_start', start)
@@ -189,3 +189,40 @@ def test_only_completed_committed_assistant_output_can_be_spoken(service, state)
         handle.status = state
     with pytest.raises(DictationError, match='voice_output_unavailable'):
         adapter.output(owner, run, 'final', lambda: None)
+
+
+def _still(source='camera'):
+    import io
+
+    from PIL import Image
+
+    from row_bot.voice.engine.stills import checked_still
+
+    out = io.BytesIO()
+    Image.new('RGB', (64, 48), (30, 90, 160)).save(out, 'JPEG')
+    return checked_still(out.getvalue(), source)
+
+
+def test_only_a_turn_carrying_a_live_still_is_marked_and_the_mark_is_kept_on_its_saved_message(service, monkeypatch):
+    from row_bot import threads, vision_runtime
+    from row_bot.application import workspace_setup
+
+    monkeypatch.setattr(workspace_setup, 'sees_images', lambda model_ref: None)
+    monkeypatch.setattr(vision_runtime, 'get_vision_service', lambda: SimpleNamespace(
+        enabled=True, effective_model=lambda chat_model=None: chat_model or '',
+        analyze=lambda data, question, *, chat_model=None: 'A synthetic picture.'))
+    adapter, owner, lease = setup(service)
+    for text, still in (('What is this?', _still('camera')), ('And this?', _still('screen')), ('Thanks', None)):
+        service.stream_factory = ScriptedAgentStream((('token', 'Synthetic answer'), ('done', None))).stream
+        run = adapter.submit(owner, text, str(uuid4()), lambda: None, still=still)
+        assert service.registry.conversation_generation(owner.conversation_id, run).producer_done.wait(5)
+    saved = {message.content.split('\n')[0]: message for message in threads.get_latest_checkpoint_messages(
+        owner.conversation_id) if message.type == 'human'}
+    # Saved with the turn's message, by which source: camera or screen; a turn without a still has none.
+    assert saved['What is this?'].additional_kwargs['voice_still'] == 'camera'
+    assert saved['And this?'].additional_kwargs['voice_still'] == 'screen'
+    assert 'voice_still' not in saved['Thanks'].additional_kwargs
+    # The agent re-adds an admitted input by id with its kept metadata: the mark goes with it.
+    kept = threads.admitted_human_metadata(owner.conversation_id, saved['What is this?'].id)
+    assert kept['voice_still'] == 'camera'
+    assert 'voice_still' not in threads.admitted_human_metadata(owner.conversation_id, saved['Thanks'].id)

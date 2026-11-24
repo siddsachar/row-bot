@@ -276,3 +276,40 @@ it('a model checked on this computer is offered after the certified ones, said t
     'Checked on this computer. Its time and price are estimates.',
   );
 });
+
+it('a run that ended before its paid model was downloaded says the model stays in the account, with a link', () => {
+  const found = hugging({
+    sign_in: {
+      state: 'signed_in',
+      user: 'ada',
+      code: null,
+      url: null,
+      failure: null,
+    },
+    planned: false,
+    last_run: {
+      version: 3,
+      cost_usd: 5.4,
+      minutes: 90,
+      outcome: 'completed',
+      cleaned: false,
+      cleanup_failed: false,
+      model_kept: true,
+      model_url: 'https://huggingface.co/ada/row-bot-personal-ab12',
+    },
+  });
+  const io = fakeIO(snapshotWith(found));
+  render(
+    <OverlayProvider>
+      <HuggingFaceCard io={io} hugging={found} />
+    </OverlayProvider>,
+  );
+
+  const spending = screen.getByLabelText('Hugging Face spending');
+  expect(spending).toHaveTextContent(
+    'the model it trained stays in your Hugging Face account, to download or delete there',
+  );
+  expect(
+    within(spending).getByRole('link', { name: 'Open it' }),
+  ).toHaveAttribute('href', 'https://huggingface.co/ada/row-bot-personal-ab12');
+});

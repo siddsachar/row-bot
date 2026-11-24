@@ -16,8 +16,19 @@ import { SpeakersContext, type Speakers } from './TurnMarker';
 const mock = vi.hoisted(() => ({
   messageText: vi.fn(),
   getSnapshot: () => ({ selectedConversationId: 'conversation-a' }),
+  writeClipboard: vi.fn(async () => ({ status: 'ok' as const })),
+  dictationCapability: vi.fn(async () => ({
+    read_aloud_reason: 'available',
+  })),
+  readAloud: vi.fn(),
 }));
-vi.mock('../../runtime', () => ({ useRuntime: () => ({ controller: mock }) }));
+const runtime = vi.hoisted(() => ({ controller: null as unknown }));
+vi.mock('../../runtime', () => ({
+  useRuntime: () => ({
+    controller: runtime.controller ?? mock,
+    platform: { writeClipboard: mock.writeClipboard },
+  }),
+}));
 
 function encode(text: string) {
   return btoa(String.fromCharCode(...new TextEncoder().encode(text)));
@@ -119,23 +130,149 @@ it('shows what other chats left for a workflow run under its line, and why it di
   expect(screen.queryByRole('article')).toBeNull();
 });
 
-it('keeps Read aloud and says what is missing without a voice (U28)', () => {
-  vi.stubGlobal('speechSynthesis', undefined);
-  const row = {
-    id: 'assistant:1',
-    message_id: 'm1',
-    role: 'assistant',
-    blocks: [{ id: 'b', type: 'markdown', text: 'Tides rise twice a day.' }],
-    tool_call_ids: [],
-    tool_call_id: '',
-  } as unknown as TranscriptRow;
-  render(<TranscriptMessage row={row} conversationId="conversation-a" />);
-  fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }));
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    'Read aloud needs a voice installed on this device.',
-  );
-  vi.unstubAllGlobals();
-});
+/** Audio the test ends by hand, standing in for the browser's player. */
+class FakeAudio {
+  static playing: FakeAudio[] = [];
+  onended: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  paused = true;
+  currentTime = 0;
+  constructor(public src: string) {}
+  play() {
+    this.paused = false;
+    FakeAudio.playing.push(this);
+    return Promise.resolve();
+  }
+  pause() {
+    this.paused = true;
+  }
+  end() {
+    this.paused = true;
+    this.onended?.();
+  }
+}
+
+function speech(part: number, parts: number) {
+  return { audio: new Blob(['RIFF'], { type: 'audio/wav' }), part, parts };
+}
+
+const tides = {
+  id: 'assistant:1',
+  message_id: 'm1',
+  role: 'assistant',
+  blocks: [{ id: 'b', type: 'markdown', text: 'Tides rise twice a day.' }],
+  tool_call_ids: [],
+  tool_call_id: '',
+} as unknown as TranscriptRow;
+
+function withAudio(run: () => Promise<void>) {
+  return async () => {
+    FakeAudio.playing = [];
+    vi.stubGlobal('Audio', FakeAudio);
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: () => 'blob:part',
+      revokeObjectURL: () => {},
+    });
+    try {
+      await run();
+    } finally {
+      vi.unstubAllGlobals();
+      mock.readAloud.mockReset();
+    }
+  };
+}
+
+it(
+  'reads a reply aloud with the chosen voice, part after part, then offers it again',
+  withAudio(async () => {
+    mock.readAloud.mockImplementation(
+      async (_c: string, _m: string, part: number) => speech(part, 2),
+    );
+    render(<TranscriptMessage row={tides} conversationId="conversation-a" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }));
+    // The server reads the reply's words: the browser names the message, never the text.
+    await waitFor(() => expect(FakeAudio.playing).toHaveLength(1));
+    expect(mock.readAloud.mock.calls.map((call) => call.slice(0, 3))).toEqual([
+      ['conversation-a', 'm1', 0],
+      ['conversation-a', 'm1', 1],
+    ]);
+    const stop = screen.getByRole('button', { name: 'Stop reading' });
+    expect(stop).toHaveAttribute('aria-pressed', 'true');
+    FakeAudio.playing[0].end();
+    await waitFor(() => expect(FakeAudio.playing).toHaveLength(2));
+    FakeAudio.playing[1].end();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Read aloud' })).toBeVisible(),
+    );
+    expect(mock.readAloud).toHaveBeenCalledTimes(2);
+  }),
+);
+
+it(
+  'stops reading at once and asks for no more of the reply',
+  withAudio(async () => {
+    mock.readAloud.mockImplementation(
+      async (_c: string, _m: string, part: number) => speech(part, 5),
+    );
+    render(<TranscriptMessage row={tides} conversationId="conversation-a" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }));
+    await waitFor(() => expect(FakeAudio.playing).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop reading' }));
+    expect(FakeAudio.playing[0].paused).toBe(true);
+    expect(screen.getByRole('button', { name: 'Read aloud' })).toBeVisible();
+    await Promise.resolve();
+    expect(mock.readAloud).toHaveBeenCalledTimes(2);
+    expect(FakeAudio.playing).toHaveLength(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+  }),
+);
+
+it(
+  'says Read aloud needs the Kokoro voice and opens its setting, never using the device voice (U28)',
+  withAudio(async () => {
+    const synthesis = { speak: vi.fn(), getVoices: () => [] };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    // A new connection: its first check says the voice isn't installed.
+    const readAloud = vi
+      .fn()
+      .mockRejectedValue({ code: 'kokoro_model_missing' });
+    runtime.controller = {
+      ...mock,
+      dictationCapability: async () => ({
+        read_aloud_reason: 'kokoro_model_missing',
+      }),
+      readAloud,
+    };
+    render(
+      <MemoryRouter>
+        <TranscriptMessage row={tides} conversationId="conversation-a" />
+      </MemoryRouter>,
+    );
+    const button = screen.getByRole('button', { name: 'Read aloud' });
+    await waitFor(() =>
+      expect(button).toHaveAttribute('data-unavailable', 'true'),
+    );
+    expect(button).toHaveAttribute(
+      'title',
+      'Read aloud needs the Kokoro voice',
+    );
+    fireEvent.click(button);
+    // A setup step, not an error.
+    const alert = await screen.findByRole('status');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(alert).toHaveTextContent(
+      'Read aloud needs the Kokoro voice. Install it in Voice settings.',
+    );
+    expect(
+      within(alert).getByRole('button', { name: 'Open Voice settings' }),
+    ).toBeVisible();
+    expect(readAloud).toHaveBeenCalledTimes(1);
+    expect(synthesis.speak).not.toHaveBeenCalled();
+    expect(FakeAudio.playing).toHaveLength(0);
+    runtime.controller = null;
+  }),
+);
 
 const reply = {
   id: 'assistant:2',
@@ -415,6 +552,50 @@ it('opens a message’s actions on a long-press, and Select text makes its text 
   await waitFor(() =>
     expect(window.getSelection()?.toString()).toBe('Book the hall for Friday'),
   );
+});
+
+it('a phone’s older reply has no icon row; a right-click or the long-press opens its actions (D14)', async () => {
+  const row = {
+    id: 'assistant:older',
+    message_id: 'reply-older',
+    role: 'assistant',
+    blocks: [{ id: 'b', type: 'markdown', text: 'The deck is ready.' }],
+    tool_call_ids: [],
+    tool_call_id: '',
+  } as unknown as TranscriptRow;
+  const onFork = vi.fn(async () => {});
+  const { rerender } = render(
+    <TranscriptMessage
+      row={row}
+      conversationId="conversation-a"
+      onFork={onFork}
+      pressOnly
+    />,
+  );
+  expect(screen.queryByRole('toolbar')).toBeNull();
+  const article = screen.getByRole('article', { name: 'Row-Bot message' });
+  fireEvent.contextMenu(article);
+  const menu = await screen.findByRole('menu');
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent),
+  ).toEqual(['Copy message', 'Select text', 'Read aloud', 'Fork from here']);
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy message' }));
+  await waitFor(() =>
+    expect(mock.writeClipboard).toHaveBeenCalledWith('The deck is ready.'),
+  );
+
+  // The newest reply keeps its icons, and the browser keeps its own menu.
+  rerender(
+    <TranscriptMessage row={row} conversationId="conversation-a" latest />,
+  );
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+  expect(
+    screen.getByRole('toolbar', { name: 'Row-Bot message actions' }),
+  ).toBeVisible();
+  expect(fireEvent.contextMenu(article)).toBe(true);
+  expect(screen.queryByRole('menu')).toBeNull();
 });
 
 const mineToEdit = {

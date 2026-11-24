@@ -119,8 +119,9 @@ def studio(tmp_path, monkeypatch, reload_for_data_dir):
 
 
 def _edit_id(result: str) -> str:
-    line = result.splitlines()[-1] if result.startswith("Approval:") else result
-    return line.split(":", 1)[0].removeprefix("Video edit ")
+    import re
+
+    return re.search(r"Video edit (edit-[0-9a-f]{8}): ", result).group(1)
 
 
 def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_the_chat(studio):
@@ -129,21 +130,41 @@ def test_an_edit_runs_ffmpeg_in_the_background_manager_and_saves_a_new_video_to_
 
     result = studio.edit(inputs=["demo.mp4"], steps=[{"op": "trim", "start": 1, "end": 4}], name="cut")
 
-    assert result.startswith("Video edit edit-") and ": saved 0:03 of video" in result
-    assert "to this chat's files as cut.mp4; the person sees it in the chat. Trimmed." in result
+    assert result.startswith("Video edit edit-") and result.splitlines()[0].endswith(
+        ': Output "cut" v1 (working) · cut.mp4')
+    assert "Saved 0:03 of video (1 KB) to this chat's files: present shows it to the person. Trimmed." in result
     assert studio.asked == []  # A new file in the chat's files replaces nothing: no approval.
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["status"], view["mime_type"], view["progress"]) == ("saved", "video/mp4", 1.0)
     assert view["ffmpeg"] == "ffmpeg 7.1 (GPL version 3 or later), downloaded from PyPI"
     assert read_attachment(view["media_ref"])[1] == MP4
+    from row_bot.application.attachments import attachment_lineage
+
+    lineage = attachment_lineage(view["media_ref"])  # A working file of its own edit, made from its source.
+    assert (lineage["role"], lineage["output_id"], lineage["made_from"]) == ("working", edit.edit_id, ["demo.mp4"])
     [run] = studio.started
     assert run["argv"][0] == "ffmpeg" and "-/filter_complex" in run["argv"]
-    assert "trim=start=1:end=4" in run["graph"]
+    assert run["argv"][run["argv"].index("-ss"):run["argv"].index("-ss") + 4] == ["-ss", "1", "-t", "3"]
     assert run["folder"] == studio.edits.working_folder(edit)
     assert not run["folder"].exists()  # The working folder goes once it is saved.
     [process] = background_processes.list_processes(studio.chat)
     assert process.name == "Video edit" and process.status == "finished"
+
+
+def test_a_video_projects_render_is_a_draft_version_of_its_project(studio):
+    from row_bot.application.attachments import attachment_lineage
+    from row_bot.media_sources import resolve
+    from row_bot.video_editing import parse_steps
+
+    edit = studio.edits.start(studio.edits.Request(
+        conversation_id=studio.chat, kind="video", sources=resolve("demo.mp4", studio.chat),
+        steps=parse_steps([{"op": "trim", "start": 1, "end": 4}]), output_name="Launch demo v2.mp4",
+        role="draft", output_id="vid-1a2b3c4d", version=2))
+    studio.edits.wait(edit, 10)
+
+    lineage = attachment_lineage(studio.edits.get(edit.edit_id).media_ref)
+    assert (lineage["role"], lineage["output_id"], lineage["version"]) == ("draft", "vid-1a2b3c4d", 2)
 
 
 def test_a_long_edit_carries_on_with_progress_and_stops_with_nothing_saved(studio, monkeypatch):
@@ -244,7 +265,7 @@ def test_an_earlier_edit_can_be_edited_again_without_replacing_it(studio):
     first = _edit_id(studio.edit(inputs=["demo.mp4"], name="demo"))
     second = studio.edit(inputs=[first], steps=[{"op": "text", "text": "v2"}], name="demo")
 
-    assert "to this chat's files as demo-3.mp4" in second  # Each file in a chat has its own name.
+    assert second.splitlines()[0].endswith(" · demo-3.mp4")  # Each output in a chat has its own name.
     names = [item["name"] for item in list_conversation_files(studio.chat)]
     assert sorted(names) == ["demo-2.mp4", "demo-3.mp4", "demo.mp4"]  # None replaced; each has its own name.
 
@@ -297,6 +318,9 @@ def test_frames_are_saved_as_stills_with_one_contact_sheet(studio):
     edit = studio.edits.get(_edit_id(result))
     view = studio.edits.view(edit)
     assert (view["kind"], view["frame_count"], view["mime_type"]) == ("frames", 3, "image/jpeg")
+    # Stills and their sheet are working files the person doesn't see unless they're presented.
+    assert "as working files (the person doesn't see them)" in result
+    assert {item["role"] for item in files if item["name"].startswith(("frame", "generated-frame"))} == {"working"}
 
 
 def test_a_second_edits_stills_are_named_as_saved_and_read_by_name_or_by_their_edit(studio):
@@ -463,3 +487,104 @@ def test_a_cut_with_nothing_to_hear_says_it_has_no_sound(studio, monkeypatch):
 
     heard["value"] = True
     assert "no sound" not in studio.edit(inputs=["demo.mp4"], name="narrated")
+
+
+# ── Real footage (C4) ───────────────────────────────────────────────────────
+
+SPEECH = ((0.8, 1.0, "So,"), (1.1, 1.4, "um,"), (1.5, 1.9, "today"), (1.9, 2.1, "we"), (2.1, 2.4, "open"),
+          (2.4, 2.5, "the"), (2.5, 2.9, "box."), (4.0, 4.3, "And"), (4.3, 4.6, "here"), (4.6, 4.8, "it"),
+          (4.8, 5.2, "is."))
+
+
+@pytest.fixture
+def hearing(studio, monkeypatch):
+    """The local speech model is here and hears SPEECH in any clip; each time it's asked is counted."""
+    from row_bot import sound, voice
+
+    asked: list[str] = []
+
+    def transcribe(path, start=0.0, end=None):
+        asked.append(Path(path).name)
+        return [sound.Segment(0.8, 5.2, "So, um, today we open the box. And here it is.", SPEECH)], "en"
+
+    monkeypatch.setattr(sound, "transcribe", transcribe)
+    monkeypatch.setattr(voice, "get_voice_service", lambda: SimpleNamespace(
+        whisper_size="small", whisper_model_available=lambda: True))
+    return asked
+
+
+def test_a_talking_clip_is_tidied_and_given_b_roll_at_its_words_in_one_edit_heard_once(studio, hearing):
+    """C4: a tidy cuts the um and every pause down to a breath, in one pass; b-roll shows where "open the box" is
+    said once the pauses are gone; what's said is heard once and kept, so the next edit of that clip hears nothing."""
+    from row_bot.application.attachments import register_attachment
+
+    register_attachment(studio.chat, "box.jpg", _jpeg())
+
+    result = studio.edit(inputs=["demo.mp4"], name="tidy", steps=[
+        {"op": "tidy"}, {"op": "cover", "source": "box.jpg", "text": "open the box"}])
+
+    assert "Cut the pauses and fillers and added b-roll." in result, result
+    [run] = studio.started
+    assert "select='gte(t,0.7)*lt(t,1.1)+gte(t,1.4)*lt(t,3.05)+gte(t,3.9)*lt(t,5.35)'" in run["graph"]
+    assert "enable='between(t,1.1,2.6)'" in run["graph"], "over its words, shown 1.5 s"
+    looped = run["argv"].index("-loop")
+    assert run["argv"][looped - 2:looped] == ["-f", "image2"] and "file:cover-1.png" in run["argv"]
+
+    again = studio.edit(inputs=["demo.mp4"], steps=[{"op": "cut", "text": "and here it is"}])
+    assert "Cut a part out." in again and hearing == ["input-1.mp4"], "heard once, then kept"
+    assert "select='gte(t,0)*lt(t,4)+gte(t,5.2)*lt(t,6)'" in studio.started[-1]["graph"]
+
+
+def test_words_that_are_not_said_fail_the_edit_with_how_to_find_them(studio, hearing):
+    failed = studio.edit(inputs=["demo.mp4"], steps=[{"op": "trim", "text": "a dragon appears"}])
+
+    assert "failed. Step 1 (trim): “a dragon appears” isn't heard there." in failed
+    assert "edit_video action moments lists them" in failed and studio.started == []
+
+
+def test_a_clips_moments_are_its_shots_and_stretches_of_speech_with_a_frame_of_each(studio, hearing, monkeypatch):
+    """C4's best moments: one small read finds the shots, the words are heard once, and a frame from the middle of
+    each moment is saved as working stills on one labelled sheet, for the agent to find what's shown."""
+    from row_bot.application.attachments import list_conversation_files
+    from row_bot.developer import runtime
+
+    launch = runtime.launch_tracked_process
+
+    def shots(root, argv, command, **options):  # ffmpeg's scene score finds a new shot at 3.5 s.
+        if any("metadata=mode=print" in arg for arg in argv):
+            (Path(root) / "cuts.txt").write_text("frame:0    pts:105     pts_time:3.5\nlavfi.scene_score=0.9\n")
+        return launch(root, argv, command, **options)
+
+    monkeypatch.setattr(runtime, "launch_tracked_process", shots)
+
+    result = studio.edit(action="moments", inputs=["demo.mp4"])
+
+    assert "found 2 moments in demo.mp4, each a shot or a stretch of what's said:" in result, result
+    assert "\n1. 0:00–0:03.5 “So, um, today we open the box.”\n2. 0:03.5–0:06 “And here it is.”\n" in result, \
+        "the shot just after the pause ends the first"
+    assert "analyze_image, files=['edit-" in result and "a video scene's start and end, or edit_video trim" in result
+    names = [run["argv"][-1] for run in studio.started]
+    assert names == ["-", "file:frame-%02d.jpg"], "the shots in one read, then the frames in one more"
+    edit = studio.edits.get(_edit_id(result))
+    assert edit.kind == "frames" and len(edit.frame_refs) == 2 and edit.moments[1][2] == "And here it is."
+    assert studio.edits._load(studio.edits._record_path(edit)).moments == edit.moments, "kept with the edit"
+    files = list_conversation_files(studio.chat)
+    assert {item["role"] for item in files if item["name"].startswith(("demo-moments", "generated-demo"))} == {
+        "working"}
+
+
+def test_hearing_whats_said_asks_for_the_speech_model_first_and_a_no_starts_nothing(studio, monkeypatch):
+    from row_bot import voice
+    from row_bot.tools import approval_gate
+
+    monkeypatch.setattr(voice, "get_voice_service", lambda: SimpleNamespace(
+        whisper_size="small", whisper_model_available=lambda: False))
+    cards: list[dict] = []
+    monkeypatch.setattr(approval_gate, "approval_check", lambda payload, **_: cards.append(payload) or (
+        "The person didn't allow downloading the speech model; nothing was downloaded.", ""))
+
+    for asked in ({"inputs": ["demo.mp4"], "steps": [{"op": "tidy"}]}, {"action": "moments", "inputs": ["demo.mp4"]}):
+        assert studio.edit(**asked).startswith("The person didn't allow downloading the speech model")
+    assert [card["tool"] for card in cards] == ["edit_video", "edit_video"] and studio.edits.list_edits() == []
+    assert studio.edit(inputs=["demo.mp4"], steps=[{"op": "cut", "start": 1, "end": 2}]).startswith(
+        "Video edit edit-"), "a cut by its times hears nothing, so nothing asks"

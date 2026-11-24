@@ -5,6 +5,7 @@ import {
   screenshot,
   test,
 } from './evidence';
+import { openHomeTab } from './phone-helpers';
 import {
   blockFixtureServiceWorkers,
   composer,
@@ -62,7 +63,8 @@ test('conversation and Home keep their primary actions readable at every target 
         'Monitor',
         'Insights',
       ]) {
-        await page.getByRole('tab', { name: tab }).click();
+        // A phone has no sub-tabs (C1): each page opens from its address.
+        await openHomeTab(page, tab);
         await page.locator('.home-view').evaluate((element) => {
           element.scrollTop = 0;
         });
@@ -91,7 +93,7 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
     headers: { 'X-Fixture-Token': token, Origin: new URL(base).origin },
   });
   expect(seed.ok(), await seed.text()).toBe(true);
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 900, height: 900 });
   await page.goto('/app-v2/?tab=workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
@@ -100,10 +102,18 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   const view = page.getByRole('region', { name: 'Workflow editor' });
   const heading = view.getByRole('heading', { level: 1, name: 'New workflow' });
   await expect(heading).toBeVisible();
+  // A phone edits workflows on the computer (C2, D11 A).
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByRole('region', { name: 'The workflow editor' }),
+  ).toContainText('Open this on your computer');
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-phone');
+  // 200% zoom of a 1440px window is phone width too: the same notice.
   await page.setViewportSize({ width: 720, height: 900 });
-  await heading.scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole('region', { name: 'The workflow editor' }),
+  ).toContainText('Open this on your computer');
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-200-percent-reflow');
   await page.goto('/app-v2/settings/models');
@@ -144,6 +154,8 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
     'data',
   ];
   const headings: Record<string, string> = {
+    // A phone's header row says Buddy & Proactive (C3).
+    buddy: 'Buddy(?: & Proactive)?',
     knowledge: 'Memory',
     access: 'Devices & remote access',
   };

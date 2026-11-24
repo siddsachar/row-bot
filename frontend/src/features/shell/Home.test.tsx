@@ -7,7 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import Home from './Home';
 
@@ -122,6 +122,17 @@ const mock = vi.hoisted(() => ({
     setHourlyConnectionChecks: vi.fn(),
     insights: vi.fn(),
     waits: vi.fn(async () => ({ schema_version: 1, items: [] })),
+    dictationCapability: vi.fn(async () => ({
+      schema_version: 1,
+      browser_dictation_available: false,
+      native_capture_available: false,
+      reason: 'host_unavailable',
+      talk_available: false,
+      realtime_available: false,
+      talk_reason: 'host_unavailable',
+      realtime_reason: 'host_unavailable',
+    })),
+    backgroundProcesses: vi.fn(),
   },
 }));
 
@@ -146,6 +157,12 @@ vi.mock('../../ui/overlays', async (load) => {
     useOverlay: () => ({ open: mock.overlayOpen, notify: mock.overlayNotify }),
   };
 });
+
+// Buddy's card on a phone's Home is the sidebar's own (its tests are its own).
+vi.mock('../buddy/BuddySurface', async (load) => ({
+  ...(await load<typeof import('../buddy/BuddySurface')>()),
+  default: () => <aside aria-label="Buddy companion" />,
+}));
 
 vi.mock('../tasks/TaskLibrary', () => ({
   default: () => (
@@ -224,6 +241,12 @@ beforeEach(() => {
     client_session_id: 'session-a',
   };
   mock.state.conversations = [];
+  mock.controller.backgroundProcesses.mockResolvedValue({
+    items: [],
+    running: 0,
+    limit_per_conversation: 5,
+    limit_total: 20,
+  });
 });
 
 it('opens on Overview with the five Home capability tabs and no pane-backed resources', async () => {
@@ -1018,4 +1041,113 @@ it('keeps the reminder and explains a failed hide', async () => {
     'Could not hide the setup reminder. Refresh this page and try again.',
   );
   expect(document.body.textContent).not.toContain('private');
+});
+
+// The phone (C1): no sub-tabs to choose; each Home page still opens from its address.
+
+/** A window under 768px: the phone layout. */
+function onPhone() {
+  const media = vi.mocked(window.matchMedia);
+  const original = media.getMockImplementation();
+  media.mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  onTestFinished(() => {
+    media.mockImplementation(original!);
+  });
+}
+
+it.each([
+  ['/?tab=monitor', 'System Monitor'],
+  ['/?tab=insights', 'Insights'],
+])(
+  'a phone opens %s as "Open this on your computer", reading nothing for it',
+  async (path, what) => {
+    onPhone();
+    show(path);
+    const notice = await screen.findByRole('region', { name: what });
+    expect(notice).toHaveTextContent('Open this on your computer');
+    expect(notice).toHaveTextContent(`${what} needs a bigger screen.`);
+    expect(
+      within(notice).getByRole('link', { name: 'Go to Home' }),
+    ).toHaveAttribute('href', '/');
+    expect(mock.controller.monitorSnapshot).not.toHaveBeenCalled();
+    expect(mock.controller.insights).not.toHaveBeenCalled();
+  },
+);
+
+it('a phone opens ?tab=knowledge as the memory list, read as before', async () => {
+  onPhone();
+  show('/?tab=knowledge');
+  // B4's list on a phone, never the graph.
+  expect(await screen.findByRole('region', { name: 'Knowledge' })).toHaveClass(
+    'phone-memory',
+  );
+  // It opens from Settings › Memory on a phone: the way back.
+  expect(screen.getByRole('link', { name: 'Memory' })).toHaveAttribute(
+    'href',
+    '/settings/knowledge',
+  );
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledWith(
+      2000,
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('a phone’s Home asks once whether this host can dictate and Talk, for the docked Ask box', async () => {
+  onPhone();
+  mock.controller.dictationCapability.mockResolvedValue({
+    schema_version: 1,
+    browser_dictation_available: true,
+    native_capture_available: false,
+    reason: 'available',
+    talk_available: true,
+    realtime_available: false,
+    talk_reason: 'available',
+    realtime_reason: 'host_unavailable',
+  });
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <Home onAsk={vi.fn()} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole('button', { name: 'Talk' })).toBeEnabled();
+  expect(
+    screen.getByRole('button', { name: 'Dictate in a new chat' }),
+  ).toBeEnabled();
+  expect(mock.controller.dictationCapability).toHaveBeenCalledTimes(1);
+  // Monitor's reads are for the computer's Home.
+  expect(mock.controller.monitorSnapshot).not.toHaveBeenCalled();
+});
+
+it('a computer’s Home asks the same, for Talk and Dictate in its Ask box', async () => {
+  mock.controller.dictationCapability.mockResolvedValue({
+    schema_version: 1,
+    browser_dictation_available: true,
+    native_capture_available: false,
+    reason: 'available',
+    talk_available: true,
+    realtime_available: false,
+    talk_reason: 'available',
+    realtime_reason: 'host_unavailable',
+  });
+  const onAsk = vi.fn();
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <Home onAsk={onAsk} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Talk in a new chat' }),
+  );
+  expect(onAsk).toHaveBeenCalledWith('', { send: false, voice: 'talk' });
+  expect(mock.controller.dictationCapability).toHaveBeenCalledTimes(1);
 });

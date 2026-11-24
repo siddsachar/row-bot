@@ -215,6 +215,8 @@ def _shell_headers(content: bytes) -> dict[str, str]:
     # origin's scripts can mint blob URLs, and the client frames only bytes it
     # verified as PDF and re-typed as application/pdf. Designer previews keep
     # their own frame-src 'none'.
+    # connect-src stays this origin alone: Live voice fronts are relayed by the host,
+    # so no script on the page can reach (or leak to) a provider.
     return {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "

@@ -53,6 +53,18 @@ async function everywhere(
   await resize(page, DESKTOP);
 }
 
+/** Evidence at desktop size only: a phone has no sidebar or drawer (D1). */
+async function onDesktop(
+  page: Page,
+  info: TestInfo,
+  name: string,
+  reach: () => Promise<void>,
+) {
+  await resize(page, DESKTOP);
+  await reach();
+  await views(page, info, name);
+  await closeOverlays(page);
+}
 /** A new size, once its layout has rendered: just after a resize the desktop
  *  sidebar can still be showing before the phone's drawer replaces it. */
 async function resize(page: Page, size: { width: number; height: number }) {
@@ -110,6 +122,14 @@ async function showNavigation(page: Page): Promise<Locator> {
 async function hideNavigation(page: Page) {
   await closeOverlays(page);
   await expect(composer(page)).toBeVisible();
+}
+
+/** A phone's Chat settings: + › Chat settings, one level down in the + sheet. */
+async function openChatSettings(page: Page) {
+  await page
+    .getByRole('button', { name: 'Add files and more', exact: true })
+    .click();
+  await page.getByRole('menuitem', { name: /^Chat settings/ }).click();
 }
 
 async function rename(page: Page, title: string) {
@@ -173,7 +193,7 @@ test('New chat ▾ starts an incognito chat that says so in its header, composer
     'Here are three quiet places for a weekend away: Hay-on-Wye, Whitby and the Lake District.',
   );
 
-  await everywhere(page, info, 'new-chat-menu', async () => {
+  await onDesktop(page, info, 'new-chat-menu', async () => {
     const nav = await showNavigation(page);
     await nav
       .getByRole('button', { name: 'New chat options', exact: true })
@@ -193,7 +213,7 @@ test('New chat ▾ starts an incognito chat that says so in its header, composer
     await placeholderOnOneLine(page);
   });
 
-  await everywhere(page, info, 'sidebar-row', async () => {
+  await onDesktop(page, info, 'sidebar-row', async () => {
     const nav = await showNavigation(page);
     await expect(
       nav.getByRole('button', {
@@ -205,16 +225,18 @@ test('New chat ▾ starts an incognito chat that says so in its header, composer
 
   await everywhere(page, info, 'incognito-menu', async (phone) => {
     if (phone) {
+      // A phone's switch is in + › Chat settings (B2).
       await hideNavigation(page);
-      await page
-        .getByRole('button', { name: 'Conversation menu', exact: true })
-        .click();
-    } else {
-      const nav = await showNavigation(page);
-      await nav
-        .getByRole('button', { name: 'Actions for Weekend away', exact: true })
-        .click();
+      await openChatSettings(page);
+      const item = page.getByRole('menuitemcheckbox', { name: /^Incognito/ });
+      await expect(item).toHaveAttribute('aria-checked', 'true');
+      await expect(item).toContainText('On: nothing here is saved to memory');
+      return;
     }
+    const nav = await showNavigation(page);
+    await nav
+      .getByRole('button', { name: 'Actions for Weekend away', exact: true })
+      .click();
     const item = page.getByRole('menuitem', { name: /^Incognito/ });
     await expect(item).toHaveAttribute('aria-current', 'true');
     await expect(item).toContainText('On: nothing here is saved to memory');
@@ -236,16 +258,17 @@ test('turning incognito on for an existing chat says what stays and links to Kno
 
   const toggle = async (phone: boolean) => {
     if (phone) {
+      // + › Chat settings › the switch, which flips in place (B2).
       await hideNavigation(page);
-      await page
-        .getByRole('button', { name: 'Conversation menu', exact: true })
-        .click();
-    } else {
-      const nav = await showNavigation(page);
-      await nav
-        .getByRole('button', { name: 'Actions for Leeds trip', exact: true })
-        .click();
+      await openChatSettings(page);
+      await page.getByRole('menuitemcheckbox', { name: /^Incognito/ }).click();
+      await closeOverlays(page);
+      return;
     }
+    const nav = await showNavigation(page);
+    await nav
+      .getByRole('button', { name: 'Actions for Leeds trip', exact: true })
+      .click();
     await page.getByRole('menuitem', { name: /^Incognito/ }).click();
   };
   await everywhere(

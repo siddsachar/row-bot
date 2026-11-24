@@ -39,7 +39,7 @@ def media(monkeypatch):
 
     def answer(method, url, **kwargs):
         state.calls.append(SimpleNamespace(method=method, url=url, json=kwargs.get("json"),
-                                           headers=dict(kwargs.get("headers") or {})))
+                                           headers=dict(kwargs.get("headers") or {}), timeout=kwargs.get("timeout")))
         for (want_method, suffix), responses in state.answers.items():
             if method == want_method and url.endswith(suffix):
                 return responses.pop(0) if len(responses) > 1 else responses[0]
@@ -267,6 +267,34 @@ def test_minimax_makes_an_image_and_its_in_body_error_reaches_the_answer(media):
         "Image generation failed: MiniMax error 1008: insufficient balance")
 
 
+@pytest.mark.parametrize("model", ["MiniMax-H3-Image", "MiniMax-H3-Image-Highspeed"])
+def test_minimax_h3_generates_one_picture_from_text(media, model):
+    media.image = f"minimax/{model}"
+    media.answers[("POST", "/images/generations")] = [_Response({"data": [{"b64_json": PNG}]})]
+
+    result = media.image_tool._generate_image("a lighthouse", size="1024x1280", references=[b"reference"])
+
+    assert result.startswith(f"Image generated successfully. Model: {model} | Provider: MiniMax")
+    assert "without them" in result
+    call, = media.calls
+    assert call.url == "https://api.minimax.io/v1/images/generations"
+    assert call.timeout >= 600
+    assert call.json == {"model": model, "prompt": "a lighthouse", "size": "1024x1280", "n": 1,
+                         "response_format": "b64_json", "output_format": "png"}
+
+
+@pytest.mark.parametrize(("payload", "status", "detail"), [
+    ({"data": [{"error": {"code": "1027", "message": "image withheld"}}]}, 200, "MiniMax error 1027: image withheld"),
+    ({"error": {"message": "insufficient balance"}}, 402, "HTTP 402: insufficient balance"),
+])
+def test_minimax_h3_reports_failed_generation_without_retrying(media, payload, status, detail):
+    media.image = "minimax/MiniMax-H3-Image"
+    media.answers[("POST", "/images/generations")] = [_Response(payload, status_code=status)]
+
+    assert media.image_tool._generate_image("a lighthouse") == f"Image generation failed: {detail}"
+    assert len(media.calls) == 1
+
+
 def test_zai_makes_an_image_at_its_nearest_size_and_downloads_it(media):
     media.image = "zai/glm-image"
     media.answers[("POST", "/images/generations")] = [_Response({"data": [{"url": "https://cdn.z.ai/out/1.png"}]})]
@@ -409,8 +437,9 @@ def test_atlas_cloud_makes_videos_from_text_with_the_models_own_settings(media):
 
     result = media.video_tool._generate_video("waves")
 
-    assert result == ("Video generated successfully. Model: kwaivgi/kling-v2.1-t2v-master | Duration, aspect ratio "
-                      "and resolution: the model's own | Mode: text-to-video | Provider: Atlas Cloud")
+    assert result == ("Video generated successfully. Model: kwaivgi/kling-v2.1-t2v-master | Duration: the model's "
+                      "own | Aspect ratio: the model's own | Resolution: the model's own | Mode: text-to-video | "
+                      "Provider: Atlas Cloud")
     assert media.calls[0].json == {"model": "kwaivgi/kling-v2.1-t2v-master", "prompt": "waves"}
     assert media.video_tool._generate_video_job("waves", 8, "16:9", "720p", b"\x89PNG", provider_id="atlascloud") == (
         "Atlas Cloud video models can only make videos from text here. "
@@ -445,13 +474,15 @@ def test_minimax_and_zai_media_models_join_their_lists_for_the_pickers_and_the_t
                                           provider_config={})
     by_surface = {surface: {row.selection_ref for row in rows if surface in row.categories}
                   for surface in ("chat", "image", "video")}
-    assert by_surface["image"] == {"model:minimax:image-01", "model:zai:glm-image"}
+    assert by_surface["image"] == {"model:minimax:image-01", "model:minimax:MiniMax-H3-Image",
+                                   "model:minimax:MiniMax-H3-Image-Highspeed", "model:zai:glm-image"}
     assert by_surface["video"] == {"model:minimax:MiniMax-H3", "model:minimax:MiniMax-H3-Highspeed",
                                    "model:minimax:MiniMax-H3-Lite", "model:minimax:MiniMax-H3-Max",
                                    "model:zai:cogvideox-3"}
     assert by_surface["chat"] >= {"model:minimax:MiniMax-M3", "model:zai:glm-5.2"}
     assert not by_surface["chat"] & (by_surface["image"] | by_surface["video"])
-    assert set(get_available_image_models()) == {"minimax/image-01", "zai/glm-image"}
+    assert set(get_available_image_models()) == {"minimax/image-01", "minimax/MiniMax-H3-Image",
+                                                 "minimax/MiniMax-H3-Image-Highspeed", "zai/glm-image"}
     assert "zai/cogvideox-3" in get_available_video_models()
 
     keys.clear()

@@ -471,10 +471,9 @@ def _schedule_local_embedding_prewarm():
 
 # The process's one voice owner: React Talk and Dictation share the
 # microphone through it (bound to the client platform below).
-from row_bot.voice import get_voice_service
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 
-_voice_coordinator = VoiceSessionCoordinator(get_voice_service())
+_voice_coordinator = VoiceSessionCoordinator()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1657,8 +1656,10 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=_APP_PORT,
         log_level="warning",
         proxy_headers=False,
-        # The React client uses HTTP and server-sent events only.
-        ws="none",
+        # HTTP and server-sent events, and the voice WebSockets (/api/v1/voice/stream
+        # for Row-Bot Voice, /api/v1/voice/live for Live voice), authenticated and
+        # same-origin like every route.
+        ws="websockets",
         # Open event streams never end on their own; stop waiting for them so
         # the shutdown sequence (tunnels, channels, sessions) always runs.
         timeout_graceful_shutdown=5,

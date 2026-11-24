@@ -1873,7 +1873,7 @@
     "saved_name": {
       "anyOf": [
         {
-          "maxLength": 128,
+          "maxLength": 300,
           "type": "string"
         },
         {

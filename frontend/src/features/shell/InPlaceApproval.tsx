@@ -52,26 +52,60 @@ export function ApprovalDecision({
       className="small"
       aria-label={`${question ? 'Answer' : 'Review'}: ${subject}`}
       onClick={(event) =>
-        overlay.open({
-          title: question ? 'Row-Bot has a question' : 'Review and approve',
-          description: subject,
+        openApprovalSheet(overlay, {
+          approvalId,
+          subject,
+          kind,
+          onResolved,
           returnFocusTo: event.currentTarget,
-          content: (
-            <ApprovalCard
-              id={approvalId}
-              notice
-              onResolved={() => {
-                onResolved?.();
-                overlay.close();
-              }}
-            />
-          ),
         })
       }
     >
       {question ? 'Answer' : 'Review'}
     </Button>
   );
+}
+
+const APPROVAL_SHEET = 'approval-sheet';
+
+/**
+ * A waiting approval's own card in a sheet, with every choice it has (Always
+ * allow, Allow in this chat, Details…); a question's card has Answer and Skip.
+ */
+export function openApprovalSheet(
+  overlay: ReturnType<typeof useOverlay>,
+  {
+    approvalId,
+    subject,
+    kind = 'approval',
+    onResolved,
+    returnFocusTo,
+  }: {
+    approvalId: string;
+    subject: string;
+    kind?: PendingApproval['kind'];
+    onResolved?: () => void;
+    returnFocusTo?: HTMLElement;
+  },
+): void {
+  overlay.open({
+    key: APPROVAL_SHEET,
+    title:
+      kind === 'question' ? 'Row-Bot has a question' : 'Review and approve',
+    description: subject,
+    returnFocusTo,
+    content: (
+      <ApprovalCard
+        id={approvalId}
+        notice
+        onResolved={() => {
+          onResolved?.();
+          // Answered from "Always allow…" opened over it on a phone: both go.
+          if (!overlay.dismiss(APPROVAL_SHEET)) overlay.close();
+        }}
+      />
+    ),
+  });
 }
 
 /**

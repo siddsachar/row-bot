@@ -31,8 +31,6 @@ LABELS = {"document_lookups": "Document lookups", "structured_transforms": "Stru
           "own_work": "Held-out seeded work"}
 #: Stages of the Learning loop that later work packages build; the report names them, never zeros.
 NOT_BUILT = (
-    {"stage": "Testing the drafted lessons, skills and ways of working, using and undoing them (the drafts wait)",
-     "work_package": "L3b"},
     {"stage": "The harder pack split where the main model fails (O31)", "work_package": "L3b"},
     {"stage": "Learn from corrections (self-distillation) against SFT", "work_package": "L2e"},
 )

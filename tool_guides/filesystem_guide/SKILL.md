@@ -16,8 +16,9 @@ tags: []
     refused.
   * workspace_find lists a folder when pattern is empty, and finds files
     beneath it by a name pattern ('*.pdf', 'report*') when it is given.
-  * workspace_read_file also shows images inline in the chat. To also analyze
-    an image's contents, use analyze_image with source='file'.
+  * workspace_read_file doesn't show an image or read what's in it: look at
+    one with analyze_image (source='file'), and show a finished one to the
+    person with present.
   * For a terminal command (python --version, git status, pip install, etc.)
     or any other system operation, use run_command.
   * NEVER tell the user to open a terminal or run a command themselves.

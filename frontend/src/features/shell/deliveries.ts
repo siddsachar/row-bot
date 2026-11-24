@@ -4,9 +4,10 @@ import type { Tone } from '../../ui/primitives';
 
 /**
  * Files Row-Bot sent from a conversation (F7): to the person's own devices,
- * where every signed-in device downloads them from the conversation for a
- * week, or to a chat app. The card reads one delivery when it shows; nothing
- * about it changes on its own except its download running out.
+ * where each is the conversation's own file, shown on every signed-in device
+ * for as long as the chat keeps it (one too large for a chat is a download
+ * that ends after a week), or to a chat app. The card reads one delivery when
+ * it shows; nothing about it changes on its own except a download running out.
  */
 export type DeliveryIo = {
   load: (deliveryId: string, signal: AbortSignal) => Promise<DeliveryView>;
@@ -18,8 +19,24 @@ export const DeliveryIoContext = createContext<DeliveryIo | null>(null);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Sent to the devices, and its downloads have run out (by the server or this device's clock). */
+/**
+ * Sent to the devices, and a file of it is the chat's own: it plays in the
+ * card for as long as the chat keeps it; only a phone's download link ends.
+ */
+export function deliveryInChat(view: DeliveryView) {
+  return (
+    view.target === 'devices' &&
+    view.files.some((file) => file.sent && file.media_ref)
+  );
+}
+
+/**
+ * Sent to the devices only as downloads, and they have run out (by the
+ * server or this device's clock). A delivery with a file in the chat never
+ * expires: its downloads end file by file.
+ */
 export function deliveryExpired(view: DeliveryView, now = Date.now()) {
+  if (deliveryInChat(view)) return false;
   if (view.status === 'expired') return true;
   if (view.target !== 'devices' || !view.expires_at) return false;
   const end = Date.parse(view.expires_at);
@@ -84,7 +101,9 @@ export function deliveryStatus(
       };
     if (sent < total)
       return { tone: 'warning', label: `${sent} of ${total} sent` };
-    return { tone: 'success', label: 'Ready to download' };
+    return deliveryInChat(view)
+      ? { tone: 'success', label: 'Sent' }
+      : { tone: 'success', label: 'Ready to download' };
   }
   if (sent === total) return { tone: 'success', label: 'Sent' };
   if (sent) return { tone: 'warning', label: `${sent} of ${total} sent` };
@@ -111,6 +130,7 @@ export function deliveryStatus(
 export function deliveryPlace(view: DeliveryView, now = Date.now()) {
   if (view.target === 'devices') {
     if (deliveryExpired(view, now)) return '';
+    if (deliveryInChat(view)) return 'On all your signed-in devices';
     return view.files.some((file) => file.sent)
       ? `On all your signed-in devices · ${daysLeft(view, now)}`
       : '';

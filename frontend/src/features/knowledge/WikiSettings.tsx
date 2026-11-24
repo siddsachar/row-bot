@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { X } from 'lucide-react';
+import { Laptop, X } from 'lucide-react';
+import { usePhone } from '../../ui/on-your-computer';
 import type { ClientController } from '../../api';
 import { clientError } from '../../api/errors';
 import type { ClientPlatform } from '../../platform';
@@ -518,6 +519,8 @@ export default function WikiSettings({
   compact?: boolean;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  // The vault is a folder on the computer, chosen there with Browse (C3).
+  const phone = usePhone();
   const authorizedPath = state.authorizedFolder
     ? `Authorized: ${state.authorizedFolder}`
     : snapshot?.vault_path || 'Not configured';
@@ -568,40 +571,53 @@ export default function WikiSettings({
               />
             </label>
           )}
-          {/* Full width: a vault path is long, and a 280px box cut it off. */}
-          <Field label="Vault path">
-            <Input
-              aria-label="Vault path"
-              title={pathDraft}
-              value={pathDraft}
-              onChange={(event) => setPathDraft(event.target.value)}
-            />
-          </Field>
-          {!pathAuthorized && (
-            <p className="settings-help" role="status">
-              Choose this folder with Browse before using it.
+          {phone ? (
+            <p className="phone-memory-note">
+              <Laptop size={16} aria-hidden />
+              <span>
+                The vault is a folder on your computer
+                {snapshot.vault_path ? ` (${snapshot.vault_path})` : ''}. Choose
+                it there.
+              </span>
             </p>
+          ) : (
+            <>
+              {/* Full width: a vault path is long, and a 280px box cut it off. */}
+              <Field label="Vault path">
+                <Input
+                  aria-label="Vault path"
+                  title={pathDraft}
+                  value={pathDraft}
+                  onChange={(event) => setPathDraft(event.target.value)}
+                />
+              </Field>
+              {!pathAuthorized && (
+                <p className="settings-help" role="status">
+                  Choose this folder with Browse before using it.
+                </p>
+              )}
+              <div className="actions settings-wiki-actions">
+                {session.canChooseVault() && (
+                  <Button
+                    disabled={locked}
+                    onClick={() => void session.chooseVault()}
+                  >
+                    Browse
+                  </Button>
+                )}
+                <Button
+                  disabled={
+                    locked ||
+                    !pathAuthorized ||
+                    state.status?.availability !== 'available'
+                  }
+                  onClick={() => void session.start('wiki.configure')}
+                >
+                  Use selected vault
+                </Button>
+              </div>
+            </>
           )}
-          <div className="actions settings-wiki-actions">
-            {session.canChooseVault() && (
-              <Button
-                disabled={locked}
-                onClick={() => void session.chooseVault()}
-              >
-                Browse
-              </Button>
-            )}
-            <Button
-              disabled={
-                locked ||
-                !pathAuthorized ||
-                state.status?.availability !== 'available'
-              }
-              onClick={() => void session.start('wiki.configure')}
-            >
-              Use selected vault
-            </Button>
-          </div>
         </>
       )}
       <div className="actions settings-wiki-actions">
@@ -623,12 +639,14 @@ export default function WikiSettings({
         >
           Rebuild managed wiki files
         </Button>
-        <Button
-          disabled={locked || !session.canOpenFolder()}
-          onClick={() => void session.openFolder()}
-        >
-          Open vault folder
-        </Button>
+        {!phone && (
+          <Button
+            disabled={locked || !session.canOpenFolder()}
+            onClick={() => void session.openFolder()}
+          >
+            Open vault folder
+          </Button>
+        )}
         {!compact && (
           <AppLink className="button secondary" to="/?tab=knowledge">
             Browse or create knowledge

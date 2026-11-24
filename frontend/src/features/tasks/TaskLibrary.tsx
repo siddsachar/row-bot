@@ -11,15 +11,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as Popover from '@radix-ui/react-popover';
 import {
   ArrowLeft,
-  Bell,
-  Braces,
-  CalendarClock,
+  ChevronLeft,
   CornerDownLeft,
-  Database,
-  FileDown,
-  FileUp,
   Lock,
-  Mail,
   MoreHorizontal,
   Pencil,
   Play,
@@ -28,7 +22,6 @@ import {
   Send,
   Square,
   Trash2,
-  Zap,
 } from 'lucide-react';
 import type {
   TaskDeliverySnapshot,
@@ -66,6 +59,7 @@ import {
   type MenuAction,
 } from '../../ui/primitives';
 import { Drawer, useOverlay } from '../../ui/overlays';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
 import {
   FAILED_RUN_STATUSES,
   When,
@@ -73,38 +67,13 @@ import {
   scheduleWords,
 } from '../home/home-format';
 import { humanizeToken, parseTimestamp } from '../../ui/format';
-
-const workflowIcons = {
-  notifications: Bell,
-  notifications_active: Bell,
-  alarm: Bell,
-  schedule: CalendarClock,
-  event: CalendarClock,
-  code: Braces,
-  terminal: Braces,
-  email: Mail,
-  mail: Mail,
-  database: Database,
-  storage: Database,
-  upload: FileUp,
-  download: FileDown,
-  sync: RefreshCw,
-  refresh: RefreshCw,
-} as const;
-
-function workflowIcon(icon: string, reminder: boolean) {
-  const key = icon.trim().toLowerCase() as keyof typeof workflowIcons;
-  return workflowIcons[key] ?? (reminder ? Bell : Zap);
-}
-
-/** Emoji icons are shown as they are; named icons map to glyphs. */
-function WorkflowGlyph({ task }: { task: TaskSummary }) {
-  const icon = task.icon.trim();
-  if (icon && !/^[a-z_]+$/i.test(icon))
-    return <span className="workflow-emoji">{icon}</span>;
-  const Icon = workflowIcon(icon, task.notify_only);
-  return <Icon size={16} />;
-}
+import PhoneWorkflows from './PhoneWorkflows';
+import {
+  OFF_AFTER_FAILURES,
+  WorkflowGlyph,
+  isRunning,
+  ranOnce,
+} from './workflow-status';
 
 type Filter = 'all' | 'enabled' | 'scheduled' | 'failed';
 const FILTERS: { value: Filter; label: string }[] = [
@@ -113,20 +82,8 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'failed', label: 'Failed' },
 ];
-/** A workflow Row-Bot switched off after failed runs in a row (D5). */
-const OFF_AFTER_FAILURES = 'Off: failed 5 times in a row';
 /** Scheduled and Failed filter every saved workflow, read page by page. */
 const CLIENT_FILTER_PAGES = 20;
-
-/** A one-off ("Once") workflow that has run, with nothing left to run: done, not unscheduled (U17). */
-function ranOnce(task: TaskSummary) {
-  return Boolean(
-    task.at &&
-    !task.schedule &&
-    task.last_run &&
-    !parseTimestamp(task.next_run),
-  );
-}
 
 function matchesFilter(task: TaskSummary, filter: Filter) {
   if (filter === 'scheduled')
@@ -136,12 +93,6 @@ function matchesFilter(task: TaskSummary, filter: Filter) {
       String(task.last_status ?? '').toLowerCase(),
     );
   return true;
-}
-
-function isRunning(task: TaskSummary) {
-  return Boolean(
-    task.active_run || task.last_status?.toLowerCase() === 'running',
-  );
 }
 
 // Run states that are still going (the saved summary's active run), and how
@@ -1080,6 +1031,34 @@ export function SavedTasks({
   );
 }
 
+/**
+ * The workflow editor and settings on a phone (D5, D11 A): open them on the
+ * computer, or ask in the workflow's chat. ‹ Workflows goes back to the list,
+ * keeping any unsaved changes for the computer.
+ */
+function PhoneEditorAway({
+  what,
+  onBack,
+}: {
+  what: string;
+  onBack: () => void;
+}) {
+  return (
+    <div className="phone-workflow-away">
+      <header className="phone-home-back">
+        <Button variant="ghost" aria-label="Back to workflows" onClick={onBack}>
+          <ChevronLeft size={20} aria-hidden />
+          Workflows
+        </Button>
+      </header>
+      <OnYourComputer what={what}>
+        Change a workflow’s messages, schedule and delivery on your computer, or
+        ask for the change in its chat.
+      </OnYourComputer>
+    </div>
+  );
+}
+
 const noTaskSubscription = () => () => {};
 const emptyTaskSessions = { selected: null, drafts: [], capacity: false };
 const noTaskSnapshot = () => emptyTaskSessions;
@@ -1134,6 +1113,9 @@ export default function TaskLibrary() {
   const state = useClientState();
   const navigate = useNavigate();
   const overlay = useOverlay();
+  // A phone lists workflows as rows with a sheet each; the editor and
+  // delivery defaults stay on the computer (C2, D11 A).
+  const phone = usePhone();
   const [search, setSearch] = useSearchParams();
   const [runsFor, setRunsFor] = useState<{ id: string; name: string } | null>(
     null,
@@ -1251,19 +1233,20 @@ export default function TaskLibrary() {
       () => {},
     );
   }, [controller, requestedRuns, requestedFix, setSearch, chooseFolder]);
+  // Delivery defaults and the agent list are the computer's (a phone edits neither).
   useEffect(() => {
-    if (!state.handshake) return;
+    if (!state.handshake || phone) return;
     const abort = new AbortController();
     controller.taskDeliveryDefaults(abort.signal).then(setDelivery, () => {
       if (!abort.signal.aborted) setDelivery(null);
     });
     return () => abort.abort();
-  }, [controller, reload, state.handshake]);
+  }, [controller, reload, state.handshake, phone]);
   const selected = sessions.selected;
   const settingsOpen = selected?.session.kind === 'settings';
   // Workflow settings pick the agent profile from a list (U41).
   useEffect(() => {
-    if (!settingsOpen || !state.handshake) return;
+    if (!settingsOpen || !state.handshake || phone) return;
     const abort = new AbortController();
     controller.profiles('', undefined, undefined, abort.signal).then(
       (page) =>
@@ -1278,7 +1261,7 @@ export default function TaskLibrary() {
       () => {},
     );
     return () => abort.abort();
-  }, [controller, settingsOpen, state.handshake]);
+  }, [controller, settingsOpen, state.handshake, phone]);
   const modelOptions = favouritesFirst(
     (state.handshake?.models ?? []).filter((model) => model.available),
   ).map((model) => ({
@@ -1370,6 +1353,17 @@ export default function TaskLibrary() {
         Reload Row-Bot to reopen workflow editing.
       </EmptyState>
     );
+  if (phone && selected)
+    return (
+      <PhoneEditorAway
+        what={
+          selected.session.kind === 'settings'
+            ? 'Workflow settings'
+            : 'The workflow editor'
+        }
+        onBack={close}
+      />
+    );
   if (selected?.session.kind === 'settings')
     return (
       <EditorFrame
@@ -1444,6 +1438,30 @@ export default function TaskLibrary() {
           }}
         />
       </EditorFrame>
+    );
+  if (phone)
+    return (
+      <PhoneWorkflows
+        key={state.handshake?.client_session_id ?? ''}
+        refreshToken={reload}
+        load={controller.savedTasks}
+        onToggleEnabled={toggleEnabled}
+        io={{
+          loadReview: controller.taskRunReview,
+          loadHistory: controller.taskRuns,
+          loadRun: controller.taskRun,
+          run: execution.run,
+          stop: execution.stop,
+          openConversation: (id) => {
+            setRunsFor(null);
+            openConversation(id);
+          },
+        }}
+        openId={runsFor?.id ?? null}
+        openName={runsFor?.name ?? ''}
+        onOpen={(id, name) => setRunsFor({ id, name })}
+        onClose={() => setRunsFor(null)}
+      />
     );
   return (
     <div className="workflow-home">

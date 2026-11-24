@@ -134,6 +134,59 @@ it('leaves a helper’s own thread to the chat that started it, as the sidebar d
   expect(screen.getByText('2 conversations · newest first')).toBeVisible();
 });
 
+it('shows loading rows in the list shape while the library is read, then its rows in their place', async () => {
+  const transport = new FixtureTransport({ conversationCount: 3 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  let release!: () => void;
+  const read = controller.readConversationLibrary.bind(controller);
+  vi.spyOn(controller, 'readConversationLibrary').mockImplementation(
+    async (signal) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return read(signal);
+    },
+  );
+  renderLibrary(controller);
+  const loading = screen.getByRole('status', {
+    name: 'Loading all conversations',
+  });
+  expect(loading).toHaveAttribute('aria-busy', 'true');
+  expect(screen.getByText('Loading conversations…')).toBeVisible();
+  // No retry offered while it is still reading.
+  expect(screen.queryByRole('button', { name: 'Retry library' })).toBeNull();
+  await waitFor(() =>
+    expect(loading.querySelectorAll('.skeleton-row')).toHaveLength(14),
+  );
+  await act(async () => release());
+  expect(
+    await screen.findByText('3 conversations · newest first'),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('status', { name: 'Loading all conversations' }),
+  ).toBeNull();
+});
+
+it('reads a large library in the server’s largest pages, not fifty at a time', async () => {
+  const transport = new FixtureTransport({ conversationCount: 426 });
+  const list = vi.spyOn(transport, 'listConversations');
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  list.mockClear();
+  renderLibrary(controller);
+  expect(
+    await screen.findByText('426 conversations · newest first'),
+  ).toBeVisible();
+  expect(list.mock.calls.map(([, , group, limit]) => [group, limit])).toEqual([
+    ['all', 200],
+    ['all', 200],
+    ['all', 200],
+  ]);
+});
+
 it('selects a range with Shift and ticks the focused row with Space (B270)', async () => {
   await setup(8);
   tick('Sample conversation 2');
@@ -698,5 +751,140 @@ describe('deleteOneConversation (sidebar single delete)', () => {
     expect(
       sessionStorage.getItem('row-bot.conversation-library.pending-delete.v1'),
     ).toBeNull();
+  });
+});
+
+describe('on a phone (D10)', () => {
+  function onPhone() {
+    vi.mocked(window.matchMedia).mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === '(max-width: 767px)',
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+  }
+  async function phoneSetup(selecting = false) {
+    onPhone();
+    const transport = new FixtureTransport({ conversationCount: 4 });
+    const controller = new ClientController(transport, () => 1);
+    clients.push(controller);
+    await controller.start();
+    const onSelectingChange = vi.fn();
+    render(
+      <MemoryRouter>
+        <RuntimeContext.Provider
+          value={{ controller, platform: createFakePlatform() }}
+        >
+          <OverlayProvider>
+            <ConversationLibrary
+              selecting={selecting}
+              onSelectingChange={onSelectingChange}
+            />
+          </OverlayProvider>
+        </RuntimeContext.Provider>
+      </MemoryRouter>,
+    );
+    await screen.findAllByRole(selecting ? 'button' : 'link', {
+      name: /^Sample conversation 2/,
+    });
+    return { controller, onSelectingChange };
+  }
+  const item = (title: string) =>
+    screen.getByRole('link', { name: new RegExp(`^${title}`) }).closest('li')!;
+  function longPress(element: Element) {
+    const press = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(press, 'touches', {
+      value: [{ clientX: 40, clientY: 40 }],
+    });
+    element.dispatchEvent(press);
+  }
+
+  it('lists chats with labelled chips and no checkboxes; a long-press offers Pin, Rename and Delete, and Pin runs the reviewed command', async () => {
+    const { controller } = await phoneSetup();
+    const { execute } = reviewedActions(controller);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    const chips = screen.getByRole('radiogroup', { name: 'Conversation type' });
+    expect(
+      within(chips).getByRole('radio', { name: 'Designs' }),
+    ).toHaveTextContent('Designs');
+    expect(
+      screen.queryByRole('button', { name: 'Refresh library' }),
+    ).toBeNull();
+
+    longPress(item('Sample conversation 2'));
+    const menu = await screen.findByRole('menu', {}, { timeout: 2000 });
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((entry) => entry.textContent),
+    ).toEqual(['Pin', 'Rename', 'Delete…']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Pin' }));
+    await waitFor(() =>
+      expect(execute).toHaveBeenCalledWith(
+        'conversation-2',
+        expect.objectContaining({
+          type: 'conversation.pin',
+          payload: expect.objectContaining({ pinned: true }),
+        }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it('deletes a chat from its right-click menu after one confirmation, with Undo', async () => {
+    const { controller } = await phoneSetup();
+    const command = vi
+      .spyOn(controller, 'command')
+      .mockResolvedValue({ status: 'DeleteCompleted' } as never);
+    fireEvent.contextMenu(item('Sample conversation 3'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+    const confirm = await screen.findByRole('alertdialog', {
+      name: "Delete 'Sample conversation 3'?",
+    });
+    fireEvent.click(
+      within(confirm).getByRole('button', { name: 'Delete conversation' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('link', { name: /^Sample conversation 3/ }),
+      ).toBeNull(),
+    );
+    expect(command).toHaveBeenCalledWith(
+      'conversation-3',
+      expect.objectContaining({ type: 'conversation.delete' }),
+      expect.any(String),
+    );
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeVisible();
+  });
+
+  it('select mode ticks rows with a tap, offers Rename for one, and Done leaves it', async () => {
+    const { onSelectingChange } = await phoneSetup(true);
+    const toolbar = bar()!;
+    expect(within(toolbar).getByText('Tap chats to select')).toBeVisible();
+    expect(within(toolbar).getByRole('button', { name: 'Pin' })).toBeDisabled();
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+
+    const second = screen.getByRole('button', {
+      name: /^Sample conversation 2/,
+    });
+    fireEvent.click(second);
+    expect(second).toHaveAttribute('aria-pressed', 'true');
+    expect(within(toolbar).getByText('1 selected')).toBeVisible();
+    expect(
+      within(toolbar).getByRole('button', { name: 'Rename' }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Sample conversation 4/ }),
+    );
+    expect(within(toolbar).getByText('2 selected')).toBeVisible();
+    expect(
+      within(toolbar).queryByRole('button', { name: 'Rename' }),
+    ).toBeNull();
+
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Done' }));
+    expect(onSelectingChange).toHaveBeenCalledWith(false);
   });
 });

@@ -8,11 +8,12 @@ import {
   liveCards,
   TranscriptCards,
   tracedCards,
+  WorkingFilesRow,
   type CardActions,
   type TranscriptCard,
 } from './TranscriptCards';
 import { OverlayProvider } from '../../ui/overlays';
-import { buildTranscript, foldLiveVideos } from './transcript-model';
+import { buildTranscript } from './transcript-model';
 
 vi.mock('../../api/errors', () => ({
   clientError: (cause: { code?: string }) => ({
@@ -392,19 +393,18 @@ const edit = (id: string, media_kind = '') => ({
   media_kind,
 });
 
-it('shows only a reply’s newest video in full and folds the earlier ones under it', () => {
+it('folds recordings and edits, stills too, into working files in every reply', () => {
   const items = buildTranscript([
     videoRow('user:1', 'user', [], 'Make a demo video'),
     videoRow('assistant:1', 'assistant', [recording]),
-    // Text between the steps splits the reply into items; the fold spans them.
+    // Text between the steps splits the reply into items; each keeps its own.
     videoRow('assistant:2', 'assistant', [edit('edit-0000000a')], 'Trimmed.'),
     videoRow('assistant:3', 'assistant', [
       edit('edit-0000000b'),
-      // Stills taken to check the video are no newer version of it.
       edit('edit-0000000c', 'frames'),
     ]),
     videoRow('user:2', 'user', [], 'Thanks'),
-    // The next reply's one video stands alone.
+    // The next reply's edit folds too: folding isn't one reply's newest video.
     videoRow('assistant:4', 'assistant', [edit('edit-0000000d')], 'Here.'),
   ]);
   const keys = (cards: TranscriptCard[] | undefined) =>
@@ -419,63 +419,70 @@ it('shows only a reply’s newest video in full and folds the earlier ones under
     [],
     [],
     [],
+    [],
+    [],
+    [],
+  ]);
+  expect(items.map((item) => keys(item.working?.cards))).toEqual([
+    [],
+    ['rec-00000001'],
+    ['edit-0000000a'],
     ['edit-0000000b', 'edit-0000000c'],
     [],
     ['edit-0000000d'],
   ]);
-  expect(items.map((item) => keys(item.earlier))).toEqual([
-    [],
-    [],
-    [],
-    ['rec-00000001', 'edit-0000000a'],
-    [],
-    [],
-  ]);
 });
 
-it('folds what a turn in flight already shows under its newer live video', () => {
-  const items = buildTranscript([
-    videoRow('user:1', 'user', [], 'Make a demo video'),
-    videoRow('assistant:1', 'assistant', [recording, edit('edit-0000000a')]),
-  ]);
-  const live: TranscriptCard[] = [
-    { kind: 'video_edit', editId: 'edit-0000000b' },
-    { kind: 'page', pageId: 'page-00000001' },
-  ];
-  const shown = foldLiveVideos(items, live);
-  expect(shown.items[1].cards).toEqual([]);
-  expect(shown.items[1].earlier).toBeUndefined();
-  expect(shown.pending).toEqual(live);
-  expect(shown.earlier).toEqual([
-    { kind: 'recording', recordingId: 'rec-00000001' },
-    { kind: 'video_edit', editId: 'edit-0000000a' },
-  ]);
-  // Live cards without a video leave the saved ones as they are.
-  const quiet = foldLiveVideos(items, [live[1]]);
-  expect(quiet.items).toBe(items);
-  expect(quiet.earlier).toEqual([]);
+it('keeps working files open when the finished reply takes over from the live turn', async () => {
+  const working = {
+    cards: [{ ...design, bindingId: 'binding-open', name: 'Contact sheet' }],
+    media: [],
+  };
+  const row = () => (
+    <OverlayProvider>
+      <CardActionsContext.Provider value={actions()}>
+        <WorkingFilesRow working={working} conversation="chat-open" />
+      </CardActionsContext.Provider>
+    </OverlayProvider>
+  );
+  const live = render(row());
+  fireEvent.click(screen.getByText('1 working file'));
+  await screen.findByRole('button', { name: 'Open' });
+  live.unmount();
+
+  render(row());
+  expect(screen.getByText('1 working file').closest('details')).toHaveAttribute(
+    'open',
+  );
 });
 
-it('keeps earlier versions behind one quiet toggle', () => {
+it('keeps working files behind one quiet row that loads them only when opened', async () => {
   render(
     <OverlayProvider>
       <CardActionsContext.Provider value={actions()}>
-        <TranscriptCards
-          cards={[design]}
-          earlier={[
-            { ...design, bindingId: 'binding-x', name: 'Raw take' },
-            { ...design, bindingId: 'binding-y', name: 'Trimmed take' },
-          ]}
+        <WorkingFilesRow
+          working={{
+            cards: [
+              { ...design, bindingId: 'binding-x', name: 'Raw take' },
+              { ...design, bindingId: 'binding-y', name: 'Trimmed take' },
+            ],
+            media: [],
+          }}
         />
       </CardActionsContext.Provider>
     </OverlayProvider>,
   );
-  const toggle = screen.getByText('2 earlier versions');
+  const toggle = screen.getByText('2 working files');
   const fold = toggle.closest('details')!;
   expect(fold).not.toHaveAttribute('open');
+  expect(within(fold).queryAllByRole('button', { name: 'Open' })).toHaveLength(
+    0,
+  );
   fireEvent.click(toggle);
   expect(fold).toHaveAttribute('open');
-  expect(within(fold).getAllByRole('button', { name: 'Open' })).toHaveLength(2);
+  expect(
+    await within(fold).findAllByRole('button', { name: 'Open' }),
+  ).toHaveLength(2);
 });
 
 const settingCard: TranscriptCard = {

@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
+  ChevronDown,
   Cpu,
   MoreHorizontal,
   PanelRight,
   Pencil,
   Share,
+  SquarePen,
   TextSearch,
 } from 'lucide-react';
 import { AppLink } from '../../ui/app-link';
 import { IconButton, Menu, type MenuAction } from '../../ui/primitives';
 import { IncognitoMark } from './incognito';
+import '../../ui/styles/phone-conversation.css';
 
 /** The server keeps at most 120 characters of a title (B135). */
 export const TITLE_LIMIT = 120;
@@ -18,16 +21,21 @@ export const TITLE_LIMIT = 120;
 /**
  * The conversation header: the title (click to rename), the current model as
  * a chip, and icon actions for find, share/export and Conversation details.
- * On phones it is one 48px row: `leading` (back to the conversation list),
- * the title and a ⋯ menu that holds every other action (`menuActions` first).
- * A delegated agent's conversation links back to its parent before the title
- * (above it on phones, B242).
+ * On phones it is one row (D8): `leading` (‹ back), the title with the model
+ * under it (a tap switches the model), New chat and a ⋯ menu with Find,
+ * Conversation details, Export and Rename, then `menuActions`. The work the
+ * chat is on (`workingOn`) sits under that row. A delegated agent's
+ * conversation links back to its parent before the title (above it on
+ * phones, B242).
  */
 export default function ConversationHeader({
   title,
   canRename,
   onRename,
   model,
+  onModel,
+  modelDisabled = false,
+  onNewChat,
   onFind,
   onShare,
   onContext,
@@ -46,6 +54,12 @@ export default function ConversationHeader({
   canRename: boolean;
   onRename: (title: string) => Promise<void>;
   model?: string;
+  /** Phone layout: the title and the model under it open the model sheet. */
+  onModel?: () => void;
+  /** The model can't change now (a reply is running). */
+  modelDisabled?: boolean;
+  /** Phone layout: New chat beside ⋯. */
+  onNewChat?: () => void;
   onFind?: () => void;
   onShare?: () => void;
   /** Shows or hides Conversation details, or opens its sheet when compact. */
@@ -60,8 +74,8 @@ export default function ConversationHeader({
   /** An incognito chat (N11): its mark beside the title, its words in the tooltip. */
   incognito?: boolean;
   /**
-   * Phone layout: fold the actions into one ⋯ menu. The workspace's own
-   * entries (search, panels) come first.
+   * Phone layout: fold the actions into one ⋯ menu. These entries (the
+   * chat's Incognito, the workspace's own) follow the header's.
    */
   menuActions?: MenuAction[];
   /** Phone layout: items after the header's own (Learning's check item). */
@@ -73,7 +87,7 @@ export default function ConversationHeader({
   breadcrumb?: { to: string; title: string; icon?: ReactNode };
   /**
    * Phone layout: the one tap from the chat to the deck or folder it works
-   * on (D7), before the ⋯ menu.
+   * on (D7), under the header's row.
    */
   workingOn?: ReactNode;
   /** Rare, urgent actions such as checking a pending receipt. */
@@ -115,13 +129,11 @@ export default function ConversationHeader({
   const phone = menuActions !== undefined;
   const menu: MenuAction[] = phone
     ? [
-        ...menuActions,
         ...(onFind
           ? [
               {
                 label: 'Find in conversation',
                 icon: <TextSearch size={16} />,
-                separatorBefore: menuActions.length > 0,
                 onSelect: onFind,
               },
             ]
@@ -156,11 +168,21 @@ export default function ConversationHeader({
               },
             ]
           : []),
-        ...trailingMenuActions.map((action, index) =>
-          index === 0 ? { ...action, separatorBefore: true } : action,
-        ),
       ]
     : [];
+  // The chat's and the workspace's entries, then Learning's, each a group.
+  if (phone)
+    for (const group of [menuActions, trailingMenuActions])
+      group.forEach((action, index) =>
+        menu.push(
+          index === 0 && menu.length > 0
+            ? { ...action, separatorBefore: true }
+            : action,
+        ),
+      );
+  // The model under the title: what this chat answers with. Its button
+  // reaches up over the title, so a tap on either switches the model.
+  const switchModel = phone && onModel;
   return (
     <header
       className="conversation-heading"
@@ -215,13 +237,28 @@ export default function ConversationHeader({
         ) : (
           <h1
             title={title}
-            onClick={() => canRename && setEditing(true)}
-            data-renamable={canRename ? 'true' : undefined}
+            onClick={() => canRename && !switchModel && setEditing(true)}
+            data-renamable={canRename && !switchModel ? 'true' : undefined}
           >
             {title}
           </h1>
         )}
         {incognito && !editing && <IncognitoMark />}
+        {switchModel && !editing && (
+          <button
+            type="button"
+            className="conversation-model-switch"
+            aria-label={model ? `Model: ${model}` : 'Choose a model'}
+            aria-haspopup="dialog"
+            disabled={modelDisabled}
+            onClick={onModel}
+          >
+            <span className="conversation-model-name">
+              {model || 'Choose a model'}
+            </span>
+            <ChevronDown size={14} aria-hidden />
+          </button>
+        )}
         {canRename && !editing && !phone && (
           <IconButton
             size="sm"
@@ -247,16 +284,20 @@ export default function ConversationHeader({
         aria-label="Conversation actions"
       >
         {children}
-        {phone && workingOn}
+        {phone && onNewChat && (
+          <IconButton size="sm" label="New chat" onClick={onNewChat}>
+            <SquarePen size={20} aria-hidden />
+          </IconButton>
+        )}
         {phone && menu.length > 0 && (
           <Menu
             label="Conversation menu"
             iconOnly
             variant="ghost"
-            className="conversation-menu"
+            className="conversation-menu icon-action icon-action-sm"
             actions={menu}
           >
-            <MoreHorizontal size={18} aria-hidden />
+            <MoreHorizontal size={20} aria-hidden />
           </Menu>
         )}
         {!phone && onFind && (
@@ -283,6 +324,9 @@ export default function ConversationHeader({
           </IconButton>
         )}
       </div>
+      {phone && workingOn && (
+        <div className="conversation-working-on">{workingOn}</div>
+      )}
     </header>
   );
 }

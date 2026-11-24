@@ -1,0 +1,60 @@
+{
+  "additionalProperties": false,
+  "description": "One version of an output: a file in its chat.",
+  "properties": {
+    "created_at": {
+      "maxLength": 40,
+      "title": "Created At",
+      "type": "string"
+    },
+    "file_name": {
+      "maxLength": 240,
+      "minLength": 1,
+      "title": "File Name",
+      "type": "string"
+    },
+    "mime_type": {
+      "maxLength": 64,
+      "title": "Mime Type",
+      "type": "string"
+    },
+    "ref": {
+      "maxLength": 300,
+      "minLength": 3,
+      "title": "Ref",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "final",
+        "draft",
+        "working",
+        "upload"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "size": {
+      "minimum": 1,
+      "title": "Size",
+      "type": "integer"
+    },
+    "version": {
+      "maximum": 100000,
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ref",
+    "version",
+    "role",
+    "file_name",
+    "mime_type",
+    "size",
+    "created_at"
+  ],
+  "title": "OutputVersionView",
+  "type": "object"
+}

@@ -19,8 +19,8 @@ export type TranscriptItem = {
   media: GeneratedMedia[];
   /** Designs and code folders the turn created, connections it needs. */
   cards: TranscriptCard[];
-  /** Earlier versions of the reply's newest video, folded under it. */
-  earlier?: TranscriptCard[];
+  /** What the turn made on the way (finals first), folded under its steps. */
+  working?: WorkingFiles;
   /** Agents the turn started, one stub each (B241). */
   agents: TracedAgent[];
 };
@@ -122,28 +122,62 @@ function prompt(safeInput: string | undefined) {
   return undefined;
 }
 
+/**
+ * What a reply made on the way (finals first): recordings, edits, frames,
+ * contact sheets, screenshots. One quiet row under its steps opens them.
+ */
+export type WorkingFiles = {
+  media: GeneratedMedia[];
+  cards: TranscriptCard[];
+};
+
+/** A file made on the way, never shown inline. */
+export function isWorkingMedia(media: GeneratedMedia) {
+  return media.role === 'working';
+}
+
+/** A recording or a video edit: the workshop, not the result. */
+export function isWorkingCard(card: TranscriptCard) {
+  return card.kind === 'recording' || card.kind === 'video_edit';
+}
+
+/**
+ * Adds media once by reference. A final presented again is never shown
+ * twice: the first one shows, marked final.
+ */
+function addMedia(list: GeneratedMedia[], value: GeneratedMedia) {
+  const at = list.findIndex((known) => known.reference === value.reference);
+  if (at < 0) list.push(value);
+  else if (value.presented && !list[at].presented)
+    list[at] = { ...list[at], final: true };
+}
+
 export function tracedMedia(groups: TranscriptTraceGroup[]): GeneratedMedia[] {
-  const seen = new Set<string>();
   const media: GeneratedMedia[] = [];
   for (const group of groups)
     for (const item of group.items)
-      for (const value of item.specialization?.media ?? []) {
-        if (seen.has(value.media_ref)) continue;
-        seen.add(value.media_ref);
-        media.push({
+      for (const value of item.specialization?.media ?? [])
+        addMedia(media, {
           reference: value.media_ref,
           mime: value.mime_type,
-          // The prompt the server kept names the picture and its download (T9).
+          // The prompt the server kept names the picture and its download (T9);
+          // a presented final carries its caption.
           caption: value.prompt || prompt(item.safe_input),
-          // A picture of Row-Bot's browser (F4), or the contact sheet Row-Bot
-          // looked at (F5): not something generated.
-          ...(item.canonical_name === 'Browser Screenshot'
-            ? { label: 'Page screenshot' }
+          // A contact sheet from before roles is a working file too.
+          ...(value.role
+            ? { role: value.role }
             : item.canonical_name === 'analyze_image'
-              ? { label: 'Contact sheet' }
+              ? { role: 'working' as const }
               : {}),
+          // A presented final carries its name in the chat's files.
+          ...(value.name
+            ? { presented: true, label: value.name }
+            : item.canonical_name === 'Browser Screenshot'
+              ? { label: 'Page screenshot' }
+              : item.canonical_name === 'analyze_image'
+                ? { label: 'Contact sheet' }
+                : {}),
         });
-      }
   return media;
 }
 
@@ -364,6 +398,8 @@ export function liveTurn(
             media_ref: event.payload.media_ref,
             mime_type: event.payload.mime_type,
             ...(event.payload.prompt ? { prompt: event.payload.prompt } : {}),
+            ...(event.payload.role ? { role: event.payload.role } : {}),
+            ...(event.payload.name ? { name: event.payload.name } : {}),
           },
         ]);
     }
@@ -581,15 +617,9 @@ export function buildTranscript(
     ) {
       previous.traces = [...previous.traces, ...item.traces];
       previous.embeds = [...previous.embeds, ...item.embeds];
-      previous.media = [
-        ...previous.media,
-        ...item.media.filter(
-          (media) =>
-            !previous.media.some(
-              (known) => known.reference === media.reference,
-            ),
-        ),
-      ];
+      const media = [...previous.media];
+      for (const value of item.media) addMedia(media, value);
+      previous.media = media;
       previous.cards = [
         ...previous.cards,
         ...item.cards.filter(
@@ -610,7 +640,7 @@ export function buildTranscript(
       continue;
     items.push(item);
   }
-  return foldEarlierVideos(items);
+  return foldWorkingFiles(items);
 }
 
 const PARTS = [
@@ -618,7 +648,7 @@ const PARTS = [
   'embeds',
   'media',
   'cards',
-  'earlier',
+  'working',
   'agents',
 ] as const;
 
@@ -652,85 +682,117 @@ export function keepUnchanged(
   });
 }
 
-/** A video a reply made: a recording, an edit (not stills) or a video project. */
-export function isVideoVersion(card: TranscriptCard) {
-  return (
-    card.kind === 'recording' ||
-    card.kind === 'video_project' ||
-    (card.kind === 'video_edit' && !card.frames)
-  );
-}
-
 /**
- * Per reply, only the newest video shows in full: the earlier versions (the raw
- * recording, a trim, a zoom) fold under it, in the reply's last item that has
- * a video. The same reply reads the same live and after a reload.
+ * Finals first, across the whole transcript: working files fold under the
+ * steps of the reply that made them; a video project's draft shows once, in
+ * the reply that last made or changed it, and folds away in a reply that
+ * presents its final; a final presented again marks the one already shown.
  */
-export function foldEarlierVideos(items: TranscriptItem[]): TranscriptItem[] {
-  const folded = [...items];
+export function foldWorkingFiles(items: TranscriptItem[]): TranscriptItem[] {
+  const newest = new Map<string, number>();
+  items.forEach((item, index) => {
+    for (const card of item.cards)
+      if (card.kind === 'video_project') newest.set(card.projectId, index);
+  });
+  const presents = items.map(() => false);
   let start = 0;
   for (let index = 0; index <= items.length; index++) {
     if (index < items.length && items[index].row.role !== 'user') continue;
-    const videos = folded
-      .slice(start, index)
-      .flatMap((item) => item.cards.filter(isVideoVersion));
-    if (videos.length > 1) {
-      const newest = videos.at(-1)!;
-      const earlier = videos.slice(0, -1);
-      for (let at = start; at < index; at++) {
-        const item = folded[at];
-        const holdsNewest = item.cards.includes(newest);
-        if (!holdsNewest && !item.cards.some((card) => earlier.includes(card)))
-          continue;
-        folded[at] = {
-          ...item,
-          cards: item.cards.filter((card) => !earlier.includes(card)),
-          ...(holdsNewest ? { earlier } : {}),
-        };
-      }
-    }
+    if (
+      items
+        .slice(start, index)
+        .some((item) => item.media.some((m) => m.presented))
+    )
+      presents.fill(true, start, index);
     start = index + 1;
   }
+  const folded = items.map((item) => ({ ...item, media: [...item.media] }));
+  const shown = new Map<string, [number, number]>();
+  folded.forEach((item, index) => {
+    const media: GeneratedMedia[] = [];
+    const working: WorkingFiles = { media: [], cards: [] };
+    const made = item.media;
+    item.media = media;
+    for (const value of made) {
+      if (isWorkingMedia(value)) {
+        working.media.push(value);
+        continue;
+      }
+      const before = shown.get(value.reference);
+      if (before && value.presented) {
+        const [at, position] = before;
+        folded[at].media[position] = {
+          ...folded[at].media[position],
+          final: true,
+        };
+        continue;
+      }
+      if (!before) shown.set(value.reference, [index, media.length]);
+      media.push(value);
+    }
+    const cards: TranscriptCard[] = [];
+    for (const card of item.cards) {
+      if (card.kind === 'video_project' && newest.get(card.projectId) !== index)
+        continue;
+      if (
+        isWorkingCard(card) ||
+        (card.kind === 'video_project' && presents[index])
+      )
+        working.cards.push(card);
+      else cards.push(card);
+    }
+    item.cards = cards;
+    if (working.media.length || working.cards.length) item.working = working;
+    else delete item.working;
+  });
   return folded;
 }
 
 /**
- * The turn in flight: when its live cards bring a newer video, the videos its
- * saved items already show fold under that one.
+ * The turn in flight: its working files fold as the settled ones do, a draft
+ * it brings shows once (here, not in the reply that showed it before), and
+ * a final it presents folds its drafts.
  */
-export function foldLiveVideos(
+export function foldLive(
   items: TranscriptItem[],
-  pending: TranscriptCard[],
+  cards: TranscriptCard[],
+  media: GeneratedMedia[],
 ): {
   items: TranscriptItem[];
-  pending: TranscriptCard[];
-  earlier: TranscriptCard[];
+  cards: TranscriptCard[];
+  media: GeneratedMedia[];
+  working: WorkingFiles;
 } {
-  const live = pending.filter(isVideoVersion);
-  if (!live.length) return { items, pending, earlier: [] };
-  const newest = live.at(-1)!;
-  const turn = items.map((item) => item.row.role).lastIndexOf('user') + 1;
-  const saved = items
-    .slice(turn)
-    .flatMap((item) => [
-      ...(item.earlier ?? []),
-      ...item.cards.filter(isVideoVersion),
-    ]);
+  const working: WorkingFiles = {
+    media: media.filter(isWorkingMedia),
+    cards: cards.filter(isWorkingCard),
+  };
+  const shownMedia = media.filter((value) => !isWorkingMedia(value));
+  let shownCards = cards.filter((card) => !isWorkingCard(card));
+  if (shownMedia.some((value) => value.presented)) {
+    working.cards.push(
+      ...shownCards.filter((card) => card.kind === 'video_project'),
+    );
+    shownCards = shownCards.filter((card) => card.kind !== 'video_project');
+  }
+  const drafts = new Set(
+    shownCards.flatMap((card) =>
+      card.kind === 'video_project' ? [card.projectId] : [],
+    ),
+  );
+  const moved = (card: TranscriptCard) =>
+    card.kind === 'video_project' && drafts.has(card.projectId);
   return {
-    items: saved.length
-      ? items.map((item, index) =>
-          index < turn ||
-          (!item.earlier?.length && !item.cards.some(isVideoVersion))
-            ? item
-            : {
-                ...item,
-                cards: item.cards.filter((card) => !isVideoVersion(card)),
-                earlier: undefined,
-              },
+    items: drafts.size
+      ? items.map((item) =>
+          item.cards.some(moved)
+            ? { ...item, cards: item.cards.filter((card) => !moved(card)) }
+            : item,
         )
       : items,
-    pending: pending.filter((card) => !isVideoVersion(card) || card === newest),
-    earlier: [...saved, ...live.slice(0, -1)],
+    cards: shownCards,
+    media: shownMedia,
+    working,
   };
 }
 
@@ -739,18 +801,23 @@ export function liveMedia(
   activity: readonly EventRecord[],
   settled: ReadonlySet<string>,
 ): GeneratedMedia[] {
-  const seen = new Set<string>();
   const media: GeneratedMedia[] = [];
   for (const record of activity) {
     if (record.event.type !== 'media.available') continue;
-    const reference = record.event.payload.media_ref;
-    if (settled.has(reference) || seen.has(reference)) continue;
-    seen.add(reference);
-    const caption = record.event.payload.prompt;
-    media.push({
+    const {
+      media_ref: reference,
+      prompt: caption,
+      role,
+      name,
+    } = record.event.payload;
+    if (settled.has(reference)) continue;
+    addMedia(media, {
       reference,
       mime: record.event.payload.mime_type,
       ...(caption ? { caption } : {}),
+      ...(role ? { role } : {}),
+      // A presented final carries its name in the chat's files.
+      ...(name ? { presented: true, label: name } : {}),
     });
   }
   return media;

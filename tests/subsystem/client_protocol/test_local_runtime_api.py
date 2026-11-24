@@ -57,6 +57,8 @@ def test_the_state_recommends_a_model_with_its_size_and_asks_for_nothing(compute
     assert (pick["quantization"], pick["older"]) == ("2-bit", False)
     nine = next(row for row in view["models"] if row["id"] == "qwen3.5-9b")
     assert nine["older"] is True
+    # What each reads on this 12 GB card: the 2-bit 27B its 32K, the 9B (5.7 GB) 128K with room to spare.
+    assert (pick["context_tokens"], nine["context_tokens"]) == (32_768, 131_072)
     assert computer["asked"] == []
     assert not install.runtime_dir().exists() and not install.models_dir().exists()
 
@@ -115,6 +117,29 @@ def test_the_api_serves_the_state_and_keeps_downloads_to_row_bots_own_computer(c
         assert refused.status_code == 409 and refused.json()["code"] == "desktop_only"
         assert remote.post("/api/v1/local-runtime/remove", headers=headers, json={}).status_code == 409
     assert computer["asked"] == []
+
+
+def test_repair_reads_a_new_card_and_the_endpoint_and_snapshot_take_its_window(computer, tmp_path, monkeypatch):
+    import row_bot.providers.config as provider_config
+    from row_bot import local_runtime
+    from row_bot.local_runtime import server
+    from row_bot.providers import custom
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(install, "installed_models", lambda root=None: [models.get("qwen3.8-27b-q2")])
+    stopped = []
+    monkeypatch.setattr(server, "stop", lambda reason="you": stopped.append(reason) or True)
+    server.save_endpoint()
+    assert custom.get_custom_endpoint(local_runtime.PROVIDER_ID)["models"][0]["context_window"] == 32_768
+
+    computer["hardware"] = classify(builds.WINDOWS_X64, 32 * GIB,
+                                    [Gpu(NVIDIA, "NVIDIA GeForce RTX 4090", 24 * GIB, "581.57")])
+    view = client_local_runtime.repair()
+
+    assert stopped == ["repair"]  # the running server serves the old window until it starts again
+    row = next(row for row in view["models"] if row["id"] == "qwen3.8-27b-q2")
+    assert row["context_tokens"] == 131_072
+    assert custom.get_custom_endpoint(local_runtime.PROVIDER_ID)["models"][0]["context_window"] == 131_072
 
 
 def test_remove_reports_the_space_it_freed(computer):

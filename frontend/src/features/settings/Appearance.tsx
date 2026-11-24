@@ -1,17 +1,39 @@
 import type { CSSProperties } from 'react';
 import { ArrowUp, Check, RotateCcw } from 'lucide-react';
-import { Button, Field, Select, Toggle } from '../../ui/primitives';
+import { Button, Field, Segmented, Select, Toggle } from '../../ui/primitives';
+import { usePhone } from '../../ui/on-your-computer';
 import { useResolvedTheme, useTheme } from '../../ui/theme';
 import { useOverlay } from '../../ui/overlays';
 import { TOKENS, type Accent, type Appearance } from '../../ui/theme-model';
 import { useWorkspaceActions } from '../shell/workspace-actions';
 import { SettingsSection, SettingsSummary, SummaryChip } from './anatomy';
+import '../../ui/styles/phone-settings.css';
 
 const appearanceLabels: Record<Appearance, string> = {
   system: 'System',
   light: 'Light',
   dark: 'Dark',
 };
+
+/**
+ * Light or dark on a phone (C3): System, Light and Dark in one segmented
+ * control, on This phone in the Settings list and first on Appearance.
+ */
+export function ThemeChoice() {
+  const { preference, update } = useTheme();
+  return (
+    <Segmented<Appearance>
+      label="Theme"
+      className="phone-settings-theme"
+      value={preference.appearance}
+      onChange={(appearance) => update({ appearance })}
+      options={(['system', 'light', 'dark'] as const).map((value) => ({
+        value,
+        label: appearanceLabels[value],
+      }))}
+    />
+  );
+}
 const accentLabels: Record<Accent, string> = {
   blue: 'Blue',
   teal: 'Teal',
@@ -97,6 +119,7 @@ export default function AppearanceSettings({
   const workspaceActions = useWorkspaceActions();
   const reset = onReset ?? workspaceActions?.resetLayout;
   const opaque = preference.reduce_transparency;
+  const phone = usePhone();
   return (
     <div className="stack settings-appearance">
       <SettingsSummary>
@@ -107,44 +130,61 @@ export default function AppearanceSettings({
         </SummaryChip>
         <SummaryChip>This device</SummaryChip>
       </SettingsSummary>
-      <figure
-        className="appearance-preview"
-        aria-label={`Preview: ${appearanceLabels[preference.appearance]} appearance, ${accentLabels[preference.accent]} accent, ${preference.density} density`}
-      >
-        {/* The looks are the choice: System follows the device, Light and
+      {phone ? (
+        // A phone has no room for three previews: the same choice, first, as
+        // one segmented control (U37: still one control for it).
+        <section
+          className="phone-settings-appearance-theme"
+          aria-label="Light or dark"
+          data-setting-anchor="theme"
+        >
+          <ThemeChoice />
+          <p>
+            {preference.appearance === 'system'
+              ? `Follows your device (${resolved === 'dark' ? 'Dark' : 'Light'} now).`
+              : 'Changes apply immediately on this device.'}
+          </p>
+        </section>
+      ) : (
+        <figure
+          className="appearance-preview"
+          aria-label={`Preview: ${appearanceLabels[preference.appearance]} appearance, ${accentLabels[preference.accent]} accent, ${preference.density} density`}
+        >
+          {/* The looks are the choice: System follows the device, Light and
             Dark keep one (U37: no second control for the same thing). */}
-        <div className="appearance-preview-pair" data-count={3}>
-          {(['system', 'light', 'dark'] as const).map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              className="appearance-choice"
-              aria-label={
-                choice === 'system'
-                  ? `System, follows your device (${resolved === 'dark' ? 'Dark' : 'Light'} now)`
-                  : appearanceLabels[choice]
-              }
-              aria-pressed={preference.appearance === choice}
-              onClick={() => update({ appearance: choice })}
-            >
-              <MiniApp
-                mode={choice === 'system' ? resolved : choice}
-                accent={preference.accent}
-                density={preference.density}
-                opaque={opaque}
-              />
-              <span className="appearance-choice-label">
-                {appearanceLabels[choice]}
-                {choice === 'system' && (
-                  <small aria-hidden> · follows your device</small>
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
-        <figcaption>Changes apply immediately on this device.</figcaption>
-      </figure>
-      <SettingsSection title="Look" anchor="theme">
+          <div className="appearance-preview-pair" data-count={3}>
+            {(['system', 'light', 'dark'] as const).map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                className="appearance-choice"
+                aria-label={
+                  choice === 'system'
+                    ? `System, follows your device (${resolved === 'dark' ? 'Dark' : 'Light'} now)`
+                    : appearanceLabels[choice]
+                }
+                aria-pressed={preference.appearance === choice}
+                onClick={() => update({ appearance: choice })}
+              >
+                <MiniApp
+                  mode={choice === 'system' ? resolved : choice}
+                  accent={preference.accent}
+                  density={preference.density}
+                  opaque={opaque}
+                />
+                <span className="appearance-choice-label">
+                  {appearanceLabels[choice]}
+                  {choice === 'system' && (
+                    <small aria-hidden> · follows your device</small>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+          <figcaption>Changes apply immediately on this device.</figcaption>
+        </figure>
+      )}
+      <SettingsSection title="Look" anchor={phone ? undefined : 'theme'}>
         <div data-setting-anchor="accent">
           <Field
             label="Colour theme"

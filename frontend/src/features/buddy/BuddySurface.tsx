@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import { useBackgroundReady } from '../../shell-settled';
-import { Button, EmptyState } from '../../ui/primitives';
+import { Button, EmptyState, StatusDot } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
-import { BuddyCard } from './BuddyCard';
+import { BuddyCard, buddyStatus } from './BuddyCard';
 import { BuddyAvatar, rememberBuddyMedia } from './BuddyAvatar';
 import {
   BuddyDockButton,
@@ -240,6 +240,79 @@ export function BuddyPortrait() {
   ) : (
     <PortraitGlyph />
   );
+}
+
+function SessionStatus({
+  conversation,
+  session,
+}: {
+  conversation: string;
+  session: BuddyPanelSession;
+}) {
+  const view = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  if (!view.snapshot) return null;
+  const snapshot = view.snapshot;
+  const name = snapshot.preferences.display_name || 'Buddy';
+  const status = buddyStatus(snapshot);
+  return (
+    <section className="phone-buddy-status" aria-label={`${name} now`}>
+      <span className="phone-buddy-status-face" aria-hidden>
+        {snapshot.preferences.visible ? (
+          <Avatar
+            conversation={conversation}
+            pack={view.selectedPack}
+            snapshot={snapshot}
+          />
+        ) : (
+          <PortraitGlyph />
+        )}
+      </span>
+      <span className="phone-buddy-status-text">
+        <strong>{name}</strong>
+        <span role="status">
+          <StatusDot
+            tone={status.tone}
+            pulse={status.pulse}
+            label={status.text}
+            showLabel
+          />
+        </span>
+      </span>
+    </section>
+  );
+}
+
+/**
+ * Buddy's status at the top of a phone's Buddy & Proactive (C3): its face,
+ * name and what it is doing, which a computer shows in the sidebar's card.
+ * It reads the conversation's shared Buddy session (no extra reads). Pop out
+ * is not here: the desktop companion needs Row-Bot's desktop app.
+ */
+export function BuddyStatusCard({
+  conversationId,
+}: {
+  conversationId?: string | null;
+}) {
+  const { buddyOwner } = useRuntime();
+  const state = useClientState();
+  const [search] = useSearchParams();
+  const conversation =
+    (search.get('conversation') ?? conversationId) ||
+    state.selectedConversationId;
+  if (!conversation) return null;
+  let session: BuddyPanelSession | undefined;
+  try {
+    session = buddyOwner?.get()?.get(conversation);
+  } catch {
+    session = undefined;
+  }
+  return session ? (
+    <SessionStatus
+      key={conversation}
+      conversation={conversation}
+      session={session}
+    />
+  ) : null;
 }
 
 function OwnedBuddy({

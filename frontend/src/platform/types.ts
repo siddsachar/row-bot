@@ -10,6 +10,17 @@ export type Selection =
   | { kind: 'folder'; files: File[] }
   | { kind: 'file' | 'folder'; reference: string };
 
+/**
+ * What a file picker offers (the phone's + tiles, B2): `accept` is the
+ * input's list of types ("image/*"), and `capture` opens that camera
+ * straight away. Only the browser's file input reads them for now; the
+ * native shells' bridge (E7) will take the same two.
+ */
+export type FilePickerOptions = {
+  accept?: string;
+  capture?: 'environment' | 'user';
+};
+
 export type SelectionIntent = {
   intentId: string;
   intent: string;
@@ -129,6 +140,14 @@ export const mainWindowTarget = (value: unknown): value is MainWindowTarget =>
   typeof value === 'string' &&
   /^(?:for-you|drafts|draft:[0-9a-f]{16}|why:[0-9a-f]{16})$/.test(value);
 
+/** The hold-to-talk keys the desktop app can listen for (the host's `voice_hotkey.HOTKEYS`). */
+export const VOICE_HOTKEYS = [
+  'ctrl+alt+space',
+  'ctrl+shift+space',
+  'f13',
+] as const;
+export type VoiceHotkey = (typeof VOICE_HOTKEYS)[number];
+
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
   /**
@@ -164,6 +183,7 @@ export interface ClientPlatform {
   selectFile(
     signal?: AbortSignal,
     intent?: SelectionIntent,
+    picker?: FilePickerOptions,
   ): Promise<CapabilityResult<Selection>>;
   selectFolder(
     signal?: AbortSignal,
@@ -193,6 +213,12 @@ export interface ClientPlatform {
     name: string,
     signal?: AbortSignal,
   ): Promise<CapabilityResult<SavedFile>>;
+  /**
+   * Desktop app (Windows): hold this key anywhere to talk, while voice with
+   * push to talk is open here; null stops listening for it. Presses and
+   * releases arrive as `row-bot-voice-hotkey` window events.
+   */
+  voiceHotkey(key: VoiceHotkey | null): Promise<CapabilityResult<null>>;
   /**
    * Desktop windows: whether something the person asked for is waiting on
    * native features that are binding again (the window binds its bridge

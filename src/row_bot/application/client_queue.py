@@ -84,7 +84,7 @@ def freeze_context(config: dict, bindings: tuple, targets: list | None) -> dict:
         "configurable": {key: copy.deepcopy(config.get("configurable", {}).get(key)) for key in (
             "model_override", "approval_mode", "agent_profile_id", "runtime_mode", "runtime_surface",
             "agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot",
-            "app_scope") if key in config.get("configurable", {})},
+            "app_scope", "voice_mode", "voice_still") if key in config.get("configurable", {})},
         "bindings": [asdict(binding) for binding in bindings],
         "resource_revisions": {binding.binding_id: describe(binding).resource_revision for binding in bindings},
         "write_targets": copy.deepcopy(targets),

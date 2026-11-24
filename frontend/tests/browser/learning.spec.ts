@@ -1,4 +1,5 @@
 import type { Page, TestInfo } from '@playwright/test';
+import { onPhoneWidth } from './phone-helpers';
 import { accessibility, assertNoOverflow, expect, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
 import { composer, newConversation } from './unified-helpers';
@@ -83,8 +84,9 @@ function notice(page: Page, text: string | RegExp) {
 
 async function openSettings(page: Page, leaf: string) {
   await page.goto(`/app-v2/settings/${leaf}`);
+  // A phone's header row names the page, not Settings (C3).
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Settings' }),
+    page.getByRole('region', { name: 'Settings', exact: true }),
   ).toBeVisible();
 }
 
@@ -125,6 +127,8 @@ async function openChatMenu(page: Page, info: TestInfo, title: string) {
 test('turn Learning on, its tab appears, Teach a reply and undo it, then switch a chat off', async ({
   page,
 }, info) => {
+  // 17 screens in light and dark, each with an axe scan, and nine page loads: more than 60 s on a busy runner.
+  test.slow();
   // Before: no Learning anywhere, and Preferences keeps "Learn new skills".
   await openSettings(page, 'preferences');
   await expect(
@@ -160,8 +164,17 @@ test('turn Learning on, its tab appears, Teach a reply and undo it, then switch 
 
   await turnOn(page, info, true);
   await page.getByRole('button', { name: 'Open Learning' }).click();
-  const tab = page.getByRole('tab', { name: 'Learning' });
-  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  // A phone has no sub-tabs (C1): Home opens on Learning's page.
+  if (onPhoneWidth(page))
+    await expect(page.locator('.home-view')).toHaveAttribute(
+      'data-home-tab',
+      'learning',
+    );
+  else
+    await expect(page.getByRole('tab', { name: 'Learning' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   await expect(page.getByText('Nothing learned yet.')).toBeVisible();
   await shoot(page, info, 'overview-empty');
 

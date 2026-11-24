@@ -1,4 +1,5 @@
 import type { Page, TestInfo } from '@playwright/test';
+import { homeOpened } from './phone-helpers';
 import {
   accessibility,
   assertNoOverflow,
@@ -54,9 +55,7 @@ async function shoot(page: Page, info: TestInfo, name: string) {
 test('nothing about install stats shows outside Settings', async ({ page }) => {
   await fixture(page, '/__n6_fixture/install-count/fresh');
   await page.goto('/app-v2/');
-  await expect(
-    page.getByRole('tablist', { name: 'Home capabilities' }),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(homeOpened(page)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByText(/install stats/i)).toHaveCount(0);
 });

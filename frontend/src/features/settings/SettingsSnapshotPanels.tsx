@@ -48,9 +48,11 @@ import {
   Trash2,
   Unlink,
   Volume2,
+  Wand2,
   Wrench,
 } from 'lucide-react';
 import {
+  Fragment,
   useContext,
   useEffect,
   useId,
@@ -61,14 +63,19 @@ import {
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import { useWakeWordAvailable } from '../voice/WakeWord';
+import { announceWakeWord } from '../voice/wake-word';
 import { usePlace, type PlaceWords } from '../../api/place';
 import { useSmallServer } from '../../api/server-memory';
 import { webPage } from '../shell/hosted-links';
 import { RuntimeContext } from '../../runtime';
+import SpeechModels, { useSpeechModels } from '../voice/SpeechModels';
+import { DeviceSettings, HotkeySetting } from '../voice/VoiceDevices';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
 import { ModalTask, useNotify } from '../../ui/overlays';
+import { OnYourComputer, usePhone } from '../../ui/on-your-computer';
 import ConnectedUpdateControls from './UpdateControls';
 import ConnectedMigrationControls from './MigrationControls';
 import ConnectedDataBackup from './DataBackup';
@@ -419,6 +426,7 @@ export function SavedSetting({
   row,
   savedMessage,
   onDraftChange,
+  resettable = true,
   children,
 }: {
   mutation: SettingsMutationIO;
@@ -427,6 +435,8 @@ export function SavedSetting({
   value: SettingsValue;
   hint?: ReactNode;
   group?: boolean;
+  /** False: no "changed" dot or Reset (a row whose own action is the way back). */
+  resettable?: boolean;
   /**
    * When a change saves (decision 19): "change" at once (choices, switches),
    * "blur" when the field is left or Enter is pressed (text, numbers),
@@ -480,7 +490,7 @@ export function SavedSetting({
     field !== 'workspace.folder_grant';
   const defaultValue = mutation.defaults?.[field];
   const modified =
-    defaultValue !== undefined && !sameValue(value, defaultValue);
+    resettable && defaultValue !== undefined && !sameValue(value, defaultValue);
 
   // The saved value the draft started from. A draft still equal to it was
   // never edited here, so when the saved value changes elsewhere (another
@@ -1870,8 +1880,337 @@ function voiceProviderLabel(
 ) {
   if (option.value === 'local')
     return `${kind === 'listen' ? 'Whisper' : 'Kokoro'} · on ${place.name}`;
-  if (option.value === 'openai_realtime') return 'OpenAI Realtime · online';
   return option.label;
+}
+
+/** "English", "Chinese and English", "Chinese, English and Japanese". */
+function wordList(items: string[], last = 'and') {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} ${last} ${items[items.length - 1]}`;
+}
+
+type VoiceLanguageNotice =
+  SettingsSnapshot['voice']['language']['notices'][number];
+
+/** An engine in use that can't understand the person's language, said plainly, with a way to switch (V8). */
+function LanguageNotice({
+  mutation,
+  notice,
+  current,
+}: {
+  mutation: SettingsMutationIO;
+  notice: VoiceLanguageNotice;
+  current: string;
+}) {
+  const use = notice.use === 'talk' ? 'Talk' : 'Dictation';
+  const only = `${notice.engine} understands ${wordList(notice.understands)} only`;
+  const message = notice.heard
+    ? `You often speak ${notice.language_label}, but ${use} listens with ${notice.engine}, which understands ${wordList(notice.understands)} only. For ${notice.language_label}, use ${wordList(notice.alternatives, 'or')}.`
+    : `${only}; for ${notice.language_label}, use ${wordList(notice.alternatives, 'or')}.`;
+  return (
+    <SavedSetting
+      mutation={mutation}
+      field={notice.switch_field}
+      label={use}
+      value={current}
+      resettable={false}
+      savedMessage={() => `${use} now listens with Whisper`}
+      row={{
+        status: <StatusLine tone="warning">{message}</StatusLine>,
+        bind: false,
+      }}
+    >
+      {({ setValue, disabled }) => (
+        <Button
+          aria-label={`Use Whisper for ${use}`}
+          disabled={disabled}
+          onClick={() => setValue(notice.switch_value)}
+        >
+          Use Whisper
+        </Button>
+      )}
+    </SavedSetting>
+  );
+}
+
+/**
+ * Settings › Voice › Language (V8): what the person speaks in Talk, Dictate
+ * and chat-app voice notes; engines that can't understand it say so; and the
+ * voice that speaks answers in each other language Kokoro knows.
+ */
+function VoiceLanguageGroup({
+  snapshot,
+  mutation,
+}: {
+  snapshot: SettingsSnapshot['voice'];
+  mutation: SettingsMutationIO;
+}) {
+  const language = snapshot.language;
+  const chosen = snapshot.runtime.speech_language ?? 'auto';
+  const name = (code: string) =>
+    language.options.find((option) => option.value === code)?.label ?? code;
+  const kokoro =
+    snapshot.tts.installed &&
+    snapshot.runtime.speech_output_provider === 'local';
+  const spoken = wordList(language.spoken.map(name));
+  const voices = language.voice_options
+    .filter((row) => chosen === 'auto' || row.language === chosen)
+    .map((row) =>
+      row.options.length > 1 ? (
+        <SelectSetting
+          key={row.language}
+          mutation={mutation}
+          field={`tts.language_voices.${row.language}`}
+          label={`${row.label} voice`}
+          hint={`Speaks answers in ${row.label}.`}
+          value={
+            snapshot.tts.language_voices[
+              row.language as keyof typeof snapshot.tts.language_voices
+            ]
+          }
+          options={row.options}
+        />
+      ) : (
+        <SettingsItem
+          key={row.language}
+          label={`${row.label} voice`}
+          help={`Speaks answers in ${row.label}.`}
+          bind={false}
+          control={
+            <span className="settings-row-value">{row.options[0]?.label}</span>
+          }
+        />
+      ),
+    );
+  const unspoken =
+    chosen !== 'auto' && !language.spoken.includes(chosen) ? name(chosen) : '';
+  // Who speaks answers: a cloud voice with its key (V5), else Kokoro once installed.
+  const cloudVoice = cloudSpeech(
+    snapshot,
+    snapshot.runtime.speech_output_provider,
+  );
+  const speaker = cloudVoice?.key_saved
+    ? cloudVoice.label
+    : kokoro
+      ? 'Kokoro'
+      : '';
+  return (
+    <SettingsGroup
+      title="Language"
+      anchor="language"
+      note="What you speak in Talk, Dictate and voice notes from chat apps."
+    >
+      <SelectSetting
+        mutation={mutation}
+        field="runtime.speech_language"
+        label="Language"
+        hint={
+          chosen === 'auto'
+            ? 'Row-Bot hears which language you speak. When it can’t tell, it keeps the last language it heard. Choose one if it guesses wrong.'
+            : 'Row-Bot listens for this language only.'
+        }
+        value={chosen}
+        options={language.options}
+        savedMessage={(next) =>
+          next === 'auto'
+            ? 'Row-Bot detects your language'
+            : `Row-Bot listens for ${name(String(next))}`
+        }
+      />
+      {language.notices.map((notice) => (
+        <LanguageNotice
+          key={notice.use}
+          mutation={mutation}
+          notice={notice}
+          current={
+            notice.use === 'talk'
+              ? snapshot.runtime.talk_model
+              : snapshot.runtime.dictation_model
+          }
+        />
+      ))}
+      {speaker && unspoken && (
+        <SettingsItem
+          label="Spoken answers"
+          bind={false}
+          status={
+            <StatusLine>
+              {speaker} can’t speak {unspoken} yet, so answers in {unspoken}{' '}
+              stay on screen.
+            </StatusLine>
+          }
+        />
+      )}
+      {kokoro && chosen !== 'auto' && voices}
+      {kokoro && chosen === 'auto' && (
+        <Disclosure
+          className="settings-group-disclosure settings-divided"
+          summary="Voices for other languages"
+          meta={wordList(language.voice_options.map((row) => row.label))}
+        >
+          {voices}
+          <SettingsItem
+            label="Other languages"
+            bind={false}
+            status={
+              <StatusLine>
+                Kokoro speaks {spoken}. Answers in other languages stay on
+                screen.
+              </StatusLine>
+            }
+          />
+        </Disclosure>
+      )}
+    </SettingsGroup>
+  );
+}
+
+type CloudSpeech = NonNullable<
+  SettingsSnapshot['voice']['cloud_speech']
+>[number];
+
+function cloudSpeech(snapshot: SettingsSnapshot['voice'], id: string) {
+  return snapshot.cloud_speech?.find((option) => option.id === id) ?? null;
+}
+
+/** "About $0.005 a minute (Deepgram’s prices, 23 Nov 2026)". */
+function cloudPrice(option: CloudSpeech) {
+  return `${option.price.charAt(0).toUpperCase()}${option.price.slice(1)} (${option.company}’s prices, ${option.price_checked})`;
+}
+
+/** A picker entry: its name, where it runs, and whether it still needs a key (its price is in the hint). */
+function cloudChoiceLabel(option: CloudSpeech) {
+  return `${option.label} · cloud${option.key_saved ? '' : ' · needs key'}`;
+}
+
+/** A choice the person may still be making: its draft, else the saved value. */
+function useSettingDraft(
+  mutation: SettingsMutationIO,
+  field: string,
+  saved: string,
+) {
+  const [value, setValue] = useState(() =>
+    mutation.drafts.has(mutation.page, field)
+      ? String(mutation.drafts.read(mutation.page, field))
+      : saved,
+  );
+  useEffect(() => {
+    if (!mutation.drafts.has(mutation.page, field)) setValue(saved);
+  }, [mutation.drafts, mutation.page, field, saved]);
+  return [value, setValue] as const;
+}
+
+/**
+ * The chosen cloud speech part's key: entered here (Deepgram, AssemblyAI,
+ * ElevenLabs, Cartesia) or in Providers (OpenAI, Google), and what runs
+ * until it is there.
+ */
+function CloudSpeechKey({
+  option,
+  mutation,
+  until,
+}: {
+  option: CloudSpeech;
+  mutation: SettingsMutationIO;
+  until: string;
+}) {
+  const missing = !option.key_saved && (
+    <SettingsItem
+      label={`Needs your ${option.company} key`}
+      help={until}
+      status={
+        option.key_field ? undefined : (
+          <StatusLine
+            tone="warning"
+            action={
+              <Link to="/settings/models#providers-api">
+                Add it in Providers
+              </Link>
+            }
+          >
+            Not set
+          </StatusLine>
+        )
+      }
+    />
+  );
+  return (
+    <>
+      {missing}
+      {option.key_field && option.key && (
+        <SecretSetting
+          mutation={mutation}
+          field={option.key_field}
+          label={`${option.company} API key`}
+          configured={option.key.configured}
+          source={option.key.source}
+          fingerprint={option.key.fingerprint}
+        />
+      )}
+    </>
+  );
+}
+
+/** A cloud voice: its ready-made voices, and a voice described in words where the company makes one. */
+function CloudVoice({
+  option,
+  mutation,
+}: {
+  option: CloudSpeech;
+  mutation: SettingsMutationIO;
+}) {
+  return (
+    <>
+      <SelectSetting
+        mutation={mutation}
+        field={`runtime.${option.id}_voice`}
+        label="Voice"
+        hint={
+          option.designed
+            ? `${option.company}’s ready-made voices, or the one you described.`
+            : `${option.company}’s ready-made voices.`
+        }
+        value={option.voice ?? ''}
+        options={option.voices ?? []}
+        row={{ trailing: option.key_saved ? <TestVoiceButton /> : undefined }}
+      />
+      {option.describe === 'style' && (
+        <TextSetting
+          mutation={mutation}
+          field={`runtime.${option.id}_voice_description`}
+          label="Describe the voice"
+          hint={`How it should sound, in a few words (“warm and unhurried”). Goes to ${option.company} with each sentence.`}
+          value={option.description ?? ''}
+          maxLength={300}
+        />
+      )}
+      {option.describe === 'design' && (
+        <TextSetting
+          mutation={mutation}
+          field={`runtime.${option.id}_voice_description`}
+          label="Describe a voice"
+          hint={`How it sounds, not who it is. ${option.company} makes a new voice from your words alone: no recordings, no copies of real people.`}
+          value={option.description ?? ''}
+          maxLength={300}
+          row={{
+            trailing:
+              option.key_saved &&
+              (option.description ?? '').trim().length >= 20 ? (
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field={`${option.id}.design_voice`}
+                  label="Make this voice"
+                  description={`Sends your description to ${option.company}, which makes a new voice and saves it in your ${option.company} account. ${option.company} bills the design.`}
+                  presentation="icon"
+                  icon={<Wand2 size={16} aria-hidden />}
+                  busyText="Making the voice…"
+                />
+              ) : undefined,
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 export function VoiceSnapshotPanel({
@@ -1887,18 +2226,35 @@ export function VoiceSnapshotPanel({
   host?: SettingsSnapshot['system']['hosted_by'];
 }) {
   const place = usePlace();
-  const [talkProvider, setTalkProvider] = useState(() =>
-    mutation.drafts.has(mutation.page, 'runtime.talk_provider')
-      ? String(mutation.drafts.read(mutation.page, 'runtime.talk_provider'))
-      : snapshot.runtime.talk_provider,
+  const [talkProvider, setTalkProvider] = useSettingDraft(
+    mutation,
+    'runtime.talk_provider',
+    snapshot.runtime.talk_provider,
   );
-  useEffect(() => {
-    if (!mutation.drafts.has(mutation.page, 'runtime.talk_provider'))
-      setTalkProvider(snapshot.runtime.talk_provider);
-  }, [mutation.drafts, mutation.page, snapshot.runtime.talk_provider]);
-  const readAloudOn = snapshot.tts.installed && snapshot.tts.enabled;
-  const realtime = talkProvider === 'openai_realtime';
+  const [speakProvider, setSpeakProvider] = useSettingDraft(
+    mutation,
+    'runtime.speech_output_provider',
+    snapshot.runtime.speech_output_provider,
+  );
+  // A cloud service the person chose to listen or speak with (V5); without its key the local part runs.
+  const cloudListen = cloudSpeech(snapshot, talkProvider);
+  const cloudSpeak = cloudSpeech(snapshot, speakProvider);
+  const remoteTalk = Boolean(cloudListen?.key_saved);
+  // The cloud listener the small-server sheet offers: the one chosen now, else one whose key is
+  // saved, else the first (its key row then asks for the key). Never Live voice's providers.
+  const listeners = (snapshot.cloud_speech ?? []).filter(
+    (option) => option.part === 'listen',
+  );
+  const cloudChoice =
+    listeners.find((option) => option.id === snapshot.runtime.talk_provider) ??
+    listeners.find((option) => option.key_saved) ??
+    listeners[0] ??
+    null;
   const localDictation = snapshot.runtime.dictation_provider === 'local';
+  // "Hey Row-Bot" only where it can listen: the app on this computer, never a phone.
+  const wakeAvailable = useWakeWordAvailable();
+  const wakeWord = snapshot.runtime.wake_word === true;
+  useEffect(() => announceWakeWord(wakeWord), [wakeWord]);
   const size = whisperSize(
     snapshot.whisper_options,
     snapshot.local.whisper_model,
@@ -1909,9 +2265,30 @@ export function VoiceSnapshotPanel({
       ? [{ value: SENSEVOICE_ENGINE, label: 'SenseVoice' }]
       : []),
   ];
+  // The streaming speech models (VD3): a download finishing chooses it for Talk, so Settings reads again.
+  const controller = useContext(RuntimeContext)?.controller;
+  const readSettings = () => {
+    void mutation.refreshSnapshot?.().then(mutation.onSnapshot, () => {});
+  };
+  const speech = useSpeechModels(controller, readSettings);
+  const talkEngines = [
+    ...speechEngines,
+    ...(speech.view?.models ?? [])
+      .filter((model) => model.installed)
+      .map((model) => ({ value: model.engine_id, label: model.name })),
+  ];
   // Listening on this computer needs the speech model: until it is downloaded, the header says so.
+  // Talk listening with a downloaded streaming model needs no Whisper; Dictation still does.
+  const streamingTalk = Boolean(
+    speech.view?.models.some(
+      (model) =>
+        model.installed && model.engine_id === snapshot.runtime.talk_model,
+    ),
+  );
   const missingSpeech =
-    (!realtime || localDictation) && !snapshot.local.whisper_installed;
+    ((!remoteTalk && !streamingTalk) || localDictation) &&
+    !snapshot.local.whisper_installed;
+  const talkOnly = !remoteTalk && streamingTalk && missingSpeech;
   // Elsewhere the person talks on their own device; only the speech model runs where Row-Bot runs (U7).
   const here = place.kind === 'this_computer';
   // A server too small for local speech-to-text (U8): its size ("2 GB"); '' with room or no limit.
@@ -1937,29 +2314,36 @@ export function VoiceSnapshotPanel({
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
       <SettingsStatus
-        tone={missingSpeech ? 'warning' : 'success'}
+        tone={missingSpeech && !talkOnly ? 'warning' : 'success'}
         more={[
-          realtime && localDictation
+          remoteTalk && localDictation
             ? here
               ? 'dictation on this computer'
               : `dictation transcribed on ${place.name}`
             : '',
-          readAloudOn ? 'read aloud on' : 'read aloud off',
+          talkOnly ? 'dictation needs Whisper' : '',
+          snapshot.tts.installed || cloudSpeak?.key_saved
+            ? ''
+            : 'read aloud needs Kokoro',
         ]}
       >
-        {missingSpeech
+        {talkOnly
           ? here
-            ? 'Download the speech model to talk on this computer'
-            : `Download the speech model to ${place.name} to talk`
-          : realtime
-            ? 'Realtime Talk online'
-            : localDictation
-              ? here
-                ? 'Talk and dictation on this computer'
-                : `Talk and dictation transcribed on ${place.name}`
-              : here
-                ? 'Talk on this computer'
-                : `Talk transcribed on ${place.name}`}
+            ? 'Talk on this computer'
+            : `Talk transcribed on ${place.name}`
+          : missingSpeech
+            ? here
+              ? 'Download the speech model to talk on this computer'
+              : `Download the speech model to ${place.name} to talk`
+            : cloudListen?.key_saved
+              ? `Talk listens with ${cloudListen.company}`
+              : localDictation
+                ? here
+                  ? 'Talk and dictation on this computer'
+                  : `Talk and dictation transcribed on ${place.name}`
+                : here
+                  ? 'Talk on this computer'
+                  : `Talk transcribed on ${place.name}`}
       </SettingsStatus>
       <SettingsGroup
         title="Talk"
@@ -1971,19 +2355,29 @@ export function VoiceSnapshotPanel({
           field="runtime.talk_provider"
           label="Listen with"
           hint={
-            realtime
-              ? 'Sends live microphone audio only while you are talking.'
+            cloudListen
+              ? `Your voice goes to ${cloudListen.company} while you talk. ${cloudPrice(cloudListen)}.`
               : here
                 ? 'On this computer keeps your voice private.'
                 : `Your voice goes only to ${place.noun}, never to a speech service.`
           }
           value={snapshot.runtime.talk_provider}
-          options={snapshot.talk_providers.map((option) => ({
-            value: option.value,
-            label: voiceProviderLabel('listen', option, place),
-          }))}
+          options={snapshot.talk_providers.map((option) => {
+            const cloud = cloudSpeech(snapshot, option.value);
+            return {
+              value: option.value,
+              label: cloud
+                ? cloudChoiceLabel(cloud)
+                : voiceProviderLabel('listen', option, place),
+            };
+          })}
           onDraftChange={setTalkProvider}
-          row={talkProvider === 'local' ? needsBigger : undefined}
+          /* Talk listens where Row-Bot runs unless a cloud listener has its key. */
+          row={
+            cloudSpeech(snapshot, talkProvider)?.key_saved
+              ? undefined
+              : needsBigger
+          }
           intercept={
             small
               ? (next, choose) => {
@@ -1994,13 +2388,20 @@ export function VoiceSnapshotPanel({
               : undefined
           }
           savedMessage={(next) =>
-            next === 'openai_realtime'
-              ? 'Talk now listens with OpenAI Realtime'
+            cloudSpeech(snapshot, String(next))
+              ? `Talk now listens with ${cloudSpeech(snapshot, String(next))?.label}`
               : here
                 ? 'Talk now listens on this computer'
                 : `Talk now transcribes ${place.onAgain}`
           }
         />
+        {cloudListen && (
+          <CloudSpeechKey
+            option={cloudListen}
+            mutation={mutation}
+            until={`Until you add it, Talk listens ${here ? 'on this computer' : place.onAgain}.`}
+          />
+        )}
         <SwitchSetting
           mutation={mutation}
           field="runtime.captions_enabled"
@@ -2008,20 +2409,50 @@ export function VoiceSnapshotPanel({
           hint="Show your words while you speak."
           value={snapshot.runtime.captions_enabled}
         />
-        {realtime && (
-          <SwitchSetting
+        <SelectSetting
+          mutation={mutation}
+          field="runtime.turn_eagerness"
+          label="When you pause"
+          hint="How soon Row-Bot answers after you stop speaking."
+          value={snapshot.runtime.turn_eagerness ?? 'normal'}
+          options={[
+            { value: 'relaxed', label: 'Give me time to think' },
+            { value: 'normal', label: 'Balanced' },
+            { value: 'eager', label: 'Answer quickly' },
+          ]}
+        />
+        <SwitchSetting
+          mutation={mutation}
+          field="runtime.push_to_talk"
+          label="Push to talk"
+          hint="Row-Bot listens only while you hold the talk button in the voice bar, or Space when you aren’t typing."
+          value={snapshot.runtime.push_to_talk ?? false}
+        />
+        {snapshot.runtime.push_to_talk && <HotkeySetting />}
+        {!cloudListen && talkEngines.length > 1 && (
+          <SelectSetting
             mutation={mutation}
-            field="runtime.realtime_fallback_to_local"
-            label={
-              here
-                ? 'Fall back to this computer'
-                : `Fall back to Whisper on ${place.name}`
-            }
-            hint="If Realtime is unavailable, Talk listens with Whisper instead."
-            value={snapshot.runtime.realtime_fallback_to_local}
-            row={needsBigger}
+            field="runtime.talk_model"
+            label="Talk listens with"
+            hint="A faster speech model shows your words as you speak."
+            value={snapshot.runtime.talk_model}
+            options={talkEngines}
           />
         )}
+        {!cloudListen && controller && speech.view && (
+          <SpeechModels
+            controller={controller}
+            place={place}
+            view={speech.view}
+            speed={speech.speed}
+            update={speech.update}
+            onTalkChanged={readSettings}
+          />
+        )}
+        <SettingsItem
+          label="On a phone"
+          help="Phones stop listening when the screen locks or turns off, or when you switch apps (an iPhone home-screen app too). Row-Bot keeps the screen on while you talk."
+        />
         <SettingsItem
           label="Try it"
           help="Talk starts from a conversation’s microphone."
@@ -2038,6 +2469,33 @@ export function VoiceSnapshotPanel({
             </Link>
           }
         />
+      </SettingsGroup>
+      {wakeAvailable && (
+        <SettingsGroup
+          title="Wake word"
+          anchor="wake-word"
+          note="Listens on this computer for “Hey Row-Bot” while a Row-Bot window is open; nothing is recorded or sent anywhere."
+        >
+          <SwitchSetting
+            mutation={mutation}
+            field="runtime.wake_word"
+            label="Hey Row-Bot"
+            hint="Say it to start talking in the open chat, or in a new one."
+            value={snapshot.runtime.wake_word ?? false}
+            savedMessage={(next) =>
+              next
+                ? 'Row-Bot listens for “Hey Row-Bot”'
+                : 'Wake word turned off'
+            }
+          />
+        </SettingsGroup>
+      )}
+      <SettingsGroup
+        title="Microphone and speaker"
+        anchor="devices"
+        note="Chosen for this browser only."
+      >
+        <DeviceSettings />
       </SettingsGroup>
       <SettingsGroup
         title="Dictation"
@@ -2092,19 +2550,19 @@ export function VoiceSnapshotPanel({
           }}
         />
       </SettingsGroup>
-      <SettingsGroup title="Read aloud" anchor="read-aloud">
-        {snapshot.tts.installed ? (
-          <SwitchSetting
-            mutation={mutation}
-            field="tts.enabled"
-            label="Read replies aloud"
-            hint={`Speaks answers with Kokoro, ${place.onAgain}.`}
-            value={snapshot.tts.enabled}
-          />
-        ) : (
+      <SettingsGroup
+        title="Read aloud"
+        anchor="read-aloud"
+        note={
+          cloudSpeak?.key_saved
+            ? `Replies you read aloud, Talk’s answers and voice-note replies in chat apps are spoken by ${cloudSpeak.company}: their text goes to ${cloudSpeak.company}.`
+            : `Replies you read aloud, Talk’s answers and voice-note replies speak with Kokoro, ${place.onAgain}.`
+        }
+      >
+        {!snapshot.tts.installed && !cloudSpeak?.key_saved && (
           <SettingsItem
-            label="Read replies aloud"
-            help={`Speaks answers with Kokoro, ${place.onAgain}. Installing downloads the model and voices once.`}
+            label="Kokoro voice"
+            help="Installing downloads the model and voices once."
             status={
               <StatusLine
                 tone="warning"
@@ -2129,20 +2587,41 @@ export function VoiceSnapshotPanel({
             mutation={mutation}
             field="runtime.speech_output_provider"
             label="Speak with"
+            hint={
+              cloudSpeak
+                ? `Text goes to ${cloudSpeak.company} to be spoken. ${cloudPrice(cloudSpeak)}.`
+                : undefined
+            }
             value={snapshot.runtime.speech_output_provider}
-            options={snapshot.speech_output_providers.map((option) => ({
-              value: option.value,
-              label: voiceProviderLabel('speak', option, place),
-            }))}
+            options={snapshot.speech_output_providers.map((option) => {
+              const cloud = cloudSpeech(snapshot, option.value);
+              return {
+                value: option.value,
+                label: cloud
+                  ? cloudChoiceLabel(cloud)
+                  : voiceProviderLabel('speak', option, place),
+              };
+            })}
+            onDraftChange={setSpeakProvider}
           />
         )}
-        {snapshot.tts.installed && (
+        {cloudSpeak && (
+          <>
+            <CloudSpeechKey
+              option={cloudSpeak}
+              mutation={mutation}
+              until={`Until you add it, Kokoro speaks ${place.onAgain}.`}
+            />
+            <CloudVoice option={cloudSpeak} mutation={mutation} />
+          </>
+        )}
+        {!cloudSpeak && snapshot.tts.installed && (
           <>
             <SelectSetting
               mutation={mutation}
               field="tts.voice"
               label="Voice"
-              hint="The voice Row-Bot reads with."
+              hint="The voice Row-Bot speaks with."
               value={snapshot.tts.voice}
               options={snapshot.tts_voice_options}
               row={{ trailing: <TestVoiceButton /> }}
@@ -2157,69 +2636,69 @@ export function VoiceSnapshotPanel({
               max={2}
               step={0.1}
             />
-            <SwitchSetting
-              mutation={mutation}
-              field="tts.auto_speak"
-              label="Auto-speak voice responses"
-              hint="Replies to something you said are read aloud."
-              value={snapshot.tts.auto_speak}
-            />
           </>
         )}
       </SettingsGroup>
-      <SettingsAdvanced meta="Other speech models, realtime voice, diagnostics">
-        {realtime && (
-          <SettingsGroup title="Realtime Talk">
+      <VoiceLanguageGroup snapshot={snapshot} mutation={mutation} />
+      <SettingsAdvanced meta="Live voice, other speech models, diagnostics">
+        {/* Live voice: a cloud speech-to-speech front per provider, chosen from a chat's Talk menu. */}
+        <SettingsGroup
+          title="Live voice"
+          anchor="live-voice"
+          note="A cloud voice that talks with you and hands real work to Row-Bot. Pick it from a chat's Talk menu."
+          meta={
+            <Link className="settings-link" to="/settings/models#providers-api">
+              Open Providers
+            </Link>
+          }
+        >
+          {snapshot.live_providers.map((provider) => (
+            <Fragment key={provider.id}>
+              <VoiceModelRow
+                title={provider.label}
+                description={`${provider.price.charAt(0).toUpperCase()}${provider.price.slice(1)} (${provider.company}’s prices, ${provider.price_checked}). Your voice, the chat’s recent messages, the agent profile’s name and a few related memories go to ${provider.company} (no memories in an incognito chat).`}
+                status={
+                  provider.available
+                    ? 'Key saved'
+                    : `Needs your ${provider.company} API key`
+                }
+                ready={provider.available ? undefined : false}
+              />
+              {/* OpenAI Realtime's own voice and model, for Live voice only. */}
+              {provider.id === 'openai' && (
+                <>
+                  <SelectSetting
+                    mutation={mutation}
+                    field="runtime.realtime_voice"
+                    label="Realtime voice"
+                    hint="The voice OpenAI Realtime speaks with in Live voice."
+                    value={snapshot.runtime.realtime_voice}
+                    options={snapshot.realtime_voice_options}
+                  />
+                  <TextSetting
+                    mutation={mutation}
+                    field="runtime.realtime_model"
+                    label="Realtime model"
+                    hint="Leave as gpt-realtime-2 unless you need another gpt-realtime model."
+                    value={snapshot.runtime.realtime_model ?? 'gpt-realtime-2'}
+                  />
+                </>
+              )}
+            </Fragment>
+          ))}
+        </SettingsGroup>
+        {/* Whisper or SenseVoice for Dictation: a choice only once SenseVoice
+            is installed (Talk's speech model is chosen under Talk). Read aloud
+            always uses Kokoro, so it has no choice here. */}
+        {speechEngines.length > 1 && localDictation && (
+          <SettingsGroup title="Speech engine">
             <SelectSetting
               mutation={mutation}
-              field="runtime.realtime_voice"
-              label="Realtime voice"
-              hint="Realtime Talk only, not read aloud."
-              value={snapshot.runtime.realtime_voice}
-              options={snapshot.realtime_voice_options}
+              field="runtime.dictation_model"
+              label="Dictation listens with"
+              value={snapshot.runtime.dictation_model}
+              options={speechEngines}
             />
-          </SettingsGroup>
-        )}
-        {/* Realtime Talk's own model: the saved talk model names it while
-            Realtime Talk is on (anything else uses the default). */}
-        {realtime && (
-          <SettingsGroup title="Realtime">
-            <TextSetting
-              mutation={mutation}
-              field="runtime.talk_model"
-              label="Realtime model"
-              hint="Leave as gpt-realtime-2 unless you need another gpt-realtime model."
-              value={
-                snapshot.runtime.talk_model.startsWith('gpt-realtime')
-                  ? snapshot.runtime.talk_model
-                  : 'gpt-realtime-2'
-              }
-            />
-          </SettingsGroup>
-        )}
-        {/* Whisper or SenseVoice, for listening on this computer: a choice
-            only once SenseVoice is installed. Read aloud always uses
-            Kokoro, so it has no choice here. */}
-        {speechEngines.length > 1 && (!realtime || localDictation) && (
-          <SettingsGroup title="Speech engine">
-            {!realtime && (
-              <SelectSetting
-                mutation={mutation}
-                field="runtime.talk_model"
-                label="Talk listens with"
-                value={snapshot.runtime.talk_model}
-                options={speechEngines}
-              />
-            )}
-            {localDictation && (
-              <SelectSetting
-                mutation={mutation}
-                field="runtime.dictation_model"
-                label="Dictation listens with"
-                value={snapshot.runtime.dictation_model}
-                options={speechEngines}
-              />
-            )}
           </SettingsGroup>
         )}
         <SettingsGroup
@@ -2278,18 +2757,6 @@ export function VoiceSnapshotPanel({
             status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
             ready={snapshot.tts.installed}
           />
-          <VoiceModelRow
-            title="OpenAI Realtime Talk"
-            description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice} · online`}
-            status={
-              snapshot.openai_realtime_credential.configured
-                ? 'Credential saved · not checked'
-                : 'Setup needed'
-            }
-            ready={
-              snapshot.openai_realtime_credential.configured ? undefined : false
-            }
-          />
         </SettingsGroup>
         <SettingsGroup title="Diagnostics">
           <SettingsItem
@@ -2302,7 +2769,7 @@ export function VoiceSnapshotPanel({
           />
           <SettingsItem
             label="Costs"
-            help="Talk can call models and tools. Realtime sessions can incur provider cost while active."
+            help="Talk can call models and tools. Live voice is billed by its provider for each minute you talk."
           />
         </SettingsGroup>
       </SettingsAdvanced>
@@ -2323,17 +2790,27 @@ export function VoiceSnapshotPanel({
             </a>
           </p>
         )}
+        {cloudChoice && (
+          <p className="voice-sheet-cloud">
+            {cloudChoice.key_saved
+              ? `Cloud speech-to-text listens with ${cloudChoice.label}, with your saved key.`
+              : `Cloud speech-to-text listens with ${cloudChoice.label} and needs your ${cloudChoice.company} key, which you add next.`}{' '}
+            {cloudPrice(cloudChoice)}.
+          </p>
+        )}
         <div className="button-row">
           <Button onClick={() => chooseFromSheet('local')}>
             Use local anyway
           </Button>
-          <Button
-            variant="primary"
-            data-initial-focus
-            onClick={() => chooseFromSheet('openai_realtime')}
-          >
-            Use cloud speech-to-text
-          </Button>
+          {cloudChoice && (
+            <Button
+              variant="primary"
+              data-initial-focus
+              onClick={() => chooseFromSheet(cloudChoice.id)}
+            >
+              Use cloud speech-to-text
+            </Button>
+          )}
         </div>
       </ModalTask>
     </div>
@@ -2457,6 +2934,7 @@ export function SystemSnapshotPanel({
   pickFolder,
   writeClipboard,
   part = 'system',
+  connect,
   network,
   privacy,
 }: {
@@ -2466,6 +2944,11 @@ export function SystemSnapshotPanel({
   writeClipboard?: ClientPlatform['writeClipboard'];
   /** System: this machine's capabilities. Access: reaching it from elsewhere. */
   part?: 'system' | 'access';
+  /**
+   * Access › Advanced, first: Connect a phone or computer. A phone passes it
+   * here (C3); a computer shows it at the top of the page.
+   */
+  connect?: ReactNode;
   /** Access › Advanced › Network: listen mode, addresses, Tailscale. */
   network?: ReactNode;
   /** System › Privacy: install stats and what else Row-Bot contacts (N6). */
@@ -2505,11 +2988,24 @@ export function SystemSnapshotPanel({
             <SummaryChip tone="warning">Public link on</SummaryChip>
           )}
         </SettingsSummary>
+        {hosted && connect && (
+          <SettingsAdvanced
+            anchor="advanced"
+            meta="Connect a phone or computer"
+          >
+            {connect}
+          </SettingsAdvanced>
+        )}
         {!hosted && (
           <SettingsAdvanced
             anchor="advanced"
-            meta="Network, allowed addresses and the public link"
+            meta={
+              connect
+                ? 'Connect a device, network and the public link'
+                : 'Network, allowed addresses and the public link'
+            }
           >
+            {connect}
             <Section
               title="Network"
               description="Where Row-Bot listens and the addresses it accepts."
@@ -5753,6 +6249,7 @@ export function PreferencesSnapshotPanel({
   // The controls' own check time, newer than this page's snapshot after Check now (B373).
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const place = usePlace();
+  const phone = usePhone();
   const lastCheck = checkedAt ?? snapshot.updates.last_check;
   // The host picks the release and installs it: no channel, check time or
   // download details, only the version and who updates it.
@@ -5874,8 +6371,15 @@ export function PreferencesSnapshotPanel({
               </div>
             </div>
           )}
-          {/* Most people never import: the form opens on request (U14). */}
-          {showUpdateControls && (
+          {/* Most people never import: the form opens on request (U14). It
+              reads another assistant's folder on the computer, so a phone
+              says to open it there (C3, like Memory's import). */}
+          {showUpdateControls && phone && snapshot.migration.available && (
+            <OnYourComputer what="Importing from another assistant">
+              Importing reads another assistant’s folder on the computer.
+            </OnYourComputer>
+          )}
+          {showUpdateControls && !phone && (
             <Disclosure
               summary="Import…"
               meta={snapshot.migration.sources.join(' and ')}
