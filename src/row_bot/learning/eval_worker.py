@@ -965,7 +965,8 @@ def _setup_providers(spec: Mapping[str, Any], notes: list[str], endpoint_keys: M
             notes.append(f"endpoint {str(endpoint.get('id') or '')[:40]}: {type(error).__name__}")
     for name, values in dict(providers.get("local_model_settings") or {}).items():
         try:
-            models.set_local_model_settings(str(name), context=values.get("context"), reasoning=values.get("reasoning"))
+            models.set_local_model_settings(str(name), context=values.get("context"), reasoning=values.get("reasoning"),
+                                            owner=values.get("owner"))  # Learning's entries stay Learning's
         except Exception as error:  # noqa: BLE001
             notes.append(f"local settings: {type(error).__name__}")
     if any(str(arm.get("model_ref") or "").startswith("model:ollama:") for arm in spec.get("arms") or ()):

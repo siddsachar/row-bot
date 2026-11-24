@@ -492,6 +492,25 @@ def test_a_local_endpoints_key_is_saved_with_its_endpoint_so_the_worker_can_use_
     assert auth_store.get_provider_secret(provider, "api_key") == "key-1" and "key-1" in secrets
 
 
+def test_the_workers_copy_of_a_models_settings_keeps_whose_they_are(tmp_path, monkeypatch):
+    """Learning's entries reach the worker still marked Learning's (served as trained, never given a preset or the
+    person's choice), whatever the model is called; the person's own stay the person's."""
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    monkeypatch.setattr(models, "_local_model_settings", {})
+
+    eval_worker._setup_providers({"providers": {"local_model_settings": {  # noqa: SLF001
+        "arm-9b:abcd1234": {"context": 32768, "reasoning": "off", "owner": "learning"},
+        "qwen3.5:9b": {"context": 16384}}}}, [])
+
+    assert models.is_learning_local_entry(models.local_settings_key("ollama", "arm-9b:abcd1234"),
+                                          models.local_model_settings("arm-9b:abcd1234"))
+    assert models.person_local_model_settings("ollama", "arm-9b:abcd1234") == {}
+    assert models.local_model_settings("qwen3.5:9b") == {"context": 16384}
+    assert models.person_local_model_settings("ollama", "qwen3.5:9b") == {"context": 16384}
+
+
 def test_only_a_passing_practice_task_brings_back_its_turn_as_sent(data_dir, monkeypatch):
     """L4b: the training data's practice slice is a passing practice task's last request and reply exactly as the real
     runtime sent them; a sample or hidden task, a failed one, or one not asked for never brings its turn back."""
