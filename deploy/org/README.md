@@ -321,6 +321,10 @@ space from a browser session.
   and try again an hour later. A deleted document takes what only it mentioned out of the graph. Each space has its own graph, read
   by the space's readers (`GET /api/brain/graph`); owners correct it (rename, merge, retire, relate by hand) from a
   browser session.
+- **In the admin console**, Knowledge lists the spaces (who reads and owns each, and its documents), and in a
+  space its documents (upload, replace, delete, each one's status), facts and knowledge graph. A space's graph
+  follows who reads it, admins included: an admin who doesn't read a group space makes themself an owner to
+  see and correct it. Space owners who aren't admins can't open the console.
 
 ## Policy
 

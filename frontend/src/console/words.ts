@@ -25,6 +25,33 @@ export function problem(error: unknown): string {
       'Someone else changed this in the meantime. Reload to see their version, then make your change again.',
     policy_too_large: 'The policy is too large to save.',
     invalid_group: 'That group name can’t be used.',
+    space_not_found: 'That space is no longer on the server.',
+    document_not_found: 'That document is no longer on the server.',
+    fact_not_found: 'That fact is no longer on the server.',
+    entity_not_found: 'That entry is no longer in the company knowledge.',
+    relation_not_found: 'That link is no longer in the company knowledge.',
+    space_owner_required: 'Only the space’s owners and admins can change it.',
+    unknown_person:
+      'One of the owners has never signed in. Choose people who have.',
+    company_space_is_read_by_everyone:
+      'Everyone signed in reads the company space, so it has no reader groups.',
+    company_space_stays: 'The company space can’t be deleted.',
+    unknown_source_document:
+      'That document isn’t in this space any more. Choose another source.',
+    entity_exists:
+      'Another entry in this space already has that name and type. Merge the two instead.',
+    entity_merged:
+      'This entry was merged into another one. Reload to see where it went.',
+    unknown_entity:
+      'That entry can’t be merged into. Choose another one from this space.',
+    too_many_uploads:
+      'The server is busy with other uploads. Try again in a moment.',
+    unsupported_type: 'Only text, Markdown and Word files can be added.',
+    file_too_large: 'The file is larger than the server takes.',
+    invalid_file_name:
+      'That file name can’t be used. Rename the file and try again.',
+    file_required: 'The file didn’t arrive. Try again.',
+    invalid_upload: 'The file didn’t arrive. Try again.',
   };
   if (known[error.code]) return known[error.code];
   if (error.code === 'invalid_policy' && typeof error.body.detail === 'string')

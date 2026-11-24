@@ -1,7 +1,8 @@
 /**
  * The console's one network module: same-origin JSON requests to the Company
  * Server's API (the session cookie goes with them; the browser's Origin
- * header satisfies the server's same-origin rule for changes).
+ * header satisfies the server's same-origin rule for changes), and file
+ * uploads as multipart forms.
  *
  * A 401 means the session is gone and a 403 `admin_required` that the person
  * is no longer an admin: both are announced once to `onAccessLost`, which the
@@ -25,21 +26,15 @@ export function onAccessLost(listener: (reason: AccessLost) => void) {
   accessLost = listener;
 }
 
-export async function request<T>(
-  path: string,
-  { method = 'GET', body }: { method?: string; body?: unknown } = {},
-): Promise<T> {
-  let response: Response;
+async function send(path: string, init: RequestInit): Promise<Response> {
   try {
-    response = await fetch(path, {
-      method,
-      credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    return await fetch(path, { credentials: 'same-origin', ...init });
   } catch {
     throw new ApiError(0, 'unreachable');
   }
+}
+
+async function read<T>(response: Response): Promise<T> {
   const text = await response.text();
   let data: unknown;
   try {
@@ -61,6 +56,31 @@ export async function request<T>(
     throw new ApiError(response.status, code, fields);
   }
   return data as T;
+}
+
+export async function request<T>(
+  path: string,
+  { method = 'GET', body }: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  return read<T>(
+    await send(path, {
+      method,
+      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  );
+}
+
+/** One file sent as `multipart/form-data` (its `file` field): an upload or a replace. */
+export async function upload<T>(
+  path: string,
+  method: 'POST' | 'PUT',
+  file: File,
+): Promise<T> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  // The browser writes the multipart Content-Type with its boundary.
+  return read<T>(await send(path, { method, body: form }));
 }
 
 /** A query string from the set values only ("" when none is). */

@@ -342,6 +342,8 @@ def test_uploads_of_an_unknown_type_too_large_or_unreadable_are_refused_or_fail(
     with org_server(org_database, idp, ROW_BOT_ORG_BRAIN_MAX_UPLOAD_MB="1") as server:
         admin = admin_of(server, idp)
         company = company_space(admin)
+        # The admin console says the limit before a file is sent.
+        assert admin.get("/api/admin/brain/spaces").json()["max_upload_bytes"] == 1024 * 1024
 
         unknown = upload(admin, company, "plan.pdf", b"%PDF-1.7")
         assert (unknown.status_code, unknown.json()) == (

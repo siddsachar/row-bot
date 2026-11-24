@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Page, Request } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { FakeApi, type FakeAnswer, type FakeState } from './fake-api';
@@ -16,6 +16,19 @@ const TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.html': 'text/html',
 };
+
+/** A request's body as FakeApi reads it: JSON, or an upload's file name and size. */
+function sent(request: Request) {
+  const body = request.postDataBuffer();
+  if (!body) return undefined;
+  const type = request.headers()['content-type'] ?? '';
+  if (!type.startsWith('multipart/form-data')) return JSON.parse(String(body));
+  const text = body.toString('latin1');
+  const name = /filename="([^"]*)"/.exec(text)?.[1] ?? '';
+  const start = text.indexOf('\r\n\r\n') + 4;
+  const end = text.lastIndexOf('\r\n--');
+  return { file: { name, size: Math.max(0, end - start) } };
+}
 
 /**
  * Open the console at `path` with FakeApi in `state`. `answer` may answer a
@@ -64,10 +77,8 @@ export async function openConsole(
         body: readFileSync(resolve(BUILD, file)),
       });
     }
-    const body = request.postData();
     const reply =
-      answer?.(url) ??
-      api.handle(request.method(), url, body ? JSON.parse(body) : undefined);
+      answer?.(url) ?? api.handle(request.method(), url, sent(request));
     if (delay) await new Promise((done) => setTimeout(done, delay));
     return route.fulfill({
       status: reply.status,

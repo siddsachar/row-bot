@@ -5,6 +5,16 @@ import { OverlayProvider } from '../ui/overlays';
 import App from './App';
 import { FakeApi, type FakeAnswer, type FakeState } from './browser/fake-api';
 
+/** A multipart upload as FakeApi reads it: each file by its name and size. */
+function formFields(form: FormData) {
+  return Object.fromEntries(
+    [...form.entries()].map(([key, value]) => [
+      key,
+      value instanceof File ? { name: value.name, size: value.size } : value,
+    ]),
+  );
+}
+
 /**
  * The console at `path` (inside /console) for vitest, with the browser
  * spec's FakeApi behind `fetch`. `answer` may answer a request first.
@@ -21,7 +31,11 @@ export function renderConsole(
       const url = new URL(input, 'https://org.example.test');
       const method = init.method ?? 'GET';
       const body =
-        typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+        typeof init.body === 'string'
+          ? JSON.parse(init.body)
+          : init.body instanceof FormData
+            ? formFields(init.body)
+            : undefined;
       const answered = answer?.(url, method);
       if (answered)
         api.calls.push({ method, path: url.pathname + url.search, body });

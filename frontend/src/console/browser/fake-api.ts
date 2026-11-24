@@ -3,6 +3,8 @@
  * routes the console calls, with made-up people and data. `state` picks what
  * the pages see: everything filled in, nothing yet, or failing loads.
  */
+import { FakeBrain } from './fake-brain';
+
 export type FakeState = 'populated' | 'empty' | 'error';
 export type FakeAnswer = { status: number; body?: unknown };
 export type FakeCall = { method: string; path: string; body: unknown };
@@ -261,8 +263,10 @@ export class FakeApi {
   private devices = devices();
   private company: Record<string, unknown> = COMPANY;
   private groups: Record<string, Record<string, unknown>> = GROUPS;
+  private brain: FakeBrain;
 
   constructor(readonly state: FakeState = 'populated') {
+    this.brain = new FakeBrain(state !== 'populated');
     if (state !== 'populated') {
       this.people = this.people.filter((person) => person.id === ME);
       this.devices = [];
@@ -481,6 +485,7 @@ export class FakeApi {
           reason: null,
         },
       };
-    return { status: 404, body: { error: 'not_found' } };
+    const brain = this.brain.handle(method, url, body);
+    return brain ?? { status: 404, body: { error: 'not_found' } };
   }
 }

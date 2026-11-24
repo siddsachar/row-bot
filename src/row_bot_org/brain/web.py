@@ -586,7 +586,9 @@ def brain_router(service: BrainService) -> APIRouter:
 
     @router.get("/api/admin/brain/spaces")
     def all_spaces(conn: psycopg.Connection = admin) -> JSONResponse:
-        return JSONResponse({"spaces": [space.to_json() for space in store.list_spaces(conn)]})
+        # The upload limit too, so the console can say it before a file is sent.
+        return JSONResponse({"spaces": [space.to_json() for space in store.list_spaces(conn)],
+                             "max_upload_bytes": service.max_upload_bytes})
 
     @router.post("/api/admin/brain/spaces")
     def create_space(body: SpaceIn, conn: psycopg.Connection = admin,
