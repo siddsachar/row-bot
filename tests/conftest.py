@@ -522,6 +522,23 @@ def _no_background_summary(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _learning_capture_ends_with_its_test():
+    # Learning is on by default (O195), so a test that runs a turn starts Learning's capture writer: a daemon
+    # thread that resolves each turn's scope from threads.db and tasks.db when it writes, through the modules'
+    # paths. Left running, it read the next test's databases (on Windows a Developer test then saw tasks.db's
+    # bytes change: the read checkpointed its WAL). What a test queued is dropped when it ends, its writer
+    # stops, and the next test starts with a fresh capture.
+    yield
+    capture = sys.modules.get("row_bot.learning.capture")
+    if capture is None:
+        return
+    ended = capture._default
+    ended.drop_all()
+    ended.shutdown(5)
+    capture._default = capture.Capture()
+
+
+@pytest.fixture(autouse=True)
 def _no_connection_catalog_refresh(monkeypatch):
     # Connecting or disconnecting a provider refreshes its model catalog on a background thread
     # (B411). Tests that connect one script the account, not its catalog: unscripted, the thread
