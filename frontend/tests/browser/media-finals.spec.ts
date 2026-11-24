@@ -1,7 +1,7 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
 import { fixtureHeaders } from './surface-helpers';
-import { composer, newConversation } from './unified-helpers';
+import { composer, headerAction, newConversation } from './unified-helpers';
 
 /*
  * Finals first (W1, W2): a turn that makes a birthday montage the way a
@@ -10,6 +10,13 @@ import { composer, newConversation } from './unified-helpers';
  * browser, an edit (a synthetic ffmpeg), a contact sheet (a scripted vision
  * model) and `present`. Only the AI clip and the presented film show; the
  * recording, the edit and the contact sheet fold into "3 working files".
+ *
+ * End to end (W8): a whole video made in a chat over two turns. Row-Bot
+ * generates an AI shot, records its browser with beats, makes a video
+ * project of the shot and the beats (create, make, its check and review
+ * sheet) and asks for a review of the draft; the person asks for a shorter
+ * intro, and the change makes version 2, which `present` shows as the final.
+ * Every tool is real; ffmpeg, the voice and the vision model are synthetic.
  */
 
 const PHONE = { width: 390, height: 844 };
@@ -145,4 +152,131 @@ test('a film made with working files shows only its final and the AI clip; the r
   await everywhere(page, info, 'finals-working-files-open', async () => {
     await fold.scrollIntoViewIfNeeded();
   });
+});
+
+test('a video made end to end: its draft shows for review, the change is presented as the final, and Outputs holds one tile per output', async ({
+  page,
+}, info) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize(DESKTOP);
+  const chat = await newConversation(page);
+  const transcript = page.getByRole('log', { name: 'Conversation' });
+  const film = 'Sign-up in 30 seconds';
+  const draft = transcript.getByRole('group', { name: `${film} · video` });
+  const shot = transcript.getByRole('group', { name: 'Generated result' });
+  const recording = transcript.getByRole('group', {
+    name: /^Browser recording: 0:04 · \d+ KB$/,
+  });
+
+  // Generate, record with beats, make: the draft shows for review, beside the AI shot.
+  await send(page, 'w8 video turn fixture');
+  await expect(
+    transcript.getByText("Here's the first cut", { exact: false }),
+  ).toBeVisible({ timeout: 90_000 });
+  await closeBrowserPane(page);
+  await expect(draft).toContainText('Made');
+  await expect(draft).toContainText('Version 1 of 1');
+  await playable(draft);
+  await expect(shot).toHaveCount(1);
+  await playable(shot);
+  // The recording is a working file: folded under the steps.
+  await expect(
+    transcript.getByText('1 working file', { exact: true }),
+  ).toHaveCount(1);
+  await expect(recording).toHaveCount(0);
+  await everywhere(page, info, 'w8-draft-review', () =>
+    draft.scrollIntoViewIfNeeded(),
+  );
+
+  // A shorter intro: version 2 is made and presented, large, as the final.
+  await send(page, 'w8 shorter intro fixture');
+  await expect(
+    transcript.getByText('with the shorter intro', { exact: false }),
+  ).toBeVisible({ timeout: 90_000 });
+  const final = transcript.getByRole('figure', { name: `Final: ${film}.mp4` });
+  await expect(final).toContainText('Final');
+  await expect(final).toContainText('Signing up, start to finish');
+  await playable(final);
+  // The draft folds away (version 1's card is gone, version 2's is a working
+  // file of the reply that presented it); the AI shot stays.
+  await expect(draft).toHaveCount(0);
+  await expect(shot).toHaveCount(1);
+  const folds = transcript.getByText('1 working file', { exact: true });
+  await expect(folds).toHaveCount(2);
+  await everywhere(page, info, 'w8-final', () =>
+    final.scrollIntoViewIfNeeded(),
+  );
+  // Opened on demand: the recording, and the draft at version 2.
+  await folds.nth(0).click();
+  await expect(recording).toBeVisible();
+  await folds.nth(1).click();
+  await expect(draft).toContainText('Version 2 of 2');
+  await everywhere(page, info, 'w8-working-files-open', () =>
+    draft.scrollIntoViewIfNeeded(),
+  );
+
+  // The Outputs pane: the film and the AI shot, one tile each; the film's
+  // versions in its menu, the presented one marked; working files on a toggle.
+  const context = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  if (!(await context.isVisible()))
+    await headerAction(page, 'Conversation details');
+  const outputs = context.getByRole('region', { name: 'Outputs' });
+  const made = outputs.getByRole('list', { name: 'Outputs' });
+  await expect(made.getByRole('listitem')).toHaveCount(2);
+  await expect(
+    made.getByRole('button', { name: `Open ${film}` }),
+  ).toBeVisible();
+  await expect(
+    made.getByRole('button', { name: 'Open A phone lighting up on a desk' }),
+  ).toBeVisible();
+  await made.getByRole('button', { name: `Actions for ${film}` }).click();
+  const menu = page.getByRole('menu');
+  await expect(
+    menu.getByRole('menuitem', { name: 'Version 2', exact: true }),
+  ).toHaveAttribute('aria-current', 'true');
+  await expect(
+    menu.getByRole('menuitem', { name: 'Version 1', exact: true }),
+  ).toBeVisible();
+  await views(page, info, 'w8-outputs-versions');
+  await page.keyboard.press('Escape');
+  const toggle = outputs.getByRole('switch', { name: 'Show working files' });
+  await expect(toggle).not.toBeChecked();
+  await expect(
+    outputs.getByRole('list', { name: 'Working files' }),
+  ).toHaveCount(0);
+  await toggle.click();
+  // The recording, the review sheet (one tile for both versions') and the
+  // voice of each scene that says a line.
+  const working = outputs.getByRole('list', { name: 'Working files' });
+  await expect(working.getByRole('listitem')).toHaveCount(5);
+  for (const name of ['Recording', `${film} review`])
+    await expect(
+      working.getByRole('button', { name: `Open ${name}`, exact: true }),
+    ).toBeVisible();
+  await views(page, info, 'w8-outputs-working');
+
+  await page.setViewportSize(PHONE);
+  await page.goto(`/app-v2/conversations/${chat}`);
+  await expect(composer(page)).toBeVisible();
+  await headerAction(page, 'Conversation details');
+  const sheet = page
+    .getByRole('dialog', { name: 'Conversation details' })
+    .or(context)
+    .first();
+  const phoneOutputs = sheet.getByRole('region', { name: 'Outputs' });
+  await expect(
+    phoneOutputs.getByRole('list', { name: 'Outputs' }).getByRole('listitem'),
+  ).toHaveCount(2);
+  await phoneOutputs
+    .getByRole('switch', { name: 'Show working files' })
+    .click();
+  await expect(
+    phoneOutputs
+      .getByRole('list', { name: 'Working files' })
+      .getByRole('listitem'),
+  ).toHaveCount(5);
+  await views(page, info, 'w8-outputs-phone');
+  await page.setViewportSize(DESKTOP);
 });

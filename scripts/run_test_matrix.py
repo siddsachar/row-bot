@@ -185,6 +185,10 @@ BROWSER_SMOKE_SPECS = (
     # Eyes (V6): share the camera or screen during voice, a still goes with the spoken turn and shows in the
     # person's message; the sharing controls at desktop and phone width, light and dark. Appended likewise.
     "voice-share",
+    # Finals first, end to end (W1, W2, W8): a film's working files fold and its final shows large; a whole video
+    # made in a chat (generate, record with beats, make, review, change, present) and its Outputs pane, one tile
+    # per output with versions and working files; desktop and phone, light and dark. Appended likewise.
+    "media-finals",
 )
 # Nightly at desktop width, in four fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

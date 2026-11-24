@@ -548,3 +548,146 @@ def test_a_real_portrait_post_is_4_5_and_keeps_what_is_said_for_its_subtitles(st
     project = video_projects.create(studio["chat"], "Post", [{"source": "wide.mp4", "end": 2.0}])
     picture, number = still(project, project.latest)
     assert number == 1 and picture.size == (640, 360), "a frame of the clip itself, at its own size"
+
+
+def _clip(path: Path, *, size: tuple[int, int], seconds: float, colour: tuple[int, int, int], tone: float = 0.0) -> bytes:
+    """A short H.264 clip, a dot crossing a plain picture, with a tone (0: silent): made with PyAV."""
+    import av
+    import numpy
+    from PIL import Image, ImageDraw
+
+    rate = 24
+    with av.open(str(path), mode="w") as container:
+        video = container.add_stream("libx264", rate=rate)
+        video.width, video.height, video.pix_fmt = size[0], size[1], "yuv420p"
+        sound = container.add_stream("aac", rate=48000, layout="mono") if tone else None
+        frames = int(seconds * rate)
+        for index in range(frames):
+            picture = Image.new("RGB", size, colour)
+            x = size[0] // 8 + index * size[0] * 3 // (4 * frames)
+            ImageDraw.Draw(picture).ellipse([x, size[1] // 2 - 40, x + 80, size[1] // 2 + 40], fill=(250, 250, 250))
+            frame = av.VideoFrame.from_image(picture)
+            frame.pts = index
+            for packet in video.encode(frame):
+                container.mux(packet)
+        for packet in video.encode(None):
+            container.mux(packet)
+        if sound is not None:
+            samples = numpy.sin(numpy.arange(int(48000 * seconds)) * 2 * numpy.pi * tone / 48000) * 0.3
+            for start in range(0, len(samples), 1024):
+                chunk = av.AudioFrame.from_ndarray(samples[start:start + 1024].astype(numpy.float32).reshape(1, -1),
+                                                   format="fltp", layout="mono")
+                chunk.sample_rate, chunk.pts = 48000, start
+                for packet in sound.encode(chunk):
+                    container.mux(packet)
+            for packet in sound.encode(None):
+                container.mux(packet)
+    return path.read_bytes()
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="No ffmpeg on this computer")
+def test_a_real_video_made_in_a_chat_is_one_output_with_its_versions_beside_the_ai_shot(studio, tmp_path):
+    """W8 for real: an AI shot (generate_video's capture), a browser recording with beats, the video tool's create
+    and make, a change made again and present. The chat's outputs are the film, version 2 final and version 1 a
+    draft, and the AI shot; the recording, the review sheet and the voice lines are working files."""
+    import io
+    import wave
+
+    from row_bot import media_library, recordings, sound, tts, video_projects, vision_runtime
+    from row_bot.application.attachment_context import AttachmentExecutionCaches, _current, tool_attachment_scope
+    from row_bot.application.generated_media import capture_generated_media, save_generated_output
+    from row_bot.tools import video_project_tool
+    from row_bot.tools.present_tool import _present
+    from row_bot.tools.video_gen_tool import _set_pending_video
+    from row_bot.video_projects import scenes_from_beats
+
+    chat, monkeypatch = studio["chat"], studio["monkeypatch"]
+
+    def voice(text, **_options):  # Row-Bot's voice: a tone as long as the line takes to say.
+        seconds = round(sound.speaking_seconds(text), 2)
+        out = io.BytesIO()
+        with wave.open(out, "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(16000)
+            audio.writeframes(b"".join(int(6000 * ((index // 20) % 2 * 2 - 1)).to_bytes(2, "little", signed=True)
+                                       for index in range(int(16000 * seconds))))
+        return sound.Speech(wav=out.getvalue(), seconds=seconds, voice="test-voice")
+
+    class Vision:  # The person's vision model, looking at the review sheet once.
+        def cannot_see(self, chat_model=None):
+            return ""
+
+        def analyze(self, image, question):
+            return "OK"
+
+    monkeypatch.setattr(sound, "speak", voice)
+    monkeypatch.setattr(tts.TTSService, "is_installed", lambda self: True)
+    monkeypatch.setattr(vision_runtime, "get_vision_service", lambda: Vision())
+    monkeypatch.setattr(video_project_tool, "MAKE_SECONDS", 600.0)
+
+    def step(run, label=""):
+        """A tool step as the agent's wrapper runs it: its result, and the files it made."""
+        token = _current.set(AttachmentExecutionCaches(chat))
+        names: list[dict] = []
+        try:
+            with tool_attachment_scope() as caches:
+                content = run()
+                capture_generated_media(chat, caches, names=names, label=label)
+                return content, names
+        finally:
+            _current.reset(token)
+
+    def shoot():
+        data = _clip(tmp_path / "shot.mp4", size=(1920, 1080), seconds=3, colour=(200, 120, 60), tone=330)
+        _set_pending_video({"path": save_generated_output(chat, data, prefix="vid", extension="mp4")})
+        return "Generated a 3-second video."
+
+    _content, [shot] = step(shoot, label="a-fox-at-dawn")
+    recorded = _clip(tmp_path / "recorded.mp4", size=(1920, 1080), seconds=4.5, colour=(40, 60, 90))
+
+    class Capture(recordings.Log):
+        def __init__(self, record, path):
+            self.record, self.path = record, path
+            self._lock, self.beats, self.actions, self.trail, self.clock = threading.Lock(), [], [], [], 0.0
+
+        def _now(self):
+            return self.clock
+
+        def request_stop(self, reason):
+            self.path.write_bytes(recorded)
+            recordings.finished(self.record, reason, self.path)
+
+    record = recordings.start(chat, "browser", max_minutes=5, begin=Capture)
+    for at, kind, note, line in ((0.0, "live", "Sign up", "Signing up takes a few seconds."),
+                                 (1.5, "work", "Filling in the form", ""),
+                                 (3.0, "live", "Pick a plan", "Then pick the plan that fits.")):
+        record.capture.clock = at
+        record.capture.beat(kind, note, line)
+    recordings.stop(record.recording_id, by="agent")
+    assert recordings.wait(record, 30) and record.status == "saved"
+
+    scenes = [{"source": shot["name"], "end": 2.5, "line": "Meet the fox."},
+              *scenes_from_beats(record.recording_id, chat)]
+    created = video_project_tool._video(action="create", title="Fox at dawn", scenes=scenes, note="First cut")
+    project = created.split()[2].rstrip(":")
+    first = video_project_tool._video(action="make", project=project)
+    assert ', 4 scenes, made.' in first.splitlines()[0], first
+    kept = video_projects.get(project, chat).latest.scenes  # A change keeps each scene's id, as the agent does.
+    changed = [{**scene, "scene_id": made.scene_id, **({"end": 1.5} if index == 0 else {})}
+               for index, (scene, made) in enumerate(zip(scenes, kept))]
+    second = video_project_tool._video(action="change", project=project, scenes=changed, note="Shorter intro")
+    assert second.splitlines()[0].endswith(': Output "Fox at dawn" v2 (draft) · Fox at dawn.mp4; version 2 of 2, '
+                                           '4 scenes, made.'), second
+    presented, _names = step(lambda: _present(files=["Fox at dawn"], caption="The fox, start to finish"))
+    assert presented.splitlines()[0].startswith('Output "Fox at dawn" v2 (final)'), presented
+
+    made = media_library.outputs(conversation_id=chat)
+    film = next(item for item in made["items"] if item["name"] == "Fox at dawn")
+    assert (film["kind"], film["role"], film["version"]) == ("video", "final", 2)
+    assert {(item["version"], item["role"]) for item in film["versions"]} == {(2, "final"), (1, "draft")}
+    others = [item for item in made["items"] if item is not film]
+    assert [(item["kind"], item["role"]) for item in others] == [("video", "final")], "the AI shot, by itself"
+    working = {item["name"] for item in media_library.outputs(conversation_id=chat, show="working")["items"]}
+    assert {"recording", "Fox at dawn review"} <= working, working
+    assert made["counts"]["working"] == len(working) and len(working) == 2 + 3, "and a voice line per spoken scene"
