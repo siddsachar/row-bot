@@ -917,6 +917,7 @@ async def _handle_discord_interrupt_button(channel, message, *, approved: bool, 
         return
 
     thread_id = ch_runtime.thread_id_from_config(config)
+    await _send_discord_surface_buttons(channel, thread_id)
     if thread_id and answer:
         _goal_run_turn, _goal_send_text = _discord_goal_callbacks(channel)
         goal_result = await ch_runtime.continue_channel_goal_after_turn_async(
@@ -1499,6 +1500,7 @@ async def _process_message(client, message, is_mention: bool = False) -> None:
         elif answer and not ch_runtime.channel_turn_is_suspended(answer):
             thread_id = ch_runtime.thread_id_from_config(config)
             if thread_id:
+                await _send_discord_surface_buttons(message.channel, thread_id)
                 _goal_run_turn, _goal_send_text = _discord_goal_callbacks(message.channel)
 
                 goal_result = await ch_runtime.continue_channel_goal_after_turn_async(

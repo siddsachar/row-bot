@@ -1409,6 +1409,7 @@ async def _handle_dm(
         elif answer and not ch_runtime.channel_turn_is_suspended(answer):
             thread_id = ch_runtime.thread_id_from_config(config)
             if thread_id:
+                await _send_slack_surface_buttons(client, channel_id, thread_id, thread_ts=thread_ts)
                 _goal_run_turn, _goal_send_text = _slack_goal_callbacks(
                     client,
                     say,
@@ -1855,6 +1856,7 @@ async def _handle_interrupt_button(body: dict, client, *, approved: bool) -> Non
         return
 
     thread_id = ch_runtime.thread_id_from_config(config)
+    await _send_slack_surface_buttons(client, channel_id, thread_id, thread_ts=resume_thread_ts)
     if thread_id and answer:
         _goal_run_turn, _goal_send_text = _slack_goal_callbacks(
             client,

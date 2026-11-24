@@ -321,3 +321,21 @@ def test_discord_sends_a_view_of_buttons_and_a_tap_runs_the_press(chat, discord_
     assert '"area": "Baixa"' in model_text
     assert config["configurable"]["platform_task_note"]["kind"] == "surface"
     assert "👉 **Baixa House**" in [content for content, _ in discord_bot.channel.sent]
+
+
+def test_discord_offers_the_buttons_after_an_approved_turn_too(chat, discord_bot, monkeypatch) -> None:
+    async def resumed_turn(_channel, config, approved, *, interrupt_ids=None):
+        return "Done.", None, [], [], DELIVERED
+
+    async def edit(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(discord_bot.module, "_stream_agent_resume_to_discord", resumed_turn)
+    discord_bot.module._store_discord_interrupt(channel_id=discord_bot.channel.id, interrupt_data=[{"tool": "x"}],
+                                                config={"configurable": {"thread_id": chat.thread_id}}, message_id=77)
+
+    asyncio.run(discord_bot.module._handle_discord_interrupt_button(
+        discord_bot.channel, SimpleNamespace(id=77, edit=edit), approved=True, user_id=4242))
+
+    content, kwargs = discord_bot.channel.sent[-1]
+    assert content == "**Lisbon trip**" and len(kwargs["view"].children) == 3
