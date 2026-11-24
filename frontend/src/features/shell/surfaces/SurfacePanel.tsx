@@ -28,7 +28,7 @@ export function SurfacePanel({
         blockId={found.block.id}
         stateKey={found.block.state_key}
         target={{ conversationId, messageId: found.messageId }}
-        inPanel
+        place="panel"
       />
     </div>
   );

@@ -236,6 +236,7 @@ _STATUS.update(
             "answer_state_revision_conflict",
             "answer_choice_taken",
             "answer_state_full",
+            "board_full",
         ),
         409,
     )
@@ -6824,6 +6825,30 @@ def create_router(
 
         result = await call(read, service, conversation_id, body.message_id, body.surface_id, body.refresh)
         return await respond(request, dto.SurfaceData, result)
+
+    @router.get("/boards")
+    async def board_view(request: Request) -> JSONResponse:
+        """The Home Board (generative UI): pinned surfaces, each the latest drawing in its chat."""
+        await session(request, lane="view")
+        from row_bot.application.boards import board
+
+        return await respond(request, dto.BoardView, await call(board, service))
+
+    @router.post("/boards/pins")
+    async def board_pin(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.BoardPinRequest, 1024)
+        from row_bot.application.boards import pin
+
+        return await respond(request, dto.BoardView,
+                             await call(pin, service, body.conversation_id, body.message_id, body.surface_id))
+
+    @router.delete("/boards/pins/{pin_id}")
+    async def board_unpin(pin_id: str, request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.boards import unpin
+
+        return await respond(request, dto.BoardView, await call(unpin, service, pin_id[:64]))
 
     @router.post("/conversations/{conversation_id}/visual-frame")
     async def visual_frame(conversation_id: str, request: Request) -> JSONResponse:

@@ -818,7 +818,8 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   answer_choice_taken: ['A reply was already sent from these buttons.', 'none'],
-  answer_state_full: ["This chat can't keep any more ticks.", 'none'],
+  answer_state_full: ["This chat can't keep any more of your changes.", 'none'],
+  board_full: ['Your Board is full. Unpin something first.', 'none'],
   generation_active: [
     'Row-Bot is still answering. Wait for it to finish, or stop it first.',
     'review',

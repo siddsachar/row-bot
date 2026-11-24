@@ -118,6 +118,8 @@ export type OverviewHomeProps = {
   onEditScheduledPost?: (id: string, edit: XPostEdit) => Promise<unknown>;
   /** Buddy's live avatar beside the greeting. */
   buddy?: ReactNode;
+  /** The Board (generative UI): interfaces pinned from chats, kept current on this computer. */
+  board?: ReactNode;
   /**
    * A phone's one-time notifications offer (D13), given how many things need
    * the person now: it comes once something has waited for them.
@@ -574,6 +576,7 @@ export default function OverviewHome({
   loadApprovals,
   loadAttention,
   buddy,
+  board,
   notificationsOffer,
   processes,
   voice,
@@ -1315,6 +1318,8 @@ export default function OverviewHome({
           </ul>
         </Section>
       )}
+
+      {!needsModel && board}
 
       {!needsModel && (review.length > 0 || scheduled.length > 0) && (
         <Section

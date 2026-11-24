@@ -116,7 +116,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkStarted", "VoiceTicket", "ReadAloudRequest", "RealtimeSnapshot", "RealtimeStart", "DefaultModelSnapshot",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "SurfaceDataRequest", "SurfaceData", "ParentSteeringView", "ClientQueueView",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "SurfaceDataRequest", "SurfaceData", "BoardPinRequest", "BoardView", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
 # The protocol's WebSockets: path and what it carries. OpenAPI has no WebSocket
@@ -632,6 +632,9 @@ OPERATIONS = (
     ("post", "/skills/{name}/try", None, "SkillTryResult"),
     ("post", "/conversations/{conversation_id}/visual-page", "VisualPageRequest", "PageView"),
     ("post", "/conversations/{conversation_id}/surface-data", "SurfaceDataRequest", "SurfaceData"),
+    ("get", "/boards", None, "BoardView"),
+    ("post", "/boards/pins", "BoardPinRequest", "BoardView"),
+    ("delete", "/boards/pins/{pin_id}", None, "BoardView"),
     ("post", "/conversations/{conversation_id}/visual-frame", "VisualFrameRequest", "VisualFrame"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
@@ -767,6 +770,9 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // each of these as a view read too.)
   const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated|answer-state|goals))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
+    // A surface's values filled in on this computer, and the Home Board, are read as they are shown.
+    || method === 'POST' && /^\/conversations\/[^/]+\/surface-data$/.test(path)
+    || method === 'GET' && path === '/boards'
     || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?|pages\/page-[0-9a-f]{8}|monitor\/scheduled-posts)(?:\?|$)/.test(path)
     || method === 'GET' && /^(?:\/conversations\/[^/?]+)?\/buddy(?:\/packs(?:\/[^/?]+)?)?(?:\?|$)/.test(path);
   // Following a computer-use session (about once a second) is observation.
@@ -900,6 +906,13 @@ export const trySkill = (base: string, proof: SessionProof, name: string, signal
 /** The values of a surface's sources, read on this computer for this client only (generative UI). */
 export const getSurfaceData = (base: string, proof: SessionProof, conversation: string, body: SurfaceDataRequest, signal?: AbortSignal): Promise<SurfaceData> =>
   jsonRequest(base, `/conversations/${id(conversation)}/surface-data`, 'SurfaceData', proof, 'POST', body, undefined, signal);
+/** The Home Board (generative UI): pinned surfaces; pin one; unpin one. */
+export const getBoard = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<BoardView> =>
+  jsonRequest(base, `/boards`, 'BoardView', proof, 'GET', undefined, undefined, signal);
+export const pinToBoard = (base: string, proof: SessionProof, body: BoardPinRequest, signal?: AbortSignal): Promise<BoardView> =>
+  jsonRequest(base, `/boards/pins`, 'BoardView', proof, 'POST', body, undefined, signal);
+export const unpinFromBoard = (base: string, proof: SessionProof, pin: string, signal?: AbortSignal): Promise<BoardView> =>
+  jsonRequest(base, `/boards/pins/${id(pin)}`, 'BoardView', proof, 'DELETE', undefined, undefined, signal);
 /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
 export const createVisualFrame = (base: string, proof: SessionProof, conversation: string, body: VisualFrameRequest, signal?: AbortSignal): Promise<VisualFrame> =>
   jsonRequest(base, `/conversations/${id(conversation)}/visual-frame`, 'VisualFrame', proof, 'POST', body, undefined, signal);

@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "description": "Pin a surface one reply of this chat drew to the Home Board (generative UI).",
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "message_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_.-]+$",
+      "title": "Message Id",
+      "type": "string"
+    },
+    "surface_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+      "title": "Surface Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "message_id",
+    "surface_id"
+  ],
+  "title": "BoardPinRequest",
+  "type": "object"
+}

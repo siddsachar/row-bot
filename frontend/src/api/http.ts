@@ -420,6 +420,15 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  board(signal?: AbortSignal) {
+    return wire.getBoard(this.base, this.session(), signal);
+  }
+  pinToBoard(body: wire.BoardPinRequest, signal?: AbortSignal) {
+    return wire.pinToBoard(this.base, this.session(), body, signal);
+  }
+  unpinFromBoard(pinId: string, signal?: AbortSignal) {
+    return wire.unpinFromBoard(this.base, this.session(), pinId, signal);
+  }
   surfaceData(
     conversationId: string,
     body: wire.SurfaceDataRequest,

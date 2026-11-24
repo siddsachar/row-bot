@@ -138,6 +138,8 @@ const mock = vi.hoisted(() => ({
 
 vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
+  // The Board reads its own pins; these tests have none.
+  useOptionalRuntime: () => undefined,
   useRuntime: () => ({
     controller: mock.controller,
     platform: { writeClipboard: vi.fn() },

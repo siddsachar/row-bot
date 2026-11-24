@@ -68,12 +68,21 @@ import {
   X,
   ExternalLink,
   Maximize2,
+  Pin,
+  PinOff,
   type LucideIcon,
 } from 'lucide-react';
 import { useOptionalRuntime } from '../../../runtime';
 import { ModalTask, useNotify } from '../../../ui/overlays';
 import { Button, Hint, IconButton, Input, Tabs } from '../../../ui/primitives';
-import { sendPrompt, usePromptReady } from '../composer-bridge';
+import {
+  sendPrompt,
+  sendPromptWhenOpen,
+  usePromptReady,
+  type SurfacePress,
+} from '../composer-bridge';
+import { clientError } from '../../../api/errors';
+import { pinned, pinSurface, unpinSurface, useBoard } from './board-store';
 import {
   changeAnswerState,
   useAnswerState,
@@ -174,6 +183,8 @@ const ICONS: Record<string, LucideIcon> = {
 
 const MAX_DEPTH = 24;
 const SAVE_DELAY = 800;
+/** How often a pinned surface reads its sources again while Home is shown. */
+const BOARD_REFRESH = 10 * 60 * 1000;
 
 /** Where a surface's button press goes: this chat, as a press on this reply. */
 export type SurfaceTarget = { conversationId?: string; messageId?: string };
@@ -905,16 +916,20 @@ export function SurfaceView({
   blockId,
   stateKey,
   target,
-  inPanel = false,
+  place = 'chat',
+  onPress,
 }: {
   json: string;
   blockId: string;
   /** Where what the person enters is kept: by reply and surface, so a pinned copy shares it. */
   stateKey: string;
   target: SurfaceTarget;
-  /** Shown in the side panel ("Open bigger"): the panel names it already. */
-  inPanel?: boolean;
+  /** Where it is shown: in its reply, opened bigger (the panel names it), or pinned on the Home Board. */
+  place?: 'chat' | 'panel' | 'board';
+  /** A press where the chat isn't open (the Board): the caller takes the person there and sends it. */
+  onPress?: (press: SurfacePress) => void;
 }) {
+  const inPanel = place === 'panel';
   const spec = useMemo(() => readSurface(json), [json]);
   const controller = useOptionalRuntime()?.controller;
   const answers = useAnswerState(controller, target.conversationId);
@@ -925,15 +940,18 @@ export function SurfaceView({
     target.conversationId,
     target.messageId,
     spec,
+    // On the Board it stays current while Home is shown: read again, never asked of the model.
+    place === 'board' ? BOARD_REFRESH : 0,
   );
+  const board = useBoard();
   const ready = usePromptReady(target.conversationId);
   const notify = useNotify();
   const [pressed, setPressed] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const latest = useRef<DataModel | null>(null);
   const uid = useMemo(
-    () => `surface-${blockId.slice(-8)}${inPanel ? '-panel' : ''}`,
-    [blockId, inPanel],
+    () => `surface-${blockId.slice(-8)}-${place}`,
+    [blockId, place],
   );
   useEffect(() => () => window.clearTimeout(timer.current), []);
   useEffect(() => {
@@ -968,18 +986,24 @@ export function SurfaceView({
       save(next);
     },
     press: (press) => {
+      const surface = {
+        message_id: target.messageId ?? '',
+        surface_id: spec.surfaceId,
+        name: press.name,
+        source_component_id: press.componentId,
+        context: press.context,
+      };
+      if (onPress && target.messageId) {
+        onPress(surface);
+        sendPromptWhenOpen(target.conversationId ?? '', press.label, {
+          surface,
+        });
+        return;
+      }
       if (
         !target.conversationId ||
         !target.messageId ||
-        !sendPrompt(target.conversationId, press.label, {
-          surface: {
-            message_id: target.messageId,
-            surface_id: spec.surfaceId,
-            name: press.name,
-            source_component_id: press.componentId,
-            context: press.context,
-          },
-        })
+        !sendPrompt(target.conversationId, press.label, { surface })
       ) {
         notify(
           'Row-Bot can’t take that right now. Try again when it’s ready.',
@@ -989,7 +1013,8 @@ export function SurfaceView({
       }
       setPressed(press.name);
     },
-    ready,
+    // The Board takes the person to the chat, which sends it when it can.
+    ready: place === 'board' || ready,
     pressed,
     uid,
     title: spec.title,
@@ -997,7 +1022,7 @@ export function SurfaceView({
   // A later reply drew this interface again: this copy is its history.
   const superseded = !!latestBlock && latestBlock !== blockId;
   const open =
-    !inPanel && target.conversationId
+    place === 'chat' && target.conversationId
       ? () =>
           requestSurfacePanel({
             conversationId: target.conversationId!,
@@ -1013,13 +1038,27 @@ export function SurfaceView({
       data-in-panel={inPanel ? 'true' : undefined}
       data-superseded={superseded ? 'true' : undefined}
     >
-      {(!inPanel || sources) && (
+      {(place === 'chat' || sources) && (
         <header className="genui-header">
-          <span className="genui-title">{inPanel ? '' : spec.title}</span>
+          <span className="genui-title">
+            {place === 'chat' ? spec.title : ''}
+          </span>
           {superseded && (
             <span className="genui-superseded">Updated in a later reply</span>
           )}
           {sources && <PrivateMark spec={spec} sources={sources} />}
+          {place !== 'board' && target.conversationId && target.messageId && (
+            <PinButton
+              pin={pinned(board, target.conversationId, spec.surfaceId)}
+              onPin={() =>
+                pinSurface(controller, {
+                  conversation_id: target.conversationId!,
+                  message_id: target.messageId!,
+                  surface_id: spec.surfaceId,
+                })
+              }
+            />
+          )}
           {open && (
             <IconButton
               size="sm"
@@ -1040,6 +1079,42 @@ export function SurfaceView({
       )}
       <Node id="root" scope={undefined} context={context} depth={0} />
     </section>
+  );
+}
+
+/** Pin to Home, or unpin: the surface stays current on the Home Board. */
+function PinButton({
+  pin,
+  onPin,
+}: {
+  pin: ReturnType<typeof pinned>;
+  onPin: () => Promise<boolean>;
+}) {
+  const controller = useOptionalRuntime()?.controller;
+  const notify = useNotify();
+  const [busy, setBusy] = useState(false);
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      if (pin) await unpinSurface(controller, pin.pin_id);
+      else await onPin();
+    } catch (cause) {
+      notify(clientError(cause).message, 'warning');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <IconButton
+      size="sm"
+      variant="ghost"
+      label={pin ? 'Unpin from Home' : 'Pin to Home'}
+      pressed={!!pin}
+      disabled={busy}
+      onClick={() => void toggle()}
+    >
+      {pin ? <PinOff size={14} aria-hidden /> : <Pin size={14} aria-hidden />}
+    </IconButton>
   );
 }
 

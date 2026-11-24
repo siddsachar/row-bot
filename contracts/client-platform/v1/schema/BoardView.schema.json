@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "BoardItem": {
+      "additionalProperties": false,
+      "description": "A pinned surface: the latest reply in its chat that drew it, or unavailable when that is gone.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "conversation_title": {
+          "maxLength": 160,
+          "title": "Conversation Title",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "pin_id": {
+          "pattern": "^pin-[0-9a-f]{12}$",
+          "title": "Pin Id",
+          "type": "string"
+        },
+        "pinned_at": {
+          "maxLength": 64,
+          "title": "Pinned At",
+          "type": "string"
+        },
+        "state_key": {
+          "anyOf": [
+            {
+              "pattern": "^block:[0-9a-f]{24}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Key"
+        },
+        "surface_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Surface Id",
+          "type": "string"
+        },
+        "surface_json": {
+          "anyOf": [
+            {
+              "maxLength": 262144,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Surface Json"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pin_id",
+        "conversation_id",
+        "conversation_title",
+        "surface_id",
+        "title",
+        "pinned_at",
+        "available"
+      ],
+      "title": "BoardItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The Home Board: the surfaces the person pinned, newest first.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/BoardItem"
+      },
+      "maxItems": 24,
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "BoardView",
+  "type": "object"
+}

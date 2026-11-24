@@ -43,6 +43,8 @@ export function useSurfaceSources(
   conversationId: string | undefined,
   messageId: string | undefined,
   spec: SurfaceSpec | null,
+  /** Read again this often (ms) while the page is shown; 0 for never. */
+  every = 0,
 ): SourceState | null {
   const controller = useOptionalRuntime()?.controller;
   const has = !!spec && Object.keys(spec.sources ?? {}).length > 0;
@@ -87,6 +89,14 @@ export function useSurfaceSources(
     void read(round > 0, abort.signal);
     return () => abort.abort();
   }, [read, round]);
+  useEffect(() => {
+    if (!every || !has) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible')
+        setRound((value) => value + 1);
+    }, every);
+    return () => window.clearInterval(timer);
+  }, [every, has]);
   if (!has) return null;
   return { ...state, refresh: () => setRound((value) => value + 1) };
 }

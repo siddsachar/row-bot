@@ -10465,6 +10465,32 @@ class SurfaceData(WireModel):
     read_at: str = Field(max_length=64)
 
 
+class BoardPinRequest(WireModel):
+    """Pin a surface one reply of this chat drew to the Home Board (generative UI)."""
+    conversation_id: OpaqueId
+    message_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9:_.-]+$")
+    surface_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+class BoardItem(WireModel):
+    """A pinned surface: the latest reply in its chat that drew it, or unavailable when that is gone."""
+    pin_id: str = Field(pattern=r"^pin-[0-9a-f]{12}$")
+    conversation_id: OpaqueId
+    conversation_title: str = Field(max_length=160)
+    surface_id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=120)
+    pinned_at: str = Field(max_length=64)
+    available: bool
+    message_id: str | None = Field(default=None, max_length=256)
+    state_key: str | None = Field(default=None, pattern=r"^block:[0-9a-f]{24}$")
+    surface_json: str | None = Field(default=None, max_length=262144)
+
+
+class BoardView(WireModel):
+    """The Home Board: the surfaces the person pinned, newest first."""
+    items: list[BoardItem] = Field(max_length=24)
+
+
 class YouTubeBlock(WireModel):
     id: OpaqueId
     type: Literal["youtube"]

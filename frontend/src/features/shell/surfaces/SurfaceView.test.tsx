@@ -360,7 +360,7 @@ it('opens bigger beside the chat, and an edit there shows in the chat at once', 
         blockId="block:shared"
         stateKey={(block as Extract<Block, { type: 'surface' }>).state_key}
         target={{ conversationId: 'conversation-s', messageId: 'reply-1' }}
-        inPanel
+        place="panel"
       />
     </>,
   );

@@ -2905,6 +2905,25 @@ export class ClientController {
         signal,
       ),
     );
+  /** The Home Board (generative UI): the surfaces the person pinned. */
+  board = (signal?: AbortSignal) =>
+    this.query(() => this.transport.board?.(signal));
+  pinToBoard = (body: {
+    conversation_id: string;
+    message_id: string;
+    surface_id: string;
+  }) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.pinToBoard)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.pinToBoard(body, signal);
+    });
+  unpinFromBoard = (pinId: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.unpinFromBoard)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.unpinFromBoard(pinId, signal);
+    });
   /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
   visualFrame = (
     conversationId: string,

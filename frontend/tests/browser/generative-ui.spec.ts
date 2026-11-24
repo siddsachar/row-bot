@@ -1,6 +1,6 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, screenshot, test } from './evidence';
-import { fixtureHeaders } from './surface-helpers';
+import { fixtureHeaders, openHome } from './surface-helpers';
 import {
   composer,
   dismissNotices,
@@ -135,4 +135,21 @@ test('a reply draws an interface the person edits and presses', async ({
   await expect(
     again.getByText('Up to £1,800 for three nights in Baixa'),
   ).toBeVisible();
+
+  // Pinned to Home, it is on the Board with what the person entered.
+  await again.getByRole('button', { name: 'Pin to Home' }).click();
+  await expect(
+    again.getByRole('button', { name: 'Unpin from Home' }),
+  ).toBeVisible();
+  await openHome(page);
+  const board = page.getByRole('region', { name: 'Board' });
+  const pinned = board.getByRole('region', { name: 'Lisbon trip' });
+  await pinned.getByRole('tab', { name: 'Budget' }).click();
+  await expect(
+    pinned.getByText('Up to £1,800 for three nights in Baixa'),
+  ).toBeVisible();
+  await dismissNotices(page);
+  await screens(page, info, 'genui-board', () => board);
+  await board.getByRole('button', { name: 'Unpin from Home' }).click();
+  await expect(board).toHaveCount(0);
 });

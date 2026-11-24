@@ -1109,6 +1109,13 @@ export interface ClientTransport {
     body: Wire.SurfaceDataRequest,
     signal?: AbortSignal,
   ): Promise<Wire.SurfaceData>;
+  /** The Home Board (generative UI): pinned surfaces; pin one; unpin one. */
+  board?(signal?: AbortSignal): Promise<Wire.BoardView>;
+  pinToBoard?(
+    body: Wire.BoardPinRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.BoardView>;
+  unpinFromBoard?(pinId: string, signal?: AbortSignal): Promise<Wire.BoardView>;
   /** "Save as a skill" (C1): a chat's offers and drafts. */
   skillOffers?(
     conversationId: string,

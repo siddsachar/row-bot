@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AttentionProblem, PanelDescriptor } from '../../api/types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { HomeBoard } from './surfaces/HomeBoard';
 import {
   Activity,
   Brain,
@@ -625,6 +626,7 @@ export default function Home({
             ),
             content: (
               <OverviewHome
+                board={<HomeBoard order={1} />}
                 conversations={usedConversations}
                 setup={setup}
                 monitor={monitor}
