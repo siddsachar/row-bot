@@ -315,6 +315,9 @@ def leave() -> dict[str, Any]:
     record = store.read_record()
     if record is None:
         return status()
+    from row_bot.company import audit
+
+    audit.leave()  # One last send of what's waiting for the company, then the audit outbox goes (C4).
     told = True
     if not record.disconnected:
         from row_bot.company import client

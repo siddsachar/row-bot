@@ -94,3 +94,32 @@ export function lockDetail(lock: { title: string; value: string }): string {
 export function elsewhereWords(computer: string): string {
   return `Join from Row-Bot on ${computer}: the sign-in opens in that computer’s browser.`;
 }
+
+/** What a joined Row-Bot tells its company (C4), in one line. */
+export function auditWords(company: string): string {
+  return `Row-Bot tells ${company} which risky actions it takes, never what’s in your chats.`;
+}
+
+/** The fields it sends, in plain words, behind the line. */
+export function auditFields(
+  company: string,
+): { label: string; help: string }[] {
+  return [
+    {
+      label: 'Actions that needed approval',
+      help: 'The tool’s name and app, the approval level, how risky it was, where it ran (a chat, workflow, agent or channel), who decided and how it ended.',
+    },
+    {
+      label: 'Exports',
+      help: 'That you exported a chat or backed up your data, and how many chats.',
+    },
+    {
+      label: 'Lockdowns',
+      help: `That Row-Bot couldn’t reach ${company} for longer than its rules allow, and for how many days.`,
+    },
+    {
+      label: 'Never',
+      help: 'What you or Row-Bot wrote, your files, what a tool was asked to do or what it found.',
+    },
+  ];
+}

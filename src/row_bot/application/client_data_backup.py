@@ -246,7 +246,15 @@ def backup() -> None:
     _export_allowed()
     folder = _backups_folder()
     data = _data_dir()
-    _start("backup", lambda: profile_backup.create_backup(data, folder, outside=(folder.parent,)))
+
+    def work() -> dict:
+        made = profile_backup.create_backup(data, folder, outside=(folder.parent,))
+        from row_bot.company import audit
+
+        audit.data_exported()  # A joined Row-Bot tells its company its data was backed up (C4).
+        return made
+
+    _start("backup", work)
 
 
 def cancel_restore() -> bool:

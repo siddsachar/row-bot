@@ -27,6 +27,8 @@ import {
 import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
 import {
   JOIN_LINE,
+  auditFields,
+  auditWords,
   elsewhereWords,
   failureWords,
   joinedWords,
@@ -158,6 +160,20 @@ export default function CompanySettings({
     </Disclosure>
   ) : null;
 
+  // What Row-Bot tells the company (C4), and behind it each field in plain words.
+  const told = (
+    <Disclosure summary={auditWords(company)}>
+      {auditFields(company).map((field) => (
+        <SettingsItem
+          key={field.label}
+          label={field.label}
+          help={field.help}
+          bind={false}
+        />
+      ))}
+    </Disclosure>
+  );
+
   const leaveButton = (
     <IconButton
       label={`Leave ${company}`}
@@ -256,6 +272,7 @@ export default function CompanySettings({
           />
         )}
         {rules}
+        {told}
       </SettingsGroup>
     );
 

@@ -44,6 +44,8 @@ SECRET_ENTRIES = frozenset({
     # The company this installation joined and its policy (Row-Bot for Teams): this device's own, never
     # carried in a backup to another one, and never replaced by a restore.
     "company.json", "company_policy.json",
+    # What it waits to tell that company (C4): this device's own events.
+    "company_audit.jsonl",
 })
 # Rebuildable or machine-local: caches, runtimes, logs and earlier backups. Learning's
 # ``learning_models`` holds re-downloadable or re-trainable bulk (starting-model weights,

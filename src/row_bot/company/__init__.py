@@ -9,6 +9,8 @@
   it allows (C3a).
 - ``enforce``: the rest of it at the app's seams: tools switched off, the approval ceiling, which apps may be
   added and run, and chat export (C3b).
+- ``audit``: what this Row-Bot tells the company, metadata only: gated tool actions, exports and ended lockdowns,
+  kept in a bounded outbox and sent in batches (C4).
 
 With no company joined nothing here runs: reading the state looks for the record file and imports neither
 ``client`` nor ``sign_in``, so no socket is opened and no thread is started.

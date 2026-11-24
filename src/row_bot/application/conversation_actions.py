@@ -326,6 +326,9 @@ def _publish_export(conversation_id: str, command_id: str, data: bytes,
             attachments._write(Path(threads._MEDIA_DIR), metadata_path,
                                json.dumps(metadata, separators=(",", ":")).encode("utf-8"))
         validate()
+    from row_bot.company import audit
+
+    audit.data_exported(item_count=1)  # A joined Row-Bot tells its company a chat was exported (C4).
     return {
         "attachment_ref": reference,
         "file_name": name,

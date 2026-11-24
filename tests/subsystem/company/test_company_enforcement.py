@@ -662,6 +662,7 @@ def test_a_backup_never_carries_the_company_and_a_restore_never_replaces_it():
 
     assert profile_restore.kept_in_place("company.json")
     assert profile_restore.kept_in_place("company_policy.json")
+    assert profile_restore.kept_in_place("company_audit.jsonl")  # What waits to be told to it (C4).
 
 
 # -- lockdown, the disclosure, and no company -----------------------------------------------------------

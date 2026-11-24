@@ -45,7 +45,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -333,6 +333,21 @@ def lockdowns() -> list[dict[str, Any]]:
     return ended
 
 
+def lockdowns_sent(started: Iterable[float]) -> None:
+    """C4 has queued these ended lockdowns (by when each began) for the company: they leave ``lockdowns()``."""
+    done = set(started)
+    record = store.read_record()
+    if record is None or not done:
+        return
+    with _LOCK:
+        cache = _read_cache(record)
+        if cache is None:
+            return
+        kept = tuple(item for item in cache.lockdowns if item["started_at"] not in done)
+        if kept != cache.lockdowns:
+            _write_cache(replace(cache, lockdowns=kept))
+
+
 # -- fetching -----------------------------------------------------------------------------------------
 
 def _known(data: Any) -> Any:
@@ -419,6 +434,9 @@ def refresh() -> Status:
             _write_cache(_Cache(record.origin, record.device_id, etag, at, None, policy, None, ended))
     if changed:
         _changed()
+    from row_bot.company import audit
+
+    audit.send_soon()  # The company answered: what's waiting for it (C4), lockdowns that ended included.
     return state()
 
 

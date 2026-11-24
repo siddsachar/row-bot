@@ -113,7 +113,8 @@ def normalise_origin(address: str) -> str:
 
 
 def _request(origin: str, method: str, path: str, *, bearer: str | None = None,
-             body: dict[str, str] | None = None, extra: dict[str, str] | None = None) -> httpx.Response:
+             body: dict[str, str] | None = None, extra: dict[str, str] | None = None,
+             content: bytes | None = None) -> httpx.Response:
     global _backoff_until
     wait = int(_backoff_until - now())
     if wait > 0:
@@ -121,10 +122,12 @@ def _request(origin: str, method: str, path: str, *, bearer: str | None = None,
     headers = {"Accept": "application/json", **(extra or {})}
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
+    if content is not None:
+        headers["Content-Type"] = "application/json"
     try:
         # A client per request: no cookie the server sets is ever sent back.
         with httpx.Client(base_url=origin, timeout=TIMEOUT, follow_redirects=False, transport=transport) as http:
-            response = http.request(method, path, headers=headers, json=body)
+            response = http.request(method, path, headers=headers, json=body, content=content)
     except httpx.HTTPError as error:
         logger.info("The company server couldn't be reached (%s)", type(error).__name__)
         raise Unreachable(type(error).__name__) from None
@@ -236,16 +239,17 @@ def refreshed(origin: str, stale: store.Credential) -> store.Credential:
     return _refresh(origin, stale)
 
 
-def call(origin: str, method: str, path: str, *, headers: dict[str, str] | None = None) -> httpx.Response:
+def call(origin: str, method: str, path: str, *, headers: dict[str, str] | None = None,
+         content: bytes | None = None) -> httpx.Response:
     """A call with the device's bearer, refreshing it when it is about to end and once more on a 401.
-    ``headers`` are sent too (``If-None-Match``, say).
+    ``headers`` are sent too (``If-None-Match``, say); ``content`` is a JSON body, sent as given.
 
     Raises Disconnected, Unreachable (Busy for a 429) or store.StorageUnavailable (a locked keychain)."""
     credential = bearer(origin)
-    response = _request(origin, method, path, bearer=credential.access_token, extra=headers)
+    response = _request(origin, method, path, bearer=credential.access_token, extra=headers, content=content)
     if response.status_code == 401 and _answer(response).get("error") == "invalid_token":
         credential = refreshed(origin, credential)
-        response = _request(origin, method, path, bearer=credential.access_token, extra=headers)
+        response = _request(origin, method, path, bearer=credential.access_token, extra=headers, content=content)
         if response.status_code == 401:
             disconnect()
             raise Disconnected

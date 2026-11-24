@@ -1,5 +1,5 @@
-"""A fake Row-Bot company server (C1a's device routes, S3's effective policy, S4's catalog and gateway) and a fake
-browser, for the app's company tests.
+"""A fake Row-Bot company server (C1a's device routes, S3's effective policy, S4's catalog and gateway, S5's audit
+ingest) and a fake browser, for the app's company tests.
 
 The server is an ``httpx.MockTransport``: nothing leaves the process. The browser follows the app's sign-in
 address the way a person pressing Connect would, then visits Row-Bot's loopback address for real (loopback
@@ -27,7 +27,8 @@ import pytest
 
 from row_bot import secret_store
 from row_bot.application import client_company
-from row_bot.company import client, policy, provider, sign_in, store
+from row_bot.audit import InvalidAuditEvent, from_dict, to_dict
+from row_bot.company import audit, client, policy, provider, sign_in, store
 from row_bot.policy import DEFAULT_POLICY, canonical_json, policy_to_dict
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
@@ -47,6 +48,11 @@ CATALOG = [
 REPLY = "Hello from the company"
 GATEWAY_OPENAI = "/api/gateway/openai/v1/chat/completions"
 GATEWAY_ANTHROPIC = "/api/gateway/anthropic/v1/messages"
+AUDIT_INGEST = "/api/audit/events"
+# S5's ingest: what a Row-Bot may report, and how much at once.
+DEVICE_ACTIONS = frozenset({"tool.called", "data.exported", "device.locked_down"})
+MAX_AUDIT_BATCH = 100
+MAX_AUDIT_BYTES = 256 * 1024
 
 
 def _sse(events: list[tuple[str | None, dict | str]]) -> bytes:
@@ -144,6 +150,13 @@ class FakeCompanyServer:
         self.policy_answers: list[int] = []  # The status of each answer to it (200, or 304 for the same ETag).
         # Nothing reaches the server (a connection error for every request), while True.
         self.offline = False
+        # S5's audit ingest: each batch's body as sent, the events it stored (contract JSON, by id), and the
+        # answers to give the next batches instead of storing them.
+        self.audit_batches: list[bytes] = []
+        self.audit: dict[str, dict] = {}
+        self.audit_answers: list[httpx.Response] = []
+        # The background audit sends the app started (held: a test fires them).
+        self.timers: list[HeldTimer] = []
         self._numbers = itertools.count(1)
         self._lock = threading.Lock()
         self.transport = httpx.MockTransport(self.handle)
@@ -268,7 +281,46 @@ class FakeCompanyServer:
             return httpx.Response(200, content=body, headers={"ETag": etag, "Content-Type": "application/json"})
         if path.startswith("/api/gateway/"):
             return self._gateway(request)
+        if (request.method, path) == ("POST", AUDIT_INGEST):
+            return self._ingest(request)
         return httpx.Response(404, json={"error": "not_found"})
+
+    def _ingest(self, request: httpx.Request) -> httpx.Response:
+        """S5's ``POST /api/audit/events`` for a device's bearer: the contract checked event by event, all or
+        nothing, an id already stored skipped."""
+        token = self._bearer(request)
+        if token is None:
+            return httpx.Response(401, json={"error": "invalid_token"})
+        body = request.content
+        self.audit_batches.append(body)
+        if self.audit_answers:
+            return self.audit_answers.pop(0)
+        if len(body) > MAX_AUDIT_BYTES:
+            return httpx.Response(413, json={"error": "batch_too_large"})
+        raw = json.loads(body)
+        events = raw.get("events") if isinstance(raw, dict) and raw.keys() == {"events"} else None
+        if not isinstance(events, list) or not events:
+            return httpx.Response(422, json={"error": "invalid_batch"})
+        if len(events) > MAX_AUDIT_BATCH:
+            return httpx.Response(413, json={"error": "batch_too_large"})
+        device = self.access[token]
+        checked = []
+        for index, data in enumerate(events):
+            try:
+                event = from_dict(data)
+            except InvalidAuditEvent as error:
+                return httpx.Response(422, json={"error": "invalid_event", "index": index, "detail": str(error)})
+            if event.action.value not in DEVICE_ACTIONS or (
+                    event.action.value == "data.exported" and event.details.get("scope") != "person"):
+                return httpx.Response(422, json={"error": "action_not_accepted", "index": index})
+            if event.device_id != device or (event.action.value == "device.locked_down"
+                                             and event.target.ref != device):
+                return httpx.Response(422, json={"error": "device_mismatch", "index": index})
+            checked.append(event)
+        fresh = [event for event in checked if event.id not in self.audit]
+        for event in fresh:
+            self.audit[event.id] = to_dict(event)
+        return httpx.Response(200, json={"accepted": len(fresh), "duplicates": len(checked) - len(fresh)})
 
     def _token_endpoint(self, body: dict) -> httpx.Response:
         if self.limited:
@@ -352,6 +404,29 @@ class FakeCompanyServer:
                 "Content-Security-Policy", ""), refused.read().decode("utf-8")))
 
 
+class HeldTimer:
+    """The audit outbox's background send (``audit.Timer``), held: made and started, but run only when a test
+    fires it, so no send ever runs on its own in a test."""
+
+    def __init__(self, interval: float, function: Callable[[], None], made: list[HeldTimer]) -> None:
+        self.interval = interval
+        self.function = function
+        self.daemon = False
+        self.started = self.cancelled = False
+        made.append(self)
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def fire(self) -> None:
+        assert self.started and not self.cancelled, "this send was never started, or was cancelled"
+        self.cancelled = True
+        self.function()
+
+
 @pytest.fixture
 def keychain() -> Iterator[MemoryKeyring]:
     found = MemoryKeyring()
@@ -361,8 +436,9 @@ def keychain() -> Iterator[MemoryKeyring]:
 
 
 @pytest.fixture
-def company_state(monkeypatch) -> None:
-    """No Join, outcome or notice left from another test (they live in the app's process)."""
+def company_state(monkeypatch) -> list[HeldTimer]:
+    """No Join, outcome or notice left from another test (they live in the app's process); the audit outbox's
+    background sends held (the list of them)."""
     for name, value in {"_join": None, "_failure": None, "_notice": None, "_left": None, "_unreachable": None,
                         "_fresh_next": False}.items():
         monkeypatch.setattr(client_company, name, value)
@@ -373,6 +449,13 @@ def company_state(monkeypatch) -> None:
     # No company policy fetched, remembered or logged by another test.
     for name, value in {"_memo": None, "_attempted_at": None, "_reading": None, "_unknown_logged": set()}.items():
         monkeypatch.setattr(policy, name, value)
+    # No audit outbox remembered, no send waiting or backing off, and none started for real (C4).
+    for name, value in {"_memo": None, "_timer": None, "_last_attempt": None, "_retry_at": 0.0, "_failures": 0,
+                        "_dropped": 0}.items():
+        monkeypatch.setattr(audit, name, value)
+    timers: list[HeldTimer] = []
+    monkeypatch.setattr(audit, "Timer", lambda interval, function: HeldTimer(interval, function, timers))
+    return timers
 
 
 @pytest.fixture
@@ -380,9 +463,11 @@ def company_server(tmp_path, monkeypatch, keychain, company_state) -> Iterator[F
     """A scratch data folder, the in-memory keychain, the fake server and browser, and no join left over."""
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     server = FakeCompanyServer()
+    server.timers = company_state
     monkeypatch.setattr(client, "transport", server.transport)
     monkeypatch.setattr(sign_in, "open_browser", server.browse)
     yield server
     client_company.cancel()
     provider.settle()  # A background catalog read ends here, while the fake server still answers it.
     policy.settle()  # And a background policy refresh.
+    audit.stop()  # And an audit send.

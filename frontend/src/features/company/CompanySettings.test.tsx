@@ -314,3 +314,23 @@ it('locked down: one calm line in place of the joined date, a Retry, and the saf
   await waitFor(() => expect(company).toHaveBeenCalledTimes(3));
   expect(company).toHaveBeenLastCalledWith('check', undefined);
 });
+
+it('joined: one quiet line on what Row-Bot tells the company, with each field in plain words behind it', async () => {
+  show({ status: joined(), check: joined() });
+
+  const line = await screen.findByText(
+    `Row-Bot tells ${COMPANY} which risky actions it takes, never what’s in your chats.`,
+  );
+  expect(line).toBeVisible();
+  expect(screen.getByText('Actions that needed approval')).not.toBeVisible();
+  fireEvent.click(line);
+  expect(screen.getByText('Actions that needed approval')).toBeVisible();
+  expect(screen.getByText('Exports')).toBeVisible();
+  expect(screen.getByText('Lockdowns')).toBeVisible();
+  expect(screen.getByText('Never')).toBeVisible();
+  expect(
+    screen.getByText(
+      'What you or Row-Bot wrote, your files, what a tool was asked to do or what it found.',
+    ),
+  ).toBeVisible();
+});
