@@ -1379,10 +1379,11 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // reply's ticks and sent choices are read as it is shown (and again before
   // the person's tick is saved), a page card its page's title, the details
   // card its chat's goal, Home's Review the posts scheduled to go out and
-  // the sidebar's Buddy card its status and look (R9): the person is looking
+  // the sidebar's Buddy card its status and look (R9) and a proposed or
+  // started conversation's card its state (5.3.1 C): the person is looking
   // at them, so they never wait behind background reads. (The server counts
   // each of these as a view read too.)
-  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated|answer-state|goals))?(?:\?|$)/.test(path)
+  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated|answer-state|goals|links))?(?:\?|$)/.test(path)
     || /^\/approvals\/[^/?]+(?:\?|$)/.test(path)
     || method === 'GET' && /^\/(?:deliveries\/[^/?]+|video-edits(?:\/[^/?]+)?|pages\/page-[0-9a-f]{8}|monitor\/scheduled-posts)(?:\?|$)/.test(path)
     || method === 'GET' && /^(?:\/conversations\/[^/?]+)?\/buddy(?:\/packs(?:\/[^/?]+)?)?(?:\?|$)/.test(path);
