@@ -316,16 +316,21 @@ def test_a_sped_up_scene_carries_no_badge_and_a_gif_is_made_small():
     assert "palettegen" in " ".join(gif) and gif[-1] == "file:output.gif" and "file:input-1.mp4" in gif
 
 
-def test_a_caption_reads_the_same_in_a_square_or_tall_cut_as_in_a_wide_one():
-    from row_bot.video_editing import render_text
+def test_a_caption_is_sized_by_the_frames_height_fits_its_width_and_wraps_onto_two_lines_at_most():
+    """C7: captions read on a phone and a TV alike: 4.5% of the height (49 px at 1080p), as a tall short's are,
+    never wider than the frame, and a long one on two lines at most."""
+    from row_bot.video_editing import caption_size, render_text
 
+    assert caption_size("box", 1920, 1080) == 49 and caption_size("box", 1280, 720) == 32
+    short = "Who's coming back for another cup?"
+    wide, tall = render_text(short, "caption", 1280, 720), render_text(short, "caption", 720, 1280)
+    assert tall[2] > 1.4 * wide[2], "a tall frame's caption is larger, as its height is"
     line = ("First, let's see who's coming back for another cup. We ask Row-Bot to check the October "
             "orders file and show customers who ordered more than once.")
-    wide = render_text(line, "caption", 1280, 720)
-    # The same lines at the same size, nothing cut short, whatever the shape of a picture this wide.
-    assert render_text(line, "caption", 1280, 1280)[1:] == wide[1:]
-    assert render_text(line, "caption", 1280, 2276)[1:] == wide[1:]
-    assert render_text(line, "caption", 720, 1280)[1] <= 720
+    for width, height in ((1280, 720), (720, 1280), (1080, 1080)):
+        _png, shown_width, shown_height = render_text(line, "caption", width, height)
+        size = caption_size("box", width, height)
+        assert shown_width <= width * 0.86 + 1 and shown_height < 3.5 * size, (width, height)
 
 
 def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_corner():
@@ -345,7 +350,7 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert plan.voices == [(2.0, "sound-1.wav")], "its line starts with the scene, after the intro"
     pictures = [_picture(png) for png in plan.overlays]
     backdrops = [picture for picture in pictures if picture.size == (640, 360)]
-    card, caption, intro, outro, mark = (picture for picture in pictures if picture.size != (640, 360))
+    card, caption, intro, outro, end_logo, mark = (picture for picture in pictures if picture.size != (640, 360))
     assert len(backdrops) == 2, "the intro and outro each on a backdrop of the brand's colour"
     lit, right = card.getpixel((card.width // 3, card.height // 2)), card.getpixel((card.width - 12, card.height // 2))
     assert all(abs(a - b) < 12 for a, b in zip(right[:3], (17, 34, 51))) and sum(lit[:3]) > sum(right[:3]), \
@@ -354,7 +359,10 @@ def test_the_brand_kit_puts_an_intro_and_outro_on_its_colour_and_its_logo_in_a_c
     assert caption.getpixel((0, 0))[3] == 0, "a bold caption has no box"
     assert intro.getpixel((0, 0))[3] == 0 and outro.getpixel((0, 0))[3] == 0, "plain titles on the coloured cards"
     assert (mark.width, mark.height) == (72, 36), "the logo, a tenth of the picture's height"
-    assert "overlay=x=552:y=308" in plan.graph, "in the bottom-right corner, 16 px in"
+    assert "overlay=x=552:y=308:eof_action=repeat:enable='between(t,0,5)'" in plan.graph, \
+        "in the bottom-right corner, 16 px in, until the end card"
+    assert end_logo.height > 1.5 * mark.height and \
+        f"overlay=x={(640 - end_logo.width) // 2}:" in plan.graph, "C5: the end card has the logo, larger, centred"
     # The scene's card sits in the lower third on the left, not over the middle of the picture where the action is
     # (31 Oct: the OpenStreetMap how-to's step cards covered the directions they named), and slides in and out.
     [(x, y, begin, end)] = re.findall(r"overlay=x='(\d+)-[^']*':y=(\d+):eof_action=repeat:enable='between\(t,([\d.]+),"

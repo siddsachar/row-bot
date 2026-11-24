@@ -835,6 +835,8 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
     push_to_talk: bool = False
     # What the person speaks: a language code, or "auto" (detect it).
     speech_language: str = Field(default="auto", min_length=2, max_length=8)
+    # "Hey Row-Bot" on the desktop: off until the person turns it on.
+    wake_word: bool = False
 
 
 class VoiceLocalSettingsSnapshot(WireModel):
@@ -2777,6 +2779,8 @@ class LocalModelOption(WireModel):
     model_ref: str = Field(min_length=1, max_length=256)
     size_bytes: int = Field(ge=0)
     fit: LocalModelFit
+    # The window it is served at on this computer (tokens): what it reads.
+    context_tokens: int = Field(ge=0)
     # Good for everyday chat; long tasks want a larger model or a provider.
     everyday: bool
     # "4-bit", "3-bit", "2-bit": the build of the model that fits.
@@ -6499,6 +6503,17 @@ class VideoEditPage(WireModel):
 VideoProjectId = Annotated[str, StringConstraints(pattern=r"^vid-[0-9a-f]{8}$")]
 VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
 VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
+VideoRecipe = Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"]
+VideoGrade = Literal["natural", "warm", "cinematic", "vivid", "bw"]
+VideoTransitions = Literal["cut", "crossfade"]
+# How captions look: in a box, clean (a soft shadow), bold, centred, or a short's big words, one lit as it's said.
+VideoCaptionStyle = Literal["box", "clean", "bold", "title", "word"]
+
+
+class VideoChapter(WireModel):
+    """Where a chapter of a made video starts, and its title (C7): for a YouTube description."""
+    at: float = Field(ge=0)
+    title: str = Field(max_length=120)
 
 
 class VideoScene(WireModel):
@@ -6572,18 +6587,41 @@ class VideoVersionView(WireModel):
 
 class VideoExportView(WireModel):
     """The same version in another shape, or as a GIF: the edit that makes it."""
-    shape: Literal["16:9", "1:1", "9:16", "gif"]
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"]
     edit: VideoEditView
 
 
 class VideoProjectExport(WireModel):
-    shape: Literal["16:9", "1:1", "9:16", "gif"]
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"]
+
+
+VideoPlatform = Literal["youtube", "shorts", "tiktok", "reels", "instagram", "facebook", "x", "linkedin"]
+
+
+class VideoPublishFile(WireModel):
+    """A file of a publish kit in the chat's files: a thumbnail in a shape, or the subtitles in a format."""
+    name: str = Field(min_length=1, max_length=240)
+    ref: str = Field(min_length=1, max_length=512)
+    shape: Literal["", "16:9", "1:1", "9:16", "4:5"] = ""
+    format: Literal["", "srt", "vtt"] = ""
+
+
+class VideoPublishKit(WireModel):
+    """A made version's publish kit (C10), made when the person named where it's going: the post's title and
+    description (YouTube's limits), a YouTube video's chapters, a thumbnail in each platform's shape, and its
+    subtitles. Each platform's video is the version's own, or its export in that shape."""
+    platforms: list[VideoPlatform] = Field(min_length=1, max_length=8)
+    title: str = Field(max_length=100)
+    description: str = Field(max_length=5000)
+    chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
+    thumbnails: list[VideoPublishFile] = Field(max_length=4)
+    subtitles: list[VideoPublishFile] = Field(max_length=2)
 
 
 class VideoBrand(WireModel):
     """The brand kit (5.3.1 B3): the look every video project uses unless a version turns it off."""
     colour: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
-    captions: Literal["box", "bold", "title"]
+    captions: VideoCaptionStyle
     # A picture from Library › Media, by its reference; "" for none.
     logo: str = Field(max_length=512)
     logo_corner: Literal["top-left", "top-right", "bottom-left", "bottom-right"]
@@ -6598,6 +6636,9 @@ class VideoBrand(WireModel):
     voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
     # Every video's mix is brought to this loudness (LUFS): -14 for social video.
     loudness: float = Field(default=-14.0, ge=-24, le=-10)
+    # Every word's typeface, and how titles, lower thirds and the end card look (C5).
+    font: Literal["sans", "modern", "serif", "display"] = "sans"
+    titles: Literal["studio", "minimal", "bold"] = "studio"
 
 
 class VideoProjectView(WireModel):
@@ -6635,15 +6676,27 @@ class VideoProjectView(WireModel):
     checks: list[str] = Field(max_length=12)
     checks_passed: bool | None
     # Its shape ("" keeps its first video's), and its exports in other shapes or as a GIF.
-    aspect: Literal["", "16:9", "1:1", "9:16"]
-    exports: list[VideoExportView] = Field(max_length=4)
+    aspect: Literal["", "16:9", "1:1", "9:16", "4:5"]
+    exports: list[VideoExportView] = Field(max_length=5)
     # Made with the brand kit.
     brand: bool
     # Its own voice and speed for its lines ("" and 0: the brand kit's).
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # Its look as it's made (C5): its kind ("" none), and its grade, grain, letterbox and transitions (its own, else
+    # its kind's); its footage's colour is matched to one look first.
+    recipe: VideoRecipe = ""
+    grade: VideoGrade = "natural"
+    grain: bool = False
+    letterbox: bool = False
+    transitions: VideoTransitions = "cut"
+    # How its captions look (its own, else its kind's, else the brand kit's), and a made video's chapters (C7).
+    caption_style: VideoCaptionStyle = "box"
+    chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
     # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
     review_sheet: str = Field(default="", max_length=200)
+    # Its publish kit, made when the person named a platform (C10); None none.
+    publish: VideoPublishKit | None = None
 
 
 class VideoProjectChange(WireModel):
@@ -6657,6 +6710,12 @@ class VideoProjectChange(WireModel):
     voice: str | None = Field(default=None, max_length=64)
     # A voice for a character who speaks (kept with a saved character in Library › Media).
     cast: list[VideoCastMember] | None = Field(default=None, max_length=200)
+    # Its look (C5): left out, the version's own (else its kind's).
+    grade: VideoGrade | None = None
+    grain: bool | None = None
+    letterbox: bool | None = None
+    transitions: VideoTransitions | None = None
+    caption_style: VideoCaptionStyle | None = None
     note: str = Field(default="", max_length=200)
 
 
@@ -7747,6 +7806,8 @@ class CachedModelRow(WireModel):
     runtime_state: Literal["unknown", "ready", "unavailable"] = "unknown"
     offered: bool = False
     favourite_rank: int | None = Field(default=None, ge=1, le=256)
+    # It runs on this computer and has its own settings sheet (U1).
+    local_settings: bool = False
 
 
 class CachedModelPage(WireModel):
@@ -7782,6 +7843,9 @@ class ModelPickerSurface(WireModel):
 
 
 class ModelContextState(WireModel):
+    """The Cloud reading limit (U2): how much Row-Bot sends a cloud model at most; ``policy_kind`` is the main
+    model's (a local one's window is in its own settings)."""
+
     policy_kind: Literal["local", "provider"]
     selected_cap: int | None = Field(default=None, ge=16384, le=10000000)
     native_max: int | None = Field(default=None, ge=1)
@@ -7813,8 +7877,120 @@ class ModelSurfaceMutation(WireModel):
 
 
 class ModelContextMutation(WireModel):
-    policy_kind: Literal["local", "provider"]
+    """The Cloud reading limit; None reads as much as each cloud model allows."""
+
     cap: int | None = Field(default=None, ge=16384, le=10000000)
+
+
+class LocalModelContextChoice(WireModel):
+    tokens: int = Field(ge=1024, le=4194304)
+    # What the model and this context take loaded (file, cache, working memory) where Row-Bot runs the model
+    # (Run on this computer); None elsewhere.
+    memory_bytes: int | None = Field(default=None, ge=0)
+    # A first reply on a long chat is slow at this size here (a Mac above 32K).
+    slow: bool = False
+
+
+class LocalModelContextSettings(WireModel):
+    # False for a server the person runs: its window is the server's.
+    editable: bool
+    # The size the person chose; None is Automatic.
+    chosen: int | None = Field(default=None, ge=1024, le=4194304)
+    # What Automatic gives, with its cache where Row-Bot knows it.
+    automatic: int | None = Field(default=None, ge=1, le=4194304)
+    automatic_memory_bytes: int | None = Field(default=None, ge=0)
+    memory_place: Literal["card", "memory"] | None = None
+    # The card's memory, or the computer's where the model runs on the processor or a Mac.
+    room_bytes: int | None = Field(default=None, ge=0)
+    choices: list[LocalModelContextChoice] = Field(max_length=16)
+    # What a chat with it reads now.
+    current: int | None = Field(default=None, ge=1)
+    # What a server the person runs loaded the model at (None when it didn't say).
+    loaded: int | None = Field(default=None, ge=1)
+    # Sizes LM Studio can be asked to load it at again.
+    reload_choices: list[int] = Field(default_factory=list, max_length=16)
+
+
+class LocalModelThinkingSettings(WireModel):
+    # The model has a Thinking control on this engine.
+    available: bool
+    value: Literal["auto", "on", "off"]
+    # What Automatic gives this model (Row-Bot's default for it); None where the model's template decides.
+    automatic: bool | None = None
+
+
+class LocalModelReplyLimitSettings(WireModel):
+    # None is Automatic.
+    value: int | None = Field(default=None, ge=1024, le=262144)
+    # What Automatic gives (None: the server's own default).
+    automatic: int | None = Field(default=None, ge=1)
+    choices: list[int] = Field(max_length=16)
+
+
+class LocalModelSamplingValues(WireModel):
+    """Sampling values for a local model's replies; a value left out is the engine's own."""
+
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    top_k: int | None = Field(default=None, ge=0, le=1000)
+    min_p: float | None = Field(default=None, ge=0, le=1)
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+
+
+class LocalModelSamplingCard(WireModel):
+    """The model card's values for the model's family, for a reply that thinks and one that doesn't."""
+
+    thinking: LocalModelSamplingValues
+    non_thinking: LocalModelSamplingValues
+
+
+class LocalModelSamplingSettings(WireModel):
+    # "auto": the model card's values (none for a family without a card); "engine": the engine's own; "custom".
+    value: Literal["auto", "engine", "custom"]
+    custom: LocalModelSamplingValues | None = None
+    card: LocalModelSamplingCard | None = None
+    # Whether a reply thinks unless a chat chooses, so which of the card's values it gets.
+    thinks: bool
+    # The values this server is sent (LM Studio has no min_p).
+    fields: list[Literal["temperature", "top_p", "top_k", "min_p", "presence_penalty"]] = Field(max_length=5)
+
+
+class LocalModelSettingsView(WireModel):
+    """One local model's settings sheet (U1): its window, Thinking, reply limit and sampling."""
+
+    schema_version: Literal[1] = 1
+    model_ref: str = Field(min_length=1, max_length=647)
+    name: str = Field(max_length=256)
+    engine: Literal["ollama", "built_in", "server"]
+    engine_name: str = Field(max_length=256)
+    profile: str = Field(max_length=64)
+    context: LocalModelContextSettings
+    thinking: LocalModelThinkingSettings
+    reply_limit: LocalModelReplyLimitSettings
+    sampling: LocalModelSamplingSettings
+    # Row-Bot's own server after a window change: from its next start, restarted now, or once it is idle.
+    applied: Literal["next_start", "restarted", "when_idle"] | None = None
+    # LM Studio's answer to a reload, in words.
+    notice: str | None = Field(default=None, max_length=256)
+
+
+class LocalModelSettingsMutation(WireModel):
+    model_ref: str = Field(min_length=1, max_length=647)
+    # None is Automatic.
+    context: int | None = Field(default=None, ge=1024, le=4194304)
+    thinking: Literal["auto", "on", "off"] = "auto"
+    reply_limit: int | None = Field(default=None, ge=1024, le=262144)
+    # Absent: the sampling saved stays.
+    sampling: Literal["auto", "engine", "custom"] | None = None
+    # The person's values with "custom".
+    sampling_values: LocalModelSamplingValues | None = None
+
+
+class LocalModelReloadRequest(WireModel):
+    """Load a model in LM Studio again at another window (the person pressed it)."""
+
+    model_ref: str = Field(min_length=1, max_length=647)
+    context: int = Field(ge=16384, le=262144)
 
 
 class ModelVisibilityMutation(WireModel):
@@ -11575,6 +11751,9 @@ class DictationCapability(WireModel):
     # Read aloud on a reply: "available", or the code saying what it needs (kokoro_model_missing).
     read_aloud_reason: str = Field(default="host_unavailable", max_length=128)
     live_providers: list[LiveVoiceProvider] = Field(default_factory=list, max_length=8)
+    # "Hey Row-Bot": "available" in the desktop app on this computer, or why not
+    # (not_this_computer, wake_model_missing, host_unavailable).
+    wake_reason: str = Field(default="host_unavailable", max_length=128)
 
 
 class DictationStart(WireModel):

@@ -63,6 +63,8 @@ import {
   type ReactNode,
 } from 'react';
 import { clientError } from '../../api/errors';
+import { useWakeWordAvailable } from '../voice/WakeWord';
+import { announceWakeWord } from '../voice/wake-word';
 import { usePlace, type PlaceWords } from '../../api/place';
 import { useSmallServer } from '../../api/server-memory';
 import { webPage } from '../shell/hosted-links';
@@ -2249,6 +2251,10 @@ export function VoiceSnapshotPanel({
     listeners[0] ??
     null;
   const localDictation = snapshot.runtime.dictation_provider === 'local';
+  // "Hey Row-Bot" only where it can listen: the app on this computer, never a phone.
+  const wakeAvailable = useWakeWordAvailable();
+  const wakeWord = snapshot.runtime.wake_word === true;
+  useEffect(() => announceWakeWord(wakeWord), [wakeWord]);
   const size = whisperSize(
     snapshot.whisper_options,
     snapshot.local.whisper_model,
@@ -2464,6 +2470,26 @@ export function VoiceSnapshotPanel({
           }
         />
       </SettingsGroup>
+      {wakeAvailable && (
+        <SettingsGroup
+          title="Wake word"
+          anchor="wake-word"
+          note="Listens on this computer for “Hey Row-Bot” while a Row-Bot window is open; nothing is recorded or sent anywhere."
+        >
+          <SwitchSetting
+            mutation={mutation}
+            field="runtime.wake_word"
+            label="Hey Row-Bot"
+            hint="Say it to start talking in the open chat, or in a new one."
+            value={snapshot.runtime.wake_word ?? false}
+            savedMessage={(next) =>
+              next
+                ? 'Row-Bot listens for “Hey Row-Bot”'
+                : 'Wake word turned off'
+            }
+          />
+        </SettingsGroup>
+      )}
       <SettingsGroup
         title="Microphone and speaker"
         anchor="devices"

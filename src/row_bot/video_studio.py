@@ -26,6 +26,7 @@ import io
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache
@@ -365,6 +366,8 @@ class Studio:
         self._audio = self._writer.add_stream("pcm_s16le", rate=self.RATE, layout="stereo") if sound else None
         self._fifo = av.AudioFifo() if sound else None
         self._drawn: tuple[Any, Any] = (None, None)
+        # Its colour (C5), from a small copy of every tenth frame: [pixels, each channel's sum, each one's squares].
+        self.tone = [0.0] * 7
 
     def add(self, source: Path, start: float, end: float, keys: tuple[Key, ...], frame: Frame, *,
             stopped: Callable[[], bool] = lambda: False) -> tuple[float, float]:
@@ -443,6 +446,8 @@ class Studio:
         return first / self.fps, count / self.fps
 
     def _put(self, picture: Any) -> None:
+        if self.written % TONE_EVERY == 0:
+            _add_tone(self.tone, picture)
         picture.pts, picture.time_base = self.written, self._tick
         for packet in self._video.encode(picture):
             self._writer.mux(packet)
@@ -516,6 +521,83 @@ class Studio:
         self._writer.close()
 
 
+# Colour matching (C5, G5): every tenth frame of a scene, made this small, says its colour.
+TONE_EVERY = 10
+TONE_SIZE = (48, 27)
+# How far each source moves toward the video's look (gains as a power, the mean as a share), and at most how far:
+# real clips and AI shots meet as one film, a night scene stays darker than a day one.
+MATCH = 0.7
+MATCH_GAINS = (0.8, 1.25)
+MATCH_SHIFT = 30.0
+TONES = "tones.json"
+
+
+def _add_tone(tone: list[float], picture: Any) -> None:
+    """A frame's colour added to a clip's (``Studio.tone``)."""
+    small = picture.reformat(width=TONE_SIZE[0], height=TONE_SIZE[1], format="rgb24", src_colorspace="ITU709",
+                             src_color_range="MPEG").to_ndarray().reshape(-1, 3).astype("float64")
+    tone[0] += small.shape[0]
+    for channel in range(3):
+        tone[1 + channel] += float(small[:, channel].sum())
+        tone[4 + channel] += float((small[:, channel] ** 2).sum())
+
+
+def clip_tone(path: Path) -> list[float]:
+    """A drawn clip's colour, read from it (a clip drawn before Row-Bot noted its colour as it drew)."""
+    import av
+
+    tone = [0.0] * 7
+    with av.open(str(path)) as reader:
+        for number, decoded in enumerate(reader.decode(video=0)):
+            if number % TONE_EVERY == 0:
+                _add_tone(tone, decoded)
+    return tone
+
+
+def colour_match(tones: dict[Any, list[float]]) -> dict[Any, tuple[float, ...]]:
+    """Each source's colour match (C5): its channels' spread and middle moved toward the whole video's (each
+    source weighed by how much of it is shown), as each channel's gain then offset (0-255). Footage from one source
+    only, or a source already close to the rest, needs none."""
+    if len(tones) < 2:
+        return {}
+
+    def spread(tone: list[float]) -> tuple[list[float], list[float]]:
+        count = max(tone[0], 1.0)
+        means = [tone[1 + channel] / count for channel in range(3)]
+        return means, [max(1.0, (tone[4 + channel] / count - means[channel] ** 2) ** 0.5) for channel in range(3)]
+
+    total = sum(tone[0] for tone in tones.values()) or 1.0
+    looks = {source: spread(tone) for source, tone in tones.items()}
+    target = [[sum(tones[source][0] * looks[source][part][channel] for source in tones) / total
+               for channel in range(3)] for part in (0, 1)]
+    matched: dict[Any, tuple[float, ...]] = {}
+    for source, (means, spreads) in looks.items():
+        gains = [min(MATCH_GAINS[1], max(MATCH_GAINS[0], (target[1][channel] / spreads[channel]) ** MATCH))
+                 for channel in range(3)]
+        shifts = [min(MATCH_SHIFT, max(-MATCH_SHIFT, MATCH * (target[0][channel] - means[channel])))
+                  for channel in range(3)]
+        offsets = [means[channel] * (1 - gains[channel]) + shifts[channel] for channel in range(3)]
+        if all(abs(gain - 1) < 0.02 for gain in gains) and all(abs(shift) < 1.5 for shift in shifts):
+            continue
+        matched[source] = tuple(round(value, 4) for value in (*gains, *offsets))
+    return matched
+
+
+def _tones(shelf: Path) -> dict[str, list[float]]:
+    try:
+        data = json.loads((shelf / TONES).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(name): [float(value) for value in tone][:7] for name, tone in data.items()
+            if isinstance(tone, list) and len(tone) == 7} if isinstance(data, dict) else {}
+
+
+def _keep_tones(shelf: Path, tones: dict[str, list[float]]) -> None:
+    partial = shelf / f"{TONES}.{os.getpid()}.{uuid.uuid4().hex[:6]}.part"
+    partial.write_text(json.dumps(tones), encoding="utf-8", newline="\n")
+    os.replace(partial, shelf / TONES)
+
+
 def frame_rate(scenes: list[Any], inputs: list[Any]) -> float:
     """A video's frame rate: the one most of its footage plays at (by the seconds used), 24 to 60; 30 for pictures
     alone. The rest is conformed to it."""
@@ -531,13 +613,23 @@ def frame_rate(scenes: list[Any], inputs: list[Any]) -> float:
 
 
 def scene_key(item: Any, start: float, end: float, keys: tuple[Key, ...], frame: Frame, fps: float,
-              sound: bool) -> str:
+              sound: bool, parts: tuple[tuple[float, float], ...] = ()) -> str:
     """What a scene's clip is drawn from, as a hash: its footage (``InputVideo.identity``: which file, as it is
-    now), the part of it, its camera and look, the frame rate and whether the video has sound. Its speed, card, line
-    and voice are the edit's, not the drawing's: changing them draws nothing again."""
+    now), the part of it (and the parts it keeps once its pauses are cut, C4), its camera and look, the frame rate and
+    whether the video has sound. Its speed, card, line and voice are the edit's, not the drawing's: changing them
+    draws nothing again."""
     what = [DRAWING, item.identity or item.path, item.info.still, round(start, 3), round(end, 3), keys,
             [*frame.size, frame.framing, *frame.colour, frame.captions], fps, sound]
+    if parts:
+        what.append([list(part) for part in parts])
     return hashlib.sha256(json.dumps(what).encode()).hexdigest()[:32]
+
+
+def scene_parts(scene: Any, start: float, end: float) -> tuple[tuple[float, float], ...]:
+    """The parts of start to end a scene keeps (``SceneCut.keeps``, C4), within them; () all of it."""
+    parts = tuple((round(max(begin, start), 3), round(min(until, end), 3)) for begin, until in scene.keeps
+                  if min(until, end) - max(begin, start) >= 0.05)
+    return () if parts == ((round(start, 3), round(end, 3)),) else parts
 
 
 def _concat(clips: list[tuple[Path, float]], output: Path) -> None:
@@ -585,7 +677,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     from row_bot.video_editing import CARD_SIZES, EditError, InputVideo, Look, VideoInfo, fit_to_lines
 
     if step.aspect and step.aspect not in CARD_SIZES:
-        raise EditError(f"A video's shape is 16:9, 1:1 or 9:16, not {step.aspect}.")
+        raise EditError(f"A video's shape is 16:9, 1:1, 9:16 or 4:5, not {step.aspect}.")
     look = step.look or Look()
     given = [scene for scene in step.scenes if scene.input is not None]
     if not given or any(not 0 <= scene.input < len(inputs) for scene in given):
@@ -625,9 +717,11 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     clips: list[tuple[Path, float]] = []
     made: list[str] = []
     plans = []  # Each footage scene: (scene, its footage, its part, camera, look, its clip, kept from before).
+    pieces: list[tuple[tuple[float, float], ...]] = []  # The parts of it each scene keeps (C4), in the same order.
     for scene in fitted:
         if scene.input is None:
             plans.append((scene, None, (0.0, 0.0), (), fill, None, False))
+            pieces.append(())
             continue
         item = inputs[scene.input]
         keys, frame = keys_of(scene), frame_of(scene)
@@ -636,18 +730,29 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
         else:
             start = min(max(0.0, scene.start), item.info.duration)
             end = item.info.duration if scene.end is None else min(scene.end, item.info.duration)
-        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound)}.mkv"
+        parts = () if item.info.still else scene_parts(scene, start, end)
+        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound, parts)}.mkv"
         plans.append((scene, item, (start, end), keys, frame, clip, cache is not None and _keep(clip)))
+        pieces.append(parts or ((start, end),))
     drawing = sum(1 for *_rest, clip, kept in plans if clip is not None and not kept)
+
+    def matched(scene: Any, item: Any, frame: Frame) -> str:
+        """The source a scene's colour is matched as (C5), or "": a screen recording, a card or a framed picture."""
+        return (item.identity or item.path) if item is not None and scene.matched and frame.framing == "full" else ""
+
+    # Footage from more than one source is matched to one look: each source's colour, from its scenes' clips.
+    matching = len({matched(scene, item, frame) for scene, item, _part, _keys, frame, _clip, _kept in plans} - {""}) > 1
+    noted = _tones(shelf) if matching else {}
+    tones: dict[str, list[float]] = {}
     scenes = []
     written = 0
-    for scene, item, (start, end), keys, frame, clip, kept in plans:
+    for (scene, item, (start, end), keys, frame, clip, kept), parts in zip(plans, pieces, strict=True):
         if clip is None:
             scenes.append(scene)
             made.append("")
             continue
         source = Path(item.path) if Path(item.path).is_absolute() else folder / item.path
-        count = max(1, round((end - start) * fps))
+        count = sum(max(1, round((until - begin) * fps)) for begin, until in parts)
         if kept:
             made.append("reused")
         else:
@@ -657,12 +762,19 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
             try:
                 if item.info.still:
                     studio.still(source, end, keys, frame)
-                else:
-                    studio.add(source, start, end, keys, frame, stopped=stopped)
+                else:  # Each part it keeps one after another: its pauses and fillers cut (C4).
+                    for begin, until in parts:
+                        studio.add(source, begin, until, keys, frame, stopped=stopped)
             finally:
                 studio.close()
             os.replace(part, clip)
             made.append("new")
+            if matching:
+                noted[clip.name] = studio.tone
+        if matching and (named := matched(scene, item, frame)):
+            tone = noted.get(clip.name) or noted.setdefault(clip.name, clip_tone(clip))
+            pooled = tones.setdefault(named, [0.0] * 7)
+            pooled[:] = [total + value for total, value in zip(pooled, tone)]
         at = written / fps
         written += count
         clips.append((clip, count / fps))
@@ -670,6 +782,11 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
         shift = at - start
         scenes.append(replace(scene, input=0, start=round(at, 3), end=round(at + count / fps, 3), zoom=None,
                               camera=(), waits=tuple((begin + shift, until + shift) for begin, until in scene.waits)))
+    if matching:
+        _keep_tones(shelf, {path.name: noted[path.name] for path, _seconds in clips if path.name in noted})
+        found = colour_match(tones)
+        scenes = [replace(scene, tone=found.get(matched(scene, item, frame), ())) if item is not None else scene
+                  for scene, (_asked, item, _part, _keys, frame, _clip, _kept) in zip(scenes, plans)]
     _concat(clips, folder / "scenes.txt")
     if cache is not None:
         _prune(cache, size, {path.name for path, _seconds in clips})

@@ -6,6 +6,7 @@ reads the real computer, downloads or starts anything.
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 
 import pytest
@@ -37,15 +38,14 @@ def test_an_nvidia_card_gets_qwen38_27b_at_the_quantization_that_fits_else_a_sma
     assert models.get(expected).older is expected.startswith("qwen3.5")
 
 
-def test_the_27b_builds_are_qwen38_with_an_8_bit_context_cache_and_the_small_ones_are_the_older_generation():
+def test_the_27b_builds_are_qwen38_and_the_small_ones_are_the_older_generation():
     big = [model for model in models.CATALOG if not model.older]
     small = [model for model in models.CATALOG if model.older]
 
     assert {model.name for model in big} == {"Qwen3.8 27B"}
     assert [model.quantization for model in big] == ["4-bit", "3-bit", "2-bit"]
-    assert all(model.kv_cache_type == "q8_0" and model.repo == "unsloth/Qwen3.8-27B-GGUF" for model in big)
+    assert all(model.repo == "unsloth/Qwen3.8-27B-GGUF" for model in big)
     assert [model.name for model in small] == ["Qwen3.5 9B", "Qwen3.5 4B"]
-    assert all(model.context == 32_768 for model in models.CATALOG)
 
 
 def test_the_driver_decides_between_cuda_13_cuda_12_and_vulkan():
@@ -161,3 +161,121 @@ def test_importing_the_runtime_and_reading_its_catalog_loads_nothing_of_learning
     catalog_view(classify(builds.LINUX_X64, 16 * GIB))
 
     assert {name for name in sys.modules if name.startswith("row_bot.learning")} == before
+
+
+# ── The window each model is served at (D1) ───────────────────────────────────
+
+_MIB = 1024**2
+# The published file sizes (docs/LOCAL_RUNTIME.md) and each model's context cache per token in llama.cpp's 8-bit
+# type: full-attention layers (16 for the 27B, 8 for Qwen3.5 9B and 4B) x 2 x 4 key-value heads x head size 256,
+# 34 bytes per block of 32 values.
+_FILE = {"qwen3.8-27b-q4": 16_564_259_744, "qwen3.8-27b-q3": 13_146_393_504, "qwen3.8-27b-q2": 9_948_666_784,
+         "qwen3.5-9b": 5_680_522_464, "qwen3.5-4b": 2_740_937_888}
+_KV = {model_id: (16 if model_id.startswith("qwen3.8") else 8) * 2 * 4 * 256 * 34 // 32 for model_id in _FILE}
+# The working memory fitted to llama.cpp b12359's buffer lines and the measured memory (RTX 5090, 22 Nov 2026;
+# M4 Mac mini 16 GB, 21 Nov): 6,144 bytes a token of compute buffers, and a fixed part of 256 MiB (768 MiB for
+# Qwen3.5 4B, whose output layer is its embedding table, on the card and in host memory both).
+_COMPUTE = 6_144
+_FIXED = {model_id: (768 if model_id == "qwen3.5-4b" else 256) * _MIB for model_id in _FILE}
+
+
+def _need(model_id: str, window: int) -> int:
+    """The file, the window's cache and compute buffers, and the fixed part."""
+    return _FILE[model_id] + (_KV[model_id] + _COMPUTE) * window + _FIXED[model_id]
+
+
+# What each model used once loaded and through prompts up to 110K (MiB): the RTX 5090's card memory over its
+# baseline, and on the Mac the larger of its resident size after load and its wired memory's growth (the prompt
+# cache, at most 2 GiB of ordinary host memory, is left out).
+_MEASURED = [
+    ("qwen3.8-27b-q4", 131_072, 20_533), ("qwen3.8-27b-q4", 65_536, 18_050), ("qwen3.8-27b-q4", 32_768, 16_802),
+    ("qwen3.5-9b", 131_072, 8_320), ("qwen3.5-9b", 65_536, 6_912), ("qwen3.5-9b", 32_768, 6_208),
+    ("qwen3.5-4b", 65_536, 4_650), ("qwen3.5-4b", 32_768, 3_944),
+    ("qwen3.5-9b", 131_072, 8_100), ("qwen3.5-9b", 65_536, 6_726), ("qwen3.5-9b", 32_768, 6_222),
+    ("qwen3.5-4b", 65_536, 4_209), ("qwen3.5-4b", 32_768, 3_635),
+]
+
+
+@pytest.mark.parametrize(("model_id", "window", "used_mib"), _MEASURED)
+def test_the_memory_a_model_is_counted_at_covers_what_it_used_on_a_real_card_and_mac(model_id, window, used_mib):
+    assert models.get(model_id).need_bytes(window) >= used_mib * _MIB
+    assert models.get(model_id).need_bytes(window) == _need(model_id, window)
+
+
+def _room(gb: int) -> int:
+    """What a card leaves a model with llama.cpp's --fit margin (1024 MiB) kept free: the card less the 512 MiB
+    the system keeps, less that margin."""
+    return gb * GIB - 512 * _MIB - 1024 * _MIB
+
+
+@pytest.mark.parametrize(("gb", "pick", "window"), [
+    (24, "qwen3.8-27b-q4", 131_072), (20, "qwen3.8-27b-q4", 65_536), (16, "qwen3.8-27b-q3", 32_768),
+    (12, "qwen3.8-27b-q2", 32_768), (10, "qwen3.5-9b", 131_072), (8, "qwen3.5-9b", 32_768),
+    (6, "qwen3.5-4b", 32_768)])
+def test_the_recommended_model_is_served_at_the_largest_window_that_keeps_it_on_the_card(gb, pick, window):
+    """The model is picked at 32K as before; then it gets 128K, 64K or 32K, the largest that still fits on the
+    card with llama.cpp's margin free, so a window never costs a quality level."""
+    hardware = classify(builds.WINDOWS_X64, 32 * GIB, [_nvidia(gb)])
+
+    assert _pick(hardware) == pick
+    found = models.get(pick)
+    assert models.context_for(found, hardware) == window
+    assert models.fit(found, hardware) == "gpu"
+    if window > 32_768:
+        assert _need(pick, window) <= _room(gb)
+    if window < 131_072:  # the next size up would spill off the card
+        assert _need(pick, window * 2) > _room(gb)
+
+
+def test_a_24_gb_card_gets_the_27b_4_bit_at_128k_and_a_16_gb_card_keeps_the_3_bit_rather_than_a_larger_window():
+    large = classify(builds.WINDOWS_X64, 32 * GIB, [_nvidia(24)])
+    medium = classify(builds.WINDOWS_X64, 32 * GIB, [_nvidia(16)])
+
+    assert _need("qwen3.8-27b-q4", 131_072) <= _room(24)
+    assert models.context_for(models.get("qwen3.8-27b-q4"), large) == 131_072
+    # The 2-bit build would read 64K on the 16 GB card, but the pick stays the 3-bit at the window it fits.
+    assert _need("qwen3.8-27b-q2", 65_536) <= _room(16) and _need("qwen3.8-27b-q3", 65_536) > _room(16)
+    assert _pick(medium) == "qwen3.8-27b-q3"
+    assert models.context_for(models.get("qwen3.8-27b-q3"), medium) == 32_768
+
+
+def test_a_12_gb_card_keeps_todays_pick_at_32k():
+    hardware = classify(builds.WINDOWS_X64, 32 * GIB, [_nvidia(12)])
+
+    assert _pick(hardware) == "qwen3.8-27b-q2"
+    assert _need("qwen3.8-27b-q2", 32_768) <= 12 * GIB - 512 * _MIB  # it fits the card at 32K, as before
+    assert models.context_for(models.get("qwen3.8-27b-q2"), hardware) == 32_768
+
+
+@pytest.mark.parametrize("ram", [16, 32, 64])
+def test_without_a_card_every_model_stays_at_32k(ram):
+    hardware = classify(builds.WINDOWS_X64, ram * GIB)
+
+    assert {models.context_for(model, hardware) for model in models.CATALOG} == {32_768}
+
+
+def test_a_model_partly_on_the_card_stays_at_32k():
+    hardware = classify(builds.WINDOWS_X64, 64 * GIB, [_nvidia(12)])
+
+    assert models.fit(models.get("qwen3.8-27b-q4"), hardware) == "partial"
+    assert models.context_for(models.get("qwen3.8-27b-q4"), hardware) == 32_768
+
+
+@pytest.mark.parametrize(("gb", "pick"), [
+    (16, "qwen3.5-9b"), (24, "qwen3.8-27b-q2"), (32, "qwen3.8-27b-q3"), (48, "qwen3.8-27b-q4")])
+def test_a_mac_serves_every_model_at_32k_even_with_memory_to_spare(gb, pick):
+    """Sized by speed: a 16 GB M4 read a 110K prompt for 18 minutes before its first word."""
+    hardware = classify(builds.MACOS_ARM64, gb * GIB, apple_silicon=True)
+
+    assert _pick(hardware) == pick
+    if pick == "qwen3.5-9b":  # the memory would hold 128K
+        assert _need(pick, 131_072) + 1024 * _MIB <= int(gb * GIB * 0.70)
+    assert {models.context_for(model, hardware) for model in models.CATALOG} == {32_768}
+
+
+def test_no_model_is_served_beyond_its_native_window():
+    hardware = classify(builds.WINDOWS_X64, 32 * GIB, [_nvidia(48)])
+    short = dataclasses.replace(models.get("qwen3.5-4b"), native_context=65_536)
+
+    assert models.context_for(models.get("qwen3.5-4b"), hardware) == 131_072
+    assert models.context_for(short, hardware) == 65_536

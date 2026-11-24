@@ -45,7 +45,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "SettingChangeUndoRequest", "SettingChangeUndoResult", "GuidePageView", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
-    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
+    "ContextUsageView", "ConversationOpenView", "ProviderStatusSnapshot", "ProviderLiveSnapshot", "ProviderCatalogRefresh", "ProviderRuntimeProbe", "ClaudeCodeInstallRequest", "ClaudeCodeInstallState", "ClaudeSignInOpenRequest", "ClaudeSignInView", "ClaudeSignInOutput", "CachedModelPage", "ModelsSettingsState", "ModelSurfaceMutation", "ModelContextMutation", "LocalModelContextChoice", "LocalModelContextSettings", "LocalModelThinkingSettings", "LocalModelReplyLimitSettings", "LocalModelSamplingValues", "LocalModelSamplingCard", "LocalModelSamplingSettings", "LocalModelSettingsView", "LocalModelSettingsMutation", "LocalModelReloadRequest", "ModelVisibilityMutation", "ModelVisibilityState", "AgentRuntimeSettingsState", "ModelCatalogSummary", "ModelCameraList", "TaskSummaryPage", "TaskDeliverySnapshot", "ToolCatalogPage",
     "SettingsSnapshot", "SettingsMutationRequest", "SettingsMutationReview", "SettingsMutationCommand", "SettingsMutationReceipt", "TrackerEntryPage", "GitHubAccessSnapshot", "GitHubAccessCommand", "GitHubAccessReceipt", "AccountAuthSnapshot", "AccountAuthCommand", "AccountAuthReceipt",
     "EntitySummaryPage", "KnowledgeEntityDetail", "KnowledgeRecallPage", "KnowledgeMemoryChangePage", "DocumentSummaryPage", "TaskEditableFields", "TaskEditorSnapshot", "TaskSaveResult",
     "TaskSettingsFields", "TaskSettingsSnapshot", "ProviderSettingsSnapshot",
@@ -125,7 +125,8 @@ MODELS = {name: getattr(schemas, name) for name in (
 # checked against its HTTP routes. Each one is authenticated and origin-checked by
 # the access middleware and bound by a ticket from an authenticated POST.
 WEBSOCKETS = (
-    ("/voice/stream", "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down."),
+    ("/voice/stream", "Row-Bot Voice: the ticket first, then 16 kHz PCM up; events and 24 kHz speech down. "
+     "In its wake mode (desktop only), 16 kHz PCM up and wake events down."),
     ("/voice/live", "Live voice: the ticket first, then the session's events both ways and a relayed front's audio."),
 )
 
@@ -204,6 +205,7 @@ OPERATIONS = (
     ("delete", "/subscriptions/{subscription_id}", None, "Unsubscribed"),
     ("get", "/choices", None, "Choices"),
     ("get", "/voice/dictation/capability", None, "DictationCapability"),
+    ("post", "/voice/wake", None, "VoiceTicket"),
     ("post", "/conversations/{conversation_id}/voice/dictation", "DictationStart", "DictationSnapshot"),
     ("get", "/conversations/{conversation_id}/voice/dictation/{lease_id}", None, "DictationSnapshot"),
     ("post", "/conversations/{conversation_id}/voice/dictation/{lease_id}/transcribe", "bytes", "DictationResult"),
@@ -570,6 +572,9 @@ OPERATIONS = (
     ("get", "/settings/models/state", None, "ModelsSettingsState"),
     ("post", "/settings/models/surface", "ModelSurfaceMutation", "ModelsSettingsState"),
     ("post", "/settings/models/context", "ModelContextMutation", "ModelsSettingsState"),
+    ("get", "/settings/models/local-model", None, "LocalModelSettingsView"),
+    ("post", "/settings/models/local-model", "LocalModelSettingsMutation", "LocalModelSettingsView"),
+    ("post", "/settings/models/local-model/reload", "LocalModelReloadRequest", "LocalModelSettingsView"),
     ("post", "/settings/models/visibility", "ModelVisibilityMutation", "ModelVisibilityState"),
     ("get", "/settings/models/agents", None, "AgentRuntimeSettingsState"),
     ("post", "/settings/models/agents", "AgentRuntimeSettingsState", "AgentRuntimeSettingsState"),
@@ -1323,6 +1328,12 @@ export const updateModelSurface = (base: string, proof: SessionProof, body: Mode
   jsonRequest(base, '/settings/models/surface', 'ModelsSettingsState', proof, 'POST', body, undefined, signal);
 export const updateModelContext = (base: string, proof: SessionProof, body: ModelContextMutation, signal?: AbortSignal): Promise<ModelsSettingsState> =>
   jsonRequest(base, '/settings/models/context', 'ModelsSettingsState', proof, 'POST', body, undefined, signal);
+export const getLocalModelSettings = (base: string, proof: SessionProof, model_ref: string, signal?: AbortSignal): Promise<LocalModelSettingsView> =>
+  jsonRequest(base, '/settings/models/local-model' + query({model_ref}), 'LocalModelSettingsView', proof, 'GET', undefined, undefined, signal);
+export const saveLocalModelSettings = (base: string, proof: SessionProof, body: LocalModelSettingsMutation, signal?: AbortSignal): Promise<LocalModelSettingsView> =>
+  jsonRequest(base, '/settings/models/local-model', 'LocalModelSettingsView', proof, 'POST', body, undefined, signal);
+export const reloadLocalModelInLmStudio = (base: string, proof: SessionProof, body: LocalModelReloadRequest, signal?: AbortSignal): Promise<LocalModelSettingsView> =>
+  jsonRequest(base, '/settings/models/local-model/reload', 'LocalModelSettingsView', proof, 'POST', body, undefined, signal);
 export const updateModelVisibility = (base: string, proof: SessionProof, body: ModelVisibilityMutation, signal?: AbortSignal): Promise<ModelVisibilityState> =>
   jsonRequest(base, '/settings/models/visibility', 'ModelVisibilityState', proof, 'POST', body, undefined, signal);
 export const getAgentRuntimeSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AgentRuntimeSettingsState> =>
@@ -2155,6 +2166,8 @@ export async function transcribeDictation(base: string, proof: SessionProof, han
   if (!response.ok) throw validateWire<Problem>('Problem', value);
   return validateWire<DictationResult>('DictationResult', value);
 }
+export const wakeTicket = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<VoiceTicket> =>
+  jsonRequest(base, '/voice/wake', 'VoiceTicket', proof, 'POST', {}, undefined, signal);
 export const startTalk = (base: string, proof: SessionProof, conversation: string, body: TalkStart, signal?: AbortSignal): Promise<TalkStarted> =>
   jsonRequest(base, `/conversations/${id(conversation)}/voice/talk`, 'TalkStarted', proof, 'POST', validateWire('TalkStart', body), undefined, signal);
 export const stopTalk = (base: string, proof: SessionProof, handle: DictationHandle, signal?: AbortSignal): Promise<TalkSnapshot> => {

@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "LocalModelContextChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "memory_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Memory Bytes"
+        },
+        "slow": {
+          "default": false,
+          "title": "Slow",
+          "type": "boolean"
+        },
+        "tokens": {
+          "maximum": 4194304,
+          "minimum": 1024,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens"
+      ],
+      "title": "LocalModelContextChoice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "automatic": {
+      "anyOf": [
+        {
+          "maximum": 4194304,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Automatic"
+    },
+    "automatic_memory_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Automatic Memory Bytes"
+    },
+    "choices": {
+      "items": {
+        "$ref": "#/$defs/LocalModelContextChoice"
+      },
+      "maxItems": 16,
+      "title": "Choices",
+      "type": "array"
+    },
+    "chosen": {
+      "anyOf": [
+        {
+          "maximum": 4194304,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chosen"
+    },
+    "current": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current"
+    },
+    "editable": {
+      "title": "Editable",
+      "type": "boolean"
+    },
+    "loaded": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Loaded"
+    },
+    "memory_place": {
+      "anyOf": [
+        {
+          "enum": [
+            "card",
+            "memory"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Memory Place"
+    },
+    "reload_choices": {
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 16,
+      "title": "Reload Choices",
+      "type": "array"
+    },
+    "room_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Room Bytes"
+    }
+  },
+  "required": [
+    "editable",
+    "choices"
+  ],
+  "title": "LocalModelContextSettings",
+  "type": "object"
+}

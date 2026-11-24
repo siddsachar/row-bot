@@ -645,7 +645,10 @@ it('keeps OpenAI Realtime’s voice under Live voice and hides uninstalled local
 
 function renderVoiceWith(speechTest: (signal: AbortSignal) => Promise<Blob>) {
   mutation.page = 'voice';
-  const controller = { speechTest } as unknown as ClientController;
+  const controller = {
+    speechTest,
+    dictationCapability: async () => ({ wake_reason: 'not_this_computer' }),
+  } as unknown as ClientController;
   return render(
     <RuntimeContext.Provider
       value={{ controller, platform: {} as ClientPlatform }}
@@ -3240,4 +3243,98 @@ it('a cloud voice says which chosen language it can’t speak, not Kokoro (V5, V
     ),
   ).toBeVisible();
   expect(screen.queryByText(/Kokoro can’t speak/)).toBeNull();
+});
+
+function showVoiceOn(wakeReason: string) {
+  mutation.page = 'voice';
+  const controller = {
+    dictationCapability: vi.fn(async () => ({ wake_reason: wakeReason })),
+  } as unknown as ClientController;
+  return render(
+    <RuntimeContext.Provider
+      value={{ controller, platform: {} as ClientPlatform }}
+    >
+      <MemoryRouter>
+        <OverlayProvider>
+          <VoiceSnapshotPanel
+            snapshot={snapshot.voice}
+            conversationId={null}
+            mutation={mutation}
+          />
+        </OverlayProvider>
+      </MemoryRouter>
+    </RuntimeContext.Provider>,
+  );
+}
+
+function phoneWidth(phone: boolean) {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: phone && query === '(max-width: 767px)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+}
+
+it('the wake word shows in the app on this computer, off until turned on, with its privacy note', async () => {
+  showVoiceOn('available');
+  const toggle = await screen.findByLabelText('Hey Row-Bot');
+  expect(toggle).not.toBeChecked();
+  expect(
+    screen.getByText(
+      'Listens on this computer for “Hey Row-Bot” while a Row-Bot window is open; nothing is recorded or sent anywhere.',
+    ),
+  ).toBeVisible();
+  fireEvent.click(toggle);
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'voice',
+        field: 'runtime.wake_word',
+        value: true,
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it('the wake word is absent where it cannot listen: another device, a hosted server, or a phone', async () => {
+  const other = showVoiceOn('not_this_computer');
+  await waitFor(() =>
+    expect(screen.getByLabelText('Live captions')).toBeVisible(),
+  );
+  await Promise.resolve();
+  expect(screen.queryByLabelText('Hey Row-Bot')).toBeNull();
+  other.unmount();
+
+  for (const place of [
+    { kind: 'hosted', host_name: 'PikaPods' },
+    { kind: 'server' },
+  ] as const) {
+    setPlace(place);
+    const away = showVoiceOn('available');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Live captions')).toBeVisible(),
+    );
+    await Promise.resolve();
+    expect(screen.queryByLabelText('Hey Row-Bot')).toBeNull();
+    expect(screen.queryByText(/this computer/)).toBeNull();
+    away.unmount();
+  }
+  setPlace(null);
+
+  phoneWidth(true);
+  try {
+    showVoiceOn('available');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Live captions')).toBeVisible(),
+    );
+    await Promise.resolve();
+    expect(screen.queryByLabelText('Hey Row-Bot')).toBeNull();
+  } finally {
+    phoneWidth(false);
+  }
 });

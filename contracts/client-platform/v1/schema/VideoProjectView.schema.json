@@ -23,6 +23,28 @@
       "title": "VideoCastMember",
       "type": "object"
     },
+    "VideoChapter": {
+      "additionalProperties": false,
+      "description": "Where a chapter of a made video starts, and its title (C7): for a YouTube description.",
+      "properties": {
+        "at": {
+          "minimum": 0,
+          "title": "At",
+          "type": "number"
+        },
+        "title": {
+          "maxLength": 120,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "title"
+      ],
+      "title": "VideoChapter",
+      "type": "object"
+    },
     "VideoEditView": {
       "additionalProperties": false,
       "description": "A video edit (F3): an edited video, or stills from one, saved to its conversation's files.",
@@ -266,6 +288,7 @@
             "16:9",
             "1:1",
             "9:16",
+            "4:5",
             "gif"
           ],
           "title": "Shape",
@@ -277,6 +300,120 @@
         "edit"
       ],
       "title": "VideoExportView",
+      "type": "object"
+    },
+    "VideoPublishFile": {
+      "additionalProperties": false,
+      "description": "A file of a publish kit in the chat's files: a thumbnail in a shape, or the subtitles in a format.",
+      "properties": {
+        "format": {
+          "default": "",
+          "enum": [
+            "",
+            "srt",
+            "vtt"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "shape": {
+          "default": "",
+          "enum": [
+            "",
+            "16:9",
+            "1:1",
+            "9:16",
+            "4:5"
+          ],
+          "title": "Shape",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "ref"
+      ],
+      "title": "VideoPublishFile",
+      "type": "object"
+    },
+    "VideoPublishKit": {
+      "additionalProperties": false,
+      "description": "A made version's publish kit (C10), made when the person named where it's going: the post's title and\ndescription (YouTube's limits), a YouTube video's chapters, a thumbnail in each platform's shape, and its\nsubtitles. Each platform's video is the version's own, or its export in that shape.",
+      "properties": {
+        "chapters": {
+          "items": {
+            "$ref": "#/$defs/VideoChapter"
+          },
+          "maxItems": 200,
+          "title": "Chapters",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 5000,
+          "title": "Description",
+          "type": "string"
+        },
+        "platforms": {
+          "items": {
+            "enum": [
+              "youtube",
+              "shorts",
+              "tiktok",
+              "reels",
+              "instagram",
+              "facebook",
+              "x",
+              "linkedin"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Platforms",
+          "type": "array"
+        },
+        "subtitles": {
+          "items": {
+            "$ref": "#/$defs/VideoPublishFile"
+          },
+          "maxItems": 2,
+          "title": "Subtitles",
+          "type": "array"
+        },
+        "thumbnails": {
+          "items": {
+            "$ref": "#/$defs/VideoPublishFile"
+          },
+          "maxItems": 4,
+          "title": "Thumbnails",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 100,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "platforms",
+        "title",
+        "description",
+        "thumbnails",
+        "subtitles"
+      ],
+      "title": "VideoPublishKit",
       "type": "object"
     },
     "VideoScene": {
@@ -516,7 +653,8 @@
         "",
         "16:9",
         "1:1",
-        "9:16"
+        "9:16",
+        "4:5"
       ],
       "title": "Aspect",
       "type": "string"
@@ -524,6 +662,18 @@
     "brand": {
       "title": "Brand",
       "type": "boolean"
+    },
+    "caption_style": {
+      "default": "box",
+      "enum": [
+        "box",
+        "clean",
+        "bold",
+        "title",
+        "word"
+      ],
+      "title": "Caption Style",
+      "type": "string"
     },
     "captions": {
       "title": "Captions",
@@ -544,6 +694,14 @@
       },
       "maxItems": 200,
       "title": "Changed",
+      "type": "array"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/VideoChapter"
+      },
+      "maxItems": 200,
+      "title": "Chapters",
       "type": "array"
     },
     "checks": {
@@ -585,14 +743,36 @@
       "items": {
         "$ref": "#/$defs/VideoExportView"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "title": "Exports",
       "type": "array"
+    },
+    "grade": {
+      "default": "natural",
+      "enum": [
+        "natural",
+        "warm",
+        "cinematic",
+        "vivid",
+        "bw"
+      ],
+      "title": "Grade",
+      "type": "string"
+    },
+    "grain": {
+      "default": false,
+      "title": "Grain",
+      "type": "boolean"
     },
     "latest": {
       "minimum": 1,
       "title": "Latest",
       "type": "integer"
+    },
+    "letterbox": {
+      "default": false,
+      "title": "Letterbox",
+      "type": "boolean"
     },
     "logline": {
       "default": "",
@@ -649,6 +829,32 @@
       "title": "Project Id",
       "type": "string"
     },
+    "publish": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VideoPublishKit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "recipe": {
+      "default": "",
+      "enum": [
+        "",
+        "film",
+        "youtube",
+        "vlog",
+        "montage",
+        "explainer",
+        "demo",
+        "short"
+      ],
+      "title": "Recipe",
+      "type": "string"
+    },
     "review_sheet": {
       "default": "",
       "maxLength": 200,
@@ -679,6 +885,15 @@
       "maxLength": 80,
       "minLength": 1,
       "title": "Title",
+      "type": "string"
+    },
+    "transitions": {
+      "default": "cut",
+      "enum": [
+        "cut",
+        "crossfade"
+      ],
+      "title": "Transitions",
       "type": "string"
     },
     "versions": {
