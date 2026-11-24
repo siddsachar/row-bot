@@ -43,14 +43,17 @@ def test_fixture_build_is_isolated_and_explicit(
     assert "VITE_ENABLE_FIXTURES" not in environment
 
 
-def test_a_failed_runs_summary_names_the_tests_that_did_not_pass() -> None:
+
+def test_a_failed_runs_summary_names_the_tests_that_did_not_pass_and_why() -> None:
     from tests.browser.client_foundation.run_browser import failure_summary
 
     log = "\n".join([
         "Running 3 tests using 1 worker",
         "  ✓  1 [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens (2.1s)",
         "  ✘  2 [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens (9.0s)",
-        "  Error: Unexplained console errors",
+        "",
+        "  1) [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens ──────",
+        "    Error: Unexplained console errors",
         "",
         "  1 failed",
         "    [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens",
@@ -61,9 +64,25 @@ def test_a_failed_runs_summary_names_the_tests_that_did_not_pass() -> None:
 
     summary = failure_summary(log)
 
-    assert summary[0] == "  1 failed"
+    assert summary[0].startswith("  1) [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1")
+    assert "    Error: Unexplained console errors" in summary
     assert "    [chromium-desktop] › tests/browser/wake-word.spec.ts:102:1 › listens" in summary
     assert summary[-1] == "  1 passed (21.3s)"
+
+
+def test_a_long_failure_keeps_its_first_error_and_its_closing_summary() -> None:
+    from tests.browser.client_foundation.run_browser import failure_summary
+
+    errors = [f"    at frame {n}" for n in range(500)]
+    log = "\n".join(["  1) [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens", *errors,
+                     "  1 failed", "    [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens", "  2 passed (3.0s)"])
+
+    summary = failure_summary(log, limit=40)
+
+    assert len(summary) <= 40
+    assert summary[0] == "  1) [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens"
+    assert summary[-3:] == ["  1 failed", "    [chromium-desktop] › tests/browser/a.spec.ts:5:1 › opens",
+                            "  2 passed (3.0s)"]
 
 
 def test_a_run_that_died_without_a_summary_shows_its_last_lines() -> None:

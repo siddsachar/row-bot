@@ -27,16 +27,25 @@ import psutil
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 EVIDENCE = ROOT / ".local/evidence/unified-client-platform/phase-2/qa"
-# Where Playwright's list reporter starts its closing summary of what didn't pass.
+# Where Playwright's list reporter starts what didn't pass: each failure's error ("  1) [project] › ..."),
+# then the closing summary ("  1 failed", "  1 flaky", ...).
+_DETAIL = re.compile(r"^\s+\d+\) \[")
 _SUMMARY = re.compile(r"^\s+\d+ (failed|flaky|interrupted|did not run)\b")
 
 
-def failure_summary(log: str, limit: int = 60) -> list[str]:
-    """The end of a failed run's Playwright log, so a CI log names what failed: the list reporter's closing
-    summary (failed, flaky, ... and the tests under each), else the last lines; at most ``limit`` lines."""
+def failure_summary(log: str, limit: int = 150) -> list[str]:
+    """The end of a failed run's Playwright log, so a CI log names what failed and why: each failure's error
+    and the closing summary, else the last lines. Long output keeps its start and its closing summary."""
     lines = log.rstrip().splitlines()
-    start = next((i for i, line in enumerate(lines) if _SUMMARY.match(line)), max(0, len(lines) - 30))
-    return lines[start:start + limit]
+    start = next((i for i, line in enumerate(lines) if _DETAIL.match(line)), None)
+    if start is None:
+        start = next((i for i, line in enumerate(lines) if _SUMMARY.match(line)), max(0, len(lines) - 30))
+    tail = lines[start:]
+    if len(tail) <= limit:
+        return tail
+    summary = next((i for i, line in enumerate(tail) if _SUMMARY.match(line)), len(tail))
+    closing = tail[summary:][: limit // 3]
+    return [*tail[: limit - len(closing) - 1], "  …", *closing]
 
 
 def fingerprint() -> dict[str, object]:
