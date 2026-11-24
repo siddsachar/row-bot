@@ -12,6 +12,7 @@ import {
   type SurfaceComponent,
 } from './a2ui';
 import { text, weighted, type Context } from './context';
+import { chartOverRows, fitColumns, type Column } from './fit';
 
 /**
  * Row-Bot's own surface components (G2), beyond A2UI's basic catalog:
@@ -78,13 +79,30 @@ function numbers(value: unknown): (number | null)[] {
 function SurfaceChart({ component, context, scope }: Props) {
   const kind = String(component.kind);
   const title = text(component.title, context, scope);
-  const x = list(evaluate(component.x, context.model, scope)).map(asText);
-  const series = (
+  const drawn = (
     (component.series as { name: unknown; values: unknown }[]) ?? []
   ).map((item) => ({
     name: text(item.name, context, scope),
-    values: numbers(evaluate(item.values, context.model, scope)),
+    values: item.values,
   }));
+  // Over rows (a source's CSV, say), x and the values name columns.
+  const overRows = chartOverRows(
+    evaluate(component.rows, context.model, scope),
+    component.x,
+    drawn,
+  );
+  const x = (
+    overRows ? overRows.x : list(evaluate(component.x, context.model, scope))
+  ).map(asText);
+  const series = overRows
+    ? overRows.series.map((item) => ({
+        name: item.name,
+        values: numbers(item.values),
+      }))
+    : drawn.map((item) => ({
+        name: item.name,
+        values: numbers(evaluate(item.values, context.model, scope)),
+      }));
   const unit = String(component.unit ?? '');
   const data =
     kind === 'pie'
@@ -155,10 +173,9 @@ function cell(value: unknown, type: string): string {
 
 function SurfaceTable({ component, context, scope }: Props) {
   const title = text(component.title, context, scope);
-  const columns =
-    (component.columns as { key: string; label: unknown; type: string }[]) ??
-    [];
-  const rows = list(evaluate(component.rows, context.model, scope))
+  const all = list(evaluate(component.rows, context.model, scope));
+  const columns = fitColumns((component.columns as Column[]) ?? [], all);
+  const rows = all
     .slice(0, 200)
     .map((row) =>
       columns.map((column) =>

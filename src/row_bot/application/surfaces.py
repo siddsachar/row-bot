@@ -89,9 +89,9 @@ CATALOG: dict[str, tuple[dict[str, Any], frozenset[str], bool]] = {
     # Row-Bot's own components (G2), beyond the basic catalog. Their values bind like any other, so a chart
     # or a total follows a slider as the person moves it.
     "Chart": ({"kind": frozenset({"bar", "line", "area", "pie"}), "title": "str", "x": "any", "series": "series",
-               "unit": "lstr", "stacked": "lbool"},
+               "unit": "lstr", "stacked": "lbool", "rows": "any"},
               frozenset({"kind", "x", "series"}), False),
-    "Table": ({"title": "str", "columns": "columns", "rows": "any"}, frozenset({"columns", "rows"}), False),
+    "Table": ({"title": "str", "columns": "columns", "rows": "any"}, frozenset({"rows"}), False),
     "Metric": ({"label": "str", "value": "any", "unit": "lstr", "delta": "str",
                 "tone": frozenset({"good", "bad", "neutral"})},
                frozenset({"label", "value"}), False),
@@ -510,6 +510,8 @@ def _component(raw: Any) -> dict[str, Any] | None:
         component = name
     if not isinstance(component, str) or component not in CATALOG:
         return None
+    if component == "Text" and "text" not in raw and "value" in raw:
+        raw = {**raw, "text": raw["value"]}  # Healed: a Text's words written as its "value".
     properties, required, checkable = CATALOG[component]
     checked: dict[str, Any] = {"id": raw.get("id"), "component": component}
     for key, value in raw.items():
@@ -641,6 +643,52 @@ def _sources(raw: dict[str, Any]) -> dict[str, Any]:
     return checked
 
 
+def _healed_data(data: Any) -> tuple[Any, dict[str, Any]]:
+    """Healed: data keys written as paths ({"/budget": {...}} is "budget"), and Row-Bot's sources written
+    into the data model ({"tasks": {"@call": "rowbot.tasks"}}), which become the surface's sources."""
+
+    if not isinstance(data, dict):
+        return data, {}
+    healed: dict[str, Any] = {}
+    moved: dict[str, Any] = {}
+    for key, value in data.items():
+        path = key if key.startswith("/") else f"/{key}"
+        if isinstance(value, dict) and str(value.get("@call") or "").startswith("rowbot."):
+            moved[path] = value
+        elif key.startswith("/") and key != "/" and _PATH.match(key):
+            healed = _set(healed, key, value)
+        else:
+            healed[key] = value
+    return healed, moved
+
+
+def _healed_chart(chart: dict[str, Any], sources: dict[str, Any], data: Any) -> dict[str, Any]:
+    """Healed: a chart over rows of objects written without ``rows``.
+
+    Models write x as a column name (``"date"``) beside one source, or as a column inside a list of rows
+    (``{"@path": "/spend/date"}``, which reads nothing): both become ``rows`` with column names.
+    """
+
+    if "rows" in chart:
+        return chart
+    x = chart.get("x")
+    if isinstance(x, str):
+        return {**chart, "rows": {"@path": next(iter(sources))}} if len(sources) == 1 else chart
+    path = x.get("@path") if isinstance(x, dict) else None
+    if not isinstance(path, str) or not path.startswith("/") or path.count("/") < 2:
+        return chart
+    parent, column = path.rsplit("/", 1)
+    if not (parent in sources or isinstance(read_path(data, parent), list)) or isinstance(read_path(data, path), list):
+        return chart
+
+    def named(values: Any) -> Any:
+        inner = values.get("@path") if isinstance(values, dict) else None
+        return inner.rsplit("/", 1)[1] if isinstance(inner, str) and inner.startswith(parent + "/") else values
+
+    return {**chart, "rows": {"@path": parent}, "x": column,
+            "series": [{**item, "values": named(item["values"])} for item in chart["series"]]}
+
+
 def read_surface(source: str) -> dict[str, Any]:
     """The surface a ```rowbot-ui body describes, checked and healed; raises SurfaceError."""
 
@@ -685,6 +733,8 @@ def read_surface(source: str) -> dict[str, Any]:
                 raise SurfaceError("too many components")
     if not created or not components:
         raise SurfaceError("no components")
+    data, moved = _healed_data(data)
+    raw_sources = {**moved, **raw_sources}
     data = _value(data, "any") if data else {}
     if len(json.dumps(data, ensure_ascii=False)) > MAX_DATA_CHARS:
         raise SurfaceError("the data model is too large")
@@ -698,6 +748,8 @@ def read_surface(source: str) -> dict[str, Any]:
     }
     if sources := _sources(raw_sources):
         surface["sources"] = sources
+    surface["components"] = [_healed_chart(component, sources, data) if component["component"] == "Chart"
+                             else component for component in surface["components"]]
     if not surface["title"]:
         # No title given: the surface's first words name it.
         first = next((line for line in surface_text(surface).splitlines() if line.strip()), "")
@@ -746,6 +798,57 @@ def _key_words(key: str) -> str:
     return words[:1].upper() + words[1:].lower()
 
 
+def _row_keys(rows: Any) -> list[str]:
+    """The columns rows of objects have, in the order they first appear."""
+
+    keys: list[str] = []
+    for row in (rows if isinstance(rows, list) else [])[:20]:
+        if isinstance(row, dict):
+            keys.extend(key for key in row if key not in keys)
+    return keys
+
+
+def _numeric(rows: list[Any], key: str) -> bool:
+    values = [row.get(key) for row in rows if isinstance(row, dict) and row.get(key) not in (None, "")]
+    return bool(values) and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values)
+
+
+def fit_columns(columns: list[dict[str, Any]], rows: Any) -> list[dict[str, Any]]:
+    """A table's columns fitted to its rows: as drawn when the rows have every one, else the rows' own.
+
+    The model often names a source's columns without seeing the file; the rows Row-Bot fills in on this
+    computer decide which there are, keeping the model's label and type where a name matches.
+    """
+
+    keys = _row_keys(rows)
+    if not keys or (columns and all(column["key"] in keys for column in columns)):
+        return columns
+    drawn = {column["key"]: column for column in columns}
+    return [drawn.get(key) or {"key": key, "label": _key_words(key),
+                               "type": "number" if _numeric(rows, key) else "text"} for key in keys[:12]]
+
+
+def chart_points(component: dict[str, Any], data: Any, scope: Any) -> tuple[list[Any], list[tuple[str, Any]]]:
+    """A chart's x values and its (name, values) series. Over ``rows``, x and the values name columns, fitted
+    to the rows' real ones like a table's: the first text column for x, the number columns for values."""
+
+    rows = _resolve(component.get("rows"), data, scope)
+    series = component["series"]
+    if not isinstance(rows, list) or not _row_keys(rows):
+        x = _resolve(component.get("x"), data, scope)
+        return (x if isinstance(x, list) else []), [
+            (_shown(_resolve(item.get("name"), data, scope)), _resolve(item["values"], data, scope)) for item in series]
+    keys = _row_keys(rows)
+    numbers = [key for key in keys if _numeric(rows, key)]
+    x_key = component.get("x") if component.get("x") in keys else next(
+        (key for key in keys if key not in numbers), keys[0])
+    named = [(_shown(_resolve(item.get("name"), data, scope)) or _key_words(item["values"]), item["values"])
+             for item in series if isinstance(item.get("values"), str) and item["values"] in keys]
+    named = named or [(_key_words(key), key) for key in numbers if key != x_key][:4]
+    objects = [row for row in rows[:200] if isinstance(row, dict)]
+    return [row.get(x_key) for row in objects], [(name, [row.get(key) for row in objects]) for name, key in named]
+
+
 def surface_text(surface: dict[str, Any]) -> str:
     """The surface in plain words, for copying, search and places that show only text (chat apps)."""
 
@@ -784,21 +887,19 @@ def surface_text(surface: dict[str, Any]) -> str:
             lines.append(f"{label}: {', '.join(labels)}" if label else ", ".join(labels))
         elif kind == "Chart":
             title = say(component.get("title"), scope)
-            x = _resolve(component.get("x"), data, scope)
-            names = [say(series.get("name"), scope) for series in component["series"]]
-            values = [_resolve(series["values"], data, scope) for series in component["series"]]
+            x, named = chart_points(component, data, scope)
             lines.append(f"Chart: {title}" if title else "Chart")
-            for index, point in enumerate(x if isinstance(x, list) else []):
-                parts = [f"{name} {_shown(column[index])}".strip() for name, column in zip(names, values)
+            for index, point in enumerate(x):
+                parts = [f"{name} {_shown(column[index])}".strip() for name, column in named
                          if isinstance(column, list) and index < len(column)]
                 lines.append(f"{_shown(point)}: {', '.join(parts)}")
         elif kind == "Table":
             if title := say(component.get("title"), scope):
                 lines.append(title)
-            columns = component["columns"]
+            rows = _resolve(component.get("rows"), data, scope)
+            columns = fit_columns(component.get("columns") or [], rows)
             lines.append("| " + " | ".join(say(column["label"], scope) for column in columns) + " |")
             lines.append("| " + " | ".join("---" for _ in columns) + " |")
-            rows = _resolve(component.get("rows"), data, scope)
             for row in (rows if isinstance(rows, list) else [])[:200]:
                 cells = [_shown(row.get(column["key"])) if isinstance(row, dict) else "" for column in columns]
                 lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")

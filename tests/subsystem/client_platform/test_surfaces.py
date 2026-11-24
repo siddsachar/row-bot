@@ -173,3 +173,63 @@ def test_row_bot_s_own_components_bind_to_the_data_model_and_read_as_words():
         "October", "Spent: £2,140 (-8% vs Sep)", "Holiday fund: £900 of £1,500", "Rent: 1,200", "Food: 512",
         "Biggest costs", "| Item | cost |", "| --- | --- |", "| Rent | 1,200 |",
         "Chart: By month", "Sep: Total 2,330", "Oct: Total 2,140"]
+
+
+# ── What local models write (G8): healed into what they meant ─────────────────
+
+
+def test_what_models_get_wrong_heals_into_what_they_meant():
+    surface = surfaces.read_surface(json.dumps({
+        "title": "Tasks", "surfaceId": "tasks", "components": [
+            {"id": "root", "component": "Column", "children": ["note", "list"]},
+            # A Text's words written as its "value".
+            {"id": "note", "component": "Text", "value": "Open tasks"},
+            {"id": "list", "component": "List", "children": {"path": "/tasks", "componentId": "row"}},
+            {"id": "row", "component": "Text", "text": {"@path": "title"}}],
+        # A source written into the data model, and a data key written as a path.
+        "dataModel": {"tasks": {"@call": "rowbot.tasks"}, "/budget": {"rent": 1200}}}))
+
+    assert surface["sources"] == {"/tasks": {"@call": "rowbot.tasks", "args": {}}}
+    assert surface["dataModel"] == {"budget": {"rent": 1200}}
+    assert surfaces.read_path(surface["dataModel"], "/budget/rent") == 1200
+    assert surfaces.surface_text(surface).startswith("Open tasks")
+
+
+def test_a_table_and_a_chart_fit_the_rows_real_columns():
+    rows = [{"date": "2026-10-02", "what": "Groceries", "amount": 61.9},
+            {"date": "2026-10-11", "what": "Train", "amount": 487.23}]
+    surface = surfaces.read_surface(json.dumps({
+        "title": "October", "surfaceId": "october",
+        "sources": {"/spend": {"@call": "rowbot.file", "args": {"path": "bank/oct.csv"}}},
+        "components": [
+            {"id": "root", "component": "Column", "children": ["chart", "table"]},
+            # Columns named without seeing the file, and a chart naming columns but no rows.
+            {"id": "chart", "component": "Chart", "kind": "bar", "x": "day", "series": [{"name": "Spent",
+                                                                                     "values": "total"}]},
+            {"id": "table", "component": "Table", "rows": {"@path": "/spend"},
+             "columns": [{"key": "date", "label": "Day"}, {"key": "category", "label": "Category"}]}]}))
+    chart = next(component for component in surface["components"] if component["component"] == "Chart")
+    assert chart["rows"] == {"@path": "/spend"}  # the one source's rows
+
+    filled = {**surface, "dataModel": {"spend": rows}}  # as the person's computer fills it in
+    assert surfaces.surface_text(filled).splitlines() == [
+        "Chart", "2026-10-02: Amount 61.9", "2026-10-11: Amount 487.23",
+        "| Day | What | Amount |", "| --- | --- | --- |",
+        "| 2026-10-02 | Groceries | 61.9 |", "| 2026-10-11 | Train | 487.23 |"]
+
+
+def test_a_chart_bound_to_a_column_inside_rows_reads_the_rows():
+    surface = surfaces.read_surface(json.dumps({
+        "title": "October", "surfaceId": "october",
+        "sources": {"/spend": {"@call": "rowbot.file", "args": {"path": "bank/oct.csv"}}},
+        "components": [{"id": "root", "component": "Chart", "kind": "bar", "x": {"@path": "/spend/date"},
+                        "series": [{"name": "Spent", "values": {"@path": "/spend/amount"}}]}]}))
+    (chart,) = surface["components"]
+    assert (chart["rows"], chart["x"], chart["series"][0]["values"]) == ({"@path": "/spend"}, "date", "amount")
+
+    # A list the data model holds itself stays as drawn.
+    drawn = surfaces.read_surface(json.dumps({
+        "title": "Plain", "surfaceId": "plain", "dataModel": {"chart": {"days": ["Mon", "Tue"], "km": [3, 5]}},
+        "components": [{"id": "root", "component": "Chart", "kind": "bar", "x": {"@path": "/chart/days"},
+                        "series": [{"name": "Km", "values": {"@path": "/chart/km"}}]}]}))
+    assert "rows" not in drawn["components"][0]
