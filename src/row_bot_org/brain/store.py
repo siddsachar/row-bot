@@ -1,4 +1,4 @@
-"""The company brain's database calls (migration 0008).
+"""The company brain's database calls (migration 0008; the knowledge graph's are in ``graph_store``).
 
 Each takes a connection already inside a principal's transaction (``principal_transaction``, perhaps acting as an
 admin) or the worker's (``worker_transaction``); row-level security decides which rows it sees and may change.
@@ -17,6 +17,8 @@ import psycopg
 from psycopg import sql
 from psycopg_pool import ConnectionPool
 
+from row_bot_org.brain import graph_store
+
 COMPANY = "company"
 GROUP = "group"
 # A document claimed this long ago and still processing belonged to a worker that stopped: it is claimed again.
@@ -27,7 +29,8 @@ MAX_CLAIMS = 3
 _SPACE_COLUMNS = "id, name, kind, reader_groups, owner_groups, owner_principals, created_by, created_at, updated_at"
 _DOCUMENT_COLUMNS = ("d.id, d.space_id, d.title, d.file_name, d.media_type, d.byte_count, d.sha256, d.status,"
                      " d.status_reason, d.version, d.uploaded_by, d.uploaded_at, d.processed_at,"
-                     " (SELECT count(*) FROM row_bot_org.brain_chunks c WHERE c.document_id = d.id)")
+                     " (SELECT count(*) FROM row_bot_org.brain_chunks c WHERE c.document_id = d.id),"
+                     " d.graph_status, d.graph_reason")
 _FACT_COLUMNS = "id, space_id, body, source_document_id, written_by, created_at, updated_at, retired_at"
 
 
@@ -116,7 +119,7 @@ def _document(row: tuple) -> dict[str, Any]:
     return {"id": str(row[0]), "space_id": str(row[1]), "title": row[2], "file_name": row[3], "media_type": row[4],
             "byte_count": row[5], "sha256": row[6], "status": row[7], "status_reason": row[8], "version": row[9],
             "uploaded_by": str(row[10]), "uploaded_at": _time(row[11]), "processed_at": _time(row[12]),
-            "chunk_count": row[13]}
+            "chunk_count": row[13], "graph_status": row[14], "graph_reason": row[15]}
 
 
 def add_document(conn: psycopg.Connection, *, space_id: str, title: str, file_name: str, media_type: str,
@@ -131,17 +134,22 @@ def add_document(conn: psycopg.Connection, *, space_id: str, title: str, file_na
 def replace_document(conn: psycopg.Connection, document_id: str, *, title: str | None, file_name: str,
                      media_type: str, content: bytes, sha256: str, principal_id: str,
                      uploader_groups: Sequence[str]) -> dict[str, Any] | None:
-    """A new file for a document, same id, next version, queued again; its chunks go at once."""
+    """A new file for a document, same id, next version, queued again; its chunks go at once, and with them its
+    mentions in the graph (what that leaves with none is retired), which is read again once it is ready."""
+    mentioned = graph_store.mentioned_in_document(conn, document_id)
     row = conn.execute(
         "UPDATE row_bot_org.brain_documents SET title = coalesce(%s, title), file_name = %s, media_type = %s,"
         " byte_count = %s, sha256 = %s, content = %s, status = 'queued', status_reason = NULL,"
         " version = version + 1, chunked_version = NULL, claimed_at = NULL, uploaded_by = %s,"
-        " uploader_groups = %s, uploaded_at = now(), processed_at = NULL WHERE id = %s RETURNING id",
+        " uploader_groups = %s, uploaded_at = now(), processed_at = NULL, graph_status = 'pending',"
+        " graph_reason = NULL, graph_claimed_at = NULL, graph_attempts = 0, graph_retry_at = NULL"
+        " WHERE id = %s RETURNING id",
         (title, file_name, media_type, len(content), sha256, content, principal_id, list(uploader_groups),
          document_id)).fetchone()
     if row is None:
         return None
     conn.execute("DELETE FROM row_bot_org.brain_chunks WHERE document_id = %s", (document_id,))
+    graph_store.retire_orphans(conn, mentioned)
     return get_document(conn, document_id)
 
 
@@ -158,8 +166,13 @@ def list_documents(conn: psycopg.Connection, space_id: str) -> list[dict[str, An
 
 
 def delete_document(conn: psycopg.Connection, document_id: str) -> bool:
-    """Delete a document; its chunks go with it (the key cascades), and its facts lose their source."""
-    return conn.execute("DELETE FROM row_bot_org.brain_documents WHERE id = %s", (document_id,)).rowcount == 1
+    """Delete a document; its chunks go with it (the key cascades), and so do its mentions in the graph (what
+    that leaves with none is retired), and its facts lose their source."""
+    mentioned = graph_store.mentioned_in_document(conn, document_id)
+    if conn.execute("DELETE FROM row_bot_org.brain_documents WHERE id = %s", (document_id,)).rowcount != 1:
+        return False
+    graph_store.retire_orphans(conn, mentioned)
+    return True
 
 
 # -- facts ------------------------------------------------------------------------------------------
@@ -192,26 +205,38 @@ def list_facts(conn: psycopg.Connection, space_id: str, *, include_retired: bool
 def update_fact(conn: psycopg.Connection, fact_id: str, *, text: str | None, source_document_id: str | None,
                 clear_source: bool, principal_id: str, writer_groups: Sequence[str]) -> dict[str, Any] | None:
     """A fact's new wording or source, written by ``principal_id`` (who then answers for it); its embedding is
-    made again."""
+    made again, and new wording is read again for the graph (its old mentions go)."""
+    if text is not None:
+        graph_store.clear_fact_mentions(conn, fact_id)
     row = conn.execute(
         "UPDATE row_bot_org.brain_facts SET body = coalesce(%s, body),"
         " source_document_id = CASE WHEN %s THEN NULL ELSE coalesce(%s, source_document_id) END,"
         " written_by = %s, writer_groups = %s, updated_at = now(),"
-        " embedding = NULL, embedding_model = NULL, embedding_dim = NULL"
+        " embedding = NULL, embedding_model = NULL, embedding_dim = NULL,"
+        " graph_done_at = CASE WHEN %s::text IS NULL THEN graph_done_at END, graph_retry_at = NULL"
         f" WHERE id = %s RETURNING {_FACT_COLUMNS}",
-        (text, clear_source, source_document_id, principal_id, list(writer_groups), fact_id)).fetchone()
+        (text, clear_source, source_document_id, principal_id, list(writer_groups), text, fact_id)).fetchone()
     return None if row is None else _fact(row)
 
 
 def retire_fact(conn: psycopg.Connection, fact_id: str) -> tuple[dict[str, Any] | None, bool]:
-    """Retire a fact (recall no longer finds it): the fact, and whether this retired it."""
+    """Retire a fact (recall no longer finds it, and its mentions in the graph go): the fact, and whether this
+    retired it."""
     row = conn.execute(f"UPDATE row_bot_org.brain_facts SET retired_at = now() WHERE id = %s AND retired_at IS NULL"
                        f" RETURNING {_FACT_COLUMNS}", (fact_id,)).fetchone()
-    return (_fact(row), True) if row is not None else (get_fact(conn, fact_id), False)
+    if row is None:
+        return get_fact(conn, fact_id), False
+    graph_store.clear_fact_mentions(conn, fact_id)
+    return _fact(row), True
 
 
 def delete_fact(conn: psycopg.Connection, fact_id: str) -> bool:
-    return conn.execute("DELETE FROM row_bot_org.brain_facts WHERE id = %s", (fact_id,)).rowcount == 1
+    """Delete a fact; its mentions in the graph go with it (what that leaves with none is retired)."""
+    mentioned = graph_store.mentioned_in_fact(conn, fact_id)
+    if conn.execute("DELETE FROM row_bot_org.brain_facts WHERE id = %s", (fact_id,)).rowcount != 1:
+        return False
+    graph_store.retire_orphans(conn, mentioned)
+    return True
 
 
 # -- the worker -------------------------------------------------------------------------------------

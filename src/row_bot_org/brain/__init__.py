@@ -3,6 +3,9 @@ facts, hybrid search and recall with citations, on CON-1's contract (``row_bot.b
 
 - ``parse``: the file types the server reads, and chunking;
 - ``store``: the SQL, under row-level security;
-- ``service``: the worker (parse, chunk, embed through the gateway in process) and recall;
+- ``service``: the worker (parse, chunk, embed through the gateway in process, read for the graph) and recall;
 - ``web``: the routes.
+
+The company knowledge graph (B7, migration 0009): ``graph`` (its words, the extraction prompt and the strict reading
+of an answer), ``graph_store`` (its SQL) and ``graph_web`` (the graph API and owners' curation).
 """

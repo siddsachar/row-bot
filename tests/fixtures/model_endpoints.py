@@ -12,8 +12,9 @@ that quotes the key it was sent, as some providers do, so tests can show it neve
 Every request is kept in ``requests`` (path, headers, JSON body). ``error`` makes the next answers an
 error with that status (the body quotes the key it was sent); ``holding`` holds answers until ``hang`` is
 set or the test ends (for timeouts); ``answer_model`` names another model in whole answers,
-``report_usage = False`` leaves their usage out, and ``embed`` (text to vector) gives the embeddings, which are
-otherwise ``[0.1, 0.2, 0.3]`` for every text. The usage it reports is ``INPUT_TOKENS`` / ``OUTPUT_TOKENS``.
+``report_usage = False`` leaves their usage out, ``embed`` (text to vector) gives the embeddings, which are
+otherwise ``[0.1, 0.2, 0.3]`` for every text, and ``chat`` (the request's JSON body to the answer's text) gives whole
+chat answers, which otherwise say ``STREAM_WORDS``. The usage it reports is ``INPUT_TOKENS`` / ``OUTPUT_TOKENS``.
 """
 
 from __future__ import annotations
@@ -55,6 +56,8 @@ class FakeEndpoint:
     report_usage: bool = True
     # Each input's embedding; None: [0.1, 0.2, 0.3].
     embed: Callable[[str], list[float]] | None = None
+    # A whole chat answer's text, from the request's body; None: STREAM_WORDS.
+    chat: Callable[[dict], str] | None = None
 
     def last(self) -> Seen:
         return self.requests[-1]
@@ -100,6 +103,10 @@ def _anthropic_stream(body: dict) -> list[tuple[str | None, Any]]:
     ]
 
 
+def _answer(endpoint: FakeEndpoint, body: dict) -> str:
+    return endpoint.chat(body) if endpoint.chat else "".join(STREAM_WORDS)
+
+
 def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -141,7 +148,7 @@ def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
                     return
                 answer = {"id": "chatcmpl-fake", "object": "chat.completion", "model": named,
                           "choices": [{"index": 0, "finish_reason": "stop",
-                                       "message": {"role": "assistant", "content": "".join(STREAM_WORDS)}}],
+                                       "message": {"role": "assistant", "content": _answer(endpoint, body)}}],
                           "usage": {"prompt_tokens": INPUT_TOKENS, "completion_tokens": OUTPUT_TOKENS,
                                     "total_tokens": INPUT_TOKENS + OUTPUT_TOKENS}}
                 if not endpoint.report_usage:
@@ -159,7 +166,7 @@ def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
                     _sse(self, _anthropic_stream(body))
                     return
                 self._json(200, {"id": "msg_fake", "type": "message", "role": "assistant", "model": named,
-                                 "content": [{"type": "text", "text": "".join(STREAM_WORDS)}],
+                                 "content": [{"type": "text", "text": _answer(endpoint, body)}],
                                  "stop_reason": "end_turn",
                                  "usage": {"input_tokens": INPUT_TOKENS, "output_tokens": OUTPUT_TOKENS}})
             else:

@@ -79,6 +79,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'org_settings.changed': 'Models or budgets changed',
   'space.changed': 'Knowledge space changed',
   'fact.changed': 'Company fact changed',
+  'graph.changed': 'Company graph changed',
 };
 
 type Names = (id: string) => string;

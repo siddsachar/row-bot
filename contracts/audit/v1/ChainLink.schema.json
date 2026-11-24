@@ -1944,6 +1944,106 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "graph.changed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "graph"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "change": {
+                    "enum": [
+                      "created",
+                      "updated",
+                      "merged",
+                      "retired",
+                      "restored"
+                    ],
+                    "type": "string"
+                  },
+                  "fields": {
+                    "enum": [
+                      "subject",
+                      "entity_type",
+                      "description",
+                      "aliases",
+                      "subject,entity_type",
+                      "subject,description",
+                      "subject,aliases",
+                      "entity_type,description",
+                      "entity_type,aliases",
+                      "description,aliases",
+                      "subject,entity_type,description",
+                      "subject,entity_type,aliases",
+                      "subject,description,aliases",
+                      "entity_type,description,aliases",
+                      "subject,entity_type,description,aliases"
+                    ],
+                    "type": "string"
+                  },
+                  "merged_into": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  },
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "change",
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "entity",
+                      "relation"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
         }
       ],
       "description": "One Row-Bot for Teams audit event: team, company or org layer, never personal; details hold only the keys the action defines at or below the event's redaction level.",
@@ -1962,6 +2062,7 @@
             "document.removed",
             "document.uploaded",
             "fact.changed",
+            "graph.changed",
             "library.published",
             "model.called",
             "org_settings.changed",
@@ -2010,6 +2111,7 @@
             "device",
             "document",
             "fact",
+            "graph",
             "library",
             "model",
             "org_settings",
@@ -2121,6 +2223,7 @@
                     "channel",
                     "device",
                     "document",
+                    "entity",
                     "export",
                     "fact",
                     "integration",
@@ -2128,6 +2231,7 @@
                     "mcp_server",
                     "person",
                     "plugin",
+                    "relation",
                     "setting",
                     "share",
                     "space",

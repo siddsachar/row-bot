@@ -15,6 +15,22 @@ leaves the worker's results unwritten (the version check). The pass then embeds 
 calls of their writers', each fact at most once a pass and skipping writers whose calls failed in it. An upload
 wakes the thread; otherwise it looks every ``POLL_SECONDS``.
 
+**The knowledge graph** is the pass's last stage (``graph`` holds its words, ``graph_store`` its SQL). With the
+company's default chat model usable (the worker's own lookup, handed to the gateway as for embeddings), it claims
+ready documents one at a time, oldest first, each at most once a pass, and reads their parts in order, one chat
+call each (``GatewayService.complete``, as a call of the uploader's: metered and budgeted as theirs), at most the
+first ``GRAPH_MAX_CHUNKS`` parts of a document. Each answer is read strictly (``graph.read_answer``: junk gives
+nothing) and what it found is stored with the next part to read, in one version-checked transaction, so the stage
+can stop between any two calls and the next pass carries on. Then facts, one call each, as calls of their writers.
+The stage stops after ``GRAPH_CALLS_PER_PASS`` document calls and ``GRAPH_FACT_CALLS_PER_PASS`` fact calls, after
+``GRAPH_PASS_SECONDS``, when the worker stops, or as soon as something is queued (``wake``), so a long backlog never
+holds up a new upload's processing; when it stopped at a limit, the thread starts the next pass at once. Without a
+usable chat model, ready documents wait with ``CHAT_MODEL_NEEDED`` or the model's problem (one statement, no claim)
+and are claimed once there is one. A failed call (a spent budget, the endpoint down) leaves the document waiting
+with the reason, claimed again only after ``graph_store.RETRY_AFTER``: a spent budget waits as long as it takes,
+anything else fails the document's graph after ``graph_store.MAX_CLAIMS`` claims, as does a claim that never
+finishes. A fact whose call fails waits the same way, and its writer is skipped for the rest of the pass.
+
 **Recall.** Text rank (Postgres full text, any of the query's words) and vector similarity (cosine, against the
 query embedded as a call of the caller's) over chunks and facts, fused by reciprocal rank fusion. It runs in the
 caller's own transaction, never an admin's: row-level security finds only what the caller may read, and the
@@ -36,7 +52,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -44,10 +60,12 @@ from row_bot.brain import (
     Fact, Layer, Principal, Provenance, RecallHit, RecallQuery, SourceDoc, SourceKind, Space,
     SpaceAccess, Validity, can_read_item, can_write_space, recall_label, to_dict,
 )
-from row_bot_org.brain import parse, store
+from row_bot_org.brain import graph, graph_store, parse, store
 from row_bot_org.db.rls import principal_transaction
 from row_bot_org.gateway import store as gateway_store
-from row_bot_org.gateway.web import EmbeddingsFailed, NoEmbeddingsModel, embeddings_problem
+from row_bot_org.gateway.web import (
+    ChatFailed, EmbeddingsFailed, NoEmbeddingsModel, chat_problem, embeddings_problem,
+)
 from row_bot_org.identity.gate import RequestPrincipal
 from row_bot_org.settings import OrgSettings
 
@@ -68,6 +86,14 @@ RRF_K = 60
 CANDIDATES_PER_HIT = 4
 EXCERPT_CHARACTERS = 280
 EVERYONE = "everyone-signed-in"
+# The knowledge graph: why documents wait or fail, and its bounds (the parts of a document it reads, and a pass's
+# calls and time).
+CHAT_MODEL_NEEDED = "Add a chat model in Models"
+GRAPH_WORN_OUT = "This document's knowledge couldn't be read."
+GRAPH_MAX_CHUNKS = 40
+GRAPH_CALLS_PER_PASS = 12
+GRAPH_FACT_CALLS_PER_PASS = 8
+GRAPH_PASS_SECONDS = 120.0
 
 
 class SpaceNotFound(Exception):
@@ -110,12 +136,20 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _excerpt(text: str) -> str:
+def excerpt(text: str, *, near: str | None = None) -> str:
+    """``text`` with its whitespace collapsed, at most ``EXCERPT_CHARACTERS`` ("…" where it is cut): its start, or
+    around the first place it holds ``near`` (an entity's name)."""
     plain = " ".join(text.split())
     if len(plain) <= EXCERPT_CHARACTERS:
         return plain
-    cut = plain[:EXCERPT_CHARACTERS].rsplit(" ", 1)[0]
-    return cut + "…"
+    start = 0
+    at = plain.lower().find(" ".join(near.split()).lower()) if near else -1
+    if at > EXCERPT_CHARACTERS // 3:
+        start = plain.rfind(" ", 0, at - EXCERPT_CHARACTERS // 3) + 1
+    cut = plain[start:start + EXCERPT_CHARACTERS]
+    if start + EXCERPT_CHARACTERS < len(plain):
+        cut = cut.rsplit(" ", 1)[0] + "…"
+    return ("…" if start else "") + cut
 
 
 def fuse(rankings: Sequence[Sequence[tuple[str, str]]], limit: int) -> list[tuple[tuple[str, str], float]]:
@@ -128,6 +162,15 @@ def fuse(rankings: Sequence[Sequence[tuple[str, str]]], limit: int) -> list[tupl
     best = len(rankings) / (RRF_K + 1)
     ordered = sorted(scores.items(), key=lambda entry: (-entry[1], entry[0]))
     return [(key, min(1.0, score / best)) for key, score in ordered[:limit]]
+
+
+def _read(answer: str) -> graph.Found:
+    """What a chat answer found; nothing for junk."""
+    try:
+        return graph.read_answer(answer)
+    except graph.JunkAnswer as junk:
+        logger.info("a chat answer gave nothing for the graph (%s)", junk)
+        return graph.NOTHING
 
 
 class BrainService:
@@ -144,6 +187,8 @@ class BrainService:
         self._thread: threading.Thread | None = None
         # Until when (time.monotonic) recall leaves the vector half out, after the model failed.
         self._vectors_off_until = 0.0
+        # Whether the last pass's graph stage stopped at one of its limits (more is waiting).
+        self._graph_more = False
 
     # -- the worker thread -----------------------------------------------------------------------
 
@@ -168,20 +213,27 @@ class BrainService:
             try:
                 self.process_pending()
             except Exception as error:  # noqa: BLE001 - one pass failing (the database away) never ends the worker
+                self._graph_more = False
                 logger.error("the company brain's worker pass failed (%s)", type(error).__name__)
-            self._wake.wait(POLL_SECONDS)
-            self._wake.clear()
+            # A graph stage stopped at its limits made that many calls: the next pass starts at once. (A pass clears
+            # the wake at its start, so what is queued during one stops its graph stage and starts the next.)
+            if not self._graph_more:
+                self._wake.wait(POLL_SECONDS)
 
     # -- processing ------------------------------------------------------------------------------
 
     def process_pending(self) -> int:
-        """One pass: every claimable document (each at most once), then facts to embed. How many documents it
-        took. It stops early when the worker is stopped."""
+        """One pass: every claimable document (each at most once), then facts to embed, then the knowledge graph's
+        stage. How many documents it took to process. It stops early when the worker is stopped."""
+        self._wake.clear()
+        self._graph_more = False
         taken: list[str] = []
         while not self._stop.is_set() and (document_id := self._process_next(taken)) is not None:
             taken.append(document_id)
         if not self._stop.is_set():
             self._embed_facts()
+        if not self._stop.is_set():
+            self._graph_more = self._graph_stage()
         return len(taken)
 
     def _embeddings(self, conn: Any) -> tuple[gateway_store.Route | None, str]:
@@ -274,6 +326,120 @@ class BrainService:
                 with store.worker_transaction(self.pool) as conn:
                     store.store_fact_embeddings(conn, used, list(zip(batch, vectors)))
 
+    # -- the knowledge graph ---------------------------------------------------------------------
+
+    def _chat(self, conn: Any) -> tuple[gateway_store.Route | None, str]:
+        """The default chat model when it can be used, else None and why documents wait."""
+        route = None if self.gateway is None else gateway_store.default_route(conn, "chat")
+        if route is None:
+            return None, CHAT_MODEL_NEEDED
+        problem = chat_problem(route)
+        return (route, "") if problem is None else (None, problem)
+
+    def _graph_stage(self) -> bool:
+        """Read documents, then facts, for the graph, within this pass's limits. Whether it stopped at a limit
+        (calls or time), so more may be waiting."""
+        with store.worker_transaction(self.pool) as conn:
+            route, waiting = self._chat(conn)
+            if route is None:
+                graph_store.wait_for_model(conn, waiting)
+                return False
+        deadline = time.monotonic() + GRAPH_PASS_SECONDS
+        calls = [GRAPH_CALLS_PER_PASS]
+
+        def go_on() -> bool:
+            return (calls[0] > 0 and time.monotonic() < deadline and not self._stop.is_set()
+                    and not self._wake.is_set())
+
+        taken: list[str] = []
+        while go_on():
+            with store.worker_transaction(self.pool) as conn:
+                claim = graph_store.claim_graph(conn, skip=taken)
+            if claim is None:
+                break
+            taken.append(claim.document_id)
+            try:
+                if self._read_document(claim, route, calls, go_on):
+                    break  # The model or its endpoint failed: the rest wait for the next pass.
+            except Exception as error:  # noqa: BLE001 - its claim goes stale and is retried, MAX_CLAIMS times at most
+                logger.error("a company document couldn't be read for the graph (%s)", type(error).__name__)
+        limited = calls[0] <= 0 or time.monotonic() >= deadline
+        calls[0] = GRAPH_FACT_CALLS_PER_PASS
+        if go_on():
+            self._read_facts(route, calls, go_on)
+            limited = limited or calls[0] <= 0 or time.monotonic() >= deadline
+        return limited and not self._stop.is_set()
+
+    def _finish_graph(self, claim: graph_store.GraphClaim, status: str, reason: str | None, **options: Any) -> None:
+        with store.worker_transaction(self.pool) as conn:
+            graph_store.finish_graph(conn, claim, status, reason, **options)
+
+    def _read_document(self, claim: graph_store.GraphClaim, route: gateway_store.Route, calls: list[int],
+                       go_on: Callable[[], bool]) -> bool:
+        """Read the claimed document's parts from where its reading stopped, one call each, while ``go_on``.
+        Whether the model or its endpoint failed (not the uploader's budget)."""
+        if claim.worn_out:
+            logger.error("a company document's graph was failed: its reading stopped %s times", graph_store.MAX_CLAIMS)
+            self._finish_graph(claim, "failed", GRAPH_WORN_OUT, reset_attempts=False)
+            return False
+        if claim.fresh:
+            with store.worker_transaction(self.pool) as conn:
+                if not graph_store.start_graph(conn, claim):
+                    return False
+        uploader = RequestPrincipal(claim.uploaded_by, claim.uploader_groups, None)
+        start = 0 if claim.fresh else claim.next
+        while True:
+            with store.worker_transaction(self.pool) as conn:
+                part = graph_store.next_chunk(conn, claim.document_id, start, GRAPH_MAX_CHUNKS)
+                count = graph_store.chunk_count(conn, claim.document_id) if part is None else 0
+            if part is None:
+                capped = None if count <= GRAPH_MAX_CHUNKS else (
+                    f"Only the start of this document is in the knowledge graph (its first {GRAPH_MAX_CHUNKS:,}"
+                    f" of {count:,} parts).")
+                self._finish_graph(claim, "done", capped)
+                return False
+            if not go_on():
+                self._finish_graph(claim, "pending", None)  # Carried on next pass, from this part.
+                return False
+            chunk_id, ordinal, text = part
+            source = f'Part {ordinal + 1} of the document "{claim.title}"'
+            try:
+                answer = self.gateway.complete(uploader, graph.prompt(source, text), route=route)
+            except ChatFailed as failed:
+                # A spent budget waits as long as it takes; anything else counts towards failing.
+                budget = failed.code == "budget_exceeded"
+                self._finish_graph(claim, "waiting", failed.message, retry=True, reset_attempts=budget)
+                return not budget
+            calls[0] -= 1
+            with store.worker_transaction(self.pool) as conn:
+                if not graph_store.store_chunk_found(conn, claim, chunk_id, ordinal, _read(answer)):
+                    return False  # Replaced or deleted since the claim.
+            start = ordinal + 1
+
+    def _read_facts(self, route: gateway_store.Route, calls: list[int], go_on: Callable[[], bool]) -> None:
+        """Facts in force not yet read, oldest first, each at most once a pass, as calls of their writers'; a
+        writer whose call fails is left out for the rest of the pass."""
+        tried: list[str] = []
+        failed: set[str] = set()
+        while go_on():
+            with store.worker_transaction(self.pool) as conn:
+                fact = graph_store.next_fact(conn, tried=tried, writers_failed=sorted(failed))
+            if fact is None:
+                return
+            tried.append(fact.id)
+            writer = RequestPrincipal(fact.written_by, fact.writer_groups, None)
+            try:
+                answer = self.gateway.complete(writer, graph.prompt("A fact in the company knowledge base", fact.text),
+                                               route=route)
+            except ChatFailed:
+                failed.add(fact.written_by)
+                with store.worker_transaction(self.pool) as conn:
+                    graph_store.hold_fact(conn, fact)
+                continue
+            calls[0] -= 1
+            with store.worker_transaction(self.pool) as conn:
+                graph_store.store_fact_found(conn, fact, _read(answer))
+
     # -- recall ----------------------------------------------------------------------------------
 
     def recall(self, principal: RequestPrincipal, text: str, limit: int,
@@ -344,7 +510,7 @@ class BrainService:
                 content_hash="sha256:" + found.sha256, fetched_at=uploaded)
             citation = {"type": "document", "space": about,
                         "document": {"id": found.document_id, "title": found.title, "file_name": found.file_name},
-                        "chunk": found.ordinal, "excerpt": _excerpt(found.text)}
+                        "chunk": found.ordinal, "excerpt": excerpt(found.text)}
             owner_principal = None
         else:
             created = _utc(found.created_at)
@@ -364,6 +530,7 @@ class BrainService:
         return {"hit": to_dict(hit), "citation": citation}
 
 
-__all__ = ["EVERYONE", "MODEL_NEEDED", "POLL_SECONDS", "QUERY_BACKOFF_SECONDS", "QUERY_TIMEOUT_SECONDS", "RRF_K",
-           "UPLOADS_AT_ONCE", "WORN_OUT", "BrainService", "SpaceNotFound",
-           "brain_principal", "brain_space", "fuse", "owns", "space_access"]
+__all__ = ["CHAT_MODEL_NEEDED", "EVERYONE", "GRAPH_CALLS_PER_PASS", "GRAPH_FACT_CALLS_PER_PASS", "GRAPH_MAX_CHUNKS",
+           "GRAPH_PASS_SECONDS", "GRAPH_WORN_OUT", "MODEL_NEEDED", "POLL_SECONDS", "QUERY_BACKOFF_SECONDS",
+           "QUERY_TIMEOUT_SECONDS", "RRF_K", "UPLOADS_AT_ONCE", "WORN_OUT", "BrainService", "SpaceNotFound",
+           "brain_principal", "brain_space", "excerpt", "fuse", "owns", "space_access"]
