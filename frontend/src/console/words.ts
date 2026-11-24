@@ -77,6 +77,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'person.suspended': 'Person suspended',
   'person.resumed': 'Person resumed',
   'org_settings.changed': 'Models or budgets changed',
+  'space.changed': 'Knowledge space changed',
+  'fact.changed': 'Company fact changed',
 };
 
 type Names = (id: string) => string;

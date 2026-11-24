@@ -99,6 +99,13 @@ def route(conn: psycopg.Connection, model: str) -> Route | None:
                  None if row[9] is None else bytes(row[9]), row[10], row[11])
 
 
+def default_route(conn: psycopg.Connection, kind: str) -> Route | None:
+    """The route of the company's default ``kind`` model (``is_default``), or None when it has none."""
+    row = conn.execute("SELECT name FROM row_bot_org.catalog_models WHERE kind = %s AND is_default",
+                       (kind,)).fetchone()
+    return None if row is None else route(conn, row[0])
+
+
 def budget_state(conn: psycopg.Connection) -> list[BudgetState]:
     """The caller's own and its groups' budgets, with this month's spend."""
     rows = conn.execute("SELECT scope, subject, soft_limit, hard_limit, spent"
@@ -233,6 +240,7 @@ def usage_report(conn: psycopg.Connection, *, by: str, start: datetime, end: dat
 
 
 __all__ = ["BudgetState", "Route", "allowed", "available_models", "budget_state", "create_endpoint", "create_model",
-           "delete_budget", "delete_endpoint", "delete_model", "endpoint_target", "list_budgets", "list_endpoints",
+           "default_route", "delete_budget", "delete_endpoint", "delete_model", "endpoint_target", "list_budgets",
+           "list_endpoints",
            "list_models", "model_kind", "put_budget", "record_usage", "route", "update_endpoint", "update_model",
            "usage_report"]

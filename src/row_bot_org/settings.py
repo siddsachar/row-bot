@@ -101,6 +101,8 @@ class OrgSettings:
     gateway_budgeted_calls: int = DEFAULT_BUDGETED_CALLS
     # The built admin console (frontend/dist-console), served at /console/; without it there is no console.
     console_dir: Path | None = None
+    # The largest company document the brain takes in one upload, in MB (row_bot_org.brain).
+    brain_max_upload_mb: int = 25
 
 
 class _Invalid(Exception):
@@ -198,6 +200,13 @@ def _console_dir(raw: str) -> Path:
     return folder
 
 
+def _upload_megabytes(raw: str) -> int:
+    value = raw.strip()
+    if not (len(value) <= 3 and value.isascii() and value.isdigit() and 1 <= int(value) <= 100):
+        raise _Invalid("must be a number of megabytes from 1 to 100")
+    return int(value)
+
+
 def _json_text(raw: str) -> str:
     return raw.strip()
 
@@ -254,6 +263,7 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "SIGN_IN_RATE_LIMIT": ("sign_in_rate_limit", _rate_limit),
     "TRUSTED_PROXIES": ("trusted_proxies", _trusted_proxies),
     "CONSOLE_DIR": ("console_dir", _console_dir),
+    "BRAIN_MAX_UPLOAD_MB": ("brain_max_upload_mb", _upload_megabytes),
     # Combined after the loop: the provider needs its client secret.
     "IDP": ("idp", _json_text),
     "IDP_CLIENT_SECRET": ("idp_client_secret", _client_secret),

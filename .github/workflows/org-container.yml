@@ -18,6 +18,7 @@ on:
       - "src/row_bot/__init__.py"
       - "src/row_bot/policy/**"
       - "src/row_bot/audit/**"
+      - "src/row_bot/brain/**"
       - "contracts/policy/**"
       - "frontend/package.json"
       - "frontend/package-lock.json"

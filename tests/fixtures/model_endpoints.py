@@ -11,15 +11,16 @@ It checks the key (``Authorization: Bearer`` or ``x-api-key``) against ``KEY``. 
 that quotes the key it was sent, as some providers do, so tests can show it never reaches the caller.
 Every request is kept in ``requests`` (path, headers, JSON body). ``error`` makes the next answers an
 error with that status (the body quotes the key it was sent); ``holding`` holds answers until ``hang`` is
-set or the test ends (for timeouts); ``answer_model`` names another model in whole answers, and
-``report_usage = False`` leaves their usage out. The usage it reports is ``INPUT_TOKENS`` / ``OUTPUT_TOKENS``.
+set or the test ends (for timeouts); ``answer_model`` names another model in whole answers,
+``report_usage = False`` leaves their usage out, and ``embed`` (text to vector) gives the embeddings, which are
+otherwise ``[0.1, 0.2, 0.3]`` for every text. The usage it reports is ``INPUT_TOKENS`` / ``OUTPUT_TOKENS``.
 """
 
 from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,6 +53,8 @@ class FakeEndpoint:
     answer_model: str | None = None
     # Whole answers leave out their usage.
     report_usage: bool = True
+    # Each input's embedding; None: [0.1, 0.2, 0.3].
+    embed: Callable[[str], list[float]] | None = None
 
     def last(self) -> Seen:
         return self.requests[-1]
@@ -147,8 +150,9 @@ def _handler(endpoint: FakeEndpoint) -> type[BaseHTTPRequestHandler]:
             elif route == ("openai", "/v1/embeddings"):
                 inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
                 self._json(200, {"object": "list", "model": body["model"],
-                                 "data": [{"object": "embedding", "index": i, "embedding": [0.1, 0.2, 0.3]}
-                                          for i, _ in enumerate(inputs)],
+                                 "data": [{"object": "embedding", "index": i,
+                                           "embedding": endpoint.embed(text) if endpoint.embed else [0.1, 0.2, 0.3]}
+                                          for i, text in enumerate(inputs)],
                                  "usage": {"prompt_tokens": INPUT_TOKENS, "total_tokens": INPUT_TOKENS}})
             elif route == ("anthropic", "/v1/messages"):
                 if body.get("stream"):

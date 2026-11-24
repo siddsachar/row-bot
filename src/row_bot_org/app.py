@@ -92,7 +92,7 @@ def _console_page(path: str) -> bool:
     return is_console_path(path) and not path.startswith(ASSETS_PATH)
 
 
-def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> FastAPI:
+def create_app(settings: OrgSettings, pool: ConnectionPool | None = None, *, brain_worker: bool = True) -> FastAPI:
     """The server for ``settings``: health, readiness and, with identity providers, sign-in.
 
     With ``pool`` (``row-bot-org serve`` always passes one), the app opens it at start and closes it
@@ -101,7 +101,9 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     (``row_bot_org.policy``), people (``row_bot_org.identity.people``), the audit log (``row_bot_org.audit.web``)
     and devices (``row_bot_org.devices``) with their sign-in and bearer tokens (``row_bot_org.identity.device``),
     with ``settings.gateway_key``
-    too the model catalog and gateway (``row_bot_org.gateway``), and with ``settings.console_dir`` the admin
+    too the model catalog and gateway (``row_bot_org.gateway``), the company brain (``row_bot_org.brain``, its
+    worker thread running from start to shutdown unless ``brain_worker`` is false, when the caller drives
+    ``app.state.brain.process_pending()`` itself), and with ``settings.console_dir`` the admin
     console (``row_bot_org.console``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
 
@@ -120,6 +122,12 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         from row_bot_org.gateway.web import GatewayService
 
         gateway = GatewayService(settings, pool)
+    brain = None
+    if service is not None:
+        from row_bot_org.brain.service import BrainService
+
+        # Without a gateway it searches text only.
+        brain = BrainService(settings, pool, gateway)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -128,9 +136,13 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
             return
         # Not waiting: a database that is down makes the server not ready, not stop.
         pool.open(wait=False)
+        if brain is not None and brain_worker:
+            brain.start()
         try:
             yield
         finally:
+            if brain is not None:
+                brain.stop()
             if service is not None:
                 service.close()
             pool.close()
@@ -154,6 +166,7 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
     routers = [health_router(app.state.readiness)]
     if service is not None:
         from row_bot_org.audit.web import audit_router
+        from row_bot_org.brain.web import brain_router
         from row_bot_org.devices import devices_router
         from row_bot_org.identity.device import device_router
         from row_bot_org.identity.people import people_router
@@ -162,9 +175,10 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None) -> Fas
         from row_bot_org.policy.web import policy_router
 
         app.state.identity = service
+        app.state.brain = brain
         app.add_exception_handler(AdminRequired, _admin_required)
         routers += [identity_router(service), people_router(), policy_router(), audit_router(), devices_router(),
-                    device_router(device)]
+                    device_router(device), brain_router(brain)]
     if gateway is not None:
         from row_bot_org.gateway.web import gateway_router
 

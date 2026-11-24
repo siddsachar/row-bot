@@ -91,6 +91,8 @@ class TargetKind(StrEnum):
     LIBRARY_ITEM = "library_item"
     EXPORT = "export"
     SETTING = "setting"
+    SPACE = "space"
+    FACT = "fact"
 
 
 class Category(StrEnum):
@@ -109,6 +111,8 @@ class Category(StrEnum):
     ROLE = "role"
     PERSON = "person"
     ORG_SETTINGS = "org_settings"
+    SPACE = "space"
+    FACT = "fact"
 
 
 class Action(StrEnum):
@@ -139,6 +143,8 @@ class Action(StrEnum):
     PERSON_SUSPENDED = "person.suspended"
     PERSON_RESUMED = "person.resumed"
     ORG_SETTINGS_CHANGED = "org_settings.changed"
+    SPACE_CHANGED = "space.changed"
+    FACT_CHANGED = "fact.changed"
 
 
 # The forms an identifier may take. Ids match CON-1's (no "/", so no path can pass as one); model ids may hold "/".
@@ -276,4 +282,10 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     Action.PERSON_RESUMED: _spec({_A, _O}, {_ORG}, {TargetKind.PERSON}, _DONE),
     Action.ORG_SETTINGS_CHANGED: _spec({_A}, {_ORG}, {TargetKind.SETTING}, _GATED,
                                        change=_enum("created", "updated", "deleted", required=False)),
+    # A company-brain space made, renamed, given other readers or owners (an admin), or deleted (B1).
+    Action.SPACE_CHANGED: _spec({_P, _A}, _SHARED, {TargetKind.SPACE}, _DONE,
+                                change=_enum("created", "updated", "deleted")),
+    # A fact in a company-brain space written, edited, retired or deleted by an owner or an admin (B1).
+    Action.FACT_CHANGED: _spec({_P, _A}, _SHARED, {TargetKind.FACT}, _DONE,
+                               change=_enum("created", "updated", "retired", "deleted"), **_SPACE),
 })
