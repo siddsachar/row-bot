@@ -13,6 +13,10 @@ For a space's owners, and admins: the space's documents and facts.
 - ``GET`` and ``POST /api/brain/spaces/{id}/facts``, ``PATCH`` and ``DELETE /api/brain/facts/{id}``,
   ``POST /api/brain/facts/{id}/retire``.
 
+A connector's documents (``row_bot_org.connectors``) are read only by the people and groups mirrored from their
+source (row-level security), and are changed only by their connector: a replace or delete of one is ``409
+document_from_connector``.
+
 Reading these needs reading the space; changing them needs owning it, or an admin's browser session (``roles``:
 these routes act as an admin for one, never for a bearer). Recall and the space list never act as an admin: an
 admin finds there what their groups give them, like anyone.
@@ -449,7 +453,12 @@ def brain_router(service: BrainService) -> APIRouter:
         if document is None:
             return _error(404, "document_not_found")
         space = _managed(caller, document["space_id"])
-        return space if isinstance(space, JSONResponse) else (document, space)
+        if isinstance(space, JSONResponse):
+            return space
+        if document["connector_id"] is not None:
+            # Its connector keeps it as its source has it (delete the connector to remove its documents).
+            return _error(409, "document_from_connector")
+        return document, space
 
     @router.get("/api/brain/documents/{document_id}")
     def document(document_id: str, caller: Caller = manager) -> JSONResponse:

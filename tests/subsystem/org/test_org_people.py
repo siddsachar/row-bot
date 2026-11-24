@@ -141,12 +141,13 @@ def test_a_non_admin_is_refused_on_every_admin_route(org_database, idp) -> None:
         target = me(person(server, idp, "ada"))
         routes = [(method.upper(), path) for path, operations in server.app.openapi()["paths"].items()
                   if path.startswith("/api/admin/") for method in operations]
-        # Policy, gateway, people, audit, devices and the company brain: every admin route the server has.
+        # Policy, gateway, people, audit, devices, the company brain and its connectors: every admin route the
+        # server has.
         assert {path.split("/")[3] for _, path in routes} == {"policy", "endpoints", "models", "budgets", "usage",
-                                                             "people", "audit", "devices", "brain"}
+                                                             "people", "audit", "devices", "brain", "connectors"}
         for method, path in routes:
             url = path.replace("{principal_id}", target).replace("{group}", "Sales")
-            for name in ("{endpoint_id}", "{model_id}", "{budget_id}", "{device_id}", "{space_id}"):
+            for name in ("{endpoint_id}", "{model_id}", "{budget_id}", "{device_id}", "{space_id}", "{connector_id}"):
                 url = url.replace(name, str(uuid.uuid4()))
             refused = sam.request(method, url, json={"role": "admin", "version": 0})
             assert (refused.status_code, refused.json()) == (403, ADMIN_REQUIRED), (method, path)

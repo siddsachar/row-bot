@@ -25,12 +25,15 @@ GROUP = "group"
 STALE_CLAIM = "15 minutes"
 # Claims without a finish after which a document is failed rather than tried again (it keeps stopping workers).
 MAX_CLAIMS = 3
+# A connector's documents keep their upstream permissions (``readers``), so they aren't read for the knowledge graph:
+# an entity is the whole space's, and would tell people who may not open a file what it says.
+NOT_IN_GRAPH = "Synced files keep their own permissions, so they aren't in the company knowledge graph."
 
 _SPACE_COLUMNS = "id, name, kind, reader_groups, owner_groups, owner_principals, created_by, created_at, updated_at"
 _DOCUMENT_COLUMNS = ("d.id, d.space_id, d.title, d.file_name, d.media_type, d.byte_count, d.sha256, d.status,"
                      " d.status_reason, d.version, d.uploaded_by, d.uploaded_at, d.processed_at,"
                      " (SELECT count(*) FROM row_bot_org.brain_chunks c WHERE c.document_id = d.id),"
-                     " d.graph_status, d.graph_reason")
+                     " d.graph_status, d.graph_reason, d.connector_id, d.readers IS NOT NULL")
 _FACT_COLUMNS = "id, space_id, body, source_document_id, written_by, created_at, updated_at, retired_at"
 
 
@@ -119,15 +122,22 @@ def _document(row: tuple) -> dict[str, Any]:
     return {"id": str(row[0]), "space_id": str(row[1]), "title": row[2], "file_name": row[3], "media_type": row[4],
             "byte_count": row[5], "sha256": row[6], "status": row[7], "status_reason": row[8], "version": row[9],
             "uploaded_by": str(row[10]), "uploaded_at": _time(row[11]), "processed_at": _time(row[12]),
-            "chunk_count": row[13], "graph_status": row[14], "graph_reason": row[15]}
+            "chunk_count": row[13], "graph_status": row[14], "graph_reason": row[15],
+            "connector_id": None if row[16] is None else str(row[16]), "restricted": row[17]}
 
 
 def add_document(conn: psycopg.Connection, *, space_id: str, title: str, file_name: str, media_type: str,
-                 content: bytes, sha256: str, uploader_groups: Sequence[str]) -> dict[str, Any]:
+                 content: bytes, sha256: str, uploader_groups: Sequence[str], connector_id: str | None = None,
+                 readers: Sequence[str] | None = None) -> dict[str, Any]:
+    """An upload, or (``connector_id``, in an admin's transaction) a connector's file read only by ``readers``."""
+    synced = connector_id is not None
     (document_id,) = conn.execute(
         "INSERT INTO row_bot_org.brain_documents (space_id, title, file_name, media_type, byte_count, sha256, content,"
-        " uploader_groups) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (space_id, title, file_name, media_type, len(content), sha256, content, list(uploader_groups))).fetchone()
+        " uploader_groups, connector_id, readers, graph_status, graph_reason)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (space_id, title, file_name, media_type, len(content), sha256, content, list(uploader_groups), connector_id,
+         None if readers is None else list(readers), "done" if synced else "pending",
+         NOT_IN_GRAPH if synced else None)).fetchone()
     return get_document(conn, str(document_id))
 
 
@@ -142,9 +152,10 @@ def replace_document(conn: psycopg.Connection, document_id: str, *, title: str |
         "UPDATE row_bot_org.brain_documents SET title = coalesce(%s, title), file_name = %s, media_type = %s,"
         " byte_count = %s, sha256 = %s, content = %s, status = 'queued', status_reason = NULL,"
         " version = version + 1, chunked_version = NULL, claimed_at = NULL, uploaded_by = %s,"
-        " uploader_groups = %s, uploaded_at = now(), processed_at = NULL, graph_status = 'pending',"
-        " graph_reason = NULL, graph_claimed_at = NULL, graph_attempts = 0, graph_retry_at = NULL,"
-        " graph_route = NULL"
+        " uploader_groups = %s, uploaded_at = now(), processed_at = NULL,"
+        " graph_status = CASE WHEN connector_id IS NULL THEN 'pending' ELSE 'done' END,"
+        " graph_reason = CASE WHEN connector_id IS NULL THEN NULL ELSE graph_reason END, graph_claimed_at = NULL,"
+        " graph_attempts = 0, graph_retry_at = NULL, graph_route = NULL"
         " WHERE id = %s RETURNING id",
         (title, file_name, media_type, len(content), sha256, content, principal_id, list(uploader_groups),
          document_id)).fetchone()
@@ -207,17 +218,22 @@ def list_facts(conn: psycopg.Connection, space_id: str, *, include_retired: bool
 def update_fact(conn: psycopg.Connection, fact_id: str, *, text: str | None, source_document_id: str | None,
                 clear_source: bool, principal_id: str, writer_groups: Sequence[str]) -> dict[str, Any] | None:
     """A fact's new wording or source, written by ``principal_id`` (who then answers for it); its embedding is
-    made again, and new wording is read again for the graph (its old mentions go)."""
-    if text is not None:
+    made again, and new wording is read again for the graph (its old mentions go). A fact that now cites a
+    connector's document leaves the graph (its mentions go), as that document isn't in it."""
+    synced = source_document_id is not None and conn.execute(
+        "SELECT 1 FROM row_bot_org.brain_documents WHERE id = %s AND connector_id IS NOT NULL",
+        (source_document_id,)).fetchone() is not None
+    if text is not None or synced:
         graph_store.clear_fact_mentions(conn, fact_id)
     row = conn.execute(
         "UPDATE row_bot_org.brain_facts SET body = coalesce(%s, body),"
         " source_document_id = CASE WHEN %s THEN NULL ELSE coalesce(%s, source_document_id) END,"
         " written_by = %s, writer_groups = %s, updated_at = now(),"
         " embedding = NULL, embedding_model = NULL, embedding_dim = NULL,"
-        " graph_done_at = CASE WHEN %s::text IS NULL THEN graph_done_at END, graph_retry_at = NULL"
+        " graph_done_at = CASE WHEN %s::text IS NULL AND NOT %s THEN graph_done_at END, graph_retry_at = NULL"
         f" WHERE id = %s RETURNING {_FACT_COLUMNS}",
-        (text, clear_source, source_document_id, principal_id, list(writer_groups), text, fact_id)).fetchone()
+        (text, clear_source, source_document_id, principal_id, list(writer_groups), text, synced,
+         fact_id)).fetchone()
     return None if row is None else _fact(row)
 
 
@@ -443,6 +459,8 @@ class ChunkHit:
     uploaded_at: datetime
     processed_at: datetime | None
     space_id: str
+    # Who may read it (a connector's document): None for everyone who reads the space.
+    readers: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -456,32 +474,48 @@ class FactHit:
     source_document_id: str | None
     source_title: str | None
     source_file_name: str | None
+    # Who may read the document it cites, when that is a connector's.
+    readers: tuple[str, ...] | None = None
 
 
 def chunk_hits(conn: psycopg.Connection, chunk_ids: Sequence[str]) -> dict[str, ChunkHit]:
     rows = conn.execute(
         "SELECT c.id::text, c.ordinal, c.body, d.id, d.title, d.file_name, d.sha256, d.uploaded_by, d.uploaded_at,"
-        " d.processed_at, c.space_id FROM row_bot_org.brain_chunks c"
+        " d.processed_at, c.space_id, d.readers FROM row_bot_org.brain_chunks c"
         " JOIN row_bot_org.brain_documents d ON d.id = c.document_id WHERE c.id = ANY(%s::bigint[])",
         ([int(chunk_id) for chunk_id in chunk_ids],)).fetchall()
     return {row[0]: ChunkHit(row[0], row[1], row[2], str(row[3]), row[4], row[5], row[6], str(row[7]), row[8],
-                             row[9], str(row[10])) for row in rows}
+                             row[9], str(row[10]), None if row[11] is None else tuple(row[11])) for row in rows}
 
 
 def fact_hits(conn: psycopg.Connection, fact_ids: Sequence[str]) -> dict[str, FactHit]:
     """The facts, each with its source document's title when the transaction may read that document."""
     rows = conn.execute(
-        "SELECT f.id::text, f.body, f.written_by, f.created_at, f.updated_at, f.space_id, d.id, d.title, d.file_name"
-        " FROM row_bot_org.brain_facts f LEFT JOIN row_bot_org.brain_documents d ON d.id = f.source_document_id"
+        "SELECT f.id::text, f.body, f.written_by, f.created_at, f.updated_at, f.space_id, d.id, d.title, d.file_name,"
+        " d.readers FROM row_bot_org.brain_facts f"
+        " LEFT JOIN row_bot_org.brain_documents d ON d.id = f.source_document_id"
         " WHERE f.id = ANY(%s::uuid[]) AND f.retired_at IS NULL", (list(fact_ids),)).fetchall()
     return {row[0]: FactHit(row[0], row[1], str(row[2]), row[3], row[4], str(row[5]),
-                            None if row[6] is None else str(row[6]), row[7], row[8]) for row in rows}
+                            None if row[6] is None else str(row[6]), row[7], row[8],
+                            None if row[9] is None else tuple(row[9])) for row in rows}
 
 
-__all__ = ["COMPANY", "GROUP", "MAX_CLAIMS", "STALE_CLAIM", "ChunkHit", "Claim", "FactHit", "FactToEmbed", "SpaceRow",
+def own_email(conn: psycopg.Connection, principal_id: str) -> str | None:
+    """The email Row-Bot has for the transaction's own principal (verified at sign-in), if any."""
+    row = conn.execute("SELECT email FROM row_bot_org.principals WHERE id = %s", (principal_id,)).fetchone()
+    return None if row is None else row[0]
+
+
+def own_entra_oid(conn: psycopg.Connection, principal_id: str) -> str | None:
+    """The Entra object id Row-Bot has for the transaction's own principal (Entra sign-in only), if any."""
+    row = conn.execute("SELECT entra_oid FROM row_bot_org.principals WHERE id = %s", (principal_id,)).fetchone()
+    return None if row is None else row[0]
+
+
+__all__ = ["COMPANY", "GROUP", "MAX_CLAIMS", "NOT_IN_GRAPH", "STALE_CLAIM", "ChunkHit", "Claim", "FactHit", "FactToEmbed", "SpaceRow",
            "add_document", "add_fact", "chunk_hits", "chunks_to_embed", "claim_document", "create_space",
            "default_embeddings_model", "delete_document", "delete_fact", "delete_space", "fact_hits", "facts_to_embed",
            "finish_document", "get_document", "get_fact", "get_space", "get_spaces", "known_principals",
-           "list_documents", "list_facts", "list_spaces", "replace_document", "retire_fact", "store_chunk_embeddings",
+           "list_documents", "list_facts", "list_spaces", "own_email", "own_entra_oid", "replace_document", "retire_fact", "store_chunk_embeddings",
            "store_chunks", "store_fact_embeddings", "text_candidates", "update_fact", "update_space", "vector_candidates",
            "vector_literal"]

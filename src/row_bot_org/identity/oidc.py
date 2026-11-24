@@ -56,6 +56,8 @@ MAX_GROUP_NAME = 256
 # Google's ID tokens carry this issuer, or the same without "https://".
 GOOGLE_ISSUER = "https://accounts.google.com"
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+# An Entra object id (the ID token's oid): what Microsoft Graph names a person by.
+_OBJECT_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class SignInError(Exception):
@@ -84,6 +86,8 @@ class VerifiedIdentity:
     display_name: str
     email: str | None
     groups: tuple[str, ...]
+    # Entra only: the person's object id (``oid``), which connectors match Graph's sharing by.
+    entra_oid: str | None = None
 
 
 def new_http_client() -> httpx.Client:
@@ -274,7 +278,9 @@ class OidcProvider:
         email = self._email(claims)
         name = (_clean_text(claims.get("name"), 200) or _clean_text(claims.get("preferred_username"), 200)
                 or (email or ""))
-        return VerifiedIdentity(self.config.issuer, subject, name, email, self._groups(claims))
+        oid = claims.get("oid") if self.config.kind == "entra" else None
+        entra_oid = oid.lower() if isinstance(oid, str) and _OBJECT_ID.fullmatch(oid.lower()) else None
+        return VerifiedIdentity(self.config.issuer, subject, name, email, self._groups(claims), entra_oid)
 
     def _check_claims(self, claims: dict[str, Any], nonce_matches: Callable[[str], bool]) -> None:
         config = self.config

@@ -322,6 +322,77 @@ space from a browser session.
   by the space's readers (`GET /api/brain/graph`); owners correct it (rename, merge, retire, relate by hand) from a
   browser session.
 
+## Connectors
+
+An admin connects a company source to a space (`/api/admin/connectors`, from a browser session): a SharePoint
+site's document library or a OneDrive (Microsoft Graph), or a folder in one, or a Google shared drive, a folder in
+one, or a folder in a user's My Drive. Nothing is fetched until an admin connects one, and no person's own account is
+used. Connectors need the server key (`ROW_BOT_ORG_GATEWAY_KEY`): their secrets are sealed with it, and are never
+shown again ("has_secret"). What a connector reads (its drive, folder, and the user a Google connector acts as) is
+set when it is made and recorded in the audit log; to change it, delete the connector and connect again.
+
+- **Syncing.** The brain's worker lists everything under the drive or folder once, then follows the source's change
+  feed every 15 minutes (or at once with "sync now"). New and changed `.txt`, `.md`, `.markdown` and `.docx` files,
+  and Google Docs (read as text), up to `ROW_BOT_ORG_BRAIN_MAX_UPLOAD_MB`, become documents of the space; a file
+  deleted upstream, or moved out of the folder, is removed, with any company fact that cites it. Other files are
+  skipped and counted. The documents are uploaded in the name of the admin who last saved or resumed the connector,
+  so **their embeddings are that admin's model calls** (usage and budgets).
+- **Limits.** A connector syncs at most 10,000 files and `ROW_BOT_ORG_CONNECTOR_MAX_GB` of them (1 to 1000 GB, 5 by
+  default); past either, files are left out and the connector says so.
+- **Failures.** The worker waits as told when a source asks it to slow down, and longer each time it can't be
+  reached. A file that can't be read three times in a row is skipped, and its document removed (the connector counts
+  files failing). The connector **stops after 3 refused sign-ins in a row** (audited) until an admin puts it right
+  and saves or resumes it; one whose admin is no longer an admin stops too, until another admin resumes it.
+- **Permissions are mirrored.** Each synced file is read only by the people and groups its source shares it with:
+  - people by their verified email from sign-in (Okta and Google send one), or, with Entra sign-in and a Microsoft
+    connector, by their Entra object id (Entra sends no verified email). **With a generic provider (Okta), set
+    `allowed_email_domains`**: then only emails in those domains are matched, so an address the provider vouches
+    for outside the company can't match a file shared with someone else's address;
+  - groups by `group_map` in `ROW_BOT_ORG_IDP` (add an entry for each Entra group's object id, or each Google
+    group's email, that should match a Row-Bot group; with Entra sign-in and no map, Entra group ids match as they
+    are).
+  - Anything that can't be matched (a sharing link for the organisation or anyone, a Google domain, a SharePoint
+    site group, a group not in the map) makes the file readable by **admins only**, never by everyone; the connector
+    counts those files and names what couldn't be matched, and its `principal_map` maps any of them to a Row-Bot
+    group (for example `{"sharepoint-group:5": "Engineering"}`).
+  - Synced files aren't read for the knowledge graph, since a space's graph is shared by everyone who reads the
+    space.
+- **How permission changes arrive.** Microsoft Graph's delta feed (asked for sharing changes) reports a file or
+  folder whose own sharing changed, and marks it; a folder's change re-reads every file under it. With
+  `Sites.Selected` or `Files.Read.All` it doesn't reliably report a change in who belongs to a group, a change made
+  through a SharePoint site group, or every inherited change. Google's feed reports a change to a file's permissions,
+  but not to a group's members. Membership of groups is the identity provider's, and is read at each sign-in.
+  **Every file's permissions are read again once a day**, whatever the feeds said: that sweep is the backstop, and
+  it also applies changes to `group_map` and the principal map. The connector shows when its permissions were last
+  all checked.
+- **Stopped and paused.** A connector stopped with an error keeps its files' last permissions for 24 hours, then
+  makes them readable by admins only until it syncs again (at once when its admin is no longer an admin). A paused
+  connector (an admin's choice) keeps them. Both say when permissions were last checked.
+- **Network.** Only `login.microsoftonline.com` and `graph.microsoft.com` (and the pre-authenticated SharePoint
+  download Graph redirects to, without the token), or `oauth2.googleapis.com` and `www.googleapis.com`. Every call
+  has a timeout; no other redirect is followed.
+
+**Microsoft (Entra).** Register an application in the tenant (App registrations: new registration, single tenant)
+and add a client secret. Under API permissions add a Microsoft Graph **application** permission, and grant admin
+consent:
+- **`Sites.Selected` (preferred)**, then grant the app read access to each site you connect (`POST
+  /sites/{site-id}/permissions`, roles `read`). The app can then read those sites only, so a leaked secret exposes
+  them and nothing else.
+- `Files.Read.All` lets the app read every site and every person's OneDrive in the tenant. Use it only if you must.
+
+The connector takes the tenant id, the application (client) id, the secret and the drive id (`GET
+/sites/{site-id}/drives` in Graph Explorer), and optionally a folder's item id.
+
+**Google.** Create a service account in a Google Cloud project with the Drive API enabled, and a JSON key.
+- **Shared drive membership (preferred)**: add the service account's email to the shared drive as a member (Viewer
+  is enough). It reads that drive only.
+- Domain-wide delegation, for a folder in a user's My Drive: in the Admin console (Security, API controls) give the
+  service account the scope `https://www.googleapis.com/auth/drive.readonly`, and give the connector that user's
+  email as its `subject`. The key can then read **every** user's Drive in the domain, so keep it for when a shared
+  drive won't do.
+
+The connector takes the key file, and the shared drive's id and/or a folder's id.
+
 ## Policy
 
 Admins keep one company policy and optional overrides per group (`/api/admin/policy`); each signed-in

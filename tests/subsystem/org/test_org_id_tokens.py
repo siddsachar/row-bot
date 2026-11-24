@@ -71,6 +71,8 @@ def test_a_good_token_of_each_shape_gives_the_stable_subject_and_groups(idp: Fak
     assert identity.groups == expected_groups
     # Entra's email carries no email_verified, so it isn't taken.
     assert identity.email == (None if idp.shape == "entra" else "ada@example.com")
+    # Entra's object id (what Graph names people by) is kept; nobody else's provider has one.
+    assert identity.entra_oid == ("11111111-2222-4333-8444-555555555555" if idp.shape == "entra" else None)
 
 
 @pytest.mark.filterwarnings("ignore:EdDSA is deprecated")

@@ -103,6 +103,8 @@ class OrgSettings:
     console_dir: Path | None = None
     # The largest company document the brain takes in one upload, in MB (row_bot_org.brain).
     brain_max_upload_mb: int = 25
+    # The most a company connector syncs, in GB of documents (row_bot_org.connectors).
+    connector_max_gb: int = 5
 
 
 class _Invalid(Exception):
@@ -207,6 +209,13 @@ def _upload_megabytes(raw: str) -> int:
     return int(value)
 
 
+def _connector_gigabytes(raw: str) -> int:
+    value = raw.strip()
+    if not (len(value) <= 4 and value.isascii() and value.isdigit() and 1 <= int(value) <= 1000):
+        raise _Invalid("must be a number of gigabytes from 1 to 1000")
+    return int(value)
+
+
 def _json_text(raw: str) -> str:
     return raw.strip()
 
@@ -264,6 +273,7 @@ _FIELDS: dict[str, tuple[str, Callable[[str], Any]]] = {
     "TRUSTED_PROXIES": ("trusted_proxies", _trusted_proxies),
     "CONSOLE_DIR": ("console_dir", _console_dir),
     "BRAIN_MAX_UPLOAD_MB": ("brain_max_upload_mb", _upload_megabytes),
+    "CONNECTOR_MAX_GB": ("connector_max_gb", _connector_gigabytes),
     # Combined after the loop: the provider needs its client secret.
     "IDP": ("idp", _json_text),
     "IDP_CLIENT_SECRET": ("idp_client_secret", _client_secret),
