@@ -5,6 +5,7 @@ import {
   publishBuddyTarget,
 } from './features/buddy/BuddyFollow';
 import { bindDraftSync } from './draft-sync';
+import { shareBuddyVoice } from './features/buddy/living/voice';
 import { reloadAfterUpdate } from './api/stale-build';
 import { keepNativeLease } from './native-lease';
 import { keepAccessSessionRenewed } from './api/access-renewal';
@@ -192,6 +193,8 @@ async function start() {
   // The desktop Buddy follows this window's conversation and shares drafts.
   const unpublishBuddyTarget = publishBuddyTarget(controller, platform);
   const unbindDraftSync = bindDraftSync(controller);
+  // The desktop pet listens and lip-syncs to voice in this window.
+  const unshareBuddyVoice = shareBuddyVoice();
   // Times saved without an offset are the server's clock; read them with its offset (B341).
   const followServerClock = () => {
     const handshake = controller.getSnapshot().handshake;
@@ -478,6 +481,7 @@ async function start() {
       disposeActiveConversationSession();
       unpublishBuddyTarget();
       unbindDraftSync();
+      unshareBuddyVoice();
       unfollowServerClock();
       unfollowPlace();
       releaseNativeLease();

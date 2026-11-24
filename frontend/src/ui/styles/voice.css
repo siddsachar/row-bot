@@ -1,0 +1,560 @@
+/*
+ * Row-Bot Voice: the bar above the composer, its orb, level meter and
+ * captions, and the phone's full-screen focus. The orb carries the state;
+ * words name it beside it, so colour is never the only signal. The bar is
+ * the composer's first row, in layout flow: the transcript shrinks and
+ * scrolls above it, and nothing is ever hidden behind it.
+ */
+.voice-bar {
+  order: -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 24px;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
+  animation: voice-bar-in var(--motion-popover, 160ms) var(--ease-out, ease-out);
+}
+.voice-orb {
+  --level: 0;
+  --orb: var(--accent-solid);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+}
+.voice-orb:enabled {
+  cursor: pointer;
+}
+.voice-orb:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.voice-orb-core {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 34% 30%,
+      color-mix(in srgb, var(--orb) 30%, white) 0%,
+      transparent 46%
+    ),
+    radial-gradient(
+      circle at 50% 55%,
+      var(--orb) 0%,
+      color-mix(in srgb, var(--orb) 72%, black) 100%
+    );
+  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--orb) 70%, transparent);
+  transform: scale(calc(0.88 + var(--level) * 0.28));
+  transition:
+    transform 90ms linear,
+    filter 200ms ease,
+    opacity 200ms ease;
+}
+.voice-orb-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid color-mix(in srgb, var(--orb) 32%, transparent);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.voice-orb-glyph {
+  position: relative;
+  color: var(--text-muted);
+}
+.voice-orb[data-state='listening'] .voice-orb-ring {
+  opacity: 1;
+  animation: voice-breathe 3s ease-in-out infinite;
+}
+.voice-orb[data-state='connecting'] .voice-orb-ring {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--orb) 18%, transparent);
+  border-top-color: var(--orb);
+  animation: voice-spin 900ms linear infinite;
+}
+.voice-orb[data-state='connecting'] .voice-orb-core {
+  opacity: 0.35;
+  transform: scale(0.7);
+}
+.voice-orb[data-state='thinking'] .voice-orb-core {
+  background: conic-gradient(
+    from 0deg,
+    var(--orb),
+    color-mix(in srgb, var(--orb) 35%, white),
+    var(--orb)
+  );
+  animation: voice-spin 1.8s linear infinite;
+}
+.voice-orb[data-state='speaking'] .voice-orb-core {
+  animation: voice-speak 1.1s ease-in-out infinite;
+}
+.voice-orb[data-state='speaking'] .voice-orb-ring {
+  opacity: 1;
+  animation: voice-ripple 1.6s ease-out infinite;
+}
+/* Waiting for you: the orb keeps its own colour; an amber ring pulses gently around it. */
+.voice-orb[data-state='waiting'] {
+  --waiting: color-mix(in srgb, var(--status-warning-border) 35%, #f5b301);
+}
+.voice-orb[data-state='waiting'] .voice-orb-ring {
+  opacity: 1;
+  border-color: var(--waiting);
+  animation: voice-waiting 2.4s ease-in-out infinite;
+}
+@keyframes voice-waiting {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--waiting) 28%, transparent);
+  }
+}
+.voice-orb[data-state='muted'] .voice-orb-core,
+.voice-orb[data-state='ended'] .voice-orb-core {
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  transform: none;
+}
+.voice-orb[data-state='paused'] .voice-orb-core {
+  filter: grayscale(1);
+  opacity: 0.55;
+  transform: scale(0.86);
+}
+.voice-bar-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.voice-bar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-label);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-line-label);
+}
+.voice-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  opacity: 0.35;
+  transition: opacity 200ms ease;
+}
+.voice-meter[data-active='true'] {
+  opacity: 1;
+}
+.voice-meter > span {
+  width: 3px;
+  height: calc(4px + var(--bar, 0.12) * 14px);
+  border-radius: 2px;
+  background: var(--accent-solid);
+  transition: height 70ms linear;
+}
+.voice-captions {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.voice-caption {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-caption-who {
+  flex: none;
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+}
+.voice-caption-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-caption[data-role='row-bot'] .voice-caption-text {
+  color: var(--text-primary);
+}
+/* A line Row-Bot says on its own while it works ("Checking your calendar…"). */
+.voice-caption[data-role='row-bot'][data-kind='progress'] .voice-caption-text {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+/* The run's waiting approval: what it asks, and how it may be answered. */
+.voice-bar-approval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 12px;
+  background: var(--status-warning-background);
+}
+.voice-bar-approval-icon {
+  flex: none;
+  color: var(--status-warning-text);
+}
+.voice-bar-approval-text {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-bar-approval-action {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-bar-approval-hint {
+  color: var(--text-muted);
+}
+/* The newest picture or video, in the phone's focus mode: one tap opens it. */
+.voice-bar-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 360px);
+  min-height: 56px;
+  margin-top: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.voice-bar-result:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.voice-bar-result .context-output-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.voice-bar-result-label {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--type-size-label);
+  line-height: var(--type-line-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-bar-result-kicker {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.voice-bar-details,
+.voice-bar-targets {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-bar-error,
+.conversation-voice-error {
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.conversation-voice-error {
+  position: absolute;
+  z-index: 21;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  width: min(360px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border: 1px solid var(--status-danger-border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+}
+/* Live voice: what goes to the provider, said before its first use. */
+.voice-live-disclosure {
+  position: absolute;
+  z-index: 21;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+}
+.voice-live-disclosure p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-live-disclosure-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.voice-live-disclosure .button {
+  justify-self: start;
+}
+.voice-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Sharing the camera or screen: always in view while it lasts, with a live
+   preview, so the person sees exactly what Row-Bot is shown. */
+.voice-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 2px 0;
+  color: var(--text-primary);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+  line-height: var(--type-line-metadata);
+}
+.voice-share-preview {
+  flex: none;
+  width: 56px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  object-fit: cover;
+}
+.voice-share-preview[data-mirrored] {
+  transform: scaleX(-1);
+}
+/* A shared screen is shown whole, never cropped. */
+.voice-share-preview[data-source='screen'] {
+  object-fit: contain;
+}
+.voice-share-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-danger-border);
+  animation: voice-breathe 2s ease-in-out infinite;
+}
+.voice-share-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-bar-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.voice-bar-notice svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+.voice-hold.button {
+  margin-inline-end: 4px;
+  border-radius: 999px;
+  touch-action: none;
+  user-select: none;
+}
+
+/* The phone: two rows, then a full-screen focus on request. */
+@container composer (max-width: 560px) {
+  .voice-bar {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px 10px;
+    padding: 10px 8px 6px 10px;
+  }
+  .voice-bar-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+}
+.voice-bar[data-focus] {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr auto auto;
+  justify-items: center;
+  gap: 20px;
+  padding: max(28px, env(safe-area-inset-top)) 20px
+    calc(20px + env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 0;
+  background: var(--canvas);
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.voice-bar[data-focus] .voice-orb {
+  align-self: end;
+  width: min(46vw, 200px);
+  height: min(46vw, 200px);
+}
+.voice-bar[data-focus] .voice-orb-core {
+  inset: 14%;
+}
+.voice-bar[data-focus] .voice-bar-body {
+  justify-items: center;
+  width: min(100%, 520px);
+  text-align: center;
+}
+.voice-bar[data-focus] .voice-bar-status {
+  font-size: var(--type-size-title);
+}
+.voice-bar[data-focus] .voice-caption {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  justify-content: center;
+  font-size: var(--type-size-reading);
+  line-height: var(--type-line-reading);
+}
+.voice-bar[data-focus] .voice-caption-text {
+  white-space: normal;
+}
+.voice-bar[data-focus] .voice-share {
+  flex-direction: column;
+  gap: 6px;
+}
+/* Full screen: the whole frame at its own shape (portrait or landscape), never cropped. */
+.voice-bar[data-focus] .voice-share-preview {
+  width: auto;
+  height: auto;
+  max-width: min(72vw, 320px);
+  max-height: 30vh;
+  border-radius: 16px;
+  object-fit: contain;
+}
+.voice-bar[data-focus] .voice-share-dot {
+  display: none;
+}
+.voice-bar[data-focus] .voice-bar-actions {
+  grid-column: 1;
+  justify-content: center;
+  gap: 12px;
+}
+
+@keyframes voice-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes voice-breathe {
+  50% {
+    transform: scale(1.08);
+    opacity: 0.55;
+  }
+}
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes voice-speak {
+  50% {
+    transform: scale(1.04);
+  }
+}
+@keyframes voice-ripple {
+  from {
+    transform: scale(0.9);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+/* "Hey Row-Bot" while it listens: the accent ear with a quiet pulse. */
+.wake-word-indicator {
+  position: relative;
+}
+.wake-word-indicator[data-state='listening'],
+.wake-word-indicator[data-state='starting'] {
+  color: var(--accent-solid);
+}
+.wake-word-indicator[data-state='listening']::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  animation: wake-word-pulse 2.4s ease-in-out infinite;
+}
+.wake-word-indicator[data-state='failed'],
+.wake-word-indicator[data-state='hidden'] {
+  color: var(--status-warning-text);
+}
+/* The expanded navigation's row: its icon carries the state, the dot sits on the ear. */
+.navigation .nav-row.wake-word-indicator[data-state='listening'] > svg,
+.navigation .nav-row.wake-word-indicator[data-state='starting'] > svg {
+  color: var(--accent-solid);
+}
+.navigation .nav-row.wake-word-indicator[data-state='failed'] > svg,
+.navigation .nav-row.wake-word-indicator[data-state='hidden'] > svg {
+  color: var(--status-warning-text);
+}
+.nav-row.wake-word-indicator[data-state='listening']::after {
+  top: 6px;
+  right: auto;
+  left: 20px;
+}
+@keyframes wake-word-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-bar,
+  .voice-orb-core,
+  .voice-orb-ring,
+  .voice-share-dot,
+  .wake-word-indicator::after {
+    animation: none !important;
+  }
+}

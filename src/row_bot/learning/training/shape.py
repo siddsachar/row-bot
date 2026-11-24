@@ -19,7 +19,9 @@ context (:func:`envelope_for`):
   TASKS and MEMORY guidance for the groups still bound.
 - **Turn context**: the "Current state:" block the small profile leaves out is removed.
 - **Tools**: the tools the profile binds stay; the rest go behind ``tool_search`` /
-  ``tool_invoke``, built by Row-Bot's own bridge over them (its catalog and its search).
+  ``tool_invoke``, built by Row-Bot's own bridge over them (its catalog and its search). A chat that
+  has made media keeps the media tools it called, and ``present``, bound, as Row-Bot does (M7,
+  :func:`kept_media`).
 - **Calls**: a call to a tool now behind the bridge becomes ``tool_invoke(name, arguments)`` with
   the same id, so its tool result is kept as it was. Where the conversation hasn't found that tool
   yet, a ``tool_search`` step comes first, answered by the bridge's own search (fenced as Row-Bot
@@ -497,13 +499,28 @@ def _today_s_tools(messages: list[dict[str, Any]], tools: list[dict[str, Any]], 
     return kept + [dict(schemas[name]) for name in sorted(used - had)]
 
 
+def kept_media(envelope: Envelope, saved: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """The media tools a chat keeps bound in this envelope once it makes media (M7): Row-Bot's own rule
+    (``agent.sticky_media_tools``) over the messages saved when the row's tool list was built. The small
+    and window profiles serve at 64K or less, Row-Bot's small tier, which keeps the media tools the chat
+    has called, and ``present``, bound by name. Full defers nothing."""
+
+    if envelope.profile == "full":
+        return frozenset()
+    from row_bot import agent
+
+    return agent.sticky_media_tools(list(saved), small=True).tools
+
+
 def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str, Any]] | None,
-           envelope: Envelope, *, agent: bool = True) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]] | None,
-                                                               Stats]:
+           envelope: Envelope, *, agent: bool = True,
+           keep: frozenset[str] = frozenset()) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]] | None,
+                                                         Stats]:
     """One row (its system sections, messages and tools, OpenAI format) in the serving shape.
 
     Raises :class:`RenderError` when a call goes to a deferred tool the bridge's search can't
     find. ``agent``: the row is an Agent request (its system sections are Row-Bot's agent prompt).
+    ``keep``: tools the chat keeps bound that the envelope would defer (:func:`kept_media`).
     """
 
     stats = Stats()
@@ -511,10 +528,14 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
     out_system = list(system)
     if envelope.profile == "full":
         return out_system, out_messages, None if tools is None else [dict(tool) for tool in tools], stats
+
+    def defers(name: str) -> bool:
+        return envelope.defers(name) and name not in keep
+
     captured = _today_s_tools(out_messages, [dict(tool) for tool in tools or ()], envelope, stats)
     names = [_name(tool) for tool in captured]
-    deferred = [tool for tool in captured if envelope.defers(_name(tool))]
-    bound_names = {name for name in names if not envelope.defers(name)}
+    deferred = [tool for tool in captured if defers(_name(tool))]
+    bound_names = {name for name in names if not defers(name)}
     loadable = "skill_load" in names
     if agent:
         out_system = _render_system(out_system, envelope, bound_names, loadable, stats)
@@ -527,7 +548,7 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
     records, known_ids = _catalog(deferred, out_messages, envelope)
     search_tool, invoke_tool = _bridge(list(records.values()), envelope.serve_context)
     stats.tools_deferred = len(deferred)
-    kept = [tool for tool in captured if not envelope.defers(_name(tool)) and _name(tool) not in ALWAYS_BOUND]
+    kept = [tool for tool in captured if not defers(_name(tool)) and _name(tool) not in ALWAYS_BOUND]
     later = [tool for tool in captured if _name(tool) in ALWAYS_BOUND - set(BRIDGES)]
     out_tools = kept + [_openai_tool(search_tool), _openai_tool(invoke_tool)] + later
 
@@ -548,7 +569,7 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
         if message.get("role") == "tool" and known_ids.get(str(message.get("tool_call_id") or "")) == "tool_search":
             found |= _found_in(message.get("content"))
         calls = message.get("tool_calls") or []
-        targets = [call for call in calls if envelope.defers(str((call.get("function") or {}).get("name") or ""))]
+        targets = [call for call in calls if defers(str((call.get("function") or {}).get("name") or ""))]
         if message.get("role") != "assistant" or not targets:
             rendered.append(message)
             continue
@@ -577,7 +598,7 @@ def render(system: Sequence[str], messages: Sequence[Mapping[str, Any]], tools: 
         for call in calls:
             function = call.get("function") or {}
             name = str(function.get("name") or "")
-            if envelope.defers(name):
+            if defers(name):
                 arguments = {"name": name, "arguments": _arguments(call)}
                 call = {**call, "function": {"name": "tool_invoke",
                                              "arguments": json.dumps(arguments, ensure_ascii=False)}}
@@ -603,13 +624,17 @@ class ServedProblem:
 
 def serve_problem(system: Sequence[str], messages: Sequence[Mapping[str, Any]],
                   tools: Sequence[Mapping[str, Any]] | None, reference_calls: Iterable[str], envelope: Envelope, *,
-                  agent: bool = True) -> ServedProblem:
+                  agent: bool = True, keep: frozenset[str] = frozenset()) -> ServedProblem:
     """A replayed decision's prefix (system sections, OpenAI-format messages and tools) in the
     serving shape, with the tools its reference calls (``reference_calls``, direct names) that the
-    served model must first find. Raises :class:`RenderError` as :func:`render` does."""
+    served model must first find. ``keep`` as for :func:`render`. Raises :class:`RenderError` as
+    :func:`render` does."""
 
-    out_system, out_messages, out_tools, _ = render(system, messages, tools, envelope, agent=agent)
-    deferred = [dict(tool) for tool in tools or () if envelope.defers(_name(tool))]
+    def defers(name: str) -> bool:
+        return envelope.defers(name) and name not in keep
+
+    out_system, out_messages, out_tools, _ = render(system, messages, tools, envelope, agent=agent, keep=keep)
+    deferred = [dict(tool) for tool in tools or () if defers(_name(tool))]
     if envelope.profile == "full" or not deferred:
         return ServedProblem(out_system, out_messages, out_tools)
     records, _ = _catalog(deferred, [dict(message) for message in messages], envelope)
@@ -620,7 +645,7 @@ def serve_problem(system: Sequence[str], messages: Sequence[Mapping[str, Any]],
     for message in out_messages:
         if message.get("role") == "tool" and ids.get(str(message.get("tool_call_id") or "")) == "tool_search":
             found |= _found_in(message.get("content"))
-    need = frozenset(name for name in reference_calls if envelope.defers(name) and name not in found)
+    need = frozenset(name for name in reference_calls if defers(name) and name not in found)
 
     def search(arguments: Mapping[str, Any]) -> set[str]:
         try:
@@ -654,6 +679,7 @@ __all__ = [
     "bound_tool_names",
     "describe",
     "envelope_for",
+    "kept_media",
     "render",
     "serve_problem",
 ]

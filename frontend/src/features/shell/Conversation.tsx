@@ -19,6 +19,7 @@ import type {
   ConversationComposer,
   DelegatedActivityView,
   ErrorAction,
+  LiveVoiceProvider,
   PanelDescriptor,
   ResourceView,
   SlashCommandSpec,
@@ -31,7 +32,11 @@ import { unbindWithUndo } from './resource-unbind';
 import { deleteWithUndo } from './delete-with-undo';
 import { useClientState, useRuntime } from '../../runtime';
 import type { FilePickerOptions } from '../../platform/types';
-import { useBackgroundReady, useSettledIdentity } from '../../shell-settled';
+import {
+  useBackgroundReady,
+  useSettledIdentity,
+  useShellSettled,
+} from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
@@ -41,7 +46,6 @@ import {
   type MenuAction,
 } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
-import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
 import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
@@ -83,8 +87,8 @@ import DelegatedActivity, {
   interruptedWork,
   recentReads,
 } from './DelegatedActivity';
+import { useOutputs } from './outputs';
 import ConversationContextRail from './ConversationContextRail';
-import type { ConversationOutput } from './ContextOutputs';
 import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
@@ -103,6 +107,7 @@ import {
   goalRequest,
   profileChoice,
   reasoningChoice,
+  reasoningStatus,
   slashArgument,
   watchRequest,
   type SlashArgument,
@@ -153,7 +158,7 @@ import {
 import ConversationHeader from './ConversationHeader';
 import { INCOGNITO_PLACEHOLDER } from './incognito';
 import ErrorFix from './ErrorFix';
-import { TranscriptMessage } from './TranscriptMessage';
+import { MessageMedia, TranscriptMessage } from './TranscriptMessage';
 import {
   TeachContext,
   useChatTeach,
@@ -164,7 +169,7 @@ import {
   answerStreaming,
   browserOffers,
   buildTranscript,
-  foldLiveVideos,
+  foldLive,
   finishedLiveSteps,
   keepUnchanged,
   liveMedia,
@@ -178,6 +183,7 @@ import {
   cardKey,
   liveCards,
   TranscriptCards,
+  WorkingFilesRow,
   type CardActions,
 } from './TranscriptCards';
 import type { RecoveryAction } from './turn-errors';
@@ -404,11 +410,18 @@ export default function Conversation({
   }>({ conversation: null, page: null });
   const delegatedPage = delegated.conversation === id ? delegated.page : null;
   const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
-  const [voiceExposure, setVoiceExposure] = useState({
+  const [voiceExposure, setVoiceExposure] = useState<{
+    key: string;
+    dictate: boolean;
+    talk: boolean;
+    live: LiveVoiceProvider[];
+    dictateReason: string;
+    talkReason: string;
+  }>({
     key: '',
     dictate: false,
     talk: false,
-    realtime: false,
+    live: [],
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
@@ -429,7 +442,7 @@ export default function Conversation({
             key: voiceHostKey,
             dictate: value.browser_dictation_available,
             talk: value.talk_available ?? false,
-            realtime: value.realtime_available ?? false,
+            live: value.live_providers ?? [],
             dictateReason:
               value.reason === 'available'
                 ? 'Dictate'
@@ -446,7 +459,7 @@ export default function Conversation({
             key: voiceHostKey,
             dictate: false,
             talk: false,
-            realtime: false,
+            live: [],
             dictateReason: 'Voice capability could not be read.',
             talkReason: 'Voice capability could not be read.',
           });
@@ -809,6 +822,10 @@ export default function Conversation({
   }, [id, fitComposer]);
   const generation = state.projection?.generation;
   const running = generation && !generation.quiesced;
+  // The last turn that settled, kept while the next one runs.
+  const [settledTurn, setSettledTurn] = useState('');
+  if (!running && generation && generation.generation_id !== settledTurn)
+    setSettledTurn(generation.generation_id);
   const controls = state.workspace?.controls;
   const resources = state.workspace?.resources ?? [];
   const defaultTargetIds = resources
@@ -1213,6 +1230,17 @@ export default function Conversation({
     try {
       if (command.handler_kind === 'reasoning') {
         const reasoning = chatReasoning;
+        if (['', 'status'].includes(argument.toLocaleLowerCase())) {
+          // A bare "/reasoning" says the level and the choices, as channels do.
+          const status = reasoningStatus(reasoning);
+          if (!status) {
+            setError(notALevel(argument));
+            return;
+          }
+          clear();
+          overlay.notify(status);
+          return;
+        }
         const choice = reasoningChoice(argument, reasoning);
         if (!reasoning?.available || !choice) {
           setError(notALevel(argument));
@@ -2689,53 +2717,20 @@ export default function Conversation({
   const writerQueued =
     lastWriterEvent?.type === 'agent.activity' &&
     lastWriterEvent.payload.status === 'queued';
-  const durableOutputs = rows.flatMap((row) =>
-    (row.traces ?? []).flatMap((group) =>
-      group.items.flatMap((item) =>
-        (item.specialization?.media ?? []).map((media) => ({
-          id: media.media_ref,
-          reference: media.media_ref,
-          mime: media.mime_type,
-          prompt: media.prompt,
-        })),
-      ),
-    ),
-  );
-  const liveOutputs = state.activity
-    .filter((item) => item.event.type === 'media.available')
-    .map((item) => ({
-      id: item.event.event_id,
-      reference:
-        item.event.type === 'media.available'
-          ? item.event.payload.media_ref
-          : '',
-      mime:
-        item.event.type === 'media.available'
-          ? item.event.payload.mime_type
-          : '',
-      prompt:
-        item.event.type === 'media.available'
-          ? item.event.payload.prompt
-          : undefined,
-    }));
-  // One output per result; its prompt (5.3.3) comes from whichever source has it.
-  const outputsByReference = new Map<string, ConversationOutput>();
-  for (const output of [
-    ...(state.workspace?.generated_outputs ?? []).map((output) => ({
-      id: output.media_ref,
-      reference: output.media_ref,
-      mime: output.mime_type,
-      prompt: output.prompt,
-    })),
-    ...durableOutputs,
-    ...liveOutputs,
-  ])
-    outputsByReference.set(output.reference, {
-      ...output,
-      prompt: output.prompt || outputsByReference.get(output.reference)?.prompt,
-    });
-  const outputs = [...outputsByReference.values()];
+  // The Outputs pane reads the chat's outputs list again when a tool made or presented a file, and when a turn
+  // settles (a video's checks may have made its render final).
+  const outputsRefresh = `${
+    state.activity.filter((item) => item.event.type === 'media.available')
+      .length
+  }:${settledTurn}`;
   const contextReady = state.status === 'ready' && historyReady;
+  // The outputs list (W3), read once the open settles: the Outputs pane's tiles and voice's newest result.
+  const shellSettled = useShellSettled();
+  const madeOutputs = useOutputs(
+    { conversation_id: id ?? '' },
+    outputsRefresh,
+    Boolean(id) && contextReady && shellSettled,
+  ).page;
   const contextRail = id ? (
     <ConversationContextRail
       conversationId={id}
@@ -2758,7 +2753,9 @@ export default function Conversation({
         state.conversation?.id === id &&
         state.conversation.parent_conversation_id,
       )}
-      outputs={outputs}
+      outputs={madeOutputs?.items ?? []}
+      workingCount={madeOutputs?.counts?.working ?? 0}
+      outputsRefresh={outputsRefresh}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}
       onCancelWait={() => void action('conversation.stop')}
@@ -2860,30 +2857,40 @@ export default function Conversation({
   const settledMedia = useMemo(
     () =>
       new Set(
-        items.flatMap((item) => item.media.map((media) => media.reference)),
+        items.flatMap((item) =>
+          [...item.media, ...(item.working?.media ?? [])].map(
+            (media) => media.reference,
+          ),
+        ),
       ),
     [items],
   );
-  const pendingMedia = liveMedia(state.activity, settledMedia);
+  const liveMediaList = liveMedia(state.activity, settledMedia);
   const settledCards = useMemo(
     () =>
       new Set(
         items.flatMap((item) =>
-          [...item.cards, ...(item.earlier ?? [])].map(cardKey),
+          [...item.cards, ...(item.working?.cards ?? [])].map(cardKey),
         ),
       ),
     [items],
   );
   const liveCardList = liveCards(state.activity, settledCards);
-  const liveCardKey = liveCardList.map(cardKey).join();
-  // A newer video from the turn in flight folds the ones it already shows.
+  const liveKey = JSON.stringify([liveCardList.map(cardKey), liveMediaList]);
+  // Finals first for the turn in flight: its working files fold, a draft it
+  // brings moves here.
   const shown = useMemo(
-    () => foldLiveVideos(items, liveCardList),
-    // liveCardKey stands for liveCardList: they change together.
+    () => foldLive(items, liveCardList, liveMediaList),
+    // liveKey stands for the live cards and media: they change together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, liveCardKey],
+    [items, liveKey],
   );
-  const pendingCards = shown.pending;
+  const pendingCards = shown.cards;
+  const pendingMedia = shown.media;
+  const pendingWorking =
+    shown.working.media.length + shown.working.cards.length
+      ? shown.working
+      : undefined;
   const cardActions: CardActions = {
     resource: (bindingId) =>
       resources.find((item) => item.binding.binding_id === bindingId),
@@ -3834,7 +3841,7 @@ export default function Conversation({
                               embeds={item.embeds}
                               media={item.media}
                               cards={item.cards}
-                              earlierCards={item.earlier}
+                              working={item.working}
                               agents={item.agents}
                               turnStart={turns.starts[index]}
                               offerBrowser={turns.browser[index]}
@@ -3862,7 +3869,7 @@ export default function Conversation({
                           embeds={item.embeds}
                           media={item.media}
                           cards={item.cards}
-                          earlierCards={item.earlier}
+                          working={item.working}
                           agents={item.agents}
                           turnStart={turns.starts[index]}
                           latest={index === lastAssistant && !turnInFlight}
@@ -3965,6 +3972,7 @@ export default function Conversation({
                   liveTraceGroups.length > 0 ||
                   pendingMedia.length > 0 ||
                   pendingCards.length > 0 ||
+                  pendingWorking !== undefined ||
                   computer.visible ||
                   browserLive ||
                   (generation?.approval_id &&
@@ -4039,29 +4047,20 @@ export default function Conversation({
                             />
                           )}
                       </TranscriptTrace>
+                      {pendingWorking && (
+                        <WorkingFilesRow
+                          working={pendingWorking}
+                          conversation={id}
+                        />
+                      )}
                       {/* Cards from the turn in flight (a video, a page, a linked
                           conversation) open beside this chat, so they need it. */}
                       <TranscriptCards
                         cards={pendingCards}
-                        earlier={shown.earlier}
                         conversation={id}
                         live
                       />
-                      {pendingMedia.length > 0 && (
-                        <div
-                          className="message-media-grid"
-                          data-count={pendingMedia.length}
-                        >
-                          {pendingMedia.map((media) => (
-                            <MediaPreview
-                              key={media.reference}
-                              reference={media.reference}
-                              mime={media.mime}
-                              caption={media.caption}
-                            />
-                          ))}
-                        </div>
-                      )}
+                      <MessageMedia media={pendingMedia} />
                     </div>
                   </div>
                 )}
@@ -4647,9 +4646,20 @@ export default function Conversation({
                         scope={voiceScope}
                         available={
                           voiceExposure.key === voiceHostKey &&
-                          (voiceExposure.talk || voiceExposure.realtime)
+                          voiceExposure.talk
+                        }
+                        phone={phone}
+                        outputs={madeOutputs?.items}
+                        focusComposer={() =>
+                          composerRef.current?.focus({ preventScroll: true })
                         }
                         unavailableReason={voiceExposure.talkReason}
+                        liveProviders={
+                          voiceExposure.key === voiceHostKey
+                            ? voiceExposure.live
+                            : []
+                        }
+                        incognito={incognito}
                         disabled={busy}
                         running={isRunning}
                         onBusy={setTalkBusy}

@@ -117,6 +117,7 @@ const sidebars: SidebarsConfig = {
         'operations/remote-access',
         'operations/docker',
         'operations/hosting',
+        'operations/headless-run',
         'privacy-safety/index',
         'privacy-safety/agent-in-bounds',
         'privacy-safety/what-your-host-can-see',

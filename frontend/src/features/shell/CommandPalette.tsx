@@ -12,13 +12,10 @@ import {
   Bot,
   CornerDownLeft,
   FileText,
-  Film,
-  Image,
   LayoutTemplate,
   MessageSquare,
   Monitor,
   Moon,
-  Music,
   Plug,
   Search,
   Settings,
@@ -31,9 +28,10 @@ import { useClientState, useRuntime } from '../../runtime';
 import { IconButton, Kbd } from '../../ui/primitives';
 import { useOptionalTheme } from '../../ui/theme';
 import type { Appearance } from '../../ui/theme-model';
-import type { ConversationView, SearchHit } from '../../api/types';
+import type { ConversationView, OutputView, SearchHit } from '../../api/types';
 import { fuzzyScore } from './fuzzy';
 import { ConversationGlyph } from './ConversationGlyph';
+import { OUTPUT_ICONS } from './outputs';
 import {
   conversationKinds,
   type ConversationKind,
@@ -81,18 +79,13 @@ export type PaletteAgent = { id: string; label: string; description?: string };
 export type PaletteFile = {
   id: string;
   label: string;
-  kind: 'page' | 'image' | 'video' | 'audio';
+  kind: 'page' | OutputView['kind'];
   conversationId: string;
   conversationTitle: string;
   pageId?: string;
 };
 
-const FILE_ICONS = {
-  page: LayoutTemplate,
-  image: Image,
-  video: Film,
-  audio: Music,
-} as const;
+const FILE_ICONS = { page: LayoutTemplate, ...OUTPUT_ICONS } as const;
 
 /** A list read once when the palette opens; empty until it arrives. */
 function useLoaded<T>(load?: (signal: AbortSignal) => Promise<T[]>): T[] {

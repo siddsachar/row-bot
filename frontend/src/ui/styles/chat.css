@@ -535,6 +535,35 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
+/* A message's own status or error line with its one fix (Read aloud's Open Voice settings). */
+.message-fix-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 6px 0 0;
+}
+.message-fix-line .status-indicator {
+  align-items: flex-start;
+  font-size: var(--text-13);
+}
+.message-fix-line .status-indicator-dot {
+  margin-top: 0.5lh;
+  transform: translateY(-50%);
+}
+.message-fix-line .error-fix.button {
+  flex: none;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-12);
+}
+@media (pointer: coarse) {
+  .message-fix-line .error-fix.button {
+    min-height: 44px;
+    height: 44px;
+  }
+}
 
 /* Prose. */
 .message-text {
@@ -1866,17 +1895,38 @@
   gap: 8px;
   margin-top: 12px;
 }
-/* Earlier versions of a reply's newest video: one quiet row, opened on demand. */
-.transcript-earlier-videos > .disclosure-summary {
+/* What a reply made on the way (finals first): one quiet row under its steps,
+   "12 working files", opened on demand. */
+.transcript-working-files {
+  margin: 4px 0;
+}
+.transcript-working-files > .disclosure-summary {
   width: fit-content;
   min-height: 28px;
   padding-inline-end: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
 }
-.transcript-earlier-videos > .disclosure-body {
+.transcript-working-files > .disclosure-summary:hover {
+  color: var(--text-secondary);
+}
+.transcript-working-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.transcript-working-files > .disclosure-body {
   padding: 0 0 4px;
 }
-.transcript-earlier-videos .transcript-cards {
+.transcript-working-files .transcript-cards {
   margin-top: 4px;
+}
+.working-media-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+  margin: 8px 0 4px;
+}
+.working-media-grid[data-count='1'] {
+  grid-template-columns: minmax(0, 320px);
 }
 .transcript-card {
   display: grid;
@@ -2139,6 +2189,10 @@
   border: 1px solid var(--border-hairline);
   border-radius: 10px;
   background: var(--surface);
+}
+/* A file sent to the devices is the chat's own: it plays in the card. */
+.delivery-file-preview .media-preview {
+  max-width: 520px;
 }
 .delivery-file:not([data-sent]) .media-file-text strong {
   color: var(--text-secondary);
@@ -2627,6 +2681,75 @@
 }
 .message-media-grid[data-count='1'] {
   grid-template-columns: minmax(0, 520px);
+}
+/* What a reply presents (finals first): large, one under another, each with
+   its name, and the caption the agent gave it. */
+.message-finals {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  margin: 12px 0;
+}
+.activity-row + .message-finals {
+  margin-top: 12px;
+}
+.message-final {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.message-final-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--text-13);
+}
+.message-final-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-medium);
+}
+.message-final .media-preview video,
+.message-final .media-image-frame img {
+  max-height: min(70vh, 720px);
+}
+.message-final-caption {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+.final-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  background: var(--status-success-background);
+  color: var(--status-success-text);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+.final-chip svg {
+  width: 13px;
+  height: 13px;
+}
+/* A made picture or video presented since: marked where it already shows. */
+.message-media-final {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.message-media-final > .final-chip {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  left: 8px;
 }
 .media-preview {
   position: relative;
@@ -4865,6 +4988,12 @@ button.attachment-tile-face:hover {
   flex: 1;
   min-width: 0;
 }
+.model-picker-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .model-picker-manage.button {
   justify-self: start;
   min-height: 26px;
@@ -5402,16 +5531,19 @@ button.attachment-tile-face:hover {
   flex: 1;
 }
 
-/* A setting Row-Bot changed, with Undo and its row: two icons that stay on
-   the card's row, as a page card's do, on a phone too. */
+/* A setting Row-Bot changed, with Undo and its row (two icons), and a video
+   with Open: small actions that stay on the card's row, as a page card's do,
+   on a phone too. */
 .transcript-card[data-kind='setting'] .transcript-card-text strong {
   color: var(--text-primary);
 }
 @container transcript (max-width: 520px) {
-  .transcript-card[data-kind='setting'] {
+  .transcript-card[data-kind='setting'],
+  .transcript-card[data-kind='video_project'] {
     grid-template-columns: 20px minmax(0, 1fr) auto;
   }
-  .transcript-card[data-kind='setting'] .transcript-card-actions {
+  .transcript-card[data-kind='setting'] .transcript-card-actions,
+  .transcript-card[data-kind='video_project'] .transcript-card-actions {
     grid-column: auto;
   }
 }

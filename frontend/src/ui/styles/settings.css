@@ -1066,6 +1066,15 @@
 .settings-secret-input-row .input {
   flex: 1 1 220px;
 }
+/* A key among a group's rows sits like one of them. */
+.settings-group-surface > .settings-secret-control {
+  margin-top: -1px;
+  border-top: 1px solid var(--border-hairline);
+  padding: 2px 16px;
+}
+.settings-group-surface > .settings-secret-control .settings-secret-input-row {
+  padding-bottom: 12px;
+}
 .settings-saved-control:has(.settings-folder-row) > .field > legend {
   position: absolute;
   width: 1px;
@@ -3335,8 +3344,12 @@
   margin-top: 6px;
 }
 /* Voice's sheet on a small server: where it gets more memory (A2, A4). */
-.voice-sheet-grow {
+.voice-sheet-grow,
+.voice-sheet-cloud {
   margin: 0 0 12px;
+}
+.voice-sheet-cloud {
+  color: var(--text-muted);
 }
 .voice-sheet-grow a svg {
   margin-left: 3px;
@@ -5487,6 +5500,126 @@ button.settings-mcp-server-name:hover {
 .local-model-settings-list small {
   color: var(--text-muted);
   font-size: var(--text-12);
+}
+.local-model-settings-list li .local-model-settings-actions {
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+/* A local model's settings sheet (U1). */
+.local-model-sheet-body .settings-row-status-line {
+  display: flex;
+  margin-top: 6px;
+}
+.local-model-sheet-reload {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 12px;
+}
+.local-model-sheet-reload .button {
+  gap: 6px;
+}
+@media (max-width: 767px) {
+  .local-model-sheet-reload {
+    justify-content: flex-start;
+  }
+}
+.local-model-sheet-picker.button {
+  justify-content: space-between;
+  min-width: 168px;
+  gap: 8px;
+}
+.local-model-sheet-picker-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  /* Room under the drag handle, as the title and close sit apart from it. */
+  .dialog.sheet.local-model-sheet > .dialog-header {
+    align-items: flex-start;
+    padding-top: 18px;
+  }
+  .local-model-sheet-picker.button {
+    width: 100%;
+  }
+}
+.local-model-sheet-more {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+.local-model-sheet-more .ui-setting-row:first-child {
+  padding-top: 8px;
+}
+.local-model-sheet-body .settings-row-status-line + .settings-row-status-line {
+  margin-top: 2px;
+}
+/* The person's own sampling values, under the Sampling row. */
+.local-model-sheet-sampling {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  align-items: end;
+  gap: 8px 10px;
+  padding-bottom: 12px;
+}
+.local-model-sheet-sampling .field-label {
+  font-size: var(--text-12);
+}
+.local-model-sheet-message {
+  min-height: 1.4em;
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+/* Settings › Voice › Talk: streaming speech models (VD3). */
+.voice-speech-model-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.voice-speech-model-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.voice-speech-model-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.voice-speech-model-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.voice-speech-model-text small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.voice-speech-model-progress {
+  display: grid;
+  gap: 4px;
+}
+.voice-speech-model-progress progress {
+  width: 100%;
+  max-width: 280px;
+  height: 6px;
+}
+.voice-speech-model-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
 }
 .local-model-settings-add {
   margin-top: 12px;

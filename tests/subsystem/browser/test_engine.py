@@ -451,12 +451,12 @@ def test_while_recording_the_page_keeps_the_recordings_size_whatever_the_pane_do
     ended: list[str] = []
     recorder = engine.start_recording(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000,
                                       on_end=lambda reason, _video: ended.append(reason), thread_id="chat-a")
-    recording = {"width": 1440, "height": 810, "deviceScaleFactor": 4 / 3, "mobile": False}
-    assert recorder.size == (1920, 1080)
+    recording = {"width": 1440, "height": 810, "deviceScaleFactor": 2.0, "mobile": False}
+    assert recorder.size == (2880, 1620), "twice over (C9): a video's zoom on it stays sharp"
     assert page_size() == recording
     assert "the recording's size" in engine.set_viewport("desktop", None, "chat-a"), "desktop while it records"
     assert page_size() == recording
-    assert picture() == (1920, 1080, 90), "the recording's own pixels; the pane shows them scaled"
+    assert picture() == (2880, 1620, 90), "the recording's own pixels; the pane shows them scaled"
 
     wide = engine.watch("chat-a", kind="pane", width=900, height=640, scale=1.0)
     narrow.close()
@@ -486,7 +486,7 @@ def test_a_recording_of_a_phone_size_keeps_the_phone_shape(chromium, tmp_path):
     engine.set_viewport("phone", None, "chat-a")
     recorder = engine.start_recording(tmp_path / "rec.mp4", max_seconds=60, size_limit=10_000_000,
                                       on_end=lambda *_: None, thread_id="chat-a")
-    assert recorder.size == (886, 1920), "390×844 at 3×, at most 1920 tall"
+    assert recorder.size == (1170, 2532), "390×844 at 3×, within 2880"
     engine.stop_recording("chat-a", "agent")
     assert recorder.join(10)
 

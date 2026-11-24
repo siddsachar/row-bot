@@ -15,11 +15,7 @@ from tests.helpers.voice_fakes import fake_browser_speech
 
 
 class Voice:
-    is_running = False
-    state = "stopped"
-
     def __init__(self):
-        self.effects = []
         self.ready = True
 
     def whisper_model_available(self):
@@ -28,32 +24,12 @@ class Voice:
     def sync_saved_models(self):
         """This fake's models are fixed; there are no saved settings to adopt."""
 
-    def start(self):
-        self.effects.append("start")
-        self.is_running = True
-        self.state = "listening"
-
-    def stop(self):
-        self.effects.append("stop")
-        self.is_running = False
-        self.state = "stopped"
-
-    def mute(self):
-        self.effects.append("mute")
-
-    def unmute(self):
-        self.effects.append("unmute")
-
-    def get_transcription(self):
-        self.effects.append("transcript")
-        return "legacy text"
-
 
 @pytest.fixture
 def runtime():
     clock = [0.0]
     voice = Voice()
-    coordinator = VoiceSessionCoordinator(voice)
+    coordinator = VoiceSessionCoordinator()
     calls, factories, modes = [], [], []
 
     def transcribe(key, audio, mime, *, validate, mode):
@@ -92,11 +68,10 @@ def finish(runtime, operation, **kwargs):
 
 def test_capability_construction_does_not_initialize_or_start(runtime):
     assert runtime.adapter.capability().browser_dictation_available
-    assert not runtime.factories and not runtime.voice.effects
+    assert not runtime.factories
     snapshot = start(runtime)
     assert snapshot.state == "capturing" and snapshot.quiesced
     assert runtime.coordinator.transport == "browser"
-    assert not runtime.voice.effects and not runtime.voice.is_running
 
 
 def test_exact_coordinator_cannot_acquire_a_competing_adapter(runtime):
@@ -112,35 +87,6 @@ def test_start_replay_same_identity_and_no_extra_initialization(runtime):
     with pytest.raises(DictationError, match="idempotency_mismatch"):
         runtime.adapter.start(replace(runtime.owner, conversation_id="other"), request_id=request,
                               validate=lambda: None)
-
-
-@pytest.mark.parametrize("method", ["start_talk", "start_dictation", "start_realtime_talk", "start_browser"])
-def test_legacy_start_cannot_take_api_owner(runtime, method):
-    first = start(runtime)
-    with pytest.raises(DictationError, match="voice_session_busy"):
-        getattr(runtime.coordinator, method)()
-    assert runtime.adapter.snapshot(runtime.owner, first.handle, validate=lambda: None) == first
-    assert not runtime.voice.effects
-
-
-def test_legacy_controls_do_not_stop_or_drain_api_voice(runtime):
-    first = start(runtime)
-    runtime.coordinator.stop()
-    runtime.coordinator.mute()
-    runtime.coordinator.unmute()
-    assert runtime.coordinator.get_transcription() is None
-    assert runtime.adapter.snapshot(runtime.owner, first.handle, validate=lambda: None).state == "capturing"
-    assert not runtime.voice.effects
-
-
-def test_unleased_legacy_semantics_and_api_busy(runtime):
-    runtime.coordinator.start_talk()
-    with pytest.raises(DictationError, match="voice_session_busy"):
-        start(runtime)
-    runtime.coordinator.start_dictation()
-    runtime.coordinator.stop()
-    assert runtime.voice.effects == ["start", "stop", "start", "stop"]
-    assert start(runtime).state == "capturing"
 
 
 def test_receive_reserves_before_any_audio_and_stop_waits_for_reader(runtime):
@@ -295,8 +241,6 @@ def test_stt_stop_keeps_real_worker_slot_until_return(runtime):
         runtime.adapter.cancel_operation(operation)
         runtime.adapter.abort_receive(operation)  # Reader cleanup cannot release a worker.
         assert not runtime.adapter.close()
-        with pytest.raises(DictationError, match="voice_session_busy"):
-            runtime.coordinator.start_talk()
         assert not runtime.adapter.snapshot(runtime.owner, snapshot.handle, validate=lambda: None).quiesced
     finally:
         release.set()
@@ -340,7 +284,6 @@ def test_missing_model_releases_initial_lease_without_device_start(runtime):
         start(runtime)
     runtime.voice.ready = True
     assert start(runtime).quiesced
-    assert not runtime.voice.effects
 
 
 def test_start_reports_the_selected_speech_model_that_is_not_ready(runtime):
@@ -358,23 +301,12 @@ def test_start_reports_the_selected_speech_model_that_is_not_ready(runtime):
     lease = runtime.coordinator._dictation_lease
     snapshot = runtime.adapter.snapshot(runtime.owner, lease.handle, validate=lambda: None)
     assert snapshot.state == "stopped" and snapshot.quiesced
-    assert not runtime.voice.effects
 
 
 def test_dictation_transcribes_with_the_dictate_selection(runtime):
     snapshot = start(runtime)
     finish(runtime, receive(runtime, snapshot))
     assert runtime.modes == ["dictate"]
-
-
-def test_legacy_start_expires_completed_api_replay(runtime):
-    first = start(runtime)
-    operation = receive(runtime, first)
-    finish(runtime, operation)
-    runtime.coordinator.start_browser("talk")
-    with pytest.raises(DictationError, match="voice_session_expired"):
-        receive(runtime, first, utterance_id=operation.utterance_id)
-    assert runtime.coordinator.is_running and runtime.coordinator.mode == "talk"
 
 
 def test_start_replay_cannot_publish_handle_during_readiness(runtime):
@@ -396,7 +328,7 @@ def test_start_replay_cannot_publish_handle_during_readiness(runtime):
         with pytest.raises(DictationError, match="voice_session_busy"):
             runtime.adapter.start(runtime.owner, request_id=request, validate=lambda: None)
         with pytest.raises(DictationError, match="voice_session_busy"):
-            runtime.coordinator.start_talk()
+            start(runtime)
     finally:
         release.set()
         thread.join(3)
@@ -433,8 +365,6 @@ def test_readiness_retains_ownership_until_actual_return(runtime, termination):
             assert not runtime.adapter.close()
         snapshot = runtime.adapter.snapshot(runtime.owner, handle, validate=lambda: None)
         assert snapshot.state == "stopping" and not snapshot.quiesced
-        with pytest.raises(DictationError, match="voice_session_busy"):
-            runtime.coordinator.start_talk()
         expected = "voice_session_expired" if termination == "close" else "voice_session_busy"
         with pytest.raises(DictationError, match=expected):
             start(runtime)
@@ -448,8 +378,6 @@ def test_readiness_retains_ownership_until_actual_return(runtime, termination):
     snapshot = runtime.adapter.snapshot(runtime.owner, handle, validate=lambda: None)
     assert snapshot.state == "stopped" and snapshot.quiesced
     assert runtime.adapter.close()
-    runtime.coordinator.start_talk()
-    assert runtime.voice.effects == ["start"]
 
 
 def test_failed_readiness_releases_start_reservation(runtime):
@@ -481,46 +409,6 @@ def test_replay_revocation_discards_previously_cached_text(runtime):
     assert runtime.coordinator._dictation_lease.text == ""
     assert runtime.coordinator._dictation_lease.digest == ""
     assert runtime.adapter.snapshot(runtime.owner, snapshot.handle, validate=lambda: None).quiesced
-
-
-def test_blocked_legacy_shutdown_reserves_owner_without_holding_admission_lock(runtime):
-    entered, release = threading.Event(), threading.Event()
-    runtime.coordinator.start_talk()
-    original_stop = runtime.voice.stop
-
-    def stop_voice():
-        entered.set()
-        assert release.wait(3)
-        original_stop()
-
-    runtime.voice.stop = stop_voice
-    thread = threading.Thread(target=runtime.coordinator.stop)
-    thread.start()
-    try:
-        assert entered.wait(3)
-        assert runtime.coordinator._dictation_lock.acquire(blocking=False)
-        runtime.coordinator._dictation_lock.release()
-        with pytest.raises(DictationError, match="voice_session_busy"):
-            start(runtime)
-        with pytest.raises(DictationError, match="voice_session_busy"):
-            runtime.coordinator.start_browser()
-    finally:
-        release.set()
-        thread.join(3)
-    assert not thread.is_alive()
-    assert start(runtime).state == "capturing"
-
-
-def test_legacy_exception_releases_transition_reservation(runtime):
-    def fail_start():
-        raise RuntimeError("device unavailable")
-
-    runtime.voice.start = fail_start
-    with pytest.raises(RuntimeError, match="device unavailable"):
-        runtime.coordinator.start_talk()
-    assert runtime.coordinator._legacy_transition_owner is None
-    runtime.coordinator.stop()
-    assert start(runtime).state == "capturing"
 
 
 @pytest.mark.parametrize("revoke_at", ["admission", "decoded"])

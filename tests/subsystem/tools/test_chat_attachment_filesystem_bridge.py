@@ -119,7 +119,10 @@ def test_workspace_read_file_reads_received_file_paths_and_bare_alias(tmp_path, 
     assert "rows.csv" in read_tool.invoke({"file_path": "Received Files/rows.csv"})
     assert "doc.json" in read_tool.invoke({"file_path": "Received Files/doc.json"})
     assert "pdf body" in read_tool.invoke({"file_path": "Received Files/paper.pdf"})
-    assert "Displayed image" in read_tool.invoke({"file_path": "Received Files/photo.png"})
+    image = read_tool.invoke({"file_path": "Received Files/photo.png"})
+    # Nothing is shown by reading it: the result says so, and how to show it (no "shown inline" claim).
+    assert image.startswith("Image: Received Files/photo.png (") and "shown inline" not in image
+    assert image.endswith("to show it to the person, use present.")
 
 
 def test_workspace_read_file_reads_xlsx_when_dependency_available(tmp_path, monkeypatch):

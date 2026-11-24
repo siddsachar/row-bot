@@ -882,6 +882,12 @@ class Capture:
 
     def _model_call_records(self, item: _ModelCall, sink: _Sink) -> None:
         turn = item.turn
+        if turn.follows_decision_id and turn.last_model_decision_id is None:
+            from row_bot.learning.corrections import follows_voice_front
+
+            if follows_voice_front(item.messages):
+                # The person answered a Live voice line (V4), not the reply Learning recorded before it.
+                turn.follows_decision_id = None
         if self._read_mid_turn(turn, item.messages):
             # 5.3.1: the person's message read at this step starts the turn's next episode, after the step
             # before it, as the turn of its own it used to start did (the episode before it is complete).

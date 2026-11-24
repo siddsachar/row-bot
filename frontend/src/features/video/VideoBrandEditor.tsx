@@ -3,12 +3,12 @@ import { clientError } from '../../api/errors';
 import type { MediaItem, SettingsChoice, VideoBrand } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, Field, Select, Skeleton } from '../../ui/primitives';
+import { CAPTION_STYLES } from './video-words';
 
-const CAPTIONS: [VideoBrand['captions'], string][] = [
-  ['box', 'In a box'],
-  ['bold', 'Bold, outlined'],
-  ['title', 'Large, centred'],
-];
+const CAPTIONS = Object.entries(CAPTION_STYLES) as [
+  VideoBrand['captions'],
+  string,
+][];
 const CORNERS: [VideoBrand['logo_corner'], string][] = [
   ['top-left', 'Top left'],
   ['top-right', 'Top right'],
@@ -22,7 +22,26 @@ const FRAMINGS: [VideoBrand['framing'], string][] = [
 ];
 const CAMERAS: [VideoBrand['camera'], string][] = [
   ['follow', 'Follows what is done'],
+  ['spotlight', 'Spotlights what is done'],
   ['still', 'Stays still'],
+];
+/** Every word's typeface, and how titles, lower thirds and the end card look (C5). */
+const FONTS: [VideoBrand['font'], string][] = [
+  ['sans', 'Sans'],
+  ['modern', 'Modern (Montserrat)'],
+  ['serif', 'Serif (Playfair Display)'],
+  ['display', 'Display (Anton)'],
+];
+const TITLES: [VideoBrand['titles'], string][] = [
+  ['studio', 'On a card of the colour'],
+  ['minimal', 'Minimal, cards on black'],
+  ['bold', 'Bold, on solid colour'],
+];
+/** How loud every video's sound is made (LUFS), by where it plays. */
+const LOUDNESS: [number, string][] = [
+  [-14, 'Social and YouTube (−14 LUFS)'],
+  [-16, 'Podcasts (−16 LUFS)'],
+  [-23, 'Broadcast (−23 LUFS)'],
 ];
 const SPEEDS: [number, string][] = [
   [0.9, 'Slower'],
@@ -53,7 +72,8 @@ export function useVoiceChoices(): SettingsChoice[] {
  * cards, titles and badges, its caption style sets how lines show, its logo (a
  * picture from Library › Media) sits in a corner, its intro and outro are cards
  * before and after, its footage and camera set how recordings are shown, its
- * voice and speed say the lines, and its music mood is what Row-Bot picks. A
+ * voice and speed say the lines, its music mood is what Row-Bot picks, and its
+ * loudness is how loud every video's sound is made (C6). A
  * version can turn it off; changing the kit applies the next time a video is
  * made.
  */
@@ -135,6 +155,36 @@ export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
             }
           >
             {CAPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Font" layout="row">
+          <Select
+            aria-label="Font"
+            value={brand.font ?? 'sans'}
+            onChange={(event) =>
+              set({ font: event.target.value as VideoBrand['font'] })
+            }
+          >
+            {FONTS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Titles" layout="row">
+          <Select
+            aria-label="Titles"
+            value={brand.titles ?? 'studio'}
+            onChange={(event) =>
+              set({ titles: event.target.value as VideoBrand['titles'] })
+            }
+          >
+            {TITLES.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
@@ -268,6 +318,24 @@ export function VideoBrandEditor({ onSaved }: { onSaved: () => void }) {
                 {mood[0].toUpperCase() + mood.slice(1)}
               </option>
             ))}
+          </Select>
+        </Field>
+        <Field label="Loudness" layout="row">
+          <Select
+            aria-label="Loudness"
+            value={String(brand.loudness ?? -14)}
+            onChange={(event) => set({ loudness: Number(event.target.value) })}
+          >
+            {LOUDNESS.map(([value, label]) => (
+              <option key={value} value={String(value)}>
+                {label}
+              </option>
+            ))}
+            {!LOUDNESS.some(([value]) => value === (brand.loudness ?? -14)) && (
+              <option value={String(brand.loudness)}>
+                {`${brand.loudness} LUFS`}
+              </option>
+            )}
           </Select>
         </Field>
       </div>

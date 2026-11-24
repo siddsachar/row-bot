@@ -215,3 +215,22 @@ def test_a_dm_paired_user_answers_like_the_configured_owner(monkeypatch, channel
     press(paired)
 
     assert not pending() and resolved == [("resume-1", True)]
+
+
+@pytest.mark.parametrize("module_name", ["telegram", "whatsapp"])
+def test_voice_note_channels_offer_the_voice_reply_switch_on_by_default(module_name):
+    """Telegram and WhatsApp answer a voice note with one (VD9) unless the person turns it off."""
+    import importlib
+
+    from row_bot.channels import voice_replies
+
+    module = importlib.import_module(f"row_bot.channels.{module_name}")
+    channel = next(value for value in vars(module).values() if getattr(value, "name", None) == module_name
+                   and hasattr(value, "config_fields"))
+    (field,) = [field for field in channel.config_fields if field.key == voice_replies.VOICE_REPLIES_KEY]
+
+    assert channel.capabilities.voice_in is True
+    assert (field.label, field.field_type, field.storage, field.default) == (
+        "Reply to voice notes with a voice note", "toggle", "config", True,
+    )
+    assert "Kokoro" in field.help_text

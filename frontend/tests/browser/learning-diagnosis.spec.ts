@@ -20,6 +20,8 @@ const l3a = (page: Page, action: string) =>
   fixture(page, `/__l3a_fixture/learning/${action}`);
 
 test.beforeEach(async ({ page }) => {
+  // The night's window starts an hour or two from now, so "Next look tonight at …" holds at any hour.
+  await l3a(page, 'ahead');
   await page.addInitScript(() => {
     if (window !== window.top) return;
     localStorage.setItem(

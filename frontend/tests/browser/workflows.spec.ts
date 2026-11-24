@@ -213,11 +213,14 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
     await screenshot(page, info, `workflow-settings-${appearance}`);
     await accessibility(page, info, `workflow-settings-${appearance}`);
   }
+  // A phone changes a workflow's settings on the computer (C2, D11 A): the
+  // same settings say so there, and are back unsaved as they were on a wider
+  // window.
   const size = page.viewportSize();
   await page.setViewportSize({ width: 390, height: 844 });
-  await editor
-    .getByRole('combobox', { name: 'Send results', exact: true })
-    .scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole('region', { name: 'Workflow settings', exact: true }),
+  ).toContainText('Open this on your computer');
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
@@ -225,6 +228,12 @@ test('Phase 4 workflow settings save in one reviewed step and preserve saved con
   }
   await page.emulateMedia({ colorScheme: 'light' });
   if (size) await page.setViewportSize(size);
+  await expect(
+    editor.getByRole('combobox', { name: 'Send results', exact: true }),
+  ).toHaveValue('digest');
+  await expect(
+    editor.getByRole('combobox', { name: 'Trigger', exact: true }),
+  ).toHaveValue('webhook');
   await editor
     .getByRole('button', { name: 'Save settings', exact: true })
     .click();

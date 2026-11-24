@@ -490,6 +490,37 @@
       ],
       "title": "MonitorLogs",
       "type": "object"
+    },
+    "MonitorVoiceLatency": {
+      "additionalProperties": false,
+      "description": "Row-Bot Voice's recent spoken replies: time from the end of speech to the first audio.",
+      "properties": {
+        "first_audio_p50_ms": {
+          "maximum": 600000,
+          "minimum": 0,
+          "title": "First Audio P50 Ms",
+          "type": "integer"
+        },
+        "first_audio_p90_ms": {
+          "maximum": 600000,
+          "minimum": 0,
+          "title": "First Audio P90 Ms",
+          "type": "integer"
+        },
+        "turns": {
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Turns",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "turns",
+        "first_audio_p50_ms",
+        "first_audio_p90_ms"
+      ],
+      "title": "MonitorVoiceLatency",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -548,6 +579,17 @@
       "const": 1,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "voice": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MonitorVoiceLatency"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

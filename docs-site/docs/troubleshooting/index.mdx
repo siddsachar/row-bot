@@ -19,7 +19,7 @@ Start with what Row-Bot already tells you. The sidebar's attention indicator app
 - Refresh the provider's model list in its sheet in Settings › Models.
 - A model marked **Unavailable** in a picker says why; reconnecting its provider usually fixes it.
 - Choose a tool-capable model for workflows, designs, code folders, and multi-step tool use.
-- For local and custom endpoints, use enough context for Row-Bot's instructions and tool schemas; lower the **Reading limit** in Settings › Models on smaller computers.
+- For local and custom endpoints, use enough context for Row-Bot's instructions and tool schemas; on smaller computers, give a local model a smaller **Context** in its settings (Settings › Models).
 - If reasoning choices are missing, rejected, or reset, use the active model's conditional control or `/reasoning`, then follow [Reasoning Controls](/docs/chat/reasoning-controls#troubleshooting).
 
 - With a local model, if a reply stops with "The response was interrupted", choose **Resume**. Row-Bot already asks the model once more when it writes a tool call its runtime can't read; a second failure shows this card.
@@ -119,9 +119,10 @@ The full route, authentication, Docker, proxy, and recovery guidance is in [Remo
 
 ## Voice And Buddy
 
-- Check microphone and output device selection and permissions.
-- Use Dictate before Talk if you need review.
-- Check provider readiness for realtime voice.
+- Check that the browser may use the microphone, and which microphone and speaker are chosen in Settings › Voice › Microphone and speaker (or from the headphones button in the voice bar).
+- Use Dictate before Talk if you need review. If Talk answers before you have finished, set **When you pause** to **Give me time to think**, or turn on **Push to talk**.
+- On a phone, voice stops listening when the screen locks or turns off, or when you switch apps.
+- For Live voice or a cloud speech service, check that its key is saved: Settings › Voice says when one is missing.
 - If docked Buddy is missing, enable **Show Buddy** in Settings › Buddy. If a torn-off overlay was hidden, use the tray's **Show Buddy** action.
 - Drag Buddy itself out of the sidebar in the native Windows or macOS app. Browser/server and phone layouts cannot create the native overlay.
 - Use **Open full thread** for microphone controls, complex approvals, attachments, tool traces, and complete conversation history.

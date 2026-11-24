@@ -36,6 +36,28 @@ def model_label(model_id: str) -> str | None:
     return found.label if found is not None else None
 
 
+def chosen_context(model_id: str) -> int | None:
+    """The window the person chose for a pinned model in its settings (U1), or None for Automatic."""
+
+    try:
+        from row_bot.models import person_local_model_settings
+
+        value = person_local_model_settings(PROVIDER_ID, model_id).get("context")
+    except Exception:  # noqa: BLE001 - no saved settings to read: Automatic
+        return None
+    return int(value) if value else None
+
+
+def model_context(model_id: str) -> int | None:
+    """The window a pinned model is served at on this computer (``models.context_for``, with the person's
+    choice), or None for an id that isn't one."""
+
+    from row_bot.local_runtime import hardware, models
+
+    found = models.get(model_id)
+    return models.context_for(found, hardware.peek(), chosen_context(model_id)) if found is not None else None
+
+
 def is_local_runtime_provider(provider_id: str | None) -> bool:
     return str(provider_id or "") == PROVIDER_ID
 
@@ -70,6 +92,7 @@ __all__ = [
     "PROVIDER_ID",
     "catalog_view",
     "is_local_runtime_provider",
+    "model_context",
     "model_label",
     "model_ref",
 ]

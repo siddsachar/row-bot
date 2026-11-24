@@ -355,9 +355,10 @@ class CapturedWork:
     def turn(self, thread_id: str, question: str, answer: str, *, model_ref: str = "gpt-5.6-sol",
              provider_id: str = "openai", end: str = "completed", tool_status: str = "ok",
              args: dict | None = None, tool: bool = True, raw_answer: str | None = None,
-             person_message: bool = False) -> list[str]:
+             person_message: bool = False, stop: str | None = None) -> list[str]:
         """One turn; returns its model calls' decision ids (the tool step's, then the answer's).
-        ``person_message``: the person sent it (capture marks the reply it followed)."""
+        ``person_message``: the person sent it (capture marks the reply it followed). ``stop``: the
+        answer's stop reason as its provider reports it (``finish_reason``)."""
 
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -380,7 +381,8 @@ class CapturedWork:
             self.writer.tool_call(turn, call=call, result=result, status=tool_status)
             sent = [*sent, step, result]
             added += [step, result]
-        reply = AIMessage(content=raw_answer if raw_answer is not None else answer, id=f"r{number}")
+        reply = AIMessage(content=raw_answer if raw_answer is not None else answer, id=f"r{number}",
+                          response_metadata={"finish_reason": stop} if stop else {})
         ids.append(self.writer.model_call(turn, messages=sent, response=reply, tools=self.TOOLS, model_ref=model_ref,
                                           provider_id=provider_id))
         added.append(AIMessage(content=answer, id=f"r{number}-kept"))

@@ -1,5 +1,6 @@
 import {
   Bot,
+  BadgeCheck,
   BookOpen,
   Brain,
   Calculator,
@@ -146,6 +147,7 @@ const EXACT: Record<string, Verb> = {
   edit_video: verb('Edited a video', 'Editing a video', Scissors),
   video: verb('Worked on a video', 'Working on a video', Clapperboard),
   send_file: verb('Sent files', 'Sending files', Send),
+  present: verb('Presented the result', 'Presenting the result', BadgeCheck),
   create_chart: verb('Created a chart', 'Creating a chart', ChartColumn),
   create_design: verb('Created a design', 'Creating a design', Palette),
   create_code_folder: verb(
