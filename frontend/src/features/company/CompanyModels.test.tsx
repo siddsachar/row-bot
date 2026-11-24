@@ -67,7 +67,7 @@ const summary: ModelCatalogSummary = {
 };
 
 function show(view: CompanyView | null, row = qwen) {
-  const company = vi.fn(async () => {
+  const company = vi.fn(async (_action: string) => {
     if (!view) throw new Error('capability_unavailable');
     return view;
   });
