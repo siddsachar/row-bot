@@ -7708,11 +7708,15 @@ def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     predecessor._authorize(x_fixture_token)
     from datetime import date, datetime, timedelta
 
-    from row_bot import dream_cycle
+    from row_bot import dream_cycle, learning
     from row_bot.learning import diagnosis
     from row_bot.learning.store import LearningStore
 
     night = date.today().isoformat()
+    if action in {"night", "claude_plan", "stopped", "nothing", "unavailable"}:
+        # A running Row-Bot with Learning on by default has its store: start-up makes it (O195), and this
+        # fixture never runs start-up. Without this, the spec passed only after another spec's restore.
+        learning.ensure_store()
     if action == "ahead":
         # The night's window starts one to two hours from now, whatever the hour, so the Overview says "Next look
         # tonight at …". Inside the window (01:00 to 05:00 by default) it rightly says it looks once Row-Bot is free.
@@ -8651,7 +8655,9 @@ class _FixturePlanner:
     def recipe(self):
         from row_bot.learning.training import recipes
 
-        return recipes.load("8gb")
+        # The smallest certified tier (8 GB was retired). With Learning on by default (O195) the fixture's
+        # quiet-hours runner asks for it on every check.
+        return recipes.load("16gb")
 
     def forget(self) -> None:
         return None

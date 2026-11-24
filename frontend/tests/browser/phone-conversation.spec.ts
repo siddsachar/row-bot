@@ -204,11 +204,14 @@ for (const phone of PHONES)
       await press(page, older);
       const sheet = page.getByRole('menu');
       await expect(sheet).toBeVisible();
+      // Teach is there too: Learning is on from the start (O195), and the
+      // press sheet is where an older reply keeps its extras.
       await expect(sheet.getByRole('menuitem')).toHaveText([
         'Copy message',
         'Select text',
         'Read aloud',
         'Fork from here',
+        'Teach Row-Bot',
       ]);
       await screenshot(page, info, `phone-conversation-long-press-${width}`);
       expect(
