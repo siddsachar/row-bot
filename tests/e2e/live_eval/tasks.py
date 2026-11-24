@@ -648,25 +648,27 @@ TASKS: tuple[Task, ...] = (
 
 
 def by_id() -> dict[str, Task]:
+    from .genui import tasks as genui_tasks
     from .learning import all_tasks
 
-    return {task.task_id: task for task in (*TASKS, *all_tasks())}
+    return {task.task_id: task for task in (*TASKS, *all_tasks(), *genui_tasks())}
 
 
 def select_tasks(provider_id: str, env: Mapping[str, str] | None = None) -> list[Task]:
     """The tasks one provider runs, in registry order, for the tier and task filter in the environment."""
     source = os.environ if env is None else env
     tier = str(source.get(TIER_ENV, "") or "core").strip().lower()
-    if tier not in {"core", "full", "learning"}:
-        raise ValueError(f"{TIER_ENV} must be core, full or learning, not {tier!r}")
+    if tier not in {"core", "full", "learning", "genui"}:
+        raise ValueError(f"{TIER_ENV} must be core, full, learning or genui, not {tier!r}")
     wanted = [name.strip() for name in str(source.get(TASKS_ENV, "") or "").split(",") if name.strip()]
-    if tier == "learning":
+    if tier in {"learning", "genui"}:
+        from .genui import tasks as genui_tasks
         from .learning import tasks as learning_tasks
 
-        chosen = learning_tasks(source)
+        chosen = learning_tasks(source) if tier == "learning" else genui_tasks()
         unknown = [name for name in wanted if name not in {task.task_id for task in chosen}]
         if unknown:
-            raise ValueError(f"{TASKS_ENV} names unknown learning tasks {unknown}")
+            raise ValueError(f"{TASKS_ENV} names unknown {tier} tasks {unknown}")
         return [task for task in chosen if not wanted or task.task_id in wanted]
     known = by_id()
     unknown = [name for name in wanted if name not in known]

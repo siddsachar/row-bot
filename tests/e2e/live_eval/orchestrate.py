@@ -427,7 +427,7 @@ def _apply_flags(args: argparse.Namespace) -> None:
 def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--providers", help=f"comma list (sets {provider_registry.PROVIDERS_ENV})")
     parser.add_argument("--tasks", help="comma list of task ids (sets ROW_BOT_LIVE_EVAL_TASKS)")
-    parser.add_argument("--tier", choices=("core", "full", "learning"))
+    parser.add_argument("--tier", choices=("core", "full", "learning", "genui"))
     parser.add_argument("--max-usd", dest="max_usd")
     parser.add_argument("--max-tokens", dest="max_tokens")
     parser.add_argument("--rates", help="rates file (USD per million tokens)")
