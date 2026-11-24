@@ -411,7 +411,9 @@ class ClientRealtimeTransport:
             lease.phase = "event"
             state.events.add(event.event_id)
 
-        # After a spoken cancel the run may end at any moment, even before this event is answered.
+        # The event's run may end at any moment, even before the event is answered: after a spoken
+        # cancel, or a quick answer to the consult that started it. Only another run taking its place
+        # changes the run.
         stopping = False
 
         def admitted() -> None:
@@ -420,7 +422,8 @@ class ClientRealtimeTransport:
                 self._lease(owner, handle)
                 self._transport._operation(operation)
             current = self._active(owner)
-            if current is not generation and not (stopping and current is None):
+            ended = current is None and (stopping or (generation is not None and generation.producer_done.is_set()))
+            if current is not generation and not ended:
                 raise DictationError("voice_run_changed")
 
         control_result: dict | None = None

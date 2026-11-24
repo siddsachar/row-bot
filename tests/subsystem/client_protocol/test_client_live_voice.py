@@ -260,6 +260,50 @@ def test_a_relayed_front_hears_through_the_host_and_its_consult_gets_progress_th
 
 
 @pytest.mark.slow
+def test_a_consult_whose_run_ends_before_its_call_is_answered_still_gets_the_answer(live):
+    barrier = StreamBarrier()
+    live.service.stream_factory = ScriptedAgentStream((
+        barrier, ("token", "It is sunny."),
+        CheckpointCommit((AIMessage(id="quick-answer", content="It is sunny."),), "quick-answer"),
+        ("done", None))).stream
+    # A quick answer on a slow machine: the run the consult started ends before the call's own checks finish.
+    realtime = live.service.realtime
+    submit, active = realtime._submit, realtime._active
+    started = {"thread": None, "run_id": None}
+
+    def submitted(owner, *args):
+        run_id = submit(owner, *args)
+        started["thread"], started["run_id"] = threading.get_ident(), run_id
+        return run_id
+
+    def ended_before_answer(owner):
+        lease = live.service.dictation.coordinator._dictation_lease
+        if started["thread"] == threading.get_ident() and lease.run_id == started["run_id"]:
+            run = active(owner)
+            if run is not None:
+                barrier.release.set()
+                assert run.producer_done.wait(5)
+                for _ in range(500):
+                    if active(owner) is None:
+                        break
+                    time.sleep(0.01)
+        return active(owner)
+
+    realtime._submit, realtime._active = submitted, ended_before_answer
+    with live.client.websocket_connect(LIVE, headers=ORIGIN) as socket:
+        hello(socket, start(live, "gemini"))
+        relay = live.relays[0]
+        relay.events.put(("event", {"type": "function_call_ready", "call_id": "consult-1",
+                                    "name": "row_bot_agent_consult", "arguments": '{"request":"What is the weather"}'}))
+        answer = relay.wait_for(lambda output: output.kind == "function_output" and output.call_id == "consult-1"
+                                and "sunny" in output.text)
+        assert json.loads(answer.text) == {"status": "completed", "answer": "It is sunny."}
+        assert barrier.exited.is_set()
+        socket.send_text(json.dumps({"type": "end"}))
+    assert relay.closed
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize("ends_before_answer", [False, True], ids=["run-still-stopping", "run-ends-mid-answer"])
 def test_a_cancelled_consult_answers_with_a_short_cancelled_result(live, ends_before_answer):
     barrier = StreamBarrier(release_on_cancel=not ends_before_answer)
