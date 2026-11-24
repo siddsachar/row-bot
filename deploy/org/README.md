@@ -321,6 +321,13 @@ space from a browser session.
   and try again an hour later. A deleted document takes what only it mentioned out of the graph. Each space has its own graph, read
   by the space's readers (`GET /api/brain/graph`); owners correct it (rename, merge, retire, relate by hand) from a
   browser session.
+- **Shares and review.** Anyone may offer a short text (a title, up to 8,000 characters and a note on where it
+  came from) to a space they read (`POST /api/brain/spaces/{id}/submissions`), while the policy's
+  `data.share_to_company` allows it, with at most 20 waiting at once. A share holds what someone wrote in a chat,
+  so until it is approved only its submitter and the space's owners and admins can see it. Owners (in a browser
+  session) and admins (in the console's Review page) approve it, as sent or edited, to make it a fact of that space
+  or another they own (a fact holds up to 2,000 characters), or reject it with a reason the submitter reads. The
+  audit log records each step with ids only, never what was shared.
 
 ## Policy
 

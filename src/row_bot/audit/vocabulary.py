@@ -140,6 +140,7 @@ class Action(StrEnum):
     SHARE_SUBMITTED = "share.submitted"
     SHARE_APPROVED = "share.approved"
     SHARE_REJECTED = "share.rejected"
+    SHARE_WITHDRAWN = "share.withdrawn"
     LIBRARY_PUBLISHED = "library.published"
     DATA_EXPORTED = "data.exported"
     DATA_DELETED = "data.deleted"
@@ -240,6 +241,8 @@ def _enum(*choices: str, required: bool = True) -> Detail:
 _REQ = {"required": True}
 _SPACE = {"space_id": Detail("id", **_REQ)}
 _SHARE = {"item_kind": _enum(*ITEM_KINDS), **_SPACE}
+# What a reviewer changed in a share before approving it (never the values).
+SHARE_EDITS = ("title", "text", "title,text")
 _APP = {"version": Detail("version")}
 
 SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
@@ -279,8 +282,13 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
         {_P, _A}, _SHARED, {TargetKind.DOCUMENT}, _GATED, byte_count=Detail("int"), **_SPACE),
     Action.DOCUMENT_REMOVED: _spec({_P, _A}, _SHARED, {TargetKind.DOCUMENT}, _DONE, **_SPACE),
     Action.SHARE_SUBMITTED: _spec({_P}, _SHARED, {TargetKind.SHARE}, _GATED, **_SHARE),
-    Action.SHARE_APPROVED: _spec({_P, _A}, _SHARED, {TargetKind.SHARE}, _DONE, **_SHARE),
+    # A share approved by its space's owner or an admin (B4a): the fact it became, what the reviewer edited, and the
+    # space it was sent to when they moved it to another (``space_id`` is where it is now).
+    Action.SHARE_APPROVED: _spec({_P, _A}, _SHARED, {TargetKind.SHARE}, _DONE, fact_id=Detail("id"),
+                                 edited=_enum(*SHARE_EDITS, required=False), from_space_id=Detail("id"), **_SHARE),
     Action.SHARE_REJECTED: _spec({_P, _A}, _SHARED, {TargetKind.SHARE}, _DONE, **_SHARE),
+    # Its submitter took a share back before anyone decided it (B4a).
+    Action.SHARE_WITHDRAWN: _spec({_P}, _SHARED, {TargetKind.SHARE}, _DONE, **_SHARE),
     Action.LIBRARY_PUBLISHED: _spec(
         {_P, _A, _S}, _SHARED, {TargetKind.LIBRARY_ITEM}, _GATED,
         item_kind=_enum(*LIBRARY_KINDS), version=Detail("version", **_REQ)),

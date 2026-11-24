@@ -31,7 +31,8 @@ _DOCUMENT_COLUMNS = ("d.id, d.space_id, d.title, d.file_name, d.media_type, d.by
                      " d.status_reason, d.version, d.uploaded_by, d.uploaded_at, d.processed_at,"
                      " (SELECT count(*) FROM row_bot_org.brain_chunks c WHERE c.document_id = d.id),"
                      " d.graph_status, d.graph_reason")
-_FACT_COLUMNS = "id, space_id, body, source_document_id, written_by, created_at, updated_at, retired_at"
+_FACT_COLUMNS = ("id, space_id, body, source_document_id, written_by, created_at, updated_at, retired_at,"
+                 " source_submission_id, submitted_by")
 
 
 def _time(value: datetime | None) -> str | None:
@@ -182,7 +183,10 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> bool:
 def _fact(row: tuple) -> dict[str, Any]:
     return {"id": str(row[0]), "space_id": str(row[1]), "text": row[2],
             "source_document_id": None if row[3] is None else str(row[3]), "written_by": str(row[4]),
-            "created_at": _time(row[5]), "updated_at": _time(row[6]), "retired_at": _time(row[7])}
+            "created_at": _time(row[5]), "updated_at": _time(row[6]), "retired_at": _time(row[7]),
+            # An approved share's fact (B4a): the share, and the person who offered it.
+            "source_submission_id": None if row[8] is None else str(row[8]),
+            "submitted_by": None if row[9] is None else str(row[9])}
 
 
 def add_fact(conn: psycopg.Connection, *, space_id: str, text: str, source_document_id: str | None,

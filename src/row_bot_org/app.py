@@ -103,7 +103,8 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None, *, bra
     with ``settings.gateway_key``
     too the model catalog and gateway (``row_bot_org.gateway``), the company brain (``row_bot_org.brain``, its
     worker thread running from start to shutdown unless ``brain_worker`` is false, when the caller drives
-    ``app.state.brain.process_pending()`` itself) and its knowledge graph (``row_bot_org.brain.graph_web``), and
+    ``app.state.brain.process_pending()`` itself), its knowledge graph (``row_bot_org.brain.graph_web``) and its
+    review queue (``row_bot_org.brain.review_web``), and
     with ``settings.console_dir`` the admin
     console (``row_bot_org.console``). Every other path needs a server
     session (``identity.gate``): 401 without one, then the route or a JSON 404.
@@ -168,6 +169,7 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None, *, bra
     if service is not None:
         from row_bot_org.audit.web import audit_router
         from row_bot_org.brain.graph_web import graph_router
+        from row_bot_org.brain.review_web import review_router
         from row_bot_org.brain.web import brain_router
         from row_bot_org.devices import devices_router
         from row_bot_org.identity.device import device_router
@@ -180,7 +182,7 @@ def create_app(settings: OrgSettings, pool: ConnectionPool | None = None, *, bra
         app.state.brain = brain
         app.add_exception_handler(AdminRequired, _admin_required)
         routers += [identity_router(service), people_router(), policy_router(), audit_router(), devices_router(),
-                    device_router(device), brain_router(brain), graph_router()]
+                    device_router(device), brain_router(brain), graph_router(), review_router(brain)]
     if gateway is not None:
         from row_bot_org.gateway.web import gateway_router
 
