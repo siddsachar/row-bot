@@ -7,7 +7,8 @@ here and values always go as parameters.
 - **The worker**: ``wait_for_model``, ``claim_graph``, ``start_graph``, ``next_chunk``, ``store_chunk_found``,
   ``finish_graph`` for documents; ``next_fact``, ``store_fact_found``, ``hold_fact`` for facts.
 - **Orphans**: ``mentioned_in_document`` and ``mentioned_in_fact`` name what a source's mentions point at, before
-  they go; ``retire_orphans`` then retires those left with none (``retired_auto``).
+  they go; ``settle_orphans`` then deletes those left with none that nobody curated, and retires the curated ones
+  (``retired_auto``, their extracted description and aliases cleared).
 - **Curation**: ``update_entity``, ``merge_entity``, ``set_entity_status``, ``add_relation``,
   ``set_relation_status``.
 - **Reading**: ``graph``, ``get_entity``, ``entity_relations``, ``entity_mentions``.
@@ -34,6 +35,8 @@ RETRY_AFTER = "1 hour"
 MAX_EDGES_PER_NODE = 3
 MAX_DETAIL_RELATIONS = 200
 MAX_DETAIL_MENTIONS = 50
+# The graph view ranks at most this many matching entities (the most recently changed).
+MAX_CANDIDATES = 10_000
 
 _ENTITY_COLUMNS = ("id, space_id, name, entity_type, description, aliases, status, merged_into, retired_auto,"
                    " edited_by, edited_at, created_at, updated_at")
@@ -165,26 +168,42 @@ def mentioned_in_fact(conn: psycopg.Connection, fact_id: str) -> Mentioned:
 
 
 def clear_fact_mentions(conn: psycopg.Connection, fact_id: str) -> None:
-    """A fact's mentions go (it was edited or retired), and what they leave with none is retired."""
+    """A fact's mentions go (it was edited or retired), and what they leave with none is settled."""
     mentioned = mentioned_in_fact(conn, fact_id)
     conn.execute("DELETE FROM row_bot_org.brain_mentions WHERE fact_id = %s", (fact_id,))
-    retire_orphans(conn, mentioned)
+    settle_orphans(conn, mentioned)
 
 
-def retire_orphans(conn: psycopg.Connection, mentioned: Mentioned) -> None:
-    """Of ``mentioned``, the active entities and extracted relations left with no mention are retired
-    (``retired_auto``: found again, they are active again). Relations made by hand stay."""
+_UNMENTIONED = "NOT EXISTS (SELECT 1 FROM row_bot_org.brain_mentions m WHERE m.{}_id = {}.id)"
+
+
+def settle_orphans(conn: psycopg.Connection, mentioned: Mentioned) -> None:
+    """Of ``mentioned``, what is left with no mention: extracted relations and entities nobody curated
+    (``edited_by`` NULL) are deleted, so nothing of a deleted source stays readable (an entity with a relation made
+    by hand is kept); curated ones still active are retired (``retired_auto``: found again, they are active again),
+    an entity's description and aliases cleared unless an owner wrote them. Relations made by hand stay."""
     entities, relations = mentioned
-    if entities:
-        conn.execute(
-            "UPDATE row_bot_org.brain_entities e SET status = 'retired', retired_auto = true, updated_at = now()"
-            " WHERE e.id = ANY(%s::uuid[]) AND e.status = 'active'"
-            " AND NOT EXISTS (SELECT 1 FROM row_bot_org.brain_mentions m WHERE m.entity_id = e.id)", (entities,))
     if relations:
+        conn.execute(
+            "DELETE FROM row_bot_org.brain_relations r WHERE r.id = ANY(%s::uuid[]) AND r.origin = 'extracted'"
+            f" AND r.edited_by IS NULL AND {_UNMENTIONED.format('relation', 'r')}", (relations,))
         conn.execute(
             "UPDATE row_bot_org.brain_relations r SET status = 'retired', retired_auto = true, updated_at = now()"
             " WHERE r.id = ANY(%s::uuid[]) AND r.status = 'active' AND r.origin = 'extracted'"
-            " AND NOT EXISTS (SELECT 1 FROM row_bot_org.brain_mentions m WHERE m.relation_id = r.id)", (relations,))
+            f" AND {_UNMENTIONED.format('relation', 'r')}", (relations,))
+    if entities:
+        conn.execute(
+            "DELETE FROM row_bot_org.brain_entities e WHERE e.id = ANY(%s::uuid[]) AND e.edited_by IS NULL"
+            f" AND e.status <> 'merged_into' AND {_UNMENTIONED.format('entity', 'e')}"
+            " AND NOT EXISTS (SELECT 1 FROM row_bot_org.brain_relations r WHERE r.origin = 'manual'"
+            "                 AND (r.source_id = e.id OR r.target_id = e.id))", (entities,))
+        conn.execute(
+            "UPDATE row_bot_org.brain_entities e SET status = 'retired', retired_auto = true,"
+            " description = CASE WHEN description_curated THEN description ELSE '' END,"
+            " aliases = CASE WHEN aliases_curated THEN aliases ELSE '{}' END,"
+            " alias_keys = CASE WHEN aliases_curated THEN alias_keys ELSE '{}' END, updated_at = now()"
+            f" WHERE e.id = ANY(%s::uuid[]) AND e.status = 'active' AND {_UNMENTIONED.format('entity', 'e')}",
+            (entities,))
 
 
 # -- the worker: what it found ----------------------------------------------------------------------
@@ -282,20 +301,22 @@ class GraphClaim:
         return self.attempts > MAX_CLAIMS
 
 
-def claim_graph(conn: psycopg.Connection, *, skip: Sequence[str] = ()) -> GraphClaim | None:
-    """The oldest ready document whose graph is to read (pending, waiting with its wait over, or claimed by a
-    worker that stopped), now ``extracting``; None when there is none. ``skip``: the documents this pass took."""
+def claim_graph(conn: psycopg.Connection, *, route: str, skip: Sequence[str] = ()) -> GraphClaim | None:
+    """The oldest ready document whose graph is to read (pending, waiting with its wait over, claimed by a worker
+    that stopped, or failed with another chat model than ``route``, which counts its claims afresh), now
+    ``extracting``; None when there is none. ``skip``: the documents this pass took."""
     row = conn.execute(
         "UPDATE row_bot_org.brain_documents SET graph_status = 'extracting', graph_claimed_at = now(),"
-        " graph_attempts = graph_attempts + 1"
+        " graph_attempts = CASE WHEN graph_status = 'failed' THEN 1 ELSE graph_attempts + 1 END"
         " WHERE id = (SELECT id FROM row_bot_org.brain_documents"
         "             WHERE status = 'ready' AND id <> ALL(%(skip)s::uuid[])"
         "               AND (graph_status = 'pending'"
         "                    OR (graph_status = 'waiting' AND (graph_retry_at IS NULL OR graph_retry_at <= now()))"
-        f"                   OR (graph_status = 'extracting' AND graph_claimed_at < now() - interval '{STALE_CLAIM}'))"
+        f"                   OR (graph_status = 'extracting' AND graph_claimed_at < now() - interval '{STALE_CLAIM}')"
+        "                    OR (graph_status = 'failed' AND graph_route IS DISTINCT FROM %(route)s::text))"
         "             ORDER BY uploaded_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)"
         " RETURNING id, space_id, title, version, graph_version, graph_next, uploaded_by, uploader_groups,"
-        " graph_attempts", {"skip": list(skip)}).fetchone()
+        " graph_attempts", {"skip": list(skip), "route": route}).fetchone()
     if row is None:
         return None
     return GraphClaim(str(row[0]), str(row[1]), row[2], row[3], row[4], row[5], str(row[6]), tuple(row[7]), row[8])
@@ -310,13 +331,13 @@ def _current(conn: psycopg.Connection, claim: GraphClaim, *, started: bool = Tru
 
 
 def start_graph(conn: psycopg.Connection, claim: GraphClaim) -> bool:
-    """Begin reading the claimed version: mentions of any other go (orphans retired), from the first part."""
+    """Begin reading the claimed version: mentions of any other go (orphans settled), from the first part."""
     if not _current(conn, claim, started=False):
         return False
     mentioned = mentioned_in_document(conn, claim.document_id)
     conn.execute("DELETE FROM row_bot_org.brain_mentions m USING row_bot_org.brain_chunks c"
                  " WHERE c.id = m.chunk_id AND c.document_id = %s", (claim.document_id,))
-    retire_orphans(conn, mentioned)
+    settle_orphans(conn, mentioned)
     conn.execute("UPDATE row_bot_org.brain_documents SET graph_version = version, graph_next = 0 WHERE id = %s",
                  (claim.document_id,))
     return True
@@ -347,17 +368,19 @@ def store_chunk_found(conn: psycopg.Connection, claim: GraphClaim, chunk_id: int
 
 
 def finish_graph(conn: psycopg.Connection, claim: GraphClaim, status: str, reason: str | None, *,
-                 retry: bool = False, reset_attempts: bool = True) -> bool:
-    """The claim's outcome: ``done``, ``failed``, ``waiting`` (``retry``: again after ``RETRY_AFTER``) or back to
-    ``pending`` (to carry on next pass). ``reset_attempts`` False keeps counting claims towards ``MAX_CLAIMS``."""
+                 retry: bool = False, failed_with: str | None = None) -> bool:
+    """The claim's outcome: ``done``, ``waiting`` (``retry``: again after ``RETRY_AFTER``), back to ``pending`` (to
+    carry on next pass), each of which starts the count of claims again, or ``failed`` with the chat model
+    ``failed_with`` (read again only with another)."""
     if not _current(conn, claim, started=False):
         return False
     conn.execute(
         "UPDATE row_bot_org.brain_documents SET graph_status = %(status)s, graph_reason = %(reason)s,"
         " graph_claimed_at = NULL,"
         f" graph_retry_at = CASE WHEN %(retry)s THEN now() + interval '{RETRY_AFTER}' END,"
-        " graph_attempts = CASE WHEN %(reset)s THEN 0 ELSE graph_attempts END WHERE id = %(id)s",
-        {"status": status, "reason": reason, "retry": retry, "reset": reset_attempts, "id": claim.document_id})
+        " graph_attempts = CASE WHEN %(status)s::text = 'failed' THEN graph_attempts ELSE 0 END,"
+        " graph_route = %(route)s WHERE id = %(id)s",
+        {"status": status, "reason": reason, "retry": retry, "route": failed_with, "id": claim.document_id})
     return True
 
 
@@ -411,14 +434,16 @@ def hold_fact(conn: psycopg.Connection, fact: FactToRead) -> None:
 # -- curation ---------------------------------------------------------------------------------------
 
 def update_entity(conn: psycopg.Connection, entity_id: str, *, name: str, entity_type: str, description: str,
-                  aliases: Sequence[str]) -> EntityRow | None:
-    """An entity's new name, type, description and aliases, curated by the transaction's principal.
+                  aliases: Sequence[str], description_written: bool, aliases_written: bool) -> EntityRow | None:
+    """An entity's new name, type, description and aliases, curated by the transaction's principal (who wrote the
+    description, or set the aliases, when said: those then outlive the entity's mentions).
     ``psycopg.errors.UniqueViolation`` when another entity of the space has that name and type."""
     row = conn.execute(
         "UPDATE row_bot_org.brain_entities SET name = %s, name_key = %s, entity_type = %s, description = %s,"
-        f" aliases = %s, alias_keys = %s, {_EDITED} WHERE id = %s RETURNING {_ENTITY_COLUMNS}",
+        " aliases = %s, alias_keys = %s, description_curated = description_curated OR %s,"
+        f" aliases_curated = aliases_curated OR %s, {_EDITED} WHERE id = %s RETURNING {_ENTITY_COLUMNS}",
         (name, graph.name_key(name), entity_type, description, list(aliases), _alias_keys(aliases),
-         entity_id)).fetchone()
+         description_written, aliases_written, entity_id)).fetchone()
     return None if row is None else _entity(row)
 
 
@@ -474,7 +499,7 @@ def merge_entity(conn: psycopg.Connection, source: EntityRow, target: EntityRow)
                  f" retired_auto = false, {_EDITED} WHERE id = %s", (target.id, source.id))
     aliases = graph.merge_aliases(target.name, list(target.aliases), [source.name], list(source.aliases))
     row = conn.execute(
-        "UPDATE row_bot_org.brain_entities SET aliases = %(aliases)s, alias_keys = %(keys)s,"
+        "UPDATE row_bot_org.brain_entities SET aliases = %(aliases)s, alias_keys = %(keys)s, aliases_curated = true,"
         " description = CASE WHEN description = '' THEN %(description)s ELSE description END,"
         " status = CASE WHEN retired_auto AND %(active)s THEN 'active' ELSE status END,"
         f" retired_auto = retired_auto AND NOT %(active)s, {_EDITED} WHERE id = %(id)s RETURNING {_ENTITY_COLUMNS}",
@@ -522,29 +547,39 @@ def add_relation(conn: psycopg.Connection, *, space_id: str, source_id: str, tar
 def graph_view(conn: psycopg.Connection, *, spaces: Sequence[str] | None, query: str | None, limit: int,
                retired: bool) -> dict[str, Any]:
     """The entities (active, and retired with ``retired``) this transaction reads, in ``spaces`` (None: all it
-    reads), whose name or an alias holds ``query``: the ``limit`` most related first, and the relations among them.
-    The answer's shape is the API's (``nodes``, ``edges``, counts); ``spaces`` there is filled by the caller."""
-    where = {"spaces": None if spaces is None else list(spaces), "query": query, "retired": retired}
-    matching = (
-        "FROM row_bot_org.brain_entities e WHERE (e.status = 'active' OR (%(retired)s AND e.status = 'retired'))"
+    reads), whose name or an alias holds ``query``: of at most ``MAX_CANDIDATES`` of them (the most recently
+    changed), the ``limit`` most related first, and the relations among them. The answer's shape is the API's
+    (``nodes``, ``edges``, counts); ``spaces`` there is filled by the caller."""
+    where = {"spaces": None if spaces is None else list(spaces), "query": query, "retired": retired,
+             "candidates": MAX_CANDIDATES}
+    # The candidates, and each one's active relations counted once in one grouped pass.
+    candidates = (
+        "WITH matching AS (SELECT e.id, e.space_id, e.name, e.description, e.entity_type, e.aliases, e.status,"
+        " e.updated_at FROM row_bot_org.brain_entities e"
+        " WHERE (e.status = 'active' OR (%(retired)s AND e.status = 'retired'))"
         " AND (%(spaces)s::uuid[] IS NULL OR e.space_id = ANY(%(spaces)s::uuid[]))"
         " AND (%(query)s::text IS NULL OR strpos(lower(e.name), lower(%(query)s::text)) > 0"
         "      OR EXISTS (SELECT 1 FROM unnest(e.aliases) AS a (alias)"
-        "                 WHERE strpos(lower(a.alias), lower(%(query)s::text)) > 0))")
+        "                 WHERE strpos(lower(a.alias), lower(%(query)s::text)) > 0))"
+        " ORDER BY e.updated_at DESC, e.id LIMIT %(candidates)s)")
     shown_status = "(r.status = 'active' OR (%(retired)s AND r.status = 'retired'))"
     rows = conn.execute(
-        "SELECT e.id, e.space_id, e.name, e.description, e.entity_type, e.aliases, e.status, e.updated_at,"
-        " (SELECT count(*) FROM row_bot_org.brain_relations r WHERE r.status = 'active'"
-        "  AND (r.source_id = e.id OR r.target_id = e.id)) AS related, count(*) OVER ()"
-        f" {matching} ORDER BY related DESC, lower(e.name), e.id LIMIT %(limit)s",
-        {**where, "limit": limit}).fetchall()
+        f"{candidates}, ends AS ("
+        "  SELECT r.source_id AS id FROM row_bot_org.brain_relations r"
+        "  WHERE r.status = 'active' AND r.source_id IN (SELECT id FROM matching)"
+        "  UNION ALL SELECT r.target_id FROM row_bot_org.brain_relations r"
+        "  WHERE r.status = 'active' AND r.target_id IN (SELECT id FROM matching)),"
+        " counts AS (SELECT id, count(*) AS related FROM ends GROUP BY id)"
+        " SELECT m.id, m.space_id, m.name, m.description, m.entity_type, m.aliases, m.status, m.updated_at,"
+        " coalesce(c.related, 0) AS related, (SELECT count(*) FROM matching)"
+        " FROM matching m LEFT JOIN counts c ON c.id = m.id ORDER BY related DESC, lower(m.name), m.id"
+        " LIMIT %(limit)s", {**where, "limit": limit}).fetchall()
     nodes = [{"id": str(r[0]), "space_id": str(r[1]), "subject": r[2], "description": r[3], "entity_type": r[4],
               "aliases": list(r[5]), "status": r[6], "updated_at": _time(r[7]), "relation_count": r[8],
               "orphan": r[8] == 0} for r in rows]
     total_entities = rows[0][9] if rows else 0
     (total_relations,) = conn.execute(
-        f"WITH matching AS (SELECT e.id {matching})"
-        f" SELECT count(*) FROM row_bot_org.brain_relations r WHERE {shown_status}"
+        f"{candidates} SELECT count(*) FROM row_bot_org.brain_relations r WHERE {shown_status}"
         " AND r.source_id IN (SELECT id FROM matching) AND r.target_id IN (SELECT id FROM matching)",
         where).fetchone()
     ids = [node["id"] for node in nodes]
@@ -607,10 +642,11 @@ def entity_mentions(conn: psycopg.Connection, entity: EntityRow) -> tuple[list[M
     return mentions, rows[0][10] if rows else 0
 
 
-__all__ = ["ACTIVE", "EXTRACTED", "MANUAL", "MAX_CLAIMS", "MAX_DETAIL_MENTIONS", "MAX_DETAIL_RELATIONS",
+__all__ = ["ACTIVE", "EXTRACTED", "MANUAL", "MAX_CANDIDATES", "MAX_CLAIMS", "MAX_DETAIL_MENTIONS",
+           "MAX_DETAIL_RELATIONS",
            "MAX_EDGES_PER_NODE", "MERGED", "RETIRED", "RETRY_AFTER", "STALE_CLAIM", "EntityRow", "FactToRead",
            "GraphClaim", "Mentioned", "MentionRow", "RelationRow", "add_relation", "chunk_count", "claim_graph",
            "clear_fact_mentions", "entity_by_name", "entity_mentions", "entity_relations", "finish_graph",
            "get_entity", "get_relation", "graph_view", "hold_fact", "mentioned_in_document", "mentioned_in_fact",
-           "merge_entity", "next_chunk", "next_fact", "retire_orphans", "set_entity_status", "set_relation_status",
+           "merge_entity", "next_chunk", "next_fact", "set_entity_status", "set_relation_status", "settle_orphans",
            "start_graph", "store_chunk_found", "store_fact_found", "update_entity", "wait_for_model"]

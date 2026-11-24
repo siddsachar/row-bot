@@ -24,7 +24,6 @@ kept, in order.
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -91,9 +90,12 @@ def name_key(name: str) -> str:
 
 
 def clean_name(value: str) -> str | None:
-    """A usable name (whitespace collapsed, 1 to ``MAX_NAME`` characters, no control characters), or None."""
+    """A usable name (whitespace collapsed, 1 to ``MAX_NAME`` characters, no control characters, and its
+    ``name_key`` no longer: case-folding can lengthen it, "ß" to "ss"), or None."""
     name = " ".join(value.split())
     if not 1 <= len(name) <= MAX_NAME or any(ord(char) < 32 or ord(char) == 127 for char in name):
+        return None
+    if len(name_key(name)) > MAX_NAME:
         return None
     return name
 
@@ -200,8 +202,12 @@ def _relation(item: dict[str, Any]) -> tuple[str, str, str] | None:
     label = _text(item, "relation_type", required=True)
     source, target = _text(item, "source_subject", required=True), _text(item, "target_subject", required=True)
     confidence = item.get("confidence", 1.0)
-    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not math.isfinite(confidence):
+    # The type, then the range, compared as given: a huge integer is never turned into a float, and NaN and
+    # infinity fail the range.
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         raise JunkAnswer("confidence isn't a number")
+    if not 0 <= confidence <= 1:
+        raise JunkAnswer("confidence isn't between 0 and 1")
     if confidence < MIN_CONFIDENCE:
         return None
     relation, swapped = canonical_relation(label)
@@ -209,7 +215,15 @@ def _relation(item: dict[str, Any]) -> tuple[str, str, str] | None:
 
 
 def read_answer(text: str) -> Found:
-    """A model's answer to ``prompt``, read strictly (see the module's notes); ``JunkAnswer`` when it isn't one."""
+    """A model's answer to ``prompt``, read strictly (see the module's notes); ``JunkAnswer`` when it isn't one,
+    whatever it holds (nesting too deep to parse and numbers too large for a float are junk too)."""
+    try:
+        return _read_answer(text)
+    except (RecursionError, OverflowError) as error:
+        raise JunkAnswer(f"the answer can't be read ({type(error).__name__})") from None
+
+
+def _read_answer(text: str) -> Found:
     answer = text.strip()
     if len(answer) > MAX_ANSWER_CHARACTERS:
         raise JunkAnswer("the answer is too long")

@@ -32,8 +32,13 @@ def relation(label: str, source: str, target: str, **extra: object) -> dict:
     "```json\n[]",
     "Here you go:\n```json\n[]\n```",
     "[" + " " * graph.MAX_ANSWER_CHARACTERS + "]",
+    "[" * 60_000,
+    json.dumps([relation("uses", "A", "B", confidence=10 ** 400)]),
+    json.dumps([relation("uses", "A", "B", confidence=1.5)]),
+    '[{"relation_type": "uses", "source_subject": "A", "target_subject": "B", "confidence": NaN}]',
 ], ids=["prose", "object", "numbers", "half-entity", "number-name", "null-content", "number-alias",
-        "word-confidence", "bool-confidence", "open-fence", "prose-and-fence", "too-long"])
+        "word-confidence", "bool-confidence", "open-fence", "prose-and-fence", "too-long", "too-deep",
+        "huge-confidence", "over-one", "nan"])
 def test_an_answer_that_isnt_the_array_asked_for_is_refused_whole(answer: str) -> None:
     with pytest.raises(graph.JunkAnswer):
         graph.read_answer(answer)
@@ -46,6 +51,7 @@ def test_a_sound_answer_keeps_company_entities_and_labelled_relations_between_th
         entity("organization", "Globex"),
         entity("preference", "Coffee"),
         entity("person", "x" * (graph.MAX_NAME + 1)),
+        entity("person", "\u00df" * graph.MAX_NAME),  # Its compared form, "ss" for each, is too long.
         entity("project", "ATLAS", aliases=["Payments"]),
         relation("led_by", "Atlas", "Priya"),
         relation("Customer Of", "Globex", "atlas"),

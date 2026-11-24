@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -24,6 +25,7 @@ pytest.importorskip("joserfc", reason="joserfc is not installed: uv sync --locke
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from row_bot_org.brain import graph_store  # noqa: E402
 from row_bot_org.brain import service as brain_service  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
 from tests.fixtures.model_endpoints import (  # noqa: E402
@@ -224,12 +226,13 @@ def test_documents_are_read_for_the_graph_through_the_chat_model_metered_to_the_
 
 # -- mentions and orphans -----------------------------------------------------------------------------
 
-def test_what_loses_its_last_mention_is_retired_and_comes_back_when_found_again(org_database, idp) -> None:
+def test_what_loses_its_last_mention_goes_unless_curated_and_a_deleted_source_leaves_nothing_readable(
+        org_database, idp) -> None:
     with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
         answering(endpoint, [
-            ("Priya leads", [entity("person", "Priya"), entity("project", "Atlas"),
+            ("Priya leads", [entity("person", "Priya", "Leads the Atlas project."), entity("project", "Atlas"),
                              relation("leads", "Priya", "Atlas")]),
-            ("uses Postgres", [entity("project", "Atlas"), entity("system", "Postgres"),
+            ("uses Postgres", [entity("project", "Atlas", "The payments project."), entity("system", "Postgres"),
                                relation("uses", "Atlas", "Postgres")]),
             ("Orion", [entity("project", "Orion")]),
         ])
@@ -240,44 +243,58 @@ def test_what_loses_its_last_mention_is_retired_and_comes_back_when_found_again(
         uses = uploaded(admin, company, "uses.md", b"Atlas uses Postgres.")
         process(server)
         assert set(named(graph_of(admin))) == {"Priya", "Atlas", "Postgres"}
+        priya = named(graph_of(admin))["Priya"]["id"]
 
-        # Delete: what only that document mentioned is retired; Atlas is still mentioned elsewhere.
+        def replace(text: bytes) -> dict:
+            replaced = admin.put(f"/api/brain/documents/{uses['id']}", files={"file": ("uses.md", text)})
+            assert replaced.status_code == 200, replaced.text
+            return replaced.json()
+
+        # Delete: what only that document mentioned, and nobody curated, is gone; nothing of it stays readable.
         assert admin.delete(f"/api/brain/documents/{leads['id']}").status_code == 204
-        assert set(named(graph_of(admin))) == {"Atlas", "Postgres"}
-        assert status_of(admin, "Priya") == "retired"
-        assert edges(graph_of(admin, retired="true")) == {("Priya", "leads", "Atlas"), ("Atlas", "uses", "Postgres")}
-        assert [e["status"] for e in graph_of(admin, retired="true")["edges"]
-                if e["relation_type"] == "leads"] == ["retired"]
+        assert set(named(graph_of(admin))) == set(named(graph_of(admin, retired="true"))) == {"Atlas", "Postgres"}
+        assert edges(graph_of(admin, retired="true")) == {("Atlas", "uses", "Postgres")}
+        assert answered(admin.get(f"/api/brain/entities/{priya}")) == ENTITY_NOT_FOUND
+        assert superuser_sql(org_database, "SELECT count(*) FROM row_bot_org.brain_entities WHERE name = 'Priya'"
+                             " OR strpos(description, 'Atlas project') > 0") == [(0,)]
 
         # Replace: the old mentions go at once, and the new version is read.
-        replaced = admin.put(f"/api/brain/documents/{uses['id']}", files={"file": ("uses.md", b"Orion is new.")})
-        assert replaced.status_code == 200, replaced.text
-        assert (replaced.json()["graph_status"], graph_of(admin)["nodes"]) == ("pending", [])
+        assert replace(b"Orion is new.")["graph_status"] == "pending"
+        assert graph_of(admin, retired="true")["nodes"] == []
         process(server)
         assert set(named(graph_of(admin))) == {"Orion"}
-
-        # Found again, an entity retired for losing its mentions is active again; one an owner retired stays so.
-        admin.put(f"/api/brain/documents/{uses['id']}", files={"file": ("uses.md", b"Atlas uses Postgres.")})
+        replace(b"Atlas uses Postgres.")
         process(server)
         assert set(named(graph_of(admin))) == {"Atlas", "Postgres"}
-        postgres = named(graph_of(admin))["Postgres"]["id"]
+
+        # Curated entities are retired instead: an owner's rename keeps the entity, but what extraction wrote
+        # (its description, its aliases) goes with the source. One an owner retired stays retired, found again.
+        atlas, postgres = named(graph_of(admin))["Atlas"]["id"], named(graph_of(admin))["Postgres"]["id"]
+        assert admin.patch(f"/api/brain/entities/{atlas}", json={"subject": "Atlas payments"}).status_code == 200
         assert admin.post(f"/api/brain/entities/{postgres}/retire").status_code == 200
-        admin.put(f"/api/brain/documents/{uses['id']}", files={"file": ("uses.md", b"Atlas uses Postgres.")})
+        replace(b"Orion is new.")
+        kept = named(graph_of(admin, retired="true"))
+        assert set(kept) == {"Atlas payments", "Postgres"}
+        assert (kept["Atlas payments"]["status"], kept["Atlas payments"]["description"],
+                kept["Atlas payments"]["aliases"]) == ("retired", "", [])
+        assert graph_of(admin, retired="true")["edges"] == []
+        process(server)
+        replace(b"Atlas uses Postgres.")
         process(server)
         assert set(named(graph_of(admin))) == {"Atlas"}
         assert (status_of(admin, "Postgres"), details(admin, postgres)["mention_count"]) == ("retired", 1)
+        assert status_of(admin, "Atlas payments") == "retired"
 
-        # Facts are read too; retiring one takes its mentions away.
+        # Facts are read too; retiring one takes what only it mentioned away.
         fact = admin.post(f"/api/brain/spaces/{company}/facts", json={"text": "Priya leads the Atlas project."})
         assert fact.status_code == 201, fact.text
         process(server)
-        assert status_of(admin, "Priya") == "active"
-        priya = details(admin, named(graph_of(admin))["Priya"]["id"])
-        assert priya["mentions"] == [{"type": "fact", "space": {"id": company, "name": "Company"},
-                                      "fact": {"id": fact.json()["id"], "text": "Priya leads the Atlas project."},
-                                      "document": None}]
+        priya = named(graph_of(admin))["Priya"]["id"]
+        assert details(admin, priya)["mentions"] == [
+            {"type": "fact", "space": {"id": company, "name": "Company"},
+             "fact": {"id": fact.json()["id"], "text": "Priya leads the Atlas project."}, "document": None}]
         assert admin.post(f"/api/brain/facts/{fact.json()['id']}/retire").status_code == 200
-        assert status_of(admin, "Priya") == "retired"
+        assert answered(admin.get(f"/api/brain/entities/{priya}")) == ENTITY_NOT_FOUND
         assert superuser_sql(org_database, "SELECT count(*) FROM row_bot_org.brain_mentions WHERE fact_id IS NOT NULL"
                              ) == [(0,)]
 
@@ -294,8 +311,8 @@ def test_nobody_sees_a_spaces_graph_they_cant_read_by_any_route_or_answer(org_da
         admin = admin_of(server, idp)
         add_models(admin, endpoint.base_url)
         priya, eve = person(server, idp, "priya", ["Sales"]), person(server, idp, "eve", ["Engineering"])
-        eve_id = me(eve)
-        sales = new_space(admin, "Sales team", reader_groups=["Sales"], owner_principals=[me(priya)])
+        eve_id, priya_id = me(eve), me(priya)
+        sales = new_space(admin, "Sales team", reader_groups=["Sales"], owner_principals=[priya_id])
         uploaded(priya, sales, "atlas.md", b"Priya leads the Atlas project.")
         uploaded(admin, company_space(admin), "orion.md", b"Orion is the search project.")
         process(server)
@@ -336,6 +353,11 @@ def test_nobody_sees_a_spaces_graph_they_cant_read_by_any_route_or_answer(org_da
                     pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute("INSERT INTO row_bot_org.brain_entities (space_id, name, name_key, entity_type)"
                              " VALUES (%s, 'Mallory', 'mallory', 'person')", (company,))
+            # Nor can a space's owner move its graph into another space: every row stays in its own.
+            for table, row in (("brain_entities", atlas), ("brain_relations", leads)):
+                with principal_transaction(pool, priya_id, ["Sales"]) as conn, \
+                        pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    conn.execute(f"UPDATE row_bot_org.{table} SET space_id = %s WHERE id = %s", (company, row))
 
 
 # -- curation -----------------------------------------------------------------------------------------
@@ -574,3 +596,100 @@ def test_a_pass_makes_only_so_many_calls_reads_only_a_documents_first_parts_and_
         assert len(chat_calls(endpoint)) == 4
         assert admin.get(f"/api/brain/documents/{stopped['id']}").json()["status"] == "queued"
 
+
+# -- what no answer, outage or backlog can do ---------------------------------------------------------
+
+DEEP = "[" * 60_000
+HUGE = json.dumps([entity("person", "Priya"), entity("project", "Atlas"),
+                   relation("leads", "Priya", "Atlas", confidence=10 ** 400)])
+LONG_KEY = [entity("person", "\u00df" * 160), entity("project", "Atlas")]
+
+
+def test_answers_crafted_to_break_the_reader_give_nothing_and_nothing_is_asked_again(org_database, idp) -> None:
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        answering(endpoint, [
+            ("Orion", [*LONG_KEY[:1], entity("project", "Orion")]), ("Atlas is", DEEP), ("Filler", HUGE),
+            ("nesting", DEEP), ("huge", HUGE), ("eszett", LONG_KEY), ("Canteen", [entity("place", "Canteen")]),
+        ])
+        admin = admin_of(server, idp)
+        add_models(admin, endpoint.base_url)
+        company = company_space(admin)
+        for text in ("A fact about nesting.", "A huge fact.", "An eszett fact.", "The Canteen opens at noon."):
+            assert admin.post(f"/api/brain/spaces/{company}/facts", json={"text": text}).status_code == 201
+        document = uploaded(admin, company, "three.md", THREE_PARTS)
+
+        process(server)
+        # Every part and every fact was asked once; the crafted ones gave nothing, the rest what they held.
+        assert len(chat_calls(endpoint)) == 7
+        assert document_graph(admin, document["id"]) == ("done", None)
+        assert set(named(graph_of(admin))) == {"Orion", "Atlas", "Canteen"}
+        assert superuser_sql(org_database, "SELECT count(*) FROM row_bot_org.brain_facts WHERE graph_done_at IS NULL"
+                             ) == [(0,)]
+        process(server)
+        assert len(chat_calls(endpoint)) == 7
+        # A name whose compared form would be too long is refused by the API too.
+        atlas = named(graph_of(admin))["Atlas"]["id"]
+        assert admin.patch(f"/api/brain/entities/{atlas}", json={"subject": "\u00df" * 160}).status_code == 422
+        assert admin.patch(f"/api/brain/entities/{atlas}", json={"aliases": ["\u00df" * 160]}).status_code == 422
+
+
+def test_an_outage_leaves_documents_waiting_never_failed_and_a_new_model_reads_a_failed_graph_again(
+        org_database, idp, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(brain_service, "GRAPH_BACKOFF_SECONDS", 0.0)
+    with running_endpoint("openai") as embeddings, running_endpoint("openai") as chat, \
+            org_server(org_database, idp) as server:
+        answering(chat, [("Atlas", [entity("project", "Atlas")])])
+        admin = admin_of(server, idp)
+        add_models(admin, embeddings.base_url, chat=False)
+        chat_endpoint = admin.post("/api/admin/endpoints", json={"name": "chat", "api": "openai",
+                                                                 "base_url": chat.base_url, "api_key": KEY})
+        add_chat(admin, chat_endpoint.json()["id"])
+        document = uploaded(admin, company_space(admin), "atlas.md", b"Atlas is the payments project.")
+
+        def later() -> None:
+            superuser_sql(org_database, "UPDATE row_bot_org.brain_documents"
+                                        " SET graph_retry_at = now() - interval '1 second' WHERE id = %s",
+                          document["id"])
+            process(server)
+
+        chat.error = 503
+        process(server)
+        for _ in range(graph_store.MAX_CLAIMS + 2):
+            assert document_graph(admin, document["id"]) == ("waiting", "The company's model endpoint couldn't answer.")
+            later()
+        assert document_graph(admin, document["id"]) == ("waiting", "The company's model endpoint couldn't answer.")
+        assert len(chat_calls(chat)) == graph_store.MAX_CLAIMS + 3
+
+        # A graph that failed with one chat model is read again with another (as if it had failed with an earlier one).
+        superuser_sql(org_database, "UPDATE row_bot_org.brain_documents SET graph_status = 'failed',"
+                                    " graph_attempts = 4, graph_route = 'an earlier model' WHERE id = %s",
+                      document["id"])
+        chat.error = None
+        process(server)
+        assert document_graph(admin, document["id"]) == ("done", None)
+        assert set(named(graph_of(admin))) == {"Atlas"}
+
+
+def test_facts_have_their_own_share_of_a_pass_however_many_documents_wait(org_database, idp,
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    # A clock that each chat call moves on by 50 s: documents may use 90 of the pass's 120 s, facts the rest.
+    clock = [0.0]
+    monkeypatch.setattr(brain_service, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        def answer(body: dict) -> str:
+            clock[0] += 50
+            return json.dumps([entity("place", "Canteen")] if "Canteen" in part_text(body) else [])
+
+        admin = admin_of(server, idp)
+        add_models(admin, endpoint.base_url)
+        endpoint.chat = answer
+        company = company_space(admin)
+        document = uploaded(admin, company, "three.md", THREE_PARTS)
+        assert admin.post(f"/api/brain/spaces/{company}/facts",
+                          json={"text": "The Canteen opens at noon."}).status_code == 201
+
+        process(server)
+        assert len(chat_calls(endpoint)) == 3
+        assert chat_calls(endpoint)[-1] == "The Canteen opens at noon."
+        assert document_graph(admin, document["id"]) == ("pending", None)
+        assert set(named(graph_of(admin))) == {"Canteen"}

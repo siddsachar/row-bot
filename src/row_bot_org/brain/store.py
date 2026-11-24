@@ -135,21 +135,23 @@ def replace_document(conn: psycopg.Connection, document_id: str, *, title: str |
                      media_type: str, content: bytes, sha256: str, principal_id: str,
                      uploader_groups: Sequence[str]) -> dict[str, Any] | None:
     """A new file for a document, same id, next version, queued again; its chunks go at once, and with them its
-    mentions in the graph (what that leaves with none is retired), which is read again once it is ready."""
+    mentions in the graph (what that leaves with none is settled: ``graph_store.settle_orphans``); it is read for
+    the graph again once it is ready."""
     mentioned = graph_store.mentioned_in_document(conn, document_id)
     row = conn.execute(
         "UPDATE row_bot_org.brain_documents SET title = coalesce(%s, title), file_name = %s, media_type = %s,"
         " byte_count = %s, sha256 = %s, content = %s, status = 'queued', status_reason = NULL,"
         " version = version + 1, chunked_version = NULL, claimed_at = NULL, uploaded_by = %s,"
         " uploader_groups = %s, uploaded_at = now(), processed_at = NULL, graph_status = 'pending',"
-        " graph_reason = NULL, graph_claimed_at = NULL, graph_attempts = 0, graph_retry_at = NULL"
+        " graph_reason = NULL, graph_claimed_at = NULL, graph_attempts = 0, graph_retry_at = NULL,"
+        " graph_route = NULL"
         " WHERE id = %s RETURNING id",
         (title, file_name, media_type, len(content), sha256, content, principal_id, list(uploader_groups),
          document_id)).fetchone()
     if row is None:
         return None
     conn.execute("DELETE FROM row_bot_org.brain_chunks WHERE document_id = %s", (document_id,))
-    graph_store.retire_orphans(conn, mentioned)
+    graph_store.settle_orphans(conn, mentioned)
     return get_document(conn, document_id)
 
 
@@ -167,11 +169,11 @@ def list_documents(conn: psycopg.Connection, space_id: str) -> list[dict[str, An
 
 def delete_document(conn: psycopg.Connection, document_id: str) -> bool:
     """Delete a document; its chunks go with it (the key cascades), and so do its mentions in the graph (what
-    that leaves with none is retired), and its facts lose their source."""
+    that leaves with none is settled), and its facts lose their source."""
     mentioned = graph_store.mentioned_in_document(conn, document_id)
     if conn.execute("DELETE FROM row_bot_org.brain_documents WHERE id = %s", (document_id,)).rowcount != 1:
         return False
-    graph_store.retire_orphans(conn, mentioned)
+    graph_store.settle_orphans(conn, mentioned)
     return True
 
 
@@ -231,11 +233,11 @@ def retire_fact(conn: psycopg.Connection, fact_id: str) -> tuple[dict[str, Any] 
 
 
 def delete_fact(conn: psycopg.Connection, fact_id: str) -> bool:
-    """Delete a fact; its mentions in the graph go with it (what that leaves with none is retired)."""
+    """Delete a fact; its mentions in the graph go with it (what that leaves with none is settled)."""
     mentioned = graph_store.mentioned_in_fact(conn, fact_id)
     if conn.execute("DELETE FROM row_bot_org.brain_facts WHERE id = %s", (fact_id,)).rowcount != 1:
         return False
-    graph_store.retire_orphans(conn, mentioned)
+    graph_store.settle_orphans(conn, mentioned)
     return True
 
 

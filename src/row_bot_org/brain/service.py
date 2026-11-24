@@ -21,15 +21,19 @@ ready documents one at a time, oldest first, each at most once a pass, and reads
 call each (``GatewayService.complete``, as a call of the uploader's: metered and budgeted as theirs), at most the
 first ``GRAPH_MAX_CHUNKS`` parts of a document. Each answer is read strictly (``graph.read_answer``: junk gives
 nothing) and what it found is stored with the next part to read, in one version-checked transaction, so the stage
-can stop between any two calls and the next pass carries on. Then facts, one call each, as calls of their writers.
-The stage stops after ``GRAPH_CALLS_PER_PASS`` document calls and ``GRAPH_FACT_CALLS_PER_PASS`` fact calls, after
-``GRAPH_PASS_SECONDS``, when the worker stops, or as soon as something is queued (``wake``), so a long backlog never
-holds up a new upload's processing; when it stopped at a limit, the thread starts the next pass at once. Without a
+can stop between any two calls and the next pass carries on; a part whose answer can't be stored gives nothing, and
+the next one is read. Then facts, one call each, as calls of their writers. Documents stop after
+``GRAPH_CALLS_PER_PASS`` calls or ``GRAPH_DOCUMENT_SHARE`` of ``GRAPH_PASS_SECONDS``, facts after
+``GRAPH_FACT_CALLS_PER_PASS`` calls or the rest of it; the stage also stops when the worker stops, or as soon as
+something is queued (``wake``), so a long backlog never holds up a new upload's processing; when it stopped at a
+limit, the thread starts the next pass at once. Each call waits at most ``GRAPH_CALL_TIMEOUT_SECONDS``. Without a
 usable chat model, ready documents wait with ``CHAT_MODEL_NEEDED`` or the model's problem (one statement, no claim)
-and are claimed once there is one. A failed call (a spent budget, the endpoint down) leaves the document waiting
-with the reason, claimed again only after ``graph_store.RETRY_AFTER``: a spent budget waits as long as it takes,
-anything else fails the document's graph after ``graph_store.MAX_CLAIMS`` claims, as does a claim that never
-finishes. A fact whose call fails waits the same way, and its writer is skipped for the rest of the pass.
+and are claimed once there is one. A failed call (a spent budget, the endpoint down or refusing) leaves the
+document waiting with the reason, claimed again only after ``graph_store.RETRY_AFTER``, however often it happens;
+when the model or its endpoint failed, the stage makes no call for ``GRAPH_BACKOFF_SECONDS``. Only a claim that
+never finishes counts towards ``graph_store.MAX_CLAIMS``, after which the document's graph is failed until the
+default chat model or its endpoint changes. A fact whose call fails, or that can't be read, waits the same way, and
+its writer is skipped for the rest of the pass.
 
 **Recall.** Text rank (Postgres full text, any of the query's words) and vector similarity (cosine, against the
 query embedded as a call of the caller's) over chunks and facts, fused by reciprocal rank fusion. It runs in the
@@ -94,6 +98,12 @@ GRAPH_MAX_CHUNKS = 40
 GRAPH_CALLS_PER_PASS = 12
 GRAPH_FACT_CALLS_PER_PASS = 8
 GRAPH_PASS_SECONDS = 120.0
+# Documents stop at this share of a pass's time: facts have the rest.
+GRAPH_DOCUMENT_SHARE = 0.75
+# One graph call's longest wait (the endpoint's own timeout, when shorter, wins).
+GRAPH_CALL_TIMEOUT_SECONDS = 90.0
+# After the chat model or its endpoint failed, the graph calls again only after this long (per process).
+GRAPH_BACKOFF_SECONDS = 300.0
 
 
 class SpaceNotFound(Exception):
@@ -164,6 +174,11 @@ def fuse(rankings: Sequence[Sequence[tuple[str, str]]], limit: int) -> list[tupl
     return [(key, min(1.0, score / best)) for key, score in ordered[:limit]]
 
 
+def _route_key(route: gateway_store.Route) -> str:
+    """Which chat model and endpoint a document's graph failed with: another reads it again."""
+    return "|".join((route.endpoint_id, route.model, route.upstream_model, route.base_url))
+
+
 def _read(answer: str) -> graph.Found:
     """What a chat answer found; nothing for junk."""
     try:
@@ -187,8 +202,10 @@ class BrainService:
         self._thread: threading.Thread | None = None
         # Until when (time.monotonic) recall leaves the vector half out, after the model failed.
         self._vectors_off_until = 0.0
-        # Whether the last pass's graph stage stopped at one of its limits (more is waiting).
+        # Whether the last pass's graph stage stopped at one of its limits (more is waiting), and until when
+        # (time.monotonic) it makes no calls, after the chat model failed.
         self._graph_more = False
+        self._graph_off_until = 0.0
 
     # -- the worker thread -----------------------------------------------------------------------
 
@@ -337,55 +354,67 @@ class BrainService:
         return (route, "") if problem is None else (None, problem)
 
     def _graph_stage(self) -> bool:
-        """Read documents, then facts, for the graph, within this pass's limits. Whether it stopped at a limit
+        """Read documents, then facts, for the graph, within this pass's limits: documents stop at
+        ``GRAPH_DOCUMENT_SHARE`` of the pass's time, so facts always have the rest. Whether it stopped at a limit
         (calls or time), so more may be waiting."""
         with store.worker_transaction(self.pool) as conn:
             route, waiting = self._chat(conn)
             if route is None:
                 graph_store.wait_for_model(conn, waiting)
                 return False
-        deadline = time.monotonic() + GRAPH_PASS_SECONDS
+        if time.monotonic() < self._graph_off_until:
+            return False  # The model or its endpoint failed a moment ago.
+        started = time.monotonic()
+        deadline = [started + GRAPH_PASS_SECONDS * GRAPH_DOCUMENT_SHARE]
         calls = [GRAPH_CALLS_PER_PASS]
 
         def go_on() -> bool:
-            return (calls[0] > 0 and time.monotonic() < deadline and not self._stop.is_set()
-                    and not self._wake.is_set())
+            return (calls[0] > 0 and time.monotonic() < deadline[0] and not self._stop.is_set()
+                    and not self._wake.is_set() and time.monotonic() >= self._graph_off_until)
+
+        def limited() -> bool:
+            return calls[0] <= 0 or time.monotonic() >= deadline[0]
 
         taken: list[str] = []
         while go_on():
             with store.worker_transaction(self.pool) as conn:
-                claim = graph_store.claim_graph(conn, skip=taken)
+                claim = graph_store.claim_graph(conn, route=_route_key(route), skip=taken)
             if claim is None:
                 break
             taken.append(claim.document_id)
             try:
-                if self._read_document(claim, route, calls, go_on):
-                    break  # The model or its endpoint failed: the rest wait for the next pass.
+                self._read_document(claim, route, calls, go_on)
             except Exception as error:  # noqa: BLE001 - its claim goes stale and is retried, MAX_CLAIMS times at most
                 logger.error("a company document couldn't be read for the graph (%s)", type(error).__name__)
-        limited = calls[0] <= 0 or time.monotonic() >= deadline
-        calls[0] = GRAPH_FACT_CALLS_PER_PASS
+        stopped = limited()
+        calls[0], deadline[0] = GRAPH_FACT_CALLS_PER_PASS, started + GRAPH_PASS_SECONDS
         if go_on():
             self._read_facts(route, calls, go_on)
-            limited = limited or calls[0] <= 0 or time.monotonic() >= deadline
-        return limited and not self._stop.is_set()
+            stopped = stopped or limited()
+        return stopped and not self._stop.is_set() and time.monotonic() >= self._graph_off_until
+
+    def _model_failed(self) -> None:
+        """The chat model or its endpoint failed (not a person's budget): the graph waits ``GRAPH_BACKOFF_SECONDS``
+        before it calls again, in this process."""
+        self._graph_off_until = time.monotonic() + GRAPH_BACKOFF_SECONDS
 
     def _finish_graph(self, claim: graph_store.GraphClaim, status: str, reason: str | None, **options: Any) -> None:
         with store.worker_transaction(self.pool) as conn:
             graph_store.finish_graph(conn, claim, status, reason, **options)
 
     def _read_document(self, claim: graph_store.GraphClaim, route: gateway_store.Route, calls: list[int],
-                       go_on: Callable[[], bool]) -> bool:
-        """Read the claimed document's parts from where its reading stopped, one call each, while ``go_on``.
-        Whether the model or its endpoint failed (not the uploader's budget)."""
+                       go_on: Callable[[], bool]) -> None:
+        """Read the claimed document's parts from where its reading stopped, one call each, while ``go_on``. A call
+        that fails leaves it waiting (``RETRY_AFTER``), never failed: only claims that never finish count towards
+        ``MAX_CLAIMS``. A part whose answer can't be stored gives nothing, and the next part is read."""
         if claim.worn_out:
             logger.error("a company document's graph was failed: its reading stopped %s times", graph_store.MAX_CLAIMS)
-            self._finish_graph(claim, "failed", GRAPH_WORN_OUT, reset_attempts=False)
-            return False
+            self._finish_graph(claim, "failed", GRAPH_WORN_OUT, failed_with=_route_key(route))
+            return
         if claim.fresh:
             with store.worker_transaction(self.pool) as conn:
                 if not graph_store.start_graph(conn, claim):
-                    return False
+                    return
         uploader = RequestPrincipal(claim.uploaded_by, claim.uploader_groups, None)
         start = 0 if claim.fresh else claim.next
         while True:
@@ -397,28 +426,38 @@ class BrainService:
                     f"Only the start of this document is in the knowledge graph (its first {GRAPH_MAX_CHUNKS:,}"
                     f" of {count:,} parts).")
                 self._finish_graph(claim, "done", capped)
-                return False
+                return
             if not go_on():
                 self._finish_graph(claim, "pending", None)  # Carried on next pass, from this part.
-                return False
+                return
             chunk_id, ordinal, text = part
             source = f'Part {ordinal + 1} of the document "{claim.title}"'
             try:
-                answer = self.gateway.complete(uploader, graph.prompt(source, text), route=route)
+                answer = self.gateway.complete(uploader, graph.prompt(source, text), route=route,
+                                               timeout=GRAPH_CALL_TIMEOUT_SECONDS)
             except ChatFailed as failed:
-                # A spent budget waits as long as it takes; anything else counts towards failing.
-                budget = failed.code == "budget_exceeded"
-                self._finish_graph(claim, "waiting", failed.message, retry=True, reset_attempts=budget)
-                return not budget
+                if failed.code != "budget_exceeded":
+                    self._model_failed()
+                self._finish_graph(claim, "waiting", failed.message, retry=True)
+                return
             calls[0] -= 1
-            with store.worker_transaction(self.pool) as conn:
-                if not graph_store.store_chunk_found(conn, claim, chunk_id, ordinal, _read(answer)):
-                    return False  # Replaced or deleted since the claim.
+            try:
+                found = _read(answer)
+                with store.worker_transaction(self.pool) as conn:
+                    stored = graph_store.store_chunk_found(conn, claim, chunk_id, ordinal, found)
+            except Exception as error:  # noqa: BLE001 - one part that can't be stored gives nothing; the rest go on
+                logger.error("a part of a company document gave nothing for the graph (%s)", type(error).__name__)
+                with store.worker_transaction(self.pool) as conn:
+                    stored = graph_store.store_chunk_found(conn, claim, chunk_id, ordinal, graph.NOTHING)
+            if not stored:
+                return  # Replaced or deleted since the claim.
             start = ordinal + 1
 
     def _read_facts(self, route: gateway_store.Route, calls: list[int], go_on: Callable[[], bool]) -> None:
-        """Facts in force not yet read, oldest first, each at most once a pass, as calls of their writers'; a
-        writer whose call fails is left out for the rest of the pass."""
+        """Facts in force not yet read, oldest first, each at most once a pass, as calls of their writers'. A
+        writer whose call fails is left out for the rest of the pass, and the fact waits ``RETRY_AFTER``; when the
+        model or its endpoint failed, the step ends. A fact whose answer can't be stored gives nothing (it is read);
+        any other failure holds it back, like a failed call, so no fact can stop the ones after it."""
         tried: list[str] = []
         failed: set[str] = set()
         while go_on():
@@ -429,16 +468,29 @@ class BrainService:
             tried.append(fact.id)
             writer = RequestPrincipal(fact.written_by, fact.writer_groups, None)
             try:
-                answer = self.gateway.complete(writer, graph.prompt("A fact in the company knowledge base", fact.text),
-                                               route=route)
-            except ChatFailed:
+                try:
+                    answer = self.gateway.complete(writer, graph.prompt("A fact in the company knowledge base",
+                                                                        fact.text),
+                                                   route=route, timeout=GRAPH_CALL_TIMEOUT_SECONDS)
+                except ChatFailed as refused:
+                    if refused.code != "budget_exceeded":
+                        self._model_failed()
+                    raise
+                calls[0] -= 1
+                try:
+                    found = _read(answer)
+                    with store.worker_transaction(self.pool) as conn:
+                        graph_store.store_fact_found(conn, fact, found)
+                except Exception as error:  # noqa: BLE001 - an answer that can't be stored gives nothing
+                    logger.error("a company fact gave nothing for the graph (%s)", type(error).__name__)
+                    with store.worker_transaction(self.pool) as conn:
+                        graph_store.store_fact_found(conn, fact, graph.NOTHING)
+            except Exception as error:  # noqa: BLE001 - the fact waits, and its writer is left out of this pass
+                if not isinstance(error, ChatFailed):
+                    logger.error("a company fact couldn't be read for the graph (%s)", type(error).__name__)
                 failed.add(fact.written_by)
                 with store.worker_transaction(self.pool) as conn:
                     graph_store.hold_fact(conn, fact)
-                continue
-            calls[0] -= 1
-            with store.worker_transaction(self.pool) as conn:
-                graph_store.store_fact_found(conn, fact, _read(answer))
 
     # -- recall ----------------------------------------------------------------------------------
 
@@ -530,7 +582,8 @@ class BrainService:
         return {"hit": to_dict(hit), "citation": citation}
 
 
-__all__ = ["CHAT_MODEL_NEEDED", "EVERYONE", "GRAPH_CALLS_PER_PASS", "GRAPH_FACT_CALLS_PER_PASS", "GRAPH_MAX_CHUNKS",
+__all__ = ["CHAT_MODEL_NEEDED", "EVERYONE", "GRAPH_BACKOFF_SECONDS", "GRAPH_CALLS_PER_PASS",
+           "GRAPH_CALL_TIMEOUT_SECONDS", "GRAPH_DOCUMENT_SHARE", "GRAPH_FACT_CALLS_PER_PASS", "GRAPH_MAX_CHUNKS",
            "GRAPH_PASS_SECONDS", "GRAPH_WORN_OUT", "MODEL_NEEDED", "POLL_SECONDS", "QUERY_BACKOFF_SECONDS",
            "QUERY_TIMEOUT_SECONDS", "RRF_K", "UPLOADS_AT_ONCE", "WORN_OUT", "BrainService", "SpaceNotFound",
            "brain_principal", "brain_space", "excerpt", "fuse", "owns", "space_access"]

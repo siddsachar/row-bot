@@ -209,7 +209,9 @@ def graph_router() -> APIRouter:
         try:
             with caller.conn.transaction():
                 updated = graph_store.update_entity(caller.conn, current.id, name=name, entity_type=kind,
-                                                    description=description, aliases=aliases)
+                                                    description=description, aliases=aliases,
+                                                    description_written=body.description is not None,
+                                                    aliases_written=body.aliases is not None)
         except psycopg.errors.UniqueViolation:
             return _error(409, "entity_exists")
         changed(caller, space, TargetKind.ENTITY, updated.id, "updated",
