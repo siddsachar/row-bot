@@ -80,6 +80,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'space.changed': 'Knowledge space changed',
   'fact.changed': 'Company fact changed',
   'graph.changed': 'Company graph changed',
+  'connector.changed': 'Company connector changed',
 };
 
 type Names = (id: string) => string;

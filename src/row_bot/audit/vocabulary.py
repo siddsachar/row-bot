@@ -96,6 +96,7 @@ class TargetKind(StrEnum):
     FACT = "fact"
     ENTITY = "entity"
     RELATION = "relation"
+    CONNECTOR = "connector"
 
 
 class Category(StrEnum):
@@ -117,6 +118,7 @@ class Category(StrEnum):
     SPACE = "space"
     FACT = "fact"
     GRAPH = "graph"
+    CONNECTOR = "connector"
 
 
 class Action(StrEnum):
@@ -150,6 +152,7 @@ class Action(StrEnum):
     SPACE_CHANGED = "space.changed"
     FACT_CHANGED = "fact.changed"
     GRAPH_CHANGED = "graph.changed"
+    CONNECTOR_CHANGED = "connector.changed"
 
 
 # The forms an identifier may take. Ids match CON-1's (no "/", so no path can pass as one); model ids may hold "/".
@@ -218,6 +221,11 @@ SPACE_FIELD_SETS = tuple(",".join(chosen) for size in range(1, len(SPACE_FIELDS)
 ENTITY_FIELDS = ("subject", "entity_type", "description", "aliases")
 ENTITY_FIELD_SETS = tuple(",".join(chosen) for size in range(1, len(ENTITY_FIELDS) + 1)
                           for chosen in combinations(ENTITY_FIELDS, size))
+# A company connector's settings an admin's change touched (never their values, and never a secret), as for spaces.
+CONNECTOR_FIELDS = ("name", "credentials", "principal_map")
+CONNECTOR_FIELD_SETS = tuple(",".join(chosen) for size in range(1, len(CONNECTOR_FIELDS) + 1)
+                             for chosen in combinations(CONNECTOR_FIELDS, size))
+CONNECTOR_KINDS = ("microsoft", "google")
 
 _P, _A, _S, _O = ActorKind.PERSON, ActorKind.ADMIN, ActorKind.SERVICE, ActorKind.OPERATOR
 _TEAM, _COMPANY, _ORG = AuditLayer.TEAM, AuditLayer.COMPANY, AuditLayer.ORG
@@ -312,4 +320,12 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
                                 change=_enum("created", "updated", "merged", "retired", "restored"),
                                 fields=_enum(*ENTITY_FIELD_SETS, required=False), merged_into=Detail("id"),
                                 **_SPACE),
+    # A company connector (B2) made, changed, paused, resumed, asked to sync now or deleted by an admin (which
+    # fields a change touched; how many documents a delete removed), or refused by its source (the server's sync:
+    # how many refusals in a row, the last of which stops it).
+    Action.CONNECTOR_CHANGED: _spec({_A, _S}, _SHARED, {TargetKind.CONNECTOR}, _DONE,
+                                    change=_enum("created", "updated", "paused", "resumed", "sync_requested",
+                                                 "deleted", "auth_failed"),
+                                    kind=_enum(*CONNECTOR_KINDS), fields=_enum(*CONNECTOR_FIELD_SETS, required=False),
+                                    documents_removed=Detail("int"), attempts=Detail("int"), **_SPACE),
 })

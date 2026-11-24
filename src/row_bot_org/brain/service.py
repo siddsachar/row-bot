@@ -45,7 +45,13 @@ model, or when the query can't be embedded, it is text only. A query is embedded
 
 **The shared rules' terms.** Group names are Row-Bot's (any characters); the brain's ids aren't, so a group is
 ``g.<SHA-256 of its name>`` there. Everyone signed in is in ``EVERYONE`` (the company space's readers) and in
-``p.<their id>``, so a space's owners (groups and principals) are its publishers.
+``p.<their id>``, so a space's owners (groups and principals) are its publishers. A connector's document is read
+only by its mirrored readers (``brain_documents.readers``): its audience is their groups and ``e.<SHA-256 of an
+email>``, which the caller holds for the email Row-Bot has for them; an empty list is ``ADMINS_ONLY``, which no
+caller holds (recall never acts as an admin).
+
+**Connectors** (``row_bot_org.connectors``) are the pass's first stage: each due connector's sync, within its
+bounds (``connectors.sync``), adds and replaces documents that the same pass then processes.
 """
 
 from __future__ import annotations
@@ -90,6 +96,8 @@ RRF_K = 60
 CANDIDATES_PER_HIT = 4
 EXCERPT_CHARACTERS = 280
 EVERYONE = "everyone-signed-in"
+# The audience of a document only admins read: nobody's recall holds it.
+ADMINS_ONLY = "admins-only"
 # The knowledge graph: why documents wait or fail, and its bounds (the parts of a document it reads, and a pass's
 # calls and time).
 CHAT_MODEL_NEEDED = "Add a chat model in Models"
@@ -120,10 +128,23 @@ def _person(principal_id: str) -> str:
     return "p." + principal_id
 
 
-def brain_principal(principal: RequestPrincipal) -> Principal:
-    """``principal`` in the shared rules' terms."""
-    return Principal(principal.principal_id,
-                     frozenset({EVERYONE, _person(principal.principal_id), *map(_group, principal.groups)}))
+def _email(address: str) -> str:
+    return "e." + hashlib.sha256(address.strip().lower().encode("utf-8")).hexdigest()[:40]
+
+
+def brain_principal(principal: RequestPrincipal, email: str | None = None) -> Principal:
+    """``principal`` in the shared rules' terms (with ``email``, the email Row-Bot has for them)."""
+    terms = {EVERYONE, _person(principal.principal_id), *map(_group, principal.groups)}
+    return Principal(principal.principal_id, frozenset(terms | ({_email(email)} if email else set())))
+
+
+def item_audience(readers: Sequence[str] | None) -> frozenset[str]:
+    """A document's audience from its readers (``e:<email>``, ``g:<group>``): empty (the space's readers) for
+    None, ``ADMINS_ONLY`` for an empty list."""
+    if readers is None:
+        return frozenset()
+    found = {_group(reader[2:]) if reader.startswith("g:") else _email(reader[2:]) for reader in readers}
+    return frozenset(found) or frozenset({ADMINS_ONLY})
 
 
 def brain_space(space: store.SpaceRow) -> Space:
@@ -206,6 +227,10 @@ class BrainService:
         # (time.monotonic) it makes no calls, after the chat model failed.
         self._graph_more = False
         self._graph_off_until = 0.0
+        # The connectors' sync (row_bot_org.connectors.sync.ConnectorService), when the server has a key to open
+        # their secrets with; and whether its last stage stopped at a limit.
+        self.connectors: Any | None = None
+        self._connectors_more = False
 
     # -- the worker thread -----------------------------------------------------------------------
 
@@ -230,20 +255,23 @@ class BrainService:
             try:
                 self.process_pending()
             except Exception as error:  # noqa: BLE001 - one pass failing (the database away) never ends the worker
-                self._graph_more = False
+                self._graph_more = self._connectors_more = False
                 logger.error("the company brain's worker pass failed (%s)", type(error).__name__)
-            # A graph stage stopped at its limits made that many calls: the next pass starts at once. (A pass clears
-            # the wake at its start, so what is queued during one stops its graph stage and starts the next.)
-            if not self._graph_more:
+            # A graph or connector stage stopped at its limits made that many calls: the next pass starts at once. (A
+            # pass clears the wake at its start, so what is queued during one stops those stages and starts the next.)
+            if not (self._graph_more or self._connectors_more):
                 self._wake.wait(POLL_SECONDS)
 
     # -- processing ------------------------------------------------------------------------------
 
     def process_pending(self) -> int:
-        """One pass: every claimable document (each at most once), then facts to embed, then the knowledge graph's
-        stage. How many documents it took to process. It stops early when the worker is stopped."""
+        """One pass: the connectors that are due, then every claimable document (each at most once), then facts to
+        embed, then the knowledge graph's stage. How many documents it took to process. It stops early when the
+        worker is stopped."""
         self._wake.clear()
-        self._graph_more = False
+        self._graph_more = self._connectors_more = False
+        if self.connectors is not None and not self._stop.is_set():
+            self._connectors_more = self.connectors.sync_due(lambda: self._stop.is_set() or self._wake.is_set())
         taken: list[str] = []
         while not self._stop.is_set() and (document_id := self._process_next(taken)) is not None:
             taken.append(document_id)
@@ -519,6 +547,7 @@ class BrainService:
             chunks = store.chunk_hits(conn, [key for (kind, key), _ in fused if kind == "chunk"])
             facts = store.fact_hits(conn, [key for (kind, key), _ in fused if kind == "fact"])
             rows = store.get_spaces(conn, sorted({hit.space_id for hit in (*chunks.values(), *facts.values())}))
+            checker = brain_principal(principal, store.own_email(conn, principal.principal_id))
         hits = []
         for (kind, key), score in fused:
             found = chunks.get(key) if kind == "chunk" else facts.get(key)
@@ -526,7 +555,7 @@ class BrainService:
             if space is None:
                 continue  # Gone since it was ranked.
             access = space_access(space)
-            if not can_read_item(asker, brain_space(space), frozenset(), access):
+            if not can_read_item(checker, brain_space(space), item_audience(found.readers), access):
                 logger.error("recall left out a hit the access rules refuse")
                 continue
             hits.append(self._hit(found, space, access, score))
@@ -582,8 +611,8 @@ class BrainService:
         return {"hit": to_dict(hit), "citation": citation}
 
 
-__all__ = ["CHAT_MODEL_NEEDED", "EVERYONE", "GRAPH_BACKOFF_SECONDS", "GRAPH_CALLS_PER_PASS",
+__all__ = ["ADMINS_ONLY", "CHAT_MODEL_NEEDED", "EVERYONE", "GRAPH_BACKOFF_SECONDS", "GRAPH_CALLS_PER_PASS",
            "GRAPH_CALL_TIMEOUT_SECONDS", "GRAPH_DOCUMENT_SHARE", "GRAPH_FACT_CALLS_PER_PASS", "GRAPH_MAX_CHUNKS",
            "GRAPH_PASS_SECONDS", "GRAPH_WORN_OUT", "MODEL_NEEDED", "POLL_SECONDS", "QUERY_BACKOFF_SECONDS",
            "QUERY_TIMEOUT_SECONDS", "RRF_K", "UPLOADS_AT_ONCE", "WORN_OUT", "BrainService", "SpaceNotFound",
-           "brain_principal", "brain_space", "excerpt", "fuse", "owns", "space_access"]
+           "brain_principal", "brain_space", "excerpt", "fuse", "item_audience", "owns", "space_access"]

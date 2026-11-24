@@ -304,12 +304,13 @@ class GraphClaim:
 def claim_graph(conn: psycopg.Connection, *, route: str, skip: Sequence[str] = ()) -> GraphClaim | None:
     """The oldest ready document whose graph is to read (pending, waiting with its wait over, claimed by a worker
     that stopped, or failed with another chat model than ``route``, which counts its claims afresh), now
-    ``extracting``; None when there is none. ``skip``: the documents this pass took."""
+    ``extracting``; None when there is none. ``skip``: the documents this pass took. Never a connector's document
+    (``store.NOT_IN_GRAPH``)."""
     row = conn.execute(
         "UPDATE row_bot_org.brain_documents SET graph_status = 'extracting', graph_claimed_at = now(),"
         " graph_attempts = CASE WHEN graph_status = 'failed' THEN 1 ELSE graph_attempts + 1 END"
         " WHERE id = (SELECT id FROM row_bot_org.brain_documents"
-        "             WHERE status = 'ready' AND id <> ALL(%(skip)s::uuid[])"
+        "             WHERE status = 'ready' AND connector_id IS NULL AND id <> ALL(%(skip)s::uuid[])"
         "               AND (graph_status = 'pending'"
         "                    OR (graph_status = 'waiting' AND (graph_retry_at IS NULL OR graph_retry_at <= now()))"
         f"                   OR (graph_status = 'extracting' AND graph_claimed_at < now() - interval '{STALE_CLAIM}')"
@@ -397,12 +398,15 @@ class FactToRead:
 
 
 def next_fact(conn: psycopg.Connection, *, tried: Sequence[str], writers_failed: Sequence[str]) -> FactToRead | None:
-    """The oldest fact in force not yet read for the graph (nor held back), leaving out those this pass ``tried``
-    and those of writers whose calls failed in it."""
+    """The oldest fact in force not yet read for the graph (nor held back), leaving out those this pass ``tried``,
+    those of writers whose calls failed in it, and those citing a connector's document (which only its readers
+    may read)."""
     row = conn.execute(
         "SELECT id, space_id, body, updated_at, written_by, writer_groups FROM row_bot_org.brain_facts"
         " WHERE retired_at IS NULL AND graph_done_at IS NULL AND (graph_retry_at IS NULL OR graph_retry_at <= now())"
-        " AND id <> ALL(%s::uuid[]) AND written_by <> ALL(%s::uuid[]) ORDER BY created_at, id LIMIT 1",
+        " AND id <> ALL(%s::uuid[]) AND written_by <> ALL(%s::uuid[])"
+        " AND NOT EXISTS (SELECT 1 FROM row_bot_org.brain_documents d WHERE d.id = brain_facts.source_document_id"
+        "                 AND d.connector_id IS NOT NULL) ORDER BY created_at, id LIMIT 1",
         (list(tried), list(writers_failed))).fetchone()
     if row is None:
         return None

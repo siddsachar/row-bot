@@ -322,6 +322,47 @@ space from a browser session.
   by the space's readers (`GET /api/brain/graph`); owners correct it (rename, merge, retire, relate by hand) from a
   browser session.
 
+## Connectors
+
+An admin connects a company source to a space (`/api/admin/connectors`, from a browser session): a SharePoint
+site's document library or a OneDrive (Microsoft Graph), or a folder in one, or a Google shared drive, a folder in
+one, or a folder in a user's My Drive. Nothing is fetched until an admin connects one, and no person's own account is
+used. Connectors need the server key (`ROW_BOT_ORG_GATEWAY_KEY`): their secrets are sealed with it, and are never
+shown again ("has_secret").
+
+- **Syncing.** The brain's worker lists everything under the drive or folder once, then follows the source's change
+  feed every 15 minutes (or at once with "sync now"). New and changed `.txt`, `.md`, `.markdown` and `.docx` files,
+  and Google Docs (read as text), up to `ROW_BOT_ORG_BRAIN_MAX_UPLOAD_MB`, become documents of the space; a file
+  deleted upstream, or moved out of the folder, is removed. Other files are skipped and counted. The documents are
+  uploaded in the name of the admin who last saved or resumed the connector, so **their embeddings are that admin's
+  model calls** (usage and budgets). The worker waits as told when a source asks it to slow down, longer each time
+  it can't be reached, and **stops the connector after 3 refused sign-ins in a row** (audited) until an admin puts
+  it right and saves or resumes it.
+- **Permissions are mirrored.** Each synced file is read only by the people and groups its source shares it with:
+  people by their email (the verified email Row-Bot has from sign-in: Okta and Google send one, **Entra doesn't**, so
+  with Entra sign-in only groups match), groups by `group_map` in `ROW_BOT_ORG_IDP` (add an entry for each Entra
+  group's object id, or each Google group's email, that should match a Row-Bot group; with Entra sign-in and no map,
+  Entra group ids match as they are). Anything that can't be matched (a sharing link for the organisation or anyone,
+  a Google domain, a SharePoint site group, a group not in the map) makes the file readable by **admins only**, never
+  by everyone; the connector counts those files and names what couldn't be matched, and its `principal_map` maps
+  any of them to a Row-Bot group (for example `{"sharepoint-group:5": "Engineering"}`). Synced files aren't read for
+  the knowledge graph, since a space's graph is shared by everyone who reads the space.
+- **Network.** Only `login.microsoftonline.com` and `graph.microsoft.com` (and the pre-authenticated SharePoint
+  download Graph redirects to, without the token), or `oauth2.googleapis.com` and `www.googleapis.com`. Every call
+  has a timeout; no other redirect is followed.
+
+**Microsoft (Entra).** Register an application in the tenant (App registrations: new registration, single tenant)
+and add a client secret. Under API permissions add Microsoft Graph **application** permissions: `Sites.Selected` (then
+grant the app read access to each site with `POST /sites/{site-id}/permissions`, roles `read`) or `Files.Read.All`
+for every site and OneDrive, and grant admin consent. The connector takes the tenant id, the application (client) id,
+the secret and the drive id (`GET /sites/{site-id}/drives` in Graph Explorer), and optionally a folder's item id.
+
+**Google.** Create a service account in a Google Cloud project with the Drive API enabled, and a JSON key. Either
+add the service account's email to the shared drive as a member (Viewer is enough), or, for a folder in a user's My
+Drive, give it domain-wide delegation in the Admin console (Security, API controls) with the scope
+`https://www.googleapis.com/auth/drive.readonly` and give the connector that user's email as its `subject`. The
+connector takes the key file, and the shared drive's id and/or a folder's id.
+
 ## Policy
 
 Admins keep one company policy and optional overrides per group (`/api/admin/policy`); each signed-in

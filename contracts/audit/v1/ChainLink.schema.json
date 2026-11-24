@@ -2044,6 +2044,113 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "connector.changed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "service"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "connector"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "attempts": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "change": {
+                    "enum": [
+                      "created",
+                      "updated",
+                      "paused",
+                      "resumed",
+                      "sync_requested",
+                      "deleted",
+                      "auth_failed"
+                    ],
+                    "type": "string"
+                  },
+                  "documents_removed": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "fields": {
+                    "enum": [
+                      "name",
+                      "credentials",
+                      "principal_map",
+                      "name,credentials",
+                      "name,principal_map",
+                      "credentials,principal_map",
+                      "name,credentials,principal_map"
+                    ],
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "microsoft",
+                      "google"
+                    ],
+                    "type": "string"
+                  },
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "change",
+                  "kind",
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "connector"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
         }
       ],
       "description": "One Row-Bot for Teams audit event: team, company or org layer, never personal; details hold only the keys the action defines at or below the event's redaction level.",
@@ -2053,6 +2160,7 @@
             "app.approved",
             "app.pushed",
             "app.removed",
+            "connector.changed",
             "data.deleted",
             "data.exported",
             "device.credential_reused",
@@ -2107,6 +2215,7 @@
         "category": {
           "enum": [
             "app",
+            "connector",
             "data",
             "device",
             "document",
@@ -2221,6 +2330,7 @@
                 "kind": {
                   "enum": [
                     "channel",
+                    "connector",
                     "device",
                     "document",
                     "entity",

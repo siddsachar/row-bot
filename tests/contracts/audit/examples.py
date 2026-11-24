@@ -82,6 +82,9 @@ _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], di
                           {"change": "retired", "space_id": "acme"}),
     Action.GRAPH_CHANGED: (OWNER, "team", Target(TargetKind.ENTITY, "entity-7"), "succeeded", {},
                            {"change": "merged", "space_id": "team-payments", "merged_into": "entity-3"}),
+    Action.CONNECTOR_CHANGED: (ADMIN, "company", Target(TargetKind.CONNECTOR, "connector-2"), "succeeded", {},
+                               {"change": "deleted", "kind": "microsoft", "space_id": "acme",
+                                "fields": "name,principal_map", "documents_removed": 12, "attempts": 1}),
 }
 
 
