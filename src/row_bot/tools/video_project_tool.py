@@ -125,8 +125,9 @@ class _VideoInput(BaseModel):
                                   "(framed, only when asked).")
     caption_style: Literal["", "box", "clean", "bold", "title", "word"] | None = Field(
         default=None, description="How captions look. box: white on a dark box; clean: white with a soft shadow; "
-                                  "bold: larger, outlined; title: large and outlined, mid-picture; word: a short's "
-                                  "few big words, the one said in yellow. brand: every video's; create, change: "
+                                  "bold: larger, outlined; title: large and outlined, mid-picture; word: a few big "
+                                  "words at a time, the one being spoken in yellow (for shorts). brand: every "
+                                  "video's; create, change: "
                                   "this video's ('' the recipe's or the kit's).")
     font: Literal["sans", "modern", "serif", "display"] | None = Field(
         default=None, description="brand: the typeface of every title and caption.")

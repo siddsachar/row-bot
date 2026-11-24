@@ -3081,6 +3081,329 @@ def _storyboard_stream(text: str, config: dict):
         call["quiesced"] = True
 
 
+# ── W8: a whole video made in a chat, end to end ─────────────────────────────
+# Two turns, as a person has them. "Make a short video of the sign-up, opening on an AI shot": Row-Bot generates
+# the shot (generate_video's capture), records its browser with beats (the recordings manager, browser_record's
+# beat and stop), makes a video project of the shot and the beats (the video tool's create, then make, with its
+# finished check and review sheet) and asks the person to review the draft. "A shorter intro, then that's it": the
+# video tool's change makes version 2 and present shows it large, as the final. Every tool is the real one. ffmpeg
+# is a synthetic program that describes each input as it really is (read with PyAV) and "makes" each video by
+# copying a synthetic film with sound; Row-Bot's voice and the vision model are scripted. Nothing leaves the
+# machine and no real ffmpeg runs.
+_W8_TITLE = "Sign-up in 30 seconds"
+_W8_PROMPTS = {"w8 video turn fixture": "first", "w8 shorter intro fixture": "change"}
+_W8_FAKE_FFMPEG = r'''
+import json, shutil, sys, time
+from pathlib import Path
+
+settings = json.loads(Path(__file__).with_suffix(".json").read_text())
+args = sys.argv[1:]
+if "-version" in args:
+    print("ffmpeg version 7.1 Copyright\nconfiguration: --enable-gpl --enable-version3")
+    sys.exit(0)
+inputs = [args[i + 1][5:] for i, a in enumerate(args[:-1]) if a == "-i" and args[i + 1].startswith("file:")]
+outputs = [a[5:] for i, a in enumerate(args) if a.startswith("file:") and args[i - 1] != "-i"]
+
+
+def described(path):
+    """What the video really is: its length, size, frame rate and whether it has sound."""
+    import av
+
+    try:
+        with av.open(path) as container:
+            if not container.streams.video:
+                return None
+            video = container.streams.video[0]
+            return (float(container.duration or 0) / 1_000_000, video.codec_context.width,
+                    video.codec_context.height, float(video.average_rate or 12), bool(container.streams.audio))
+    except Exception:
+        return None
+
+
+seconds, width, height, rate, audio = (described(inputs[0]) if inputs else None) or described(settings["film"])
+if not outputs:  # A probe, or the finished check's one read.
+    sys.stderr.write(f"  Duration: {int(seconds // 3600):02d}:{int(seconds % 3600 // 60):02d}:{seconds % 60:05.2f}, "
+                     f"start: 0.000000\n  Stream #0:0(und): Video: h264 (High), yuv420p, {width}x{height}, "
+                     f"{rate:g} fps, {rate:g} tbr\n"
+                     + ("  Stream #0:1(und): Audio: aac (LC), 48000 Hz, mono\n" if audio else ""))
+    if "null" in args:
+        if audio and any("ebur128" in arg for arg in args):
+            sys.stderr.write("[Parsed_ebur128_0] Summary:\n\n  Integrated loudness:\n    I:         -14.3 LUFS\n"
+                             "\n  True peak:\n    Peak:       -1.9 dBFS\n")
+        sys.exit(0)
+    sys.stderr.write("At least one output file must be specified\n")
+    sys.exit(1)
+for step in range(4):
+    print(f"out_time_us={int(step * seconds * 250_000)}\nprogress=continue", flush=True)
+    time.sleep(0.05)
+for name in outputs:
+    if "%" in name or name.endswith((".jpg", ".png")):  # Stills of the film (a review sheet's frames).
+        import av
+
+        with av.open(settings["film"]) as container:
+            picture = next(container.decode(video=0)).to_image()
+        for each in ([name % index for index in range(1, 25)] if "%" in name else [name]):
+            picture.save(each, format="JPEG")
+    else:
+        shutil.copyfile(settings["film"], name)
+print("progress=end", flush=True)
+'''
+_W8_STATE: dict = {}
+
+
+def _w8_clip(draw, *, size=(1920, 1080), seconds=4.0, rate=12, tone=0.0) -> bytes:
+    """A short H.264 clip of *draw*(frame index, frame count), with a quiet tone at *tone* Hz (0: silent)."""
+    from io import BytesIO
+
+    import av
+    import numpy
+
+    frames = int(seconds * rate)
+    out = BytesIO()
+    with av.open(out, mode="w", format="mp4") as container:
+        video = container.add_stream("libx264", rate=rate)
+        video.width, video.height, video.pix_fmt = size[0], size[1], "yuv420p"
+        sound = container.add_stream("aac", rate=48000, layout="mono") if tone else None
+        for index in range(frames):
+            frame = av.VideoFrame.from_image(draw(index, frames))
+            frame.pts = index
+            for packet in video.encode(frame):
+                container.mux(packet)
+        for packet in video.encode(None):
+            container.mux(packet)
+        if sound is not None:
+            samples = (numpy.sin(numpy.arange(int(48000 * seconds)) * 2 * numpy.pi * tone / 48000) * 0.2)
+            for start in range(0, len(samples), 1024):
+                chunk = av.AudioFrame.from_ndarray(samples[start:start + 1024].astype(numpy.float32).reshape(1, -1),
+                                                   format="fltp", layout="mono")
+                chunk.sample_rate, chunk.pts = 48000, start
+                for packet in sound.encode(chunk):
+                    container.mux(packet)
+            for packet in sound.encode(None):
+                container.mux(packet)
+    return out.getvalue()
+
+
+def _w8_page(index: int, frames: int):
+    """The sign-up page at 1920×1080 (a 2× capture), the pointer moving across the form."""
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    if "page" not in _W8_STATE:
+        _W8_STATE["page"] = Image.open(BytesIO(_s3_page_picture(960, 540, 2))).convert("RGB")
+    frame = _W8_STATE["page"].copy()
+    x, y = 700 + index * 520 // frames, 420 + (index % 16) * 24
+    ImageDraw.Draw(frame).ellipse([x, y, x + 28, y + 28], fill=(239, 68, 68))
+    return frame
+
+
+def _w8_media() -> dict:
+    """The clips, made once per backend: the AI shot, the browser recording and the film ffmpeg "makes"."""
+    if "clips" not in _W8_STATE:
+        def shot(index, frames):  # A phone lighting up on a desk at dawn.
+            picture = _storyboard_picture((1920, 1080), (250, 196, 150), (60, 64, 80),
+                                          sun=(400 + index * 900 // frames, 300, (255, 220, 170)))
+            from PIL import ImageDraw
+
+            ImageDraw.Draw(picture).rounded_rectangle([860, 520, 1060, 900], radius=28,
+                                                      fill=(37, 99, 235) if index > frames // 3 else (30, 41, 59))
+            return picture
+
+        _W8_STATE["clips"] = {"shot": _w8_clip(shot, seconds=4.0), "recording": _w8_clip(_w8_page, seconds=4.5),
+                              "film": _w8_clip(_w8_page, seconds=6.0, tone=220.0)}
+    return _W8_STATE["clips"]
+
+
+def _w8_wav(seconds: float) -> bytes:
+    import io
+    import wave
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\x00\x00" * int(16000 * seconds))
+    return out.getvalue()
+
+
+def _w8_patch():
+    """The synthetic ffmpeg, Row-Bot's voice and the vision model for one W8 turn; returns what puts them back."""
+    from row_bot import ffmpeg_runtime, sound, tts, vision_runtime
+
+    folder = predecessor.DATA.parent / "w8-ffmpeg"
+    if not (folder / "film.mp4").is_file():
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "fake_ffmpeg.py").write_text(_W8_FAKE_FFMPEG, encoding="utf-8", newline="\n")
+        (folder / "film.mp4").write_bytes(_w8_media()["film"])
+        (folder / "fake_ffmpeg.json").write_text(json.dumps({"film": str(folder / "film.mp4")}), encoding="utf-8")
+    program = ffmpeg_runtime.Ffmpeg(executable=str(folder / "fake_ffmpeg.py"), source="row_bot", version="7.1",
+                                    licence="GPL version 3 or later", prefix=(sys.executable, "-I"))
+
+    class _Vision:  # The person's vision model, looking at the review sheet once.
+        def cannot_see(self, chat_model=None):
+            return ""
+
+        def analyze(self, image, question):
+            return "OK"
+
+    def speak(text, **_options):
+        seconds = round(sound.speaking_seconds(text), 2)
+        return sound.Speech(wav=_w8_wav(seconds), seconds=seconds, voice="fixture-voice")
+
+    saved = (ffmpeg_runtime.find, sound.speak, tts.TTSService.is_installed, vision_runtime.get_vision_service)
+    ffmpeg_runtime.find = lambda: program
+    sound.speak = speak
+    tts.TTSService.is_installed = lambda self: True
+    vision_runtime.get_vision_service = lambda: _Vision()
+
+    def restore() -> None:
+        (ffmpeg_runtime.find, sound.speak, tts.TTSService.is_installed, vision_runtime.get_vision_service) = saved
+
+    return restore
+
+
+def _w8_capture(record, path):
+    """Row-Bot's browser being recorded: beats and actions on a scripted clock; stopped, it saves the recording."""
+    from row_bot import recordings
+
+    class _Capture(recordings.Log):
+        def __init__(self) -> None:
+            self._lock, self.beats, self.actions, self.trail = threading.Lock(), [], [], []
+            self.pointer, self.clock = None, 0.0  # A browser capture draws the pointer.
+
+        def _now(self) -> float:
+            return self.clock
+
+        def request_stop(self, reason: str) -> None:
+            path.write_bytes(_w8_media()["recording"])
+            recordings.finished(record, reason, path)
+
+    return _Capture()
+
+
+def _w8_captured(thread: str, run, label: str = ""):
+    """A real tool step with the media it made (as the agent's wrapper keeps it), and the made files' names."""
+    from row_bot.application.attachment_context import AttachmentExecutionCaches, _current, tool_attachment_scope
+    from row_bot.application.generated_media import capture_generated_media
+
+    token = _current.set(AttachmentExecutionCaches(thread))
+    names: list[dict] = []
+    try:
+        with tool_attachment_scope() as caches:
+            content = _s4_in_thread(thread, run)
+            return content, capture_generated_media(thread, caches, names=names, label=label), names
+    finally:
+        _current.reset(token)
+
+
+def _w8_first(thread: str):
+    """Generate, record with beats, make the project, and ask the person to review the draft."""
+    from row_bot import recordings
+    from row_bot.application.generated_media import save_generated_output
+    from row_bot.tools.browser_tool import browser_record
+    from row_bot.tools.video_gen_tool import _set_pending_video
+    from row_bot.tools.video_project_tool import _video
+
+    made: dict = {}
+    making = {"action": "make", "project": ""}  # Its call names the project create made, as the agent's does.
+    prompt = "A phone lighting up on a desk at dawn, slow push-in"
+
+    def generate():
+        def run():
+            _set_pending_video({"path": save_generated_output(thread, _w8_media()["shot"], prefix="vid",
+                                                              extension="mp4")})
+            return "Generated a 4-second video at 1920×1080."
+
+        content, media, names = _w8_captured(thread, run, label="a-phone-lighting-up-on-a-desk")
+        made["shot"] = names[0]["name"]
+        return content, media
+
+    def start():
+        record = recordings.start(thread, "browser", max_minutes=5, begin=_w8_capture)
+        record.started_at -= 4.5  # Its steps take the scripted clock's 4.5 s, as the recorded clip does.
+        made["recording"] = record
+        return ("Approval: asked; approved by you\n" + recordings.summary(record)
+                + " Do the steps to record, then call browser_record with action stop."), []
+
+    def beat(at: float, kind: str, note: str, line: str, click=None):
+        def run():
+            capture = made["recording"].capture
+            capture.clock = at
+            if click:  # What Row-Bot did there, for the video's camera to follow.
+                capture.act("click", click, note)
+                capture.act_done()
+            return _s4_in_thread(thread, lambda: browser_record("beat", beat=kind, note=note, line=line)), []
+
+        return run
+
+    def stop():
+        made["recording"].capture.clock = 4.5
+        return _s4_in_thread(thread, lambda: browser_record("stop")), []
+
+    def create():
+        from row_bot import video_projects
+
+        scenes = [{"source": made["shot"], "end": 3, "line": "Meet Fixture Shop."},
+                  *video_projects.scenes_from_beats(made["recording"].recording_id, thread)]
+        content = _s4_in_thread(thread, lambda: _video(
+            action="create", title=_W8_TITLE, scenes=scenes, note="First cut",
+            logline="Signing up for Fixture Shop, start to finish, in under 30 seconds."))
+        made["project"] = making["project"] = content.split()[2].rstrip(":")
+        return content, []
+
+    def make():
+        return _s4_in_thread(thread, lambda: _video(action="make", project=made["project"])), []
+
+    beats = [(0.0, "live", "Create your account", "Signing up takes a few seconds.", (0.38, 0.32, 0.24, 0.05)),
+             (1.5, "work", "Filling in the form", "", (0.38, 0.47, 0.24, 0.05)),
+             (3.0, "live", "Pick a plan", "Then pick the plan that fits.", (0.38, 0.73, 0.24, 0.06))]
+    steps = [("generate_video", {"prompt": prompt}, generate),
+             ("browser_record", {"action": "start", "max_minutes": 5}, start),
+             *[("browser_record", {"action": "beat", "beat": kind, "note": note, "line": line},
+                beat(at, kind, note, line, click)) for at, kind, note, line, click in beats],
+             ("browser_record", {"action": "stop"}, stop),
+             ("video", {"action": "create", "title": _W8_TITLE}, create),
+             ("video", making, make)]
+    final = (f"Here's the first cut of “{_W8_TITLE}”: the AI opening shot, then the sign-up as I recorded it, "
+             "voiced. Its checks passed. Have a look and tell me what to change before I call it done.")
+    return steps, final
+
+
+def _w8_change(thread: str):
+    """The person's change: a shorter intro; made again as version 2, then presented as the final."""
+    from row_bot import video_projects
+    from row_bot.tools.present_tool import _present
+    from row_bot.tools.video_project_tool import _video
+
+    [project] = video_projects.list_projects(thread)
+    scenes = [{"scene_id": scene.scene_id, "source": scene.source, "start": scene.start, "end": scene.end,
+               "speed": scene.speed, "card": scene.card, "line": scene.line} for scene in project.latest.scenes]
+    scenes[0]["end"] = 1.5
+    args = {"action": "change", "project": project.project_id, "note": "Shorter intro"}
+    steps = [
+        ("video", args, lambda: (_s4_in_thread(thread, lambda: _video(scenes=scenes, **args)), [])),
+        ("present", {"files": [_W8_TITLE], "caption": "Signing up, start to finish"},
+         lambda: _w8_captured(thread, lambda: _present(files=[_W8_TITLE], caption="Signing up, start to finish"))[:2]),
+    ]
+    return steps, f"Here's “{_W8_TITLE}” with the shorter intro. It's the final; the first cut stays in its versions."
+
+
+def _w8_stream(text: str, config: dict):
+    call = predecessor._record("submit", config, "w8-video")
+    thread = call["conversation_id"]
+    identity = f"w8:{call['generation_id']}"
+    restore = _w8_patch()
+    try:
+        steps, final = (_w8_first if _W8_PROMPTS[text.strip()] == "first" else _w8_change)(thread)
+        yield from _s3_steps(thread, identity, steps)
+        yield from _natural_final(call, thread, final, "w8")
+    finally:
+        restore()
+        call["quiesced"] = True
+
+
 def _n5_stream(text: str, config: dict):
     call = predecessor._record("submit", config, "n5-page")
     thread = call["conversation_id"]
@@ -3398,6 +3721,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
     if text.startswith("Get version") and "ready to publish on" in text and '"Launch demo"' in text:
         # Ready to publish (C10): the Video panel asked for a platform's publish kit.
         yield from _c10_stream(text, config)
+        return
+    if text.strip() in _W8_PROMPTS:
+        # A whole video made in a chat (W8): generate, record with beats, make, review, change and present.
+        yield from _w8_stream(text, config)
         return
     if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.
