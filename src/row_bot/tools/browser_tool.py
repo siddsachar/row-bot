@@ -964,15 +964,7 @@ def browser_record(action: str, max_minutes: int = 5, beat: str = "live", note: 
         capture = _recording(thread_id)
         if capture is None:
             return "Row-Bot's browser isn't being recorded in this chat: start a recording first."
-        from row_bot.sound import speaking_seconds
-
-        at = capture.beat(beat, note, line)
-        said = speaking_seconds(line)
-        return (f"Marked {beat} at {recordings.clock_words(at)}"
-                + {"live": ": shown as it happens.", "work": ": sped up in the video.",
-                   "cut": ": left out of the video."}[beat]
-                + (f" Its line takes about {said:.0f} s to say: stay on this step about that long." if beat == "live"
-                   and said >= 1 else ""))
+        return recordings.beat_words(beat, capture.beat(beat, note, line), line)
     if action == "stop":
         record = recordings.active_for(thread_id, "browser")
         if record is None:

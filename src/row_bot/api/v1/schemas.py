@@ -6628,9 +6628,10 @@ class VideoBrand(WireModel):
     intro: str = Field(max_length=120)
     outro: str = Field(max_length=120)
     music_mood: Literal["calm", "upbeat", "focused", "warm"]
-    # Footage edge to edge (the default) or inset on the backdrop; a camera that follows what was done or stays still.
+    # Footage edge to edge (the default) or inset on the backdrop; a camera that follows what was done (zooming in
+    # and ringing it), spotlights it or stays still (C9).
     framing: Literal["framed", "full"] = "full"
-    camera: Literal["follow", "still"] = "follow"
+    camera: Literal["follow", "spotlight", "still"] = "follow"
     # The voice that says every video's lines ("" the one chosen in Settings) and its speed.
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)

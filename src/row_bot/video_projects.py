@@ -188,6 +188,8 @@ class Version:
     # Its clips' own speech (C4): pauses and fillers cut, and the voice cleaned (None: the recipe's).
     tidy: bool | None = None
     clean_voice: bool | None = None
+    # How its recordings show what was done (C9, ``video_brand.CAMERAS``): "" the brand kit's.
+    camera: str = ""
     # Its publish kit (C10, ``video_publish.make``): made when the person names a platform; {} none.
     publish: dict[str, Any] = field(default_factory=dict)
 
@@ -546,7 +548,8 @@ WORK_SPEED = 4.0
 def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str, Any]]:
     """A recording's scenes from the beats marked while it recorded (5.3.1 B4): ``live`` stretches as they
     happened, ``work`` stretches sped up (with their badge), ``cut`` stretches left out; before the first
-    beat counts as live. Each scene's title is its beat's note, and its line the beat's line."""
+    beat counts as live. Each scene's title is its beat's note, and its line the beat's line. A recording with no
+    beats marked has a scene for each burst of what was done in it (``video_screen.bursts``, C9)."""
     from row_bot import recordings
 
     record = recordings.get(recording_id)
@@ -556,6 +559,10 @@ def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str,
         raise ProjectError(f"{recording_id} has no saved video yet.")
     marks = sorted((float(at), str(kind), str(note), str(line[0]) if line else "")
                    for at, kind, note, *line in record.beats)
+    if not marks:  # None marked (a screen recording, say): a scene for each burst of what was done (C9).
+        from row_bot import video_screen
+
+        marks = video_screen.bursts(record.actions, record.duration_seconds)
     if not marks or marks[0][0] > 0.05:
         marks.insert(0, (0.0, "live", "", ""))
     scenes: list[dict[str, Any]] = []
@@ -573,7 +580,7 @@ def scenes_from_beats(recording_id: str, conversation_id: str) -> list[dict[str,
 
 def _finish_fields(data: dict[str, Any]) -> dict[str, Any]:
     """A saved version's look (C5), each choice it still knows (a project saved before C5 has none)."""
-    from row_bot.video_brand import CAPTION_STYLES
+    from row_bot.video_brand import CAMERAS, CAPTION_STYLES
     from row_bot.video_editing import GRADES, TRANSITIONS
 
     def either(key: str) -> bool | None:
@@ -585,7 +592,7 @@ def _finish_fields(data: dict[str, Any]) -> dict[str, Any]:
     return {"recipe": known("recipe", RECIPES), "grade": known("grade", GRADES), "grain": either("grain"),
             "letterbox": either("letterbox"), "transitions": known("transitions", TRANSITIONS),
             "caption_style": known("caption_style", CAPTION_STYLES), "tidy": either("tidy"),
-            "clean_voice": either("clean_voice")}
+            "clean_voice": either("clean_voice"), "camera": known("camera", CAMERAS)}
 
 
 def _choice(value: Any, allowed: tuple[str, ...] | dict[str, Any], name: str) -> str:
@@ -597,13 +604,14 @@ def _choice(value: Any, allowed: tuple[str, ...] | dict[str, Any], name: str) ->
 
 def _look(values: dict[str, Any]) -> dict[str, Any]:
     """A version's look as given (C5), checked; a choice left out (None) isn't among them."""
-    from row_bot.video_brand import CAPTION_STYLES
+    from row_bot.video_brand import CAMERAS, CAPTION_STYLES
     from row_bot.video_editing import GRADES, TRANSITIONS
 
     checked: dict[str, Any] = {}
     for key, allowed, name in (("recipe", RECIPES, "The kind of video"), ("grade", GRADES, "The grade"),
                                ("transitions", TRANSITIONS, "Transitions"),
-                               ("caption_style", CAPTION_STYLES, "The caption style")):
+                               ("caption_style", CAPTION_STYLES, "The caption style"),
+                               ("camera", CAMERAS, "The camera")):
         if values.get(key) is not None:
             checked[key] = _choice(values[key], allowed, name)
     for key in ("grain", "letterbox", "tidy", "clean_voice"):
@@ -612,7 +620,7 @@ def _look(values: dict[str, Any]) -> dict[str, Any]:
     return checked
 
 
-LOOK = ("recipe", "grade", "grain", "letterbox", "transitions", "caption_style", "tidy", "clean_voice")
+LOOK = ("recipe", "grade", "grain", "letterbox", "transitions", "caption_style", "tidy", "clean_voice", "camera")
 
 
 def talk_of(version: Version) -> tuple[bool, bool]:
@@ -1126,6 +1134,19 @@ def scene_camera(source: str, start: float, end: float | None, speed: float) -> 
     return video_studio.camera(record.actions, start, record.duration_seconds if end is None else end, speed)
 
 
+def scene_actions(source: str, start: float, end: float | None) -> tuple[tuple[Any, ...], ...]:
+    """What a recording logged being done during a scene, and the page or app opened or scrolled just before it
+    (C9: ringed or spotlit as the video shows it); none for a video that isn't a recording."""
+    from row_bot import recordings
+
+    record = recordings.get(source) if str(source).startswith("rec-") else None
+    if record is None:
+        return ()
+    end = record.duration_seconds if end is None else end
+    return tuple(tuple(action) for action in record.actions if float(action[1]) >= start - 2.0
+                 and float(action[0]) <= end)
+
+
 def scene_waits(source: str, start: float, end: float | None) -> tuple[tuple[float, float], ...]:
     """Where nothing was clicked, typed or scrolled in a recording scene, from what its recording logged; none
     for a video that isn't a recording (nothing says what was done)."""
@@ -1255,6 +1276,8 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                          else pointer_focus(scene.source, scene.start, scene.end), fit=scene.fit,
                          camera=scene_camera(scene.source, scene.start, scene.end, scene.speed)
                          if scene.source and not scene.zoom else (),
+                         actions=scene_actions(scene.source, scene.start, scene.end)
+                         if scene.source and not scene.zoom else (),
                          waits=scene_waits(scene.source, scene.start, scene.end) if scene.source else (),
                          effects=tuple(scene.effects), cue=scene.cue,
                          matched=footage_of(scene) in ("clip", "ai", "picture"),
@@ -1268,6 +1291,8 @@ def _make(project_id: str, conversation_id: str, number: int, download: bool, sh
                 _label, path, data, suffix = sound_source(name, conversation_id)
                 sounds[name] = (path, data or b"", suffix)
         look = _brand_look() if version.brand else None
+        if version.camera:  # This video's own way of showing what its recordings did (C9).
+            look = replace(look or Look(), camera=version.camera)
         narrated: tuple[Any, ...] = ()
         heard: dict[str, tuple[Any, ...]] = {}
         if version.captions:  # Word by word, as they're said (C7), in the video's caption style.
@@ -1691,6 +1716,9 @@ def summary(project: Project, number: int | None = None) -> str:
     if data["recipe"] or any(looks):
         lines.append(f"Look: {data['recipe'] + ', ' if data['recipe'] else ''}"
                      f"{', '.join(item for item in looks if item) or 'natural, cuts'}.")
+    if shown is not None and shown.camera in ("spotlight", "still"):
+        lines.append("Recordings: " + ("what was done is spotlit, the view wide." if shown.camera == "spotlight"
+                                       else "the camera stays still, nothing marked."))
     tidy, clean = talk_of(shown) if shown is not None else (False, False)
     if tidy or clean:
         lines.append("Speech: " + " and ".join(words for words, on in (

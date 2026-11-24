@@ -116,7 +116,7 @@ tracker_query: 597
 transcribe: 447
 update_memory: 921
 use_code_folder: 413
-video: 12080
+video: 12654
 wait_for: 1944
 wait_stop: 259
 waits: 160
@@ -133,4 +133,4 @@ workspace_read_file: 626
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (135 tools): 96254
+TOTAL (135 tools): 96828

@@ -37,17 +37,20 @@ tags: []
   and stay on it about as long as the line takes (the beat says how long);
   beat=work before a wait, cut for a stretch to leave out. Stop, then video
   action create with recording=rec-…: a storyboard of one scene per beat
-  with its title, line and voice. The camera follows what was done (leave
-  zoom empty).
+  with its title, line and voice. The camera zooms in on what was done and
+  rings it (leave zoom empty); camera spotlight keeps the view wide and dims
+  around it, still turns both off. A desktop app's demo is the same with
+  computer_record (with no beats, a scene per burst of what was done).
 - The video is the app, not slides: at most an opening and a closing card
   (3 s, a few words); titles go over the footage as a scene's card.
 - Phone demos: browser_viewport phone before recording (taps show as
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
   framing, camera, font, title style, voice, speed, music mood, loudness) sets
-  every video, and a video may choose its own voice and voice_speed. When the
-  person says how their videos should look ("full screen", a voice, a mood),
-  save it with video action brand, so the next video starts that way.
+  every video, and a video may choose its own voice, voice_speed and camera.
+  When the person says how their videos should look ("full screen", a voice,
+  a mood, "no zooms"), save it with video action brand, so the next video
+  starts that way.
 - Give each new video its recipe (the kind of video): it sets the grade,
   grain, letterbox and transitions. Set those yourself only when the person
   asks for a look ("make it black and white").

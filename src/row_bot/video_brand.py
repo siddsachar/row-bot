@@ -3,7 +3,8 @@
 Its colour fills title cards, titles and speed badges, its caption style sets how lines show under
 their scenes, its logo (a picture from Library › Media) sits in a corner of the whole video, and its
 intro and outro are title cards on its colour before the first scene and after the last. Its framing
-sets footage on its backdrop or edge to edge, its camera follows what was done or stays still, and
+sets footage on its backdrop or edge to edge, its camera follows what was done (zooming in and ringing it),
+spotlights it or stays still, and
 its voice and speed say every video's lines (a video may choose its own). Its music mood is what
 Row-Bot picks when it makes music for a video, and its loudness what every video's mix is brought to (-14 LUFS,
 as social video plays). Its font sets every word's typeface, and its title style how titles, lower thirds and the
@@ -28,7 +29,9 @@ CAPTION_STYLES: tuple[str, ...] = ("box", "clean", "bold", "title", "word")
 MOODS: tuple[str, ...] = ("calm", "upbeat", "focused", "warm")
 CORNERS: tuple[str, ...] = ("top-left", "top-right", "bottom-left", "bottom-right")
 FRAMINGS: tuple[str, ...] = ("framed", "full")
-CAMERAS: tuple[str, ...] = ("follow", "still")
+# How recordings show what was done (C9, ``video_screen``): zoomed in and ringed, spotlit with the view wide, or
+# neither.
+CAMERAS: tuple[str, ...] = ("follow", "spotlight", "still")
 # Its typeface and how its titles, lower thirds and end card look (C5): ``video_editing.FONTS`` and ``TITLE_STYLES``.
 FONTS: tuple[str, ...] = ("sans", "modern", "serif", "display")
 TITLE_STYLES: tuple[str, ...] = ("studio", "minimal", "bold")

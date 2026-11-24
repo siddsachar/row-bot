@@ -69,7 +69,20 @@ test('a video Row-Bot made opens beside the chat as scenes, and an edit there is
   const kit = panel.getByRole('group', { name: 'Brand kit' });
   await kit.getByLabel('Outro').fill('row-bot.ai');
   await kit.getByLabel('Caption style').selectOption('bold');
+  // C9: what recordings did, spotlit with the view wide instead of zoomed in on.
+  const camera = kit.getByLabel('Camera');
+  await camera.selectOption('spotlight');
+  await expect(camera).toHaveValue('spotlight');
   await views(page, info, 'video-panel-brand', kit);
+  await page.setViewportSize(PHONE);
+  // The phone's panel is drawn afresh: open the brand kit there and choose again.
+  await panel.getByText('Brand kit', { exact: true }).click();
+  await camera.selectOption('spotlight');
+  await views(page, info, 'video-panel-brand-phone', camera);
+  await page.setViewportSize(DESKTOP);
+  await panel.getByText('Brand kit', { exact: true }).click();
+  await kit.getByLabel('Outro').fill('row-bot.ai');
+  await kit.getByLabel('Caption style').selectOption('bold');
   await kit.getByRole('button', { name: 'Save brand kit' }).click();
   await expect(panel).toContainText('Brand kit saved');
 
