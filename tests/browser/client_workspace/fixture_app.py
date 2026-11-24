@@ -3347,7 +3347,6 @@ def _w8_first(thread: str):
 
         scenes = [{"source": made["shot"], "end": 3, "line": "Meet Fixture Shop."},
                   *video_projects.scenes_from_beats(made["recording"].recording_id, thread)]
-        made["scenes"] = scenes
         content = _s4_in_thread(thread, lambda: _video(
             action="create", title=_W8_TITLE, scenes=scenes, note="First cut",
             logline="Signing up for Fixture Shop, start to finish, in under 30 seconds."))
