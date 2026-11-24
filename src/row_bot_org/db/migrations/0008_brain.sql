@@ -69,7 +69,8 @@ CREATE TABLE row_bot_org.spaces (
            OR pg_catalog.cardinality(reader_groups) OPERATOR(pg_catalog.=) 0)
 );
 CREATE UNIQUE INDEX spaces_one_company ON row_bot_org.spaces (kind) WHERE kind OPERATOR(pg_catalog.=) 'company';
-CREATE UNIQUE INDEX spaces_name ON row_bot_org.spaces (pg_catalog.lower(name));
+-- Names aren't unique: a refused name would tell its writer that a space they can't read exists. Spaces are told
+-- apart by id and kind.
 
 -- The one company space, before row-level security is on (the migrating role has no policy to add rows).
 INSERT INTO row_bot_org.spaces (name, kind) VALUES ('Company', 'company');
@@ -93,6 +94,8 @@ CREATE TABLE row_bot_org.brain_documents (
     -- The version whose chunks are stored (NULL: none yet).
     chunked_version integer,
     claimed_at timestamptz,
+    -- Claims since the document was last finished: a file that keeps stopping its worker is failed, not retried.
+    claim_attempts integer NOT NULL DEFAULT 0 CHECK (claim_attempts OPERATOR(pg_catalog.>=) 0),
     uploaded_by uuid NOT NULL DEFAULT row_bot_org.row_bot_principal()::pg_catalog.uuid,
     -- The uploader's groups at the upload: what its embeddings' usage counts by, as a gateway call's does.
     uploader_groups text[] NOT NULL DEFAULT '{}',
@@ -190,6 +193,38 @@ $$;
 REVOKE ALL ON FUNCTION row_bot_org.brain_spaces_guard() FROM PUBLIC;
 CREATE TRIGGER brain_spaces_guard BEFORE UPDATE OR DELETE ON row_bot_org.spaces
     FOR EACH ROW EXECUTE FUNCTION row_bot_org.brain_spaces_guard();
+
+-- A document is uploaded, and a fact written, in the name of the transaction's own principal and groups (what
+-- its embeddings are metered to), and only a replace or an edit by that principal changes them. Its arguments
+-- name the table's author and groups columns. The worker never changes them.
+CREATE FUNCTION row_bot_org.brain_keep_authors() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = pg_catalog, pg_temp
+    AS $$
+DECLARE
+    new_row jsonb := to_jsonb(NEW);
+    author text := new_row ->> TG_ARGV[0];
+    author_groups jsonb := new_row -> TG_ARGV[1];
+    principal text := row_bot_org.row_bot_principal();
+    groups jsonb := COALESCE(NULLIF(current_setting('row_bot.groups', true), '')::jsonb, '[]'::jsonb);
+BEGIN
+    IF TG_OP = 'UPDATE' AND author IS NOT DISTINCT FROM (to_jsonb(OLD) ->> TG_ARGV[0])
+       AND author_groups = (to_jsonb(OLD) -> TG_ARGV[1]) THEN
+        RETURN NEW;
+    END IF;
+    IF principal IS NULL OR author IS NULL OR author::uuid IS DISTINCT FROM principal::uuid
+       OR NOT (author_groups @> groups AND groups @> author_groups) THEN
+        RAISE EXCEPTION 'a document or fact is in the name of the transaction''s own principal and groups'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END
+$$;
+REVOKE ALL ON FUNCTION row_bot_org.brain_keep_authors() FROM PUBLIC;
+CREATE TRIGGER brain_documents_authors BEFORE INSERT OR UPDATE ON row_bot_org.brain_documents
+    FOR EACH ROW EXECUTE FUNCTION row_bot_org.brain_keep_authors('uploaded_by', 'uploader_groups');
+CREATE TRIGGER brain_facts_authors BEFORE INSERT OR UPDATE ON row_bot_org.brain_facts
+    FOR EACH ROW EXECUTE FUNCTION row_bot_org.brain_keep_authors('written_by', 'writer_groups');
 
 ALTER TABLE row_bot_org.spaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE row_bot_org.spaces FORCE ROW LEVEL SECURITY;

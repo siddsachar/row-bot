@@ -21,6 +21,8 @@ COMPANY = "company"
 GROUP = "group"
 # A document claimed this long ago and still processing belonged to a worker that stopped: it is claimed again.
 STALE_CLAIM = "15 minutes"
+# Claims without a finish after which a document is failed rather than tried again (it keeps stopping workers).
+MAX_CLAIMS = 3
 
 _SPACE_COLUMNS = "id, name, kind, reader_groups, owner_groups, owner_principals, created_by, created_at, updated_at"
 _DOCUMENT_COLUMNS = ("d.id, d.space_id, d.title, d.file_name, d.media_type, d.byte_count, d.sha256, d.status,"
@@ -236,26 +238,40 @@ class Claim:
     space_id: str
     version: int
     media_type: str
-    content: bytes
+    # The file, only when it still has to be parsed (not yet in chunks, and not past MAX_CLAIMS).
+    content: bytes | None
     chunked: bool
     uploaded_by: str
     uploader_groups: tuple[str, ...]
+    # Claims since the document was last finished, this one included.
+    attempts: int
+
+    @property
+    def worn_out(self) -> bool:
+        """Claimed more than ``MAX_CLAIMS`` times without a finish: its file keeps stopping the worker."""
+        return self.attempts > MAX_CLAIMS
 
 
-def claim_document(conn: psycopg.Connection, *, embeddings: bool) -> Claim | None:
+def claim_document(conn: psycopg.Connection, *, embeddings: bool, skip: Sequence[str] = ()) -> Claim | None:
     """The oldest queued document (or one whose worker stopped), now ``processing``; None when there is none.
-    Without an embeddings model only documents not yet in chunks are taken: the rest wait queued for one."""
+    Without a usable embeddings model only documents not yet in chunks are taken: the rest wait queued for one.
+    ``skip`` holds the documents this pass already took, so a pass takes each at most once."""
     row = conn.execute(
-        "UPDATE row_bot_org.brain_documents SET status = 'processing', status_reason = NULL, claimed_at = now()"
+        "UPDATE row_bot_org.brain_documents SET status = 'processing', status_reason = NULL, claimed_at = now(),"
+        " claim_attempts = claim_attempts + 1"
         " WHERE id = (SELECT id FROM row_bot_org.brain_documents"
-        "             WHERE (status = 'queued' AND (%(embeddings)s OR chunked_version IS DISTINCT FROM version))"
-        f"               OR (status = 'processing' AND claimed_at < now() - interval '{STALE_CLAIM}')"
+        "             WHERE id <> ALL(%(skip)s::uuid[])"
+        "               AND ((status = 'queued' AND (%(embeddings)s OR chunked_version IS DISTINCT FROM version))"
+        f"                   OR (status = 'processing' AND claimed_at < now() - interval '{STALE_CLAIM}'))"
         "             ORDER BY uploaded_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)"
-        " RETURNING id, space_id, version, media_type, content, chunked_version IS NOT DISTINCT FROM version,"
-        " uploaded_by, uploader_groups", {"embeddings": embeddings}).fetchone()
+        " RETURNING id, space_id, version, media_type,"
+        " CASE WHEN chunked_version IS DISTINCT FROM version AND claim_attempts <= %(most)s THEN content END,"
+        " chunked_version IS NOT DISTINCT FROM version, uploaded_by, uploader_groups, claim_attempts",
+        {"embeddings": embeddings, "skip": list(skip), "most": MAX_CLAIMS}).fetchone()
     if row is None:
         return None
-    return Claim(str(row[0]), str(row[1]), row[2], row[3], bytes(row[4]), row[5], str(row[6]), tuple(row[7]))
+    return Claim(str(row[0]), str(row[1]), row[2], row[3], None if row[4] is None else bytes(row[4]), row[5],
+                 str(row[6]), tuple(row[7]), row[8])
 
 
 def _current(conn: psycopg.Connection, claim: Claim) -> bool:
@@ -309,7 +325,7 @@ def finish_document(conn: psycopg.Connection, claim: Claim, status: str, reason:
         return False
     conn.execute(
         "UPDATE row_bot_org.brain_documents SET status = %s, status_reason = %s, claimed_at = NULL,"
-        " processed_at = CASE WHEN %s = 'ready' THEN now() ELSE processed_at END WHERE id = %s",
+        " claim_attempts = 0, processed_at = CASE WHEN %s = 'ready' THEN now() ELSE processed_at END WHERE id = %s",
         (status, reason, status, claim.document_id))
     return True
 
@@ -323,12 +339,14 @@ class FactToEmbed:
     writer_groups: tuple[str, ...]
 
 
-def facts_to_embed(conn: psycopg.Connection, limit: int) -> list[FactToEmbed]:
-    """Facts in force without an embedding, by writer."""
+def facts_to_embed(conn: psycopg.Connection, limit: int, *, tried: Sequence[str] = (),
+                   writers_failed: Sequence[str] = ()) -> list[FactToEmbed]:
+    """Facts in force without an embedding, oldest first, leaving out the facts this pass ``tried`` and those of
+    the writers whose calls failed in it."""
     return [FactToEmbed(str(r[0]), r[1], r[2], str(r[3]), tuple(r[4])) for r in conn.execute(
         "SELECT id, body, updated_at, written_by, writer_groups FROM row_bot_org.brain_facts"
-        " WHERE embedding IS NULL AND retired_at IS NULL ORDER BY written_by, created_at, id LIMIT %s",
-        (limit,)).fetchall()]
+        " WHERE embedding IS NULL AND retired_at IS NULL AND id <> ALL(%s::uuid[]) AND written_by <> ALL(%s::uuid[])"
+        " ORDER BY created_at, id LIMIT %s", (list(tried), list(writers_failed), limit)).fetchall()]
 
 
 def store_fact_embeddings(conn: psycopg.Connection, model: str,
@@ -433,7 +451,7 @@ def fact_hits(conn: psycopg.Connection, fact_ids: Sequence[str]) -> dict[str, Fa
                             None if row[6] is None else str(row[6]), row[7], row[8]) for row in rows}
 
 
-__all__ = ["COMPANY", "GROUP", "STALE_CLAIM", "ChunkHit", "Claim", "FactHit", "FactToEmbed", "SpaceRow",
+__all__ = ["COMPANY", "GROUP", "MAX_CLAIMS", "STALE_CLAIM", "ChunkHit", "Claim", "FactHit", "FactToEmbed", "SpaceRow",
            "add_document", "add_fact", "chunk_hits", "chunks_to_embed", "claim_document", "create_space",
            "default_embeddings_model", "delete_document", "delete_fact", "delete_space", "fact_hits", "facts_to_embed",
            "finish_document", "get_document", "get_fact", "get_space", "get_spaces", "known_principals",

@@ -83,15 +83,26 @@ MAX_EMBEDDING_DIMENSIONS = 16_000
 
 
 class NoEmbeddingsModel(Exception):
-    """The catalog has no default embeddings model (on the OpenAI wire): the company brain searches text only."""
+    """The catalog has no default embeddings model: the company brain searches text only."""
 
 
 class EmbeddingsFailed(Exception):
-    """The default embeddings model couldn't embed these texts; ``message`` says why, for a person to read."""
+    """The default embeddings model couldn't embed these texts: ``code`` says why for programs (``budget_exceeded``
+    is the person's own; the rest are the model's or its endpoint's), ``message`` for a person to read."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
-        self.message = message
+        self.code, self.message = code, message
+
+
+def embeddings_problem(route: store.Route) -> str | None:
+    """Why the default embeddings model ``route`` can't be used at all (until an admin changes the catalog), or
+    None when it can."""
+    if route.api != upstream.OPENAI:
+        return "The company's default embeddings model isn't on an OpenAI-compatible endpoint."
+    if not route.enabled:
+        return "The default embeddings model's endpoint is turned off."
+    return None
 
 
 def _vectors(answer: Any, count: int) -> list[list[float]]:
@@ -196,30 +207,34 @@ class GatewayService:
 
     # -- embeddings for the company brain, in process --------------------------------------------
 
-    def embed(self, principal: RequestPrincipal, texts: list[str]) -> tuple[str, list[list[float]]]:
+    def embed(self, principal: RequestPrincipal, texts: list[str], *, route: store.Route | None = None,
+              timeout: float | None = None) -> tuple[str, list[list[float]]]:
         """``texts`` embedded by the company's default embeddings model, as a call of ``principal``'s: metered to
         them and their groups, with its ``model.called``, and refused when one of their hard budgets is spent, like
-        any call. Returns the catalog model's name and the vectors, in order. ``NoEmbeddingsModel`` when the catalog
-        has no default embeddings model; ``EmbeddingsFailed`` for anything else. It waits for the endpoint: call it
-        from a worker thread."""
+        any call. ``route`` is that model when the caller already looked it up (the brain's worker, so its verdict
+        and this one are the same); ``timeout`` (seconds) shortens the endpoint's own. Returns the catalog model's
+        name and the vectors, in order. ``NoEmbeddingsModel`` when the catalog has no default embeddings model;
+        ``EmbeddingsFailed`` for anything else. It waits for the endpoint: call it from a worker thread."""
         with principal_transaction(self.pool, principal.principal_id, principal.groups) as conn:
-            route = store.default_route(conn, "embeddings")
+            if route is None:
+                route = store.default_route(conn, "embeddings")
             budgets = store.budget_state(conn) if route is not None else []
-        if route is None or route.api != upstream.OPENAI:
+        if route is None:
             raise NoEmbeddingsModel
+        if (problem := embeddings_problem(route)) is not None:
+            raise EmbeddingsFailed("model_unusable", problem)
         try:
-            if not route.enabled:
-                raise _Refusal(503, "endpoint_disabled", "The embeddings model's endpoint is turned off.")
             _check_budgets(budgets)
             api_key = self._key_of(route)
         except _Refusal as refusal:
-            raise EmbeddingsFailed(refusal.message) from None
+            raise EmbeddingsFailed(refusal.code, refusal.message) from None
+        seconds = route.timeout_seconds if timeout is None else min(timeout, route.timeout_seconds)
         body = json.dumps({"model": route.upstream_model, "input": texts}).encode("utf-8")
         started = time.perf_counter()
         answer = bytearray()
         try:
             # No redirects, as for every call: one would carry the key elsewhere.
-            with (httpx.Client(follow_redirects=False, timeout=httpx.Timeout(route.timeout_seconds)) as client,
+            with (httpx.Client(follow_redirects=False, timeout=httpx.Timeout(seconds)) as client,
                   client.stream("POST", upstream.target_url(route.api, route.base_url, "embeddings"),
                                 headers=upstream.request_headers(route.api, api_key, {}), content=body) as response):
                 status = response.status_code
@@ -229,19 +244,22 @@ class GatewayService:
                         raise _Refusal(502, "endpoint_response_too_large", "The endpoint's answer was too large.")
         except (httpx.HTTPError, _Refusal) as error:
             self._meter(principal, route, upstream.Usage(), started, "error")
-            raise EmbeddingsFailed(_upstream_refusal(route, error).message) from None
+            refusal = _upstream_refusal(route, error)
+            raise EmbeddingsFailed(refusal.code, refusal.message) from None
         if status >= 400:
             logger.warning("endpoint %s answered %s", route.endpoint_name, status)
             self._meter(principal, route, upstream.Usage(), started, "error")
-            raise EmbeddingsFailed("The company's model endpoint refused the server's key." if status in (401, 403)
-                                   else "The company's model endpoint couldn't embed the text.")
+            if status in (401, 403):
+                raise EmbeddingsFailed("endpoint_auth_failed", "The company's model endpoint refused the server's key.")
+            raise EmbeddingsFailed("endpoint_error", "The company's model endpoint couldn't embed the text.")
         try:
             parsed = json.loads(answer)
             vectors = _vectors(parsed, len(texts))
         except ValueError:
             logger.warning("endpoint %s gave embeddings that can't be used", route.endpoint_name)
             self._meter(principal, route, upstream.Usage(), started, "error")
-            raise EmbeddingsFailed("The company's model endpoint gave an answer that can't be used.") from None
+            raise EmbeddingsFailed("bad_endpoint_response",
+                                   "The company's model endpoint gave an answer that can't be used.") from None
         self._meter(principal, route, upstream.usage_of(route.api, parsed), started, "ok")
         return route.model, vectors
 
@@ -801,4 +819,4 @@ def gateway_router(service: GatewayService) -> APIRouter:
 
 
 __all__ = ["BUDGET_WARNING_HEADER", "MAX_EMBEDDING_DIMENSIONS", "EmbeddingsFailed", "GatewayService",
-           "NoEmbeddingsModel", "gateway_router"]
+           "NoEmbeddingsModel", "embeddings_problem", "gateway_router"]

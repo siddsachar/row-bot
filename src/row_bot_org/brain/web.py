@@ -18,7 +18,8 @@ these routes act as an admin for one, never for a bearer). Recall and the space 
 admin finds there what their groups give them, like anyone.
 
 For admins only: ``GET``/``POST /api/admin/brain/spaces`` and ``PATCH``/``DELETE /api/admin/brain/spaces/{id}``,
-which set who reads a space and who owns it.
+which set who reads a space and who owns it. Space names aren't unique (a refused name would tell its writer that
+a space they can't read exists): spaces are told apart by id.
 
 A space, document or fact the caller can't read is ``404`` exactly like one that doesn't exist. Each change is
 audited in its own transaction: ``space.changed``, ``document.uploaded`` (an upload or a replace),
@@ -44,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from row_bot.audit import Action, AuditLayer, Target, TargetKind
-from row_bot.audit.vocabulary import GROUP_PATTERN
+from row_bot.audit.vocabulary import GROUP_PATTERN, SPACE_FIELDS
 from row_bot.brain import InvalidRecord
 from row_bot_org import audit
 from row_bot_org.brain import parse, store
@@ -217,32 +218,42 @@ class RecallIn(_Body):
 class Upload:
     file_name: str
     kind: parse.FileType
-    content: bytes
+    # A view of the request's body: no copy of the file is made.
+    content: memoryview
     title: str | None
 
 
-def multipart_fields(content_type: str, body: bytes) -> dict[str, tuple[str | None, bytes]]:
-    """A ``multipart/form-data`` body's fields: name to (file name or None, bytes). ValueError when it isn't one
-    (no boundary, a part without a name, a name twice, no closing delimiter). Standard library only: the server's
-    image has no multipart package."""
+def multipart_fields(content_type: str, body: bytes | bytearray) -> dict[str, tuple[str | None, memoryview]]:
+    """A ``multipart/form-data`` body's fields: name to (file name or None, a view of its bytes in ``body``).
+    ValueError when it isn't one (no boundary, a part without a name, a name twice, no closing delimiter). It finds
+    the delimiters in ``body`` and copies no part of it. Standard library only: the server's image has no
+    multipart package."""
     header = Message()
     header["content-type"] = content_type
     boundary = header.get_param("boundary")
     if header.get_content_type() != "multipart/form-data" or not isinstance(boundary, str) \
             or not 1 <= len(boundary) <= 70:
         raise ValueError("not multipart/form-data with a boundary")
-    delimiter = b"\r\n--" + boundary.encode("latin-1")
-    fields: dict[str, tuple[str | None, bytes]] = {}
-    for section in (b"\r\n" + body).split(delimiter)[1:]:
-        if section.startswith(b"--"):
+    delimiter = b"--" + boundary.encode("latin-1")
+    between_parts = b"\r\n" + delimiter
+    view = memoryview(body)
+    # The first delimiter starts the body, or ends a preamble's last line.
+    position = 0 if body.startswith(delimiter) else body.find(between_parts)
+    if position < 0:
+        raise ValueError("no delimiter")
+    position += len(delimiter) if position == 0 and body.startswith(delimiter) else len(between_parts)
+    fields: dict[str, tuple[str | None, memoryview]] = {}
+    while True:
+        if body.startswith(b"--", position):
             return fields
-        if not section.startswith(b"\r\n"):
+        if not body.startswith(b"\r\n", position):
             raise ValueError("a part doesn't start on its own line")
-        head, separator, content = section[2:].partition(b"\r\n\r\n")
-        if not separator:
-            raise ValueError("a part has no headers")
+        head_end = body.find(b"\r\n\r\n", position + 2)
+        end = body.find(between_parts, position + 2)
+        if head_end < 0 or end < 0 or head_end > end:
+            raise ValueError("a part has no headers, or no delimiter after it")
         disposition = None
-        for line in head.split(b"\r\n"):
+        for line in bytes(view[position + 2:head_end]).split(b"\r\n"):
             name, colon, value = line.partition(b":")
             if not colon:
                 raise ValueError("a part's header isn't one")
@@ -254,8 +265,8 @@ def multipart_fields(content_type: str, body: bytes) -> dict[str, tuple[str | No
         field = collapse_rfc2231_value(field) if field else None
         if parsed.get_content_disposition() != "form-data" or not field or field in fields:
             raise ValueError("a part isn't a named form field, or repeats one")
-        fields[field] = (parsed.get_filename(), content)
-    raise ValueError("no closing delimiter")
+        fields[field] = (parsed.get_filename(), view[head_end + 4:end])
+        position = end + len(between_parts)
 
 
 def _file_name(value: str) -> str | None:
@@ -265,7 +276,7 @@ def _file_name(value: str) -> str | None:
     return name
 
 
-async def _read_body(request: Request, limit: int) -> bytes | None:
+async def _read_body(request: Request, limit: int) -> bytearray | None:
     """The body, or None past ``limit`` bytes (read no further)."""
     declared = request.headers.get("content-length", "")
     if declared.isascii() and declared.isdigit() and int(declared) > limit:
@@ -275,7 +286,7 @@ async def _read_body(request: Request, limit: int) -> bytes | None:
         body += chunk
         if len(body) > limit:
             return None
-    return bytes(body)
+    return body
 
 
 async def read_upload(request: Request, max_bytes: int) -> Upload | JSONResponse:
@@ -291,7 +302,7 @@ async def read_upload(request: Request, max_bytes: int) -> Upload | JSONResponse
         fields = multipart_fields(content_type, body)
     except ValueError:
         return _error(400, "invalid_upload")
-    file_name, content = fields.get("file", (None, b""))
+    file_name, content = fields.get("file", (None, memoryview(b"")))
     if not file_name:
         return _error(400, "file_required")
     if (name := _file_name(file_name)) is None:
@@ -303,10 +314,34 @@ async def read_upload(request: Request, max_bytes: int) -> Upload | JSONResponse
     title = None
     if "title" in fields:
         try:
-            title = _plain(fields["title"][1].decode("utf-8"), longest=300)
+            title = _plain(bytes(fields["title"][1]).decode("utf-8"), longest=300)
         except ValueError:
             return _error(400, "invalid_title")
     return Upload(name, kind, content, title)
+
+
+def _space_values(space: store.SpaceRow | None, field: str) -> set[str]:
+    if space is None:
+        return set()
+    return {space.name} if field == "name" else set(getattr(space, field))
+
+
+def space_change_details(change: str, before: store.SpaceRow | None, after: store.SpaceRow | None) -> dict[str, Any]:
+    """``space.changed``'s details: the change, and for a create or an update which fields changed and how many
+    groups (readers and owners) and people (owners) came and went. Never a name."""
+    details: dict[str, Any] = {"change": change}
+    if after is None:
+        return details
+    fields = [field for field in SPACE_FIELDS if _space_values(before, field) != _space_values(after, field)]
+    if fields:
+        details["fields"] = ",".join(fields)
+    groups = ("reader_groups", "owner_groups")
+    details["groups_added"] = sum(len(_space_values(after, f) - _space_values(before, f)) for f in groups)
+    details["groups_removed"] = sum(len(_space_values(before, f) - _space_values(after, f)) for f in groups)
+    details["people_added"] = len(_space_values(after, "owner_principals") - _space_values(before, "owner_principals"))
+    details["people_removed"] = len(_space_values(before, "owner_principals")
+                                    - _space_values(after, "owner_principals"))
+    return details
 
 
 def _uploaded(conn: psycopg.Connection, caller: Caller, space: store.SpaceRow, document: dict[str, Any]) -> None:
@@ -327,10 +362,12 @@ def brain_router(service: BrainService) -> APIRouter:
                    target=Target(TargetKind.FACT, fact_id), device_id=caller.principal.device_id,
                    details={"change": change, "space_id": space.id})
 
-    def space_changed(conn: psycopg.Connection, actor: audit.Actor, space: store.SpaceRow, change: str,
-                      device_id: str | None = None) -> None:
+    def space_changed(conn: psycopg.Connection, actor: audit.Actor, change: str, before: store.SpaceRow | None,
+                      after: store.SpaceRow | None, device_id: str | None = None) -> None:
+        space = after or before
         audit.emit(conn, Action.SPACE_CHANGED, actor=actor, layer=_layer(space),
-                   target=Target(TargetKind.SPACE, space.id), device_id=device_id, details={"change": change})
+                   target=Target(TargetKind.SPACE, space.id), device_id=device_id,
+                   details=space_change_details(change, before, after))
 
     # -- for everyone signed in ------------------------------------------------------------------
 
@@ -355,14 +392,10 @@ def brain_router(service: BrainService) -> APIRouter:
         space = _managed(caller, space_id)
         if isinstance(space, JSONResponse):
             return space
-        try:
-            with caller.conn.transaction():
-                renamed = store.update_space(caller.conn, space.id, {"name": body.name})
-        except psycopg.errors.UniqueViolation:
-            return _error(409, "name_taken")
+        renamed = store.update_space(caller.conn, space.id, {"name": body.name})
         if renamed is None:
             return _error(404, "space_not_found")
-        space_changed(caller.conn, _actor(caller), renamed, "updated", caller.principal.device_id)
+        space_changed(caller.conn, _actor(caller), "updated", space, renamed, caller.principal.device_id)
         return JSONResponse(_space_seen(caller.principal, renamed))
 
     @router.get("/api/brain/spaces/{space_id}/documents")
@@ -390,15 +423,25 @@ def brain_router(service: BrainService) -> APIRouter:
         service.wake()
         return JSONResponse(document, status_code=201)
 
+    async def one_upload(request: Request, store_it: Any, *args: Any) -> Response:
+        """Read and store one upload, while fewer than ``UPLOADS_AT_ONCE`` are under way in this process (each
+        holds its file in memory): else 429 ``too_many_uploads``."""
+        if not service.uploads.acquire(blocking=False):
+            return JSONResponse({"error": "too_many_uploads"}, status_code=429, headers={"Retry-After": "5"})
+        try:
+            received = await read_upload(request, service.max_upload_bytes)
+            if isinstance(received, JSONResponse):
+                return received
+            return await run_in_threadpool(store_it, request, *args, received)
+        finally:
+            service.uploads.release()
+
     @router.post("/api/brain/spaces/{space_id}/documents")
     async def upload(space_id: str, request: Request, principal: RequestPrincipal = caller_of) -> Response:
         # Who may upload is checked before the body is read, and again with the write.
         if refused := await run_in_threadpool(check_space, request, principal, space_id):
             return refused
-        received = await read_upload(request, service.max_upload_bytes)
-        if isinstance(received, JSONResponse):
-            return received
-        return await run_in_threadpool(add, request, principal, space_id, received)
+        return await one_upload(request, add, principal, space_id)
 
     def managed_document(caller: Caller, document_id: str) -> tuple[dict[str, Any], store.SpaceRow] | JSONResponse:
         found = _uuid(document_id)
@@ -440,10 +483,7 @@ def brain_router(service: BrainService) -> APIRouter:
     async def replace(document_id: str, request: Request, principal: RequestPrincipal = caller_of) -> Response:
         if refused := await run_in_threadpool(check_document, request, principal, document_id):
             return refused
-        received = await read_upload(request, service.max_upload_bytes)
-        if isinstance(received, JSONResponse):
-            return received
-        return await run_in_threadpool(replace_with, request, principal, document_id, received)
+        return await one_upload(request, replace_with, principal, document_id)
 
     @router.delete("/api/brain/documents/{document_id}")
     def delete_document(document_id: str, caller: Caller = manager) -> Response:
@@ -553,15 +593,10 @@ def brain_router(service: BrainService) -> APIRouter:
                      principal: RequestPrincipal = caller_of) -> JSONResponse:
         if unknown_owners(conn, body.owner_principals):
             return _error(422, "unknown_person")
-        try:
-            with conn.transaction():
-                space = store.create_space(conn, name=body.name, reader_groups=body.reader_groups,
-                                           owner_groups=body.owner_groups,
-                                           owner_principals=[str(owner) for owner in dict.fromkeys(
-                                               body.owner_principals)])
-        except psycopg.errors.UniqueViolation:
-            return _error(409, "name_taken")
-        space_changed(conn, audit.admin(principal.principal_id), space, "created")
+        space = store.create_space(conn, name=body.name, reader_groups=body.reader_groups,
+                                   owner_groups=body.owner_groups,
+                                   owner_principals=[str(owner) for owner in dict.fromkeys(body.owner_principals)])
+        space_changed(conn, audit.admin(principal.principal_id), "created", None, space)
         return JSONResponse(space.to_json(), status_code=201)
 
     @router.patch("/api/admin/brain/spaces/{space_id}")
@@ -581,14 +616,10 @@ def brain_router(service: BrainService) -> APIRouter:
             changes["owner_principals"] = [str(owner) for owner in dict.fromkeys(changes["owner_principals"])]
         if not changes:
             return JSONResponse(current.to_json())
-        try:
-            with conn.transaction():
-                space = store.update_space(conn, current.id, changes)
-        except psycopg.errors.UniqueViolation:
-            return _error(409, "name_taken")
+        space = store.update_space(conn, current.id, changes)
         if space is None:
             return _error(404, "space_not_found")
-        space_changed(conn, audit.admin(principal.principal_id), space, "updated")
+        space_changed(conn, audit.admin(principal.principal_id), "updated", current, space)
         return JSONResponse(space.to_json())
 
     @router.delete("/api/admin/brain/spaces/{space_id}")
@@ -602,11 +633,11 @@ def brain_router(service: BrainService) -> APIRouter:
             return _error(409, "company_space_stays")
         if not store.delete_space(conn, current.id):
             return _error(404, "space_not_found")
-        space_changed(conn, audit.admin(principal.principal_id), current, "deleted")
+        space_changed(conn, audit.admin(principal.principal_id), "deleted", current, None)
         return Response(status_code=204)
 
     return router
 
 
 __all__ = ["MULTIPART_OVERHEAD", "Caller", "Upload", "brain_router", "manager_connection", "multipart_fields",
-           "read_upload"]
+           "read_upload", "space_change_details"]

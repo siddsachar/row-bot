@@ -5,8 +5,8 @@ group, standard library here):
 
 - **text** (``.txt``) and **Markdown** (``.md``, ``.markdown``): UTF-8 (a byte-order mark is dropped);
 - **Word** (``.docx``): ``word/document.xml`` read from the zip, its paragraphs (tables' included, in order) one
-  per line. A part larger than ``MAX_XML_BYTES`` unpacked, or one with a DTD, is refused, so a zip bomb or an
-  entity expansion never runs.
+  per line, read paragraph by paragraph (``iterparse``). A part larger than ``MAX_XML_BYTES`` (16 MiB)
+  unpacked, one that isn't UTF-8, or one with a DTD is refused, so a zip bomb or an entity expansion never runs.
 
 PDF is left out: the desktop app reads it with ``pypdf``, which is an extra, not in the server's image (see the
 B1a handoff). The chunks follow the app's own document chunking (``row_bot.documents``): 1,500 characters with
@@ -24,7 +24,7 @@ CHUNK_SIZE = 1_500
 CHUNK_OVERLAP = 150
 # A document gives at most this many chunks (about 6.8 million characters).
 MAX_CHUNKS = 5_000
-MAX_XML_BYTES = 64 * 1024 * 1024
+MAX_XML_BYTES = 16 * 1024 * 1024
 _WORD = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -63,30 +63,40 @@ def _text(content: bytes) -> str:
 
 
 def _word(content: bytes) -> str:
+    unreadable = ParseFailed("This Word document can't be read.")
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as archive, archive.open("word/document.xml") as part:
             xml = part.read(MAX_XML_BYTES + 1)
     except (zipfile.BadZipFile, KeyError, OSError, RuntimeError, ValueError, NotImplementedError, EOFError):
-        raise ParseFailed("This Word document can't be read.") from None
+        raise unreadable from None
     if len(xml) > MAX_XML_BYTES:
         raise ParseFailed("This Word document is too large to read.")
-    if b"<!DOCTYPE" in xml or b"<!ENTITY" in xml:
-        raise ParseFailed("This Word document can't be read.")
+    # Word writes UTF-8. Anything else is refused before the DTD check, so another encoding can't hide one.
     try:
-        root = ElementTree.fromstring(xml)
-    except ElementTree.ParseError:
-        raise ParseFailed("This Word document can't be read.") from None
+        decoded = xml.decode("utf-8")
+    except UnicodeDecodeError:
+        raise unreadable from None
+    if "<!DOCTYPE" in decoded or "<!ENTITY" in decoded:
+        raise unreadable
+    del decoded
     lines = []
-    for paragraph in root.iter(f"{_WORD}p"):
-        parts = []
-        for node in paragraph.iter():
-            if node.tag == f"{_WORD}t" and node.text:
-                parts.append(node.text)
-            elif node.tag == f"{_WORD}tab":
-                parts.append("\t")
-            elif node.tag in (f"{_WORD}br", f"{_WORD}cr"):
-                parts.append("\n")
-        lines.append("".join(parts))
+    try:
+        # Paragraph by paragraph, each cleared once read, so the document's tree is never held whole.
+        for _, node in ElementTree.iterparse(io.BytesIO(xml), events=("end",)):
+            if node.tag != f"{_WORD}p":
+                continue
+            parts = []
+            for inner in node.iter():
+                if inner.tag == f"{_WORD}t" and inner.text:
+                    parts.append(inner.text)
+                elif inner.tag == f"{_WORD}tab":
+                    parts.append("\t")
+                elif inner.tag in (f"{_WORD}br", f"{_WORD}cr"):
+                    parts.append("\n")
+            lines.append("".join(parts))
+            node.clear()
+    except ElementTree.ParseError:
+        raise unreadable from None
     return "\n".join(lines)
 
 

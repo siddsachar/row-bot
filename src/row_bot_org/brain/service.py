@@ -5,16 +5,23 @@
 never take the same one), parses and chunks the claimed version, stores its chunks (text search finds them from
 then on), embeds them through the gateway in process, as calls of the uploader's (metered to their person and
 groups, refused past their hard budgets), and marks the document ``ready``. A parse or embedding failure marks it
-``failed`` with a plain reason. With no default embeddings model the chunks are stored and the document stays
-``queued`` with ``MODEL_NEEDED``, until one is added. A replace or delete since the claim leaves the worker's
-results unwritten (the version check). The pass then embeds facts that have no embedding, as calls of their
-writers'. An upload wakes the thread; otherwise it looks every ``POLL_SECONDS``.
+``failed`` with a plain reason. With no default embeddings model, or one that can't be used (``embeddings_problem``),
+the chunks are stored and the document stays ``queued`` with ``MODEL_NEEDED`` or that problem, and is taken again
+only once a usable model exists. Whether there is one is decided once per claim, from the worker's own lookup, and
+that same model is handed to the gateway, so the two never disagree. A pass takes each document at most once and
+stops when the worker stops. A document claimed more than ``store.MAX_CLAIMS`` times without a finish (its file
+keeps stopping the worker) is failed with ``WORN_OUT`` and never parsed again. A replace or delete since the claim
+leaves the worker's results unwritten (the version check). The pass then embeds facts that have no embedding, as
+calls of their writers', each fact at most once a pass and skipping writers whose calls failed in it. An upload
+wakes the thread; otherwise it looks every ``POLL_SECONDS``.
 
 **Recall.** Text rank (Postgres full text, any of the query's words) and vector similarity (cosine, against the
 query embedded as a call of the caller's) over chunks and facts, fused by reciprocal rank fusion. It runs in the
 caller's own transaction, never an admin's: row-level security finds only what the caller may read, and the
 shared rules (``row_bot.brain``: ``can_read_item``, ``recall_label``) check each hit again. Without an embeddings
-model, or when the query can't be embedded, it is text only.
+model, or when the query can't be embedded, it is text only. A query is embedded with a short timeout
+(``QUERY_TIMEOUT_SECONDS``), and after the model or its endpoint fails, recall is text only for
+``QUERY_BACKOFF_SECONDS`` (a spent budget is the person's own, and backs nobody else off).
 
 **The shared rules' terms.** Group names are Row-Bot's (any characters); the brain's ids aren't, so a group is
 ``g.<SHA-256 of its name>`` there. Everyone signed in is in ``EVERYONE`` (the company space's readers) and in
@@ -27,6 +34,7 @@ import hashlib
 import itertools
 import logging
 import threading
+import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -38,17 +46,23 @@ from row_bot.brain import (
 )
 from row_bot_org.brain import parse, store
 from row_bot_org.db.rls import principal_transaction
-from row_bot_org.gateway.web import EmbeddingsFailed, NoEmbeddingsModel
+from row_bot_org.gateway import store as gateway_store
+from row_bot_org.gateway.web import EmbeddingsFailed, NoEmbeddingsModel, embeddings_problem
 from row_bot_org.identity.gate import RequestPrincipal
 from row_bot_org.settings import OrgSettings
 
 logger = logging.getLogger(__name__)
 MODEL_NEEDED = "Add an embeddings model in Models"
-UNEXPECTED = "This document couldn't be processed."
+# A document that failed for no reason of its own, or that keeps stopping the worker.
+WORN_OUT = "This file couldn't be processed."
 POLL_SECONDS = 30.0
-# Texts in one embeddings call, and facts embedded in one pass.
+# Texts in one embeddings call (and facts read at a time).
 EMBED_BATCH = 32
-FACTS_PER_PASS = 256
+# Recall's query embedding: its timeout, and how long recall is text only after the model failed.
+QUERY_TIMEOUT_SECONDS = 5.0
+QUERY_BACKOFF_SECONDS = 60.0
+# Uploads read and stored at once, per process (each holds its file in memory).
+UPLOADS_AT_ONCE = 4
 # Reciprocal rank fusion's constant, and how many candidates each ranking brings per hit asked for.
 RRF_K = 60
 CANDIDATES_PER_HIT = 4
@@ -124,9 +138,12 @@ class BrainService:
         self.pool = pool
         self.gateway = gateway
         self.max_upload_bytes = settings.brain_max_upload_mb * 1024 * 1024
+        self.uploads = threading.BoundedSemaphore(UPLOADS_AT_ONCE)
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        # Until when (time.monotonic) recall leaves the vector half out, after the model failed.
+        self._vectors_off_until = 0.0
 
     # -- the worker thread -----------------------------------------------------------------------
 
@@ -158,57 +175,68 @@ class BrainService:
     # -- processing ------------------------------------------------------------------------------
 
     def process_pending(self) -> int:
-        """One pass: every claimable document, then facts to embed. How many documents it took."""
-        taken = 0
-        while self._process_next():
-            taken += 1
-        self._embed_facts()
-        return taken
+        """One pass: every claimable document (each at most once), then facts to embed. How many documents it
+        took. It stops early when the worker is stopped."""
+        taken: list[str] = []
+        while not self._stop.is_set() and (document_id := self._process_next(taken)) is not None:
+            taken.append(document_id)
+        if not self._stop.is_set():
+            self._embed_facts()
+        return len(taken)
 
-    def _embeddings_model(self, conn: Any) -> str | None:
-        return None if self.gateway is None else store.default_embeddings_model(conn)
+    def _embeddings(self, conn: Any) -> tuple[gateway_store.Route | None, str]:
+        """The default embeddings model when it can be used, else None and why documents wait."""
+        route = None if self.gateway is None else gateway_store.default_route(conn, "embeddings")
+        if route is None:
+            return None, MODEL_NEEDED
+        problem = embeddings_problem(route)
+        return (route, "") if problem is None else (None, problem)
 
-    def _process_next(self) -> bool:
+    def _process_next(self, taken: Sequence[str]) -> str | None:
         with store.worker_transaction(self.pool) as conn:
-            model = self._embeddings_model(conn)
-            claim = store.claim_document(conn, embeddings=model is not None)
+            route, waiting = self._embeddings(conn)
+            claim = store.claim_document(conn, embeddings=route is not None, skip=taken)
         if claim is None:
-            return False
+            return None
+        if claim.worn_out:
+            logger.error("a company document was failed: its processing stopped %s times", store.MAX_CLAIMS)
+            self._finish(claim, "failed", WORN_OUT)
+            return claim.document_id
         try:
-            self._process(claim, model)
+            self._process(claim, route, waiting)
         except Exception as error:  # noqa: BLE001 - the document is marked failed, the pass goes on
             logger.error("a company document couldn't be processed (%s)", type(error).__name__)
-            self._finish(claim, "failed", UNEXPECTED)
-        return True
+            self._finish(claim, "failed", WORN_OUT)
+        return claim.document_id
 
     def _finish(self, claim: store.Claim, status: str, reason: str | None) -> None:
         with store.worker_transaction(self.pool) as conn:
             store.finish_document(conn, claim, status, reason)
 
-    def _process(self, claim: store.Claim, model: str | None) -> None:
+    def _process(self, claim: store.Claim, route: gateway_store.Route | None, waiting: str) -> None:
         if not claim.chunked:
             try:
                 kind = parse.BY_MEDIA_TYPE[claim.media_type]
-                chunks = parse.chunk_text(parse.extract_text(kind, claim.content))
+                chunks = parse.chunk_text(parse.extract_text(kind, claim.content or b""))
             except parse.ParseFailed as failed:
                 self._finish(claim, "failed", failed.reason)
                 return
             with store.worker_transaction(self.pool) as conn:
                 if not store.store_chunks(conn, claim, chunks):
                     return
-        if model is None:
-            self._finish(claim, "queued", MODEL_NEEDED)
+        if route is None:
+            # Taken again only once a usable model exists (claim_document), so this never loops.
+            self._finish(claim, "queued", waiting)
             return
         uploader = RequestPrincipal(claim.uploaded_by, claim.uploader_groups, None)
         with store.worker_transaction(self.pool) as conn:
-            pending = store.chunks_to_embed(conn, claim.document_id, model)
+            pending = store.chunks_to_embed(conn, claim.document_id, route.model)
         for start in range(0, len(pending), EMBED_BATCH):
+            if self._stop.is_set():
+                return  # Still processing: taken again once its claim is stale.
             batch = pending[start:start + EMBED_BATCH]
             try:
-                used, vectors = self.gateway.embed(uploader, [text for _, text in batch])
-            except NoEmbeddingsModel:
-                self._finish(claim, "queued", MODEL_NEEDED)
-                return
+                used, vectors = self.gateway.embed(uploader, [text for _, text in batch], route=route)
             except EmbeddingsFailed as failed:
                 self._finish(claim, "failed", failed.message)
                 return
@@ -219,26 +247,30 @@ class BrainService:
         self._finish(claim, "ready", None)
 
     def _embed_facts(self) -> None:
-        """Embed the facts that have no embedding, as calls of their writers'. A writer whose call fails (their
-        budget spent, the endpoint down) is tried again on the next pass."""
-        if self.gateway is None:
-            return
-        with store.worker_transaction(self.pool) as conn:
-            if store.default_embeddings_model(conn) is None:
+        """Embed the facts that have no embedding, as calls of their writers'. Each fact is tried at most once a
+        pass; a writer whose call fails (their budget spent, the endpoint down) is left out for the rest of it, so
+        nobody else's facts wait behind theirs."""
+        tried: list[str] = []
+        failed: set[str] = set()
+        while not self._stop.is_set():
+            with store.worker_transaction(self.pool) as conn:
+                route, _ = self._embeddings(conn)
+                if route is None:
+                    return
+                facts = store.facts_to_embed(conn, EMBED_BATCH, tried=tried, writers_failed=sorted(failed))
+            if not facts:
                 return
-            facts = store.facts_to_embed(conn, FACTS_PER_PASS)
-        for (writer, groups), written in itertools.groupby(facts, key=lambda fact: (fact.written_by,
-                                                                                    fact.writer_groups)):
-            written = list(written)
-            for start in range(0, len(written), EMBED_BATCH):
-                batch = written[start:start + EMBED_BATCH]
+            tried.extend(fact.id for fact in facts)
+            by_writer = sorted(facts, key=lambda fact: (fact.written_by, fact.writer_groups))
+            for (writer, groups), written in itertools.groupby(by_writer, key=lambda fact: (fact.written_by,
+                                                                                            fact.writer_groups)):
+                batch = list(written)
                 try:
                     used, vectors = self.gateway.embed(RequestPrincipal(writer, groups, None),
-                                                       [fact.text for fact in batch])
-                except NoEmbeddingsModel:
-                    return
+                                                       [fact.text for fact in batch], route=route)
                 except EmbeddingsFailed:
-                    break
+                    failed.add(writer)
+                    continue
                 with store.worker_transaction(self.pool) as conn:
                     store.store_fact_embeddings(conn, used, list(zip(batch, vectors)))
 
@@ -283,14 +315,16 @@ class BrainService:
         return {"search": "hybrid" if vector is not None else "text", "hits": hits}
 
     def _embed_query(self, principal: RequestPrincipal, text: str) -> tuple[str, list[float]] | None:
-        if self.gateway is None:
+        if self.gateway is None or time.monotonic() < self._vectors_off_until:
             return None
         try:
-            model, (vector,) = self.gateway.embed(principal, [text])
+            model, (vector,) = self.gateway.embed(principal, [text], timeout=QUERY_TIMEOUT_SECONDS)
         except NoEmbeddingsModel:
             return None
-        except EmbeddingsFailed:
-            logger.info("a recall searched text only: its query couldn't be embedded")
+        except EmbeddingsFailed as failed:
+            if failed.code != "budget_exceeded":
+                self._vectors_off_until = time.monotonic() + QUERY_BACKOFF_SECONDS
+            logger.info("a recall searched text only: its query couldn't be embedded (%s)", failed.code)
             return None
         return model, vector
 
@@ -330,5 +364,6 @@ class BrainService:
         return {"hit": to_dict(hit), "citation": citation}
 
 
-__all__ = ["EVERYONE", "MODEL_NEEDED", "POLL_SECONDS", "RRF_K", "BrainService", "SpaceNotFound",
+__all__ = ["EVERYONE", "MODEL_NEEDED", "POLL_SECONDS", "QUERY_BACKOFF_SECONDS", "QUERY_TIMEOUT_SECONDS", "RRF_K",
+           "UPLOADS_AT_ONCE", "WORN_OUT", "BrainService", "SpaceNotFound",
            "brain_principal", "brain_space", "fuse", "owns", "space_access"]

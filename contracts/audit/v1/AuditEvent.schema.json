@@ -1798,6 +1798,46 @@
                   "deleted"
                 ],
                 "type": "string"
+              },
+              "fields": {
+                "enum": [
+                  "name",
+                  "reader_groups",
+                  "owner_groups",
+                  "owner_principals",
+                  "name,reader_groups",
+                  "name,owner_groups",
+                  "name,owner_principals",
+                  "reader_groups,owner_groups",
+                  "reader_groups,owner_principals",
+                  "owner_groups,owner_principals",
+                  "name,reader_groups,owner_groups",
+                  "name,reader_groups,owner_principals",
+                  "name,owner_groups,owner_principals",
+                  "reader_groups,owner_groups,owner_principals",
+                  "name,reader_groups,owner_groups,owner_principals"
+                ],
+                "type": "string"
+              },
+              "groups_added": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "groups_removed": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "people_added": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "people_removed": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [

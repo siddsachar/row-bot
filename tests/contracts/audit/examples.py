@@ -76,7 +76,8 @@ _EXAMPLES: dict[Action, tuple[Actor, str, Target | None, str, dict[str, Any], di
     Action.ORG_SETTINGS_CHANGED: (ADMIN, "org", Target(TargetKind.SETTING, "models.budget.monthly"), "succeeded", {},
                                   {"change": "updated"}),
     Action.SPACE_CHANGED: (ADMIN, "team", Target(TargetKind.SPACE, "team-payments"), "succeeded", {},
-                           {"change": "created"}),
+                           {"change": "updated", "fields": "reader_groups,owner_principals", "groups_added": 1,
+                            "groups_removed": 0, "people_added": 2, "people_removed": 1}),
     Action.FACT_CHANGED: (OWNER, "company", Target(TargetKind.FACT, "fact-31"), "succeeded", {},
                           {"change": "retired", "space_id": "acme"}),
 }

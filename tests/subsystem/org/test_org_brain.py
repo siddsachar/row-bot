@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from row_bot.brain import RecallHit, from_dict  # noqa: E402
 from row_bot_org.app import create_app  # noqa: E402
+from row_bot_org.brain import service as brain_service  # noqa: E402
 from row_bot_org.db.pool import create_pool  # noqa: E402
 from row_bot_org.db.rls import principal_transaction  # noqa: E402
 from row_bot_org.settings import load_settings  # noqa: E402
@@ -185,7 +186,6 @@ def test_spaces_follow_groups_and_owners_and_nobody_reads_a_space_they_are_not_i
         (company,) = admin.get("/api/admin/brain/spaces").json()["spaces"]
         assert (company["name"], company["kind"], company["reader_groups"]) == ("Company", "company", [])
         sales = new_space(admin, "Sales team", reader_groups=["Sales"], owner_principals=[priya_id])
-        assert admin.post("/api/admin/brain/spaces", json={"name": "sales TEAM"}).json() == {"error": "name_taken"}
         unknown = admin.post("/api/admin/brain/spaces", json={"name": "X", "owner_principals": [company["id"]]})
         assert (unknown.status_code, unknown.json()) == (422, {"error": "unknown_person"})
 
@@ -248,6 +248,12 @@ def test_spaces_follow_groups_and_owners_and_nobody_reads_a_space_they_are_not_i
             # An owner's transaction can't hand the space to others: only an admin's changes who reads or owns it.
             with principal_transaction(pool, priya_id, []) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute("UPDATE row_bot_org.spaces SET reader_groups = '{Engineering}' WHERE id = %s", (sales,))
+            # Nor can it put the document in someone else's name, or other groups' (what its usage is metered to).
+            for change, values in (("uploaded_by = %s", (eve_id,)), ("uploader_groups = '{Execs}'", ())):
+                with principal_transaction(pool, priya_id, []) as conn, \
+                        pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    conn.execute(f"UPDATE row_bot_org.brain_documents SET {change} WHERE id = %s",
+                                 (*values, document["id"]))
 
         assert admin.delete(f"/api/admin/brain/spaces/{sales}").status_code == 204
         assert superuser_sql(org_database, "SELECT count(*) FROM row_bot_org.brain_documents") == [(0,)]
@@ -255,11 +261,20 @@ def test_spaces_follow_groups_and_owners_and_nobody_reads_a_space_they_are_not_i
 
     changes = [summary(event)[:5] + (event["layer"], event["details"])
                for event in stored_events(org_database.owner_url, "space.changed")]
+    # Which fields changed and how many groups and people came and went; never a name.
+    def counts(groups_added: int = 0, groups_removed: int = 0, people_added: int = 0) -> dict:
+        return {"groups_added": groups_added, "groups_removed": groups_removed, "people_added": people_added,
+                "people_removed": 0}
+
     assert changes == [
-        ("space.changed", "admin", admin_id, sales, "succeeded", "team", {"change": "created"}),
-        ("space.changed", "person", priya_id, sales, "succeeded", "team", {"change": "updated"}),
-        ("space.changed", "admin", admin_id, sales, "succeeded", "team", {"change": "updated"}),
-        ("space.changed", "admin", admin_id, sales, "succeeded", "team", {"change": "updated"}),
+        ("space.changed", "admin", admin_id, sales, "succeeded", "team",
+         {"change": "created", "fields": "name,reader_groups,owner_principals", **counts(1, 0, 1)}),
+        ("space.changed", "person", priya_id, sales, "succeeded", "team",
+         {"change": "updated", "fields": "name", **counts()}),
+        ("space.changed", "admin", admin_id, sales, "succeeded", "team",
+         {"change": "updated", "fields": "reader_groups", **counts(groups_added=1)}),
+        ("space.changed", "admin", admin_id, sales, "succeeded", "team",
+         {"change": "updated", "fields": "reader_groups", **counts(groups_removed=1)}),
         ("space.changed", "admin", admin_id, sales, "succeeded", "team", {"change": "deleted"}),
     ]
 
@@ -399,7 +414,114 @@ def test_a_replace_keeps_the_id_and_a_delete_removes_the_chunks(org_database, id
     ]
 
 
+def put_policy(admin: TestClient, document: dict) -> None:
+    version = admin.get("/api/admin/policy").json()["company"].get("version", 0)
+    response = admin.put("/api/admin/policy", json={"version": version, **document})
+    assert response.status_code == 200, response.text
+
+
+def test_the_brains_model_embeds_for_everyone_whatever_they_may_call_themselves(org_database, idp) -> None:
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        add_embeddings(admin, endpoint.base_url)
+        # Nobody's policy allows the embeddings model: people can't call it, the company brain still uses it.
+        put_policy(admin, {"models": {"allowed": ["company-chat"]}})
+        priya = person(server, idp, "priya", ["Sales"])
+        sales = new_space(admin, "Sales team", reader_groups=["Sales"], owner_principals=[me(priya)])
+        refused = priya.post("/api/gateway/openai/v1/embeddings", json={"model": "company-embed", "input": "x"})
+        assert refused.status_code == 403
+        document = uploaded(priya, sales, "pipeline.md", b"The pipeline review is every Monday.")
+
+        assert process(server) == 1
+        assert priya.get(f"/api/brain/documents/{document['id']}").json()["status"] == "ready"
+        assert recall(priya, "pipeline")["search"] == "hybrid"
+
+
+def test_a_default_model_that_cant_be_used_leaves_documents_waiting_with_the_reason_and_no_loop(org_database,
+                                                                                                 idp) -> None:
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        # Behind the API, which refuses it: an embeddings model on an Anthropic endpoint, the company default.
+        (endpoint_id,) = superuser_sql(org_database, "INSERT INTO row_bot_org.model_endpoints (name, api, base_url)"
+                                                     " VALUES ('claude', 'anthropic', 'http://127.0.0.1:9') RETURNING id")[0]
+        superuser_sql(org_database, "INSERT INTO row_bot_org.catalog_models (endpoint_id, name, upstream_model,"
+                                    " display_name, kind, is_default) VALUES (%s, 'claude-embed', 'x', 'x',"
+                                    " 'embeddings', true)", endpoint_id)
+        company = company_space(admin)
+        document = uploaded(admin, company, "office.md", b"The office opens at eight.")
+
+        assert process(server) == 1
+        waiting = admin.get(f"/api/brain/documents/{document['id']}").json()
+        assert (waiting["status"], waiting["status_reason"], waiting["chunk_count"]) == (
+            "queued", "The company's default embeddings model isn't on an OpenAI-compatible endpoint.", 1)
+        assert process(server) == 0
+        found = recall(admin, "office")
+        assert (found["search"], cited(found)) == ("text", [("document", "office")])
+
+
+def test_a_document_that_keeps_stopping_the_worker_is_failed_without_being_parsed_again(org_database,
+                                                                                        idp) -> None:
+    with org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        document = uploaded(admin, company_space(admin), "huge.docx", word_document("Big."))
+        # As if three workers had taken it and stopped (out of memory, say) before they finished.
+        superuser_sql(org_database, "UPDATE row_bot_org.brain_documents SET status = 'processing',"
+                                    " claimed_at = now() - interval '1 hour', claim_attempts = 3 WHERE id = %s",
+                      document["id"])
+
+        assert process(server) == 1
+        failed = admin.get(f"/api/brain/documents/{document['id']}").json()
+        assert (failed["status"], failed["status_reason"], failed["chunk_count"]) == (
+            "failed", "This file couldn't be processed.", 0)
+        assert process(server) == 0
+
+
+def test_facts_of_a_writer_whose_calls_fail_never_hold_up_anyone_elses(org_database, idp,
+                                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(brain_service, "EMBED_BATCH", 1)
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        add_embeddings(admin, endpoint.base_url)
+        priya = person(server, idp, "priya")
+        priya_id, admin_id = me(priya), me(admin)
+        company = company_space(admin)
+        assert admin.patch(f"/api/admin/brain/spaces/{company}",
+                           json={"owner_principals": [priya_id]}).status_code == 200
+        assert admin.put("/api/admin/budgets", json={"scope": "person", "subject": priya_id,
+                                                      "hard_limit": 0}).status_code == 200
+        # Priya's facts come first, and her budget is spent.
+        for text in ("The canteen opens at noon.", "The canteen closes at three."):
+            assert priya.post(f"/api/brain/spaces/{company}/facts", json={"text": text}).status_code == 201
+        assert admin.post(f"/api/brain/spaces/{company}/facts", json={"text": "Parking is free."}).status_code == 201
+
+        process(server)
+        embedded = superuser_sql(org_database, "SELECT written_by::text, embedding IS NOT NULL"
+                                               " FROM row_bot_org.brain_facts ORDER BY created_at")
+        assert embedded == [(priya_id, False), (priya_id, False), (admin_id, True)]
+        assert [seen.body["input"] for seen in endpoint.requests] == [["Parking is free."]]
+
+
 # -- recall -----------------------------------------------------------------------------------------
+
+def test_recall_answers_from_text_at_once_when_the_query_cant_be_embedded_in_time(org_database, idp,
+                                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(brain_service, "QUERY_TIMEOUT_SECONDS", 0.2)
+    with running_endpoint("openai") as endpoint, org_server(org_database, idp) as server:
+        admin = admin_of(server, idp)
+        add_embeddings(admin, endpoint.base_url)
+        uploaded(admin, company_space(admin), "office.md", b"The office opens at eight.")
+        process(server)
+        calls = len(endpoint.requests)
+
+        endpoint.holding = True
+        slow = recall(admin, "office")
+        assert (slow["search"], cited(slow)) == ("text", [("document", "office")])
+        assert len(endpoint.requests) == calls + 1
+        # For a while after, recall doesn't wait on the model at all.
+        again = recall(admin, "office")
+        assert (again["search"], cited(again)) == ("text", [("document", "office")])
+        assert len(endpoint.requests) == calls + 1
+
 
 def test_recall_ranks_by_text_without_an_embeddings_model_and_fuses_vectors_once_there_is_one(org_database,
                                                                                                idp) -> None:
