@@ -1376,6 +1376,61 @@ def _process_tree(pid: int) -> set[int]:
         return {pid}
 
 
+_SERVER_JOB: int | None = None  # Windows: the job that ends this launcher's servers with it
+
+
+def _end_with_this_launcher(proc: subprocess.Popen) -> bool:
+    """On Windows, end *proc* when this launcher ends, however it ends.
+
+    A launcher that is killed, crashes or is ended by its quit watchdog never runs
+    ``_RowBotProcess.stop()``, and Windows doesn't end a child with its parent: the
+    server ran on with no launcher, and the next start adopted it, so quitting that
+    one left it running. The job ends its processes when its last handle closes,
+    which this process holds until it exits. What the server itself starts breaks
+    away silently, so those programs keep the server's own stop and clean-up."""
+    global _SERVER_JOB
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Basic(ctypes.Structure):
+            _fields_ = [("user_time", ctypes.c_longlong), ("job_time", ctypes.c_longlong),
+                        ("flags", wintypes.DWORD), ("minimum", ctypes.c_size_t), ("maximum", ctypes.c_size_t),
+                        ("active_limit", wintypes.DWORD), ("affinity", ctypes.c_size_t),
+                        ("priority", wintypes.DWORD), ("scheduling", wintypes.DWORD)]
+
+        class _Extended(ctypes.Structure):
+            _fields_ = [("basic", _Basic), ("io", ctypes.c_ulonglong * 6),
+                        ("process_memory", ctypes.c_size_t), ("job_memory", ctypes.c_size_t),
+                        ("peak_process_memory", ctypes.c_size_t), ("peak_job_memory", ctypes.c_size_t)]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel.SetInformationJobObject.restype = wintypes.BOOL
+        kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        if _SERVER_JOB is None:
+            job = kernel.CreateJobObjectW(None, None)  # not inheritable: only this process holds it
+            if not job:
+                return False
+            limits = _Extended()
+            limits.basic.flags = 0x2000 | 0x1000  # KILL_ON_JOB_CLOSE | SILENT_BREAKAWAY_OK
+            if not kernel.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+                kernel.CloseHandle(job)
+                return False
+            _SERVER_JOB = job
+        return bool(kernel.AssignProcessToJobObject(_SERVER_JOB, int(proc._handle)))  # type: ignore[attr-defined]
+    except Exception:
+        logger.debug("Could not tie the server to this launcher", exc_info=True)
+        return False
+
+
 def _set_process_launch_environment(
     process: object,
     values: dict[str, str],
@@ -1487,6 +1542,8 @@ class _RowBotProcess:
         except Exception:
             self._close_log_handle()
             raise
+        if not _end_with_this_launcher(self._proc) and sys.platform == "win32":
+            logger.warning("%s server isn't tied to this launcher; it may outlive it", APP_DISPLAY_NAME)
         logger.info(
             "%s server started on %s:%s (PID %s, log=%s)",
             APP_DISPLAY_NAME,
