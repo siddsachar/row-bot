@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from itertools import combinations
 from types import MappingProxyType
 from typing import Literal
 
@@ -91,6 +92,8 @@ class TargetKind(StrEnum):
     LIBRARY_ITEM = "library_item"
     EXPORT = "export"
     SETTING = "setting"
+    SPACE = "space"
+    FACT = "fact"
 
 
 class Category(StrEnum):
@@ -109,6 +112,8 @@ class Category(StrEnum):
     ROLE = "role"
     PERSON = "person"
     ORG_SETTINGS = "org_settings"
+    SPACE = "space"
+    FACT = "fact"
 
 
 class Action(StrEnum):
@@ -139,6 +144,8 @@ class Action(StrEnum):
     PERSON_SUSPENDED = "person.suspended"
     PERSON_RESUMED = "person.resumed"
     ORG_SETTINGS_CHANGED = "org_settings.changed"
+    SPACE_CHANGED = "space.changed"
+    FACT_CHANGED = "fact.changed"
 
 
 # The forms an identifier may take. Ids match CON-1's (no "/", so no path can pass as one); model ids may hold "/".
@@ -198,6 +205,11 @@ LIBRARY_KINDS = ("skill", "agent", "workflow")
 # ``person``: one person's chats and memory (their own export where policy allows, or an admin's at offboarding).
 EXPORT_SCOPES = ("person", "space", "company", "audit")
 ROLES = ("admin", "member", "space_owner")
+# A company-brain space's fields an event says changed (never their values), and every non-empty set of them in
+# this order, comma-joined.
+SPACE_FIELDS = ("name", "reader_groups", "owner_groups", "owner_principals")
+SPACE_FIELD_SETS = tuple(",".join(chosen) for size in range(1, len(SPACE_FIELDS) + 1)
+                         for chosen in combinations(SPACE_FIELDS, size))
 
 _P, _A, _S, _O = ActorKind.PERSON, ActorKind.ADMIN, ActorKind.SERVICE, ActorKind.OPERATOR
 _TEAM, _COMPANY, _ORG = AuditLayer.TEAM, AuditLayer.COMPANY, AuditLayer.ORG
@@ -276,4 +288,14 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     Action.PERSON_RESUMED: _spec({_A, _O}, {_ORG}, {TargetKind.PERSON}, _DONE),
     Action.ORG_SETTINGS_CHANGED: _spec({_A}, {_ORG}, {TargetKind.SETTING}, _GATED,
                                        change=_enum("created", "updated", "deleted", required=False)),
+    # A company-brain space made, renamed, given other readers or owners (an admin), or deleted (B1): which fields
+    # changed, and how many groups (readers and owners) and people (owners) came and went, never who.
+    Action.SPACE_CHANGED: _spec({_P, _A}, _SHARED, {TargetKind.SPACE}, _DONE,
+                                change=_enum("created", "updated", "deleted"),
+                                fields=_enum(*SPACE_FIELD_SETS, required=False), groups_added=Detail("int"),
+                                groups_removed=Detail("int"), people_added=Detail("int"),
+                                people_removed=Detail("int")),
+    # A fact in a company-brain space written, edited, retired or deleted by an owner or an admin (B1).
+    Action.FACT_CHANGED: _spec({_P, _A}, _SHARED, {TargetKind.FACT}, _DONE,
+                               change=_enum("created", "updated", "retired", "deleted"), **_SPACE),
 })

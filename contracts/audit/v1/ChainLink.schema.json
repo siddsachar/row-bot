@@ -1762,6 +1762,188 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "space.changed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "space"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "change": {
+                    "enum": [
+                      "created",
+                      "updated",
+                      "deleted"
+                    ],
+                    "type": "string"
+                  },
+                  "fields": {
+                    "enum": [
+                      "name",
+                      "reader_groups",
+                      "owner_groups",
+                      "owner_principals",
+                      "name,reader_groups",
+                      "name,owner_groups",
+                      "name,owner_principals",
+                      "reader_groups,owner_groups",
+                      "reader_groups,owner_principals",
+                      "owner_groups,owner_principals",
+                      "name,reader_groups,owner_groups",
+                      "name,reader_groups,owner_principals",
+                      "name,owner_groups,owner_principals",
+                      "reader_groups,owner_groups,owner_principals",
+                      "name,reader_groups,owner_groups,owner_principals"
+                    ],
+                    "type": "string"
+                  },
+                  "groups_added": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "groups_removed": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "people_added": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "people_removed": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "change"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "space"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "fact.changed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actor": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "admin",
+                      "person"
+                    ]
+                  }
+                }
+              },
+              "category": {
+                "const": "fact"
+              },
+              "decided_by": {
+                "type": "null"
+              },
+              "details": {
+                "additionalProperties": false,
+                "properties": {
+                  "change": {
+                    "enum": [
+                      "created",
+                      "updated",
+                      "retired",
+                      "deleted"
+                    ],
+                    "type": "string"
+                  },
+                  "space_id": {
+                    "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._:@|+-]{0,127})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "change",
+                  "space_id"
+                ],
+                "type": "object"
+              },
+              "layer": {
+                "enum": [
+                  "company",
+                  "team"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "failed",
+                  "succeeded"
+                ]
+              },
+              "target": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "fact"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
         }
       ],
       "description": "One Row-Bot for Teams audit event: team, company or org layer, never personal; details hold only the keys the action defines at or below the event's redaction level.",
@@ -1779,6 +1961,7 @@
             "device.removed",
             "document.removed",
             "document.uploaded",
+            "fact.changed",
             "library.published",
             "model.called",
             "org_settings.changed",
@@ -1792,6 +1975,7 @@
             "share.approved",
             "share.rejected",
             "share.submitted",
+            "space.changed",
             "tool.called"
           ],
           "type": "string"
@@ -1825,6 +2009,7 @@
             "data",
             "device",
             "document",
+            "fact",
             "library",
             "model",
             "org_settings",
@@ -1833,6 +2018,7 @@
             "role",
             "session",
             "share",
+            "space",
             "tool"
           ],
           "type": "string"
@@ -1936,6 +2122,7 @@
                     "device",
                     "document",
                     "export",
+                    "fact",
                     "integration",
                     "library_item",
                     "mcp_server",
@@ -1943,6 +2130,7 @@
                     "plugin",
                     "setting",
                     "share",
+                    "space",
                     "tool"
                   ],
                   "type": "string"

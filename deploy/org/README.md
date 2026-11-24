@@ -295,6 +295,23 @@ connected Row-Bots call models through it, so the endpoints' keys never reach a 
   requests naming others (`models`, `route`, `fallbacks`, `context_window_fallbacks`, `provider`), Anthropic
   server tools, `mcp_servers` and beta flags other than Row-Bot's own are refused.
 
+## Company brain
+
+The server keeps the company's shared knowledge in **spaces**: one company space, read by everyone signed in,
+and group spaces, read by the groups an admin names (`/api/admin/brain/spaces`). Each space has owners
+(people or groups), who also read it, rename it, and add its documents and facts; admins can do that in any
+space from a browser session.
+
+- Documents are text (`.txt`), Markdown (`.md`) and Word (`.docx`) files, uploaded to
+  `/api/brain/spaces/{id}/documents`. PDF isn't read yet. They are kept in the database (the image has no data
+  folder), so size Postgres and its backups for them.
+- `ROW_BOT_ORG_BRAIN_MAX_UPLOAD_MB`: the largest file, 1 to 100 MB, 25 by default.
+- The server splits each document into parts and embeds them with the catalog's **default embeddings model**
+  (Models), as model calls of the person who uploaded it: their usage and budgets count them. Without one,
+  documents wait ("Add an embeddings model in Models") and are searched by their words only.
+- Row-Bots ask with `POST /api/brain/recall`, as their person: answers come only from spaces that person reads,
+  each with where it came from. An admin is a member there too.
+
 ## Policy
 
 Admins keep one company policy and optional overrides per group (`/api/admin/policy`); each signed-in
