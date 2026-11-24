@@ -67,11 +67,34 @@ function microphones(page: Page) {
 const wakeSwitch = (page: Page) =>
   page.getByRole('switch', { name: 'Hey Row-Bot', exact: true });
 
+/**
+ * The wake socket's `ready`, awaited before the page that opens it loads: the
+ * mark already shows "Listening" while it starts, but only from `ready` on do
+ * this window's frames reach the host, and no ticket request is on its way.
+ */
+function wakeReady(page: Page) {
+  const ready = page
+    .waitForEvent('websocket', (socket) =>
+      socket.url().includes('/api/v1/voice/stream'),
+    )
+    .then((socket) =>
+      socket.waitForEvent('framereceived', (frame) =>
+        /"type": ?"ready"/.test(String(frame.payload)),
+      ),
+    );
+  ready.catch(() => undefined);
+  return ready;
+}
+
 async function setWakeWord(page: Page, on: boolean) {
+  const ready = wakeReady(page);
   await page.goto('/app-v2/settings/voice');
   const toggle = wakeSwitch(page);
   await expect(toggle).toBeVisible();
   if ((await toggle.isChecked()) === on) return;
+  // A window that loads with it on asks for a wake ticket; one still on its way
+  // when the switch turns off is refused (409), so turning off waits for it.
+  if (!on) await ready;
   await toggle.click();
   await expect(toggle).toBeChecked({ checked: on });
   // Saved for the specs after this one only once its notice shows.
@@ -124,8 +147,10 @@ test('off until turned on; then it listens with a clear mark, hearing it starts 
   await accessibility(page, info, 'wake-word-settings');
 
   // Saying it (the stand-in hears a loud tone) starts Row-Bot Voice in a new chat, as Home's Talk does.
+  const ready = wakeReady(page);
   await page.goto('/app-v2/');
   await expect(page.getByRole('button', { name: LISTENING })).toBeVisible();
+  await ready;
   await page.evaluate(() =>
     (
       window as unknown as { __voiceMic: { speak(ms: number): void } }
