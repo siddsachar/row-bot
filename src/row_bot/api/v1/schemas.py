@@ -10445,6 +10445,24 @@ class SurfaceBlock(WireModel):
     title: str = Field(min_length=1, max_length=120)
     surface_json: str = Field(min_length=2, max_length=262144)
     text: str = Field(max_length=16520)
+    # Where what the person enters on it is kept: by reply and surface, shared with a pinned copy.
+    state_key: str = Field(pattern=r"^block:[0-9a-f]{24}$")
+
+
+class SurfaceDataRequest(WireModel):
+    """The values of a surface's sources (private bindings): read on this computer for the person's client."""
+    message_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9:_.-]+$")
+    surface_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    # Read again now, rather than a copy from the last half-minute.
+    refresh: bool = False
+
+
+class SurfaceData(WireModel):
+    """Each source's value by its data path, and why any couldn't be read; never part of the conversation."""
+    surface_id: str = Field(min_length=1, max_length=64)
+    values: dict[str, Any]
+    problems: dict[str, Annotated[str, StringConstraints(max_length=200)]]
+    read_at: str = Field(max_length=64)
 
 
 class YouTubeBlock(WireModel):

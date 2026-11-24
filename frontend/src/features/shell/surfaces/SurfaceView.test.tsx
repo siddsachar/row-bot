@@ -34,6 +34,7 @@ function surface(tree: object, id = `block:surface-${++made}`): Block {
       ...tree,
     }),
     text: 'Lisbon trip',
+    state_key: `state-of-${id}`,
   };
 }
 
@@ -357,6 +358,7 @@ it('opens bigger beside the chat, and an edit there shows in the chat at once', 
       <SurfaceView
         json={(block as Extract<Block, { type: 'surface' }>).surface_json}
         blockId="block:shared"
+        stateKey={(block as Extract<Block, { type: 'surface' }>).state_key}
         target={{ conversationId: 'conversation-s', messageId: 'reply-1' }}
         inPanel
       />

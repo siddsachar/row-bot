@@ -420,6 +420,19 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  surfaceData(
+    conversationId: string,
+    body: wire.SurfaceDataRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.getSurfaceData(
+      this.base,
+      this.session(),
+      conversationId,
+      body,
+      signal,
+    );
+  }
   saveAnswerState(
     conversationId: string,
     change: wire.AnswerStateChange,

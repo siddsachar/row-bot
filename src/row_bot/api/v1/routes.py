@@ -3621,7 +3621,7 @@ def create_router(
     @router.put("/conversations/{conversation_id}/answer-state")
     async def answer_state_save(conversation_id: str, request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
-        body = await _body(request, dto.AnswerStateChange, 4096)
+        body = await _body(request, dto.AnswerStateChange, 80 * 1024)
         from row_bot.application.answer_state import save_answer_state
 
         return await respond(
@@ -6813,6 +6813,17 @@ def create_router(
 
         found = await _page_call(decide, _page_id(page_id), body.id, body.choice, body.note, body.label)
         return await respond(request, dto.PageView, await call(view, found))
+
+    @router.post("/conversations/{conversation_id}/surface-data")
+    async def surface_data(conversation_id: str, request: Request) -> JSONResponse:
+        """The values of a surface's sources (generative UI, private bindings): read here, on this computer,
+        for this client only. They never enter the conversation, so the model never sees them."""
+        await session(request, lane="view")
+        body = await _body(request, dto.SurfaceDataRequest, 1024)
+        from row_bot.application.surface_sources import surface_data as read
+
+        result = await call(read, service, conversation_id, body.message_id, body.surface_id, body.refresh)
+        return await respond(request, dto.SurfaceData, result)
 
     @router.post("/conversations/{conversation_id}/visual-frame")
     async def visual_frame(conversation_id: str, request: Request) -> JSONResponse:

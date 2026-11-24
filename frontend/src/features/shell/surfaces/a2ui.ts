@@ -20,6 +20,8 @@ export type SurfaceSpec = {
   catalogId: string;
   components: SurfaceComponent[];
   dataModel: DataModel;
+  /** Private bindings: data paths Row-Bot fills in on this computer. */
+  sources?: Record<string, { '@call': string; args?: Record<string, unknown> }>;
 };
 
 /** Where a template item's relative paths start: an absolute pointer and its index. */
@@ -46,6 +48,10 @@ export function readSurface(json: string): SurfaceSpec | null {
         value.dataModel && typeof value.dataModel === 'object'
           ? (value.dataModel as DataModel)
           : {},
+      sources:
+        value.sources && typeof value.sources === 'object'
+          ? value.sources
+          : undefined,
     };
   } catch {
     return null;

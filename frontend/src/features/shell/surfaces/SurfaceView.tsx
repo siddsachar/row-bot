@@ -72,7 +72,7 @@ import {
 } from 'lucide-react';
 import { useOptionalRuntime } from '../../../runtime';
 import { ModalTask, useNotify } from '../../../ui/overlays';
-import { Button, IconButton, Input, Tabs } from '../../../ui/primitives';
+import { Button, Hint, IconButton, Input, Tabs } from '../../../ui/primitives';
 import { sendPrompt, usePromptReady } from '../composer-bridge';
 import {
   changeAnswerState,
@@ -91,9 +91,17 @@ import {
   type DataModel,
   type Scope,
   type SurfaceComponent,
+  type SurfaceSpec,
 } from './a2ui';
 import { SurfaceText } from './SurfaceText';
 import { requestSurfacePanel } from './open-surface';
+import {
+  sourceWords,
+  useSurfaceSources,
+  withoutSources,
+  withSources,
+  type SourceState,
+} from './sources';
 import {
   setSurfaceModel,
   useLatestSurfaceBlock,
@@ -439,8 +447,9 @@ function Media({
       />
     );
   }
-  // Nothing is fetched by itself: a link elsewhere is the person's to open.
-  const link = openableUrl(url);
+  // Nothing is fetched by itself: a link elsewhere is the person's to open, and only one written into the
+  // interface, never one made from its data (which may hold what Row-Bot filled in on this computer).
+  const link = typeof component.url === 'string' ? openableUrl(url) : null;
   const label =
     kind === 'image' ? 'Picture' : kind === 'video' ? 'Video' : 'Audio';
   return (
@@ -894,11 +903,14 @@ function ChoicePicker({
 export function SurfaceView({
   json,
   blockId,
+  stateKey,
   target,
   inPanel = false,
 }: {
   json: string;
   blockId: string;
+  /** Where what the person enters is kept: by reply and surface, so a pinned copy shares it. */
+  stateKey: string;
   target: SurfaceTarget;
   /** Shown in the side panel ("Open bigger"): the panel names it already. */
   inPanel?: boolean;
@@ -906,9 +918,14 @@ export function SurfaceView({
   const spec = useMemo(() => readSurface(json), [json]);
   const controller = useOptionalRuntime()?.controller;
   const answers = useAnswerState(controller, target.conversationId);
-  const saved = answers.surfaces?.[blockId] as DataModel | undefined;
-  const live = useSurfaceModel(blockId);
+  const saved = answers.surfaces?.[stateKey] as DataModel | undefined;
+  const live = useSurfaceModel(stateKey);
   const latestBlock = useLatestSurfaceBlock(spec?.surfaceId ?? '');
+  const sources = useSurfaceSources(
+    target.conversationId,
+    target.messageId,
+    spec,
+  );
   const ready = usePromptReady(target.conversationId);
   const notify = useNotify();
   const [pressed, setPressed] = useState<string | null>(null);
@@ -923,14 +940,19 @@ export function SurfaceView({
     if (ready) setPressed(null);
   }, [ready]);
   if (!spec) return <SurfaceUnreadable />;
-  const current = live ?? saved ?? spec.dataModel;
+  // What Row-Bot filled in on this computer wins over any older copy of it.
+  const current = withSources(
+    live ?? saved ?? spec.dataModel,
+    sources?.values ?? {},
+  );
   const save = (next: DataModel) => {
-    latest.current = next;
+    // The sources' values are read again each time, never kept beside the chat.
+    latest.current = withoutSources(next, spec);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       if (latest.current)
         void changeAnswerState(controller, target.conversationId, {
-          block_id: blockId,
+          block_id: stateKey,
           surface_data: latest.current,
         });
     }, SAVE_DELAY);
@@ -942,7 +964,7 @@ export function SurfaceView({
     model: current,
     set: (path, value, scope) => {
       const next = writePath(current, path, value, scope);
-      setSurfaceModel(blockId, next);
+      setSurfaceModel(stateKey, next);
       save(next);
     },
     press: (press) => {
@@ -991,12 +1013,13 @@ export function SurfaceView({
       data-in-panel={inPanel ? 'true' : undefined}
       data-superseded={superseded ? 'true' : undefined}
     >
-      {!inPanel && (
+      {(!inPanel || sources) && (
         <header className="genui-header">
-          <span className="genui-title">{spec.title}</span>
+          <span className="genui-title">{inPanel ? '' : spec.title}</span>
           {superseded && (
             <span className="genui-superseded">Updated in a later reply</span>
           )}
+          {sources && <PrivateMark spec={spec} sources={sources} />}
           {open && (
             <IconButton
               size="sm"
@@ -1009,8 +1032,53 @@ export function SurfaceView({
           )}
         </header>
       )}
+      {sources && Object.keys(sources.problems).length > 0 && (
+        <p className="genui-problems" role="status">
+          <TriangleAlert size={14} aria-hidden />
+          {[...new Set(Object.values(sources.problems))].join(' ')}
+        </p>
+      )}
       <Node id="root" scope={undefined} context={context} depth={0} />
     </section>
+  );
+}
+
+/**
+ * Which parts Row-Bot filled in on this computer, and Read again. The
+ * values came from the person's own data and never went to the model.
+ */
+function PrivateMark({
+  spec,
+  sources,
+}: {
+  spec: SurfaceSpec;
+  sources: SourceState;
+}) {
+  const words = sourceWords(spec);
+  const label = `Filled in on this computer: ${words.join(', ')}. Row-Bot’s model didn’t see these values.`;
+  return (
+    <>
+      <Hint label={label}>
+        <span
+          className="genui-private"
+          tabIndex={0}
+          aria-label={label}
+          data-loading={sources.loading ? 'true' : undefined}
+        >
+          <Lock size={12} aria-hidden />
+          {sources.loading ? 'Filling in…' : 'On this computer'}
+        </span>
+      </Hint>
+      <IconButton
+        size="sm"
+        variant="ghost"
+        label="Read again"
+        disabled={sources.loading}
+        onClick={sources.refresh}
+      >
+        <RefreshCw size={14} aria-hidden />
+      </IconButton>
+    </>
   );
 }
 

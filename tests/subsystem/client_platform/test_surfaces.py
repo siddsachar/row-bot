@@ -144,7 +144,7 @@ def test_a_press_becomes_a2ui_s_action_message_and_only_for_what_the_surface_dec
         "name": "book_hotel", "surfaceId": "trip_budget", "sourceComponentId": "book",
         "timestamp": "2026-11-24T10:00:00+00:00", "context": {"budget": 1800}}}
     assert "not approval of any tool call" in model
-    assert shown.splitlines() == ["Book the hotel · Lisbon trip", "budget: 1,800"]
+    assert shown.splitlines() == ["Book the hotel · Lisbon trip", "Budget: 1,800"]
     with pytest.raises(surfaces.SurfaceError):
         surfaces.action_message(tree, "delete_everything", {}, "book", "now")
     with pytest.raises(surfaces.SurfaceError):

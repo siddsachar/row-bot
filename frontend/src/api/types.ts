@@ -1103,6 +1103,12 @@ export interface ClientTransport {
     change: Wire.AnswerStateChange,
     signal?: AbortSignal,
   ): Promise<Wire.AnswerStateView>;
+  /** The values of a surface's sources, read on this computer for this client only (generative UI). */
+  surfaceData?(
+    conversationId: string,
+    body: Wire.SurfaceDataRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.SurfaceData>;
   /** "Save as a skill" (C1): a chat's offers and drafts. */
   skillOffers?(
     conversationId: string,

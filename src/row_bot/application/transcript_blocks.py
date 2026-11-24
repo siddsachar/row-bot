@@ -192,6 +192,11 @@ def canonical_transcript_blocks(row: dict[str, Any]) -> dict[str, Any]:
                 "id": _block_id(row_id, order, kind, identity_value),
                 "type": kind,
             }
+            if kind == "surface":
+                # What the person enters on it is kept by reply and surface, so a pinned copy shares it.
+                from row_bot.application.surfaces import state_key
+
+                block["state_key"] = state_key(str(row.get("message_id") or row_id), value["surface_id"])
             if kind == "markdown":
                 block["text"] = str(value)
             elif kind == "mermaid":

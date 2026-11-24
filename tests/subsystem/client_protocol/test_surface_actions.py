@@ -73,7 +73,7 @@ def test_a_press_sends_a2ui_s_action_and_the_chat_shows_the_button_s_words(servi
         assert surface["surface_id"] == "trip"
         row = [item for item in transcript["rows"] if item["role"] == "user"][-1]
         assert row["note"] == "surface"
-        assert row["blocks"][0]["text"].splitlines() == ["Book the hotel · Lisbon trip", "budget: 1,800"]
+        assert row["blocks"][0]["text"].splitlines() == ["Book the hotel · Lisbon trip", "Budget: 1,800"]
 
 
 @pytest.mark.parametrize("action", [

@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "description": "Each source's value by its data path, and why any couldn't be read; never part of the conversation.",
+  "properties": {
+    "problems": {
+      "additionalProperties": {
+        "maxLength": 200,
+        "type": "string"
+      },
+      "title": "Problems",
+      "type": "object"
+    },
+    "read_at": {
+      "maxLength": 64,
+      "title": "Read At",
+      "type": "string"
+    },
+    "surface_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Surface Id",
+      "type": "string"
+    },
+    "values": {
+      "additionalProperties": true,
+      "title": "Values",
+      "type": "object"
+    }
+  },
+  "required": [
+    "surface_id",
+    "values",
+    "problems",
+    "read_at"
+  ],
+  "title": "SurfaceData",
+  "type": "object"
+}

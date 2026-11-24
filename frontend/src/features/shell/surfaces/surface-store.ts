@@ -5,7 +5,7 @@ import type { DataModel } from './a2ui';
 
 /**
  * What the person has entered on each surface while it is on screen, by its
- * block: the chat's copy and the side panel's ("Open bigger") are the same
+ * state key (reply and surface): the chat's copy and the side panel's ("Open bigger") are the same
  * surface, so an edit in one shows in the other at once. It is saved beside
  * the chat as well (answer state); this is only the live copy.
  */

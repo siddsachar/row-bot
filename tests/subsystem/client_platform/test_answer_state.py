@@ -84,11 +84,13 @@ def test_the_state_stays_bounded(answer_service):
     from row_bot.application.client_platform import ClientPlatformError
     conversation = threads.create_thread("Answers", seed_default_skills=False)
     state = read_answer_state(answer_service, conversation)
+    # Half the limit fits; a second half, on another block, doesn't (a surface's data model is the large part).
+    half = {"notes": "x" * (MAX_STATE_BYTES // 2)}
+    state = save_answer_state(answer_service, conversation, {
+        "expected_revision": state["revision"], "block_id": LIST, "surface_data": half})
     with pytest.raises(ClientPlatformError) as full:
-        for index in range(MAX_STATE_BYTES // 90):
-            state = save_answer_state(answer_service, conversation, {
-                "expected_revision": state["revision"], "block_id": LIST,
-                "item_id": f"{index:04d}-" + "x" * 90, "done": True})
+        save_answer_state(answer_service, conversation, {
+            "expected_revision": state["revision"], "block_id": CHOICES, "surface_data": half})
     assert full.value.code == "answer_state_full"
     assert len((threads._THREAD_UI_DIR / f"{conversation}.answers.json").read_bytes()) <= MAX_STATE_BYTES
 

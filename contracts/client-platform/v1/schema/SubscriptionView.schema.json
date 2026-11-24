@@ -819,6 +819,11 @@
           "title": "Id",
           "type": "string"
         },
+        "state_key": {
+          "pattern": "^block:[0-9a-f]{24}$",
+          "title": "State Key",
+          "type": "string"
+        },
         "surface_id": {
           "maxLength": 64,
           "minLength": 1,
@@ -855,7 +860,8 @@
         "surface_id",
         "title",
         "surface_json",
-        "text"
+        "text",
+        "state_key"
       ],
       "title": "SurfaceBlock",
       "type": "object"

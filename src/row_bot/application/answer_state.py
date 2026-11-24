@@ -17,7 +17,7 @@ from typing import Any
 
 from row_bot.application.client_platform import ClientPlatformError, _COMMAND_LOCK
 
-MAX_STATE_BYTES = 64 * 1024
+MAX_STATE_BYTES = 512 * 1024
 BLOCK_ID = re.compile(r"^block:[0-9a-f]{24}$")
 ITEM_ID = re.compile(r"^[A-Za-z0-9_-]{1,96}$")
 MAX_CHOICE = 40

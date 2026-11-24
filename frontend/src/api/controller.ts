@@ -2892,6 +2892,19 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.saveAnswerState(conversationId, change, signal);
     });
+  /** The values of a surface's sources, read on this computer (generative UI, private bindings). */
+  surfaceData = (
+    conversationId: string,
+    body: { message_id: string; surface_id: string; refresh?: boolean },
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.surfaceData?.(
+        conversationId,
+        { refresh: false, ...body },
+        signal,
+      ),
+    );
   /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
   visualFrame = (
     conversationId: string,

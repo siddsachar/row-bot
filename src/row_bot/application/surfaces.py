@@ -147,11 +147,12 @@ def _load(source: str) -> list[Any]:
 _MESSAGES = ("createSurface", "updateComponents", "updateDataModel", "deleteSurface")
 
 
-def _envelopes(values: list[Any]) -> tuple[list[tuple[str, dict[str, Any]]], str]:
-    """(message kind, body) for each message, and a top-level title when one was given."""
+def _envelopes(values: list[Any]) -> tuple[list[tuple[str, dict[str, Any]]], str, dict[str, Any]]:
+    """(message kind, body) for each message, and the title and sources given beside them."""
 
     found: list[tuple[str, dict[str, Any]]] = []
     title = ""
+    sources: dict[str, Any] = {}
     pending = list(values)
     while pending:
         value = pending.pop(0)
@@ -162,6 +163,8 @@ def _envelopes(values: list[Any]) -> tuple[list[tuple[str, dict[str, Any]]], str
             raise SurfaceError("a message is not an object")
         if isinstance(value.get("title"), str) and not title:
             title = value["title"]
+        if isinstance(value.get("sources"), dict) and not sources:
+            sources = value["sources"]
         kinds = [kind for kind in _MESSAGES if kind in value]
         if kinds:
             for kind in kinds:
@@ -170,13 +173,15 @@ def _envelopes(values: list[Any]) -> tuple[list[tuple[str, dict[str, Any]]], str
                     raise SurfaceError("a message body is not an object")
                 if isinstance(body.get("title"), str) and not title:
                     title = body["title"]
+                if isinstance(body.get("sources"), dict) and not sources:
+                    sources = body["sources"]
                 found.append((kind, body))
         elif isinstance(value.get("components"), list):
             # A bare createSurface body (no envelope).
             found.append(("createSurface", value))
         else:
             raise SurfaceError("not an A2UI message")
-    return found, title
+    return found, title, sources
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -354,7 +359,12 @@ def _action(value: Any) -> dict[str, Any]:
         call = value["functionCall"]
         if not isinstance(call, dict):
             raise SurfaceError("an action's function call is not an object")
-        return {"functionCall": _call(call, FUNCTIONS | ACTION_FUNCTIONS, 0)}
+        checked_call = _call(call, FUNCTIONS | ACTION_FUNCTIONS, 0)
+        if checked_call["@call"] == "openUrl" and not isinstance(checked_call.get("args", {}).get("url"), str):
+            # A link is fixed when the interface is drawn: never built from the data model, so a value
+            # Row-Bot filled in on this computer can't leave in an address.
+            raise SurfaceError("a link that isn't a fixed address")
+        return {"functionCall": checked_call}
     event = value.get("event")
     if not isinstance(event, dict) or not isinstance(event.get("name"), str):
         raise SurfaceError("an action has no event name")
@@ -602,12 +612,41 @@ def _settle(components: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return reachable
 
 
+MAX_SOURCES = 8
+
+
+def _sources(raw: dict[str, Any]) -> dict[str, Any]:
+    """A surface's private bindings: data paths Row-Bot fills in on this computer (``surface_sources``).
+
+    Each is an absolute data path and one of Row-Bot's read-only sources, with literal arguments only: a
+    source never reads the data model, so nothing the person entered can steer what it reads.
+    """
+
+    from row_bot.application.surface_sources import SOURCES
+
+    checked: dict[str, Any] = {}
+    for path, call in list(raw.items())[:MAX_SOURCES]:
+        call = _healed_value(call)
+        if not isinstance(path, str) or not path.startswith("/") or not _PATH.match(path) or path == "/":
+            continue
+        if not isinstance(call, dict) or call.get("@call") not in SOURCES:
+            continue
+        args = call.get("args") or {}
+        if not isinstance(args, dict):
+            continue
+        literal = {str(key)[:40]: value for key, value in list(args.items())[:8]
+                   if value is None or isinstance(value, (bool, int, float))
+                   or (isinstance(value, str) and len(value) <= 300)}
+        checked[path] = {"@call": call["@call"], "args": literal}
+    return checked
+
+
 def read_surface(source: str) -> dict[str, Any]:
     """The surface a ```rowbot-ui body describes, checked and healed; raises SurfaceError."""
 
     if len(source) > MAX_SOURCE_CHARS:
         raise SurfaceError("too large")
-    envelopes, title = _envelopes(_load(source))
+    envelopes, title, raw_sources = _envelopes(_load(source))
     surface_id = ""
     components: dict[str, dict[str, Any]] = {}
     data: dict[str, Any] = {}
@@ -657,6 +696,8 @@ def read_surface(source: str) -> dict[str, Any]:
         "components": list(reachable.values()),
         "dataModel": data,
     }
+    if sources := _sources(raw_sources):
+        surface["sources"] = sources
     if not surface["title"]:
         # No title given: the surface's first words name it.
         first = next((line for line in surface_text(surface).splitlines() if line.strip()), "")
@@ -691,9 +732,18 @@ def _shown(value: Any) -> str:
         return f"{int(value):,}"
     if isinstance(value, (int, float)):
         return f"{value:,}"
+    if isinstance(value, list) and all(not isinstance(item, (list, dict)) for item in value):
+        return ", ".join(_shown(item) for item in value)
     if isinstance(value, (list, dict)):
         return json.dumps(value, ensure_ascii=False)
     return " ".join(str(value).split())
+
+
+def _key_words(key: str) -> str:
+    """A context key in words: "check_in" -> "Check in"."""
+
+    words = " ".join(re.sub(r"([a-z])([A-Z])", r"\1 \2", key).replace("_", " ").replace("-", " ").split())
+    return words[:1].upper() + words[1:].lower()
 
 
 def surface_text(surface: dict[str, Any]) -> str:
@@ -852,6 +902,55 @@ def parse(source: str) -> tuple[str, dict[str, Any]] | None:
     }
 
 
+def _reply_text(message: Any) -> str:
+    content = message.content
+    return content if isinstance(content, str) else "".join(
+        str(part.get("text") or "") for part in content if isinstance(part, dict) and part.get("type") == "text")
+
+
+def _surfaces_in(message: Any) -> list[dict[str, Any]]:
+    from row_bot.application.answer_components import component_spans
+
+    return [json.loads(fields["surface_json"]) for _start, _end, kind, fields in component_spans(_reply_text(message))
+            if kind == "surface"]
+
+
+def reply_surface(conversation_id: str, message_id: str, surface_id: str) -> dict[str, Any] | None:
+    """The surface with this id that one reply of the conversation drew, or None."""
+
+    from langchain_core.messages import AIMessage
+    from row_bot import threads
+
+    reply = next((message for message in threads.get_latest_checkpoint_messages(conversation_id)
+                  if isinstance(message, AIMessage) and message.id == message_id), None)
+    if reply is None:
+        return None
+    return next((surface for surface in _surfaces_in(reply) if surface["surfaceId"] == surface_id), None)
+
+
+def latest_surface(conversation_id: str, surface_id: str) -> tuple[str, dict[str, Any]] | None:
+    """The latest reply that drew this surface in the conversation, and its surface: a redrawn one wins."""
+
+    from langchain_core.messages import AIMessage
+    from row_bot import threads
+
+    for message in reversed(threads.get_latest_checkpoint_messages(conversation_id)):
+        if isinstance(message, AIMessage) and message.id:
+            found = [surface for surface in _surfaces_in(message) if surface["surfaceId"] == surface_id]
+            if found:
+                return str(message.id), found[-1]
+    return None
+
+
+def state_key(message_id: str, surface_id: str) -> str:
+    """Where what the person entered on a surface is kept (answer state): the same for the reply's copy in
+    the chat and a pinned copy on Home, which both show that reply's surface."""
+
+    import hashlib
+
+    return "block:" + hashlib.sha256(f"surface\0{message_id}\0{surface_id}".encode("utf-8")).hexdigest()[:24]
+
+
 def _named_by_first_line(title: str, text: str) -> bool:
     first = next((line for line in text.splitlines() if line.strip()), "")
     return " ".join(first.lstrip("#").replace("*", "").split())[:120] == title
@@ -900,6 +999,6 @@ def action_message(surface: dict[str, Any], name: str, context: Any, source_comp
              "anything that needs approval still asks. To change the interface, draw it again with the same "
              "surfaceId.\n\n"
              f"```json\n{json.dumps(message, ensure_ascii=False)}\n```")
-    values = [f"{key}: {_shown(value)}" for key, value in context.items() if _shown(value)][:6]
+    values = [f"{_key_words(key)}: {_shown(value)}" for key, value in context.items() if _shown(value)][:6]
     shown = "\n".join([f"{label} · {surface['title']}", *values])
     return model, shown

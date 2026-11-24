@@ -116,7 +116,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkStarted", "VoiceTicket", "ReadAloudRequest", "RealtimeSnapshot", "RealtimeStart", "DefaultModelSnapshot",
     "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "ParentSteeringView", "ClientQueueView",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "AnswerStateView", "AnswerStateChange", "SkillOfferPage", "SkillDraftRequest", "SkillDemoDraftRequest", "SkillTryResult", "VisualPageRequest", "VisualFrameRequest", "VisualFrame", "SurfaceDataRequest", "SurfaceData", "ParentSteeringView", "ClientQueueView",
     "ConversationLinkPage", "Notice", "NoticePage", "NoticeFrame", "LiveFrame")}
 
 # The protocol's WebSockets: path and what it carries. OpenAPI has no WebSocket
@@ -631,6 +631,7 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/browser/demo/{demo_id}/draft", "SkillDemoDraftRequest", "SkillOfferPage"),
     ("post", "/skills/{name}/try", None, "SkillTryResult"),
     ("post", "/conversations/{conversation_id}/visual-page", "VisualPageRequest", "PageView"),
+    ("post", "/conversations/{conversation_id}/surface-data", "SurfaceDataRequest", "SurfaceData"),
     ("post", "/conversations/{conversation_id}/visual-frame", "VisualFrameRequest", "VisualFrame"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
@@ -896,6 +897,9 @@ export const draftDemoSkill = (base: string, proof: SessionProof, conversation: 
   jsonRequest(base, `/conversations/${id(conversation)}/browser/demo/${id(demo)}/draft`, 'SkillOfferPage', proof, 'POST', validateWire('SkillDemoDraftRequest', body), undefined, signal);
 export const trySkill = (base: string, proof: SessionProof, name: string, signal?: AbortSignal): Promise<SkillTryResult> =>
   jsonRequest(base, `/skills/${id(name)}/try`, 'SkillTryResult', proof, 'POST', undefined, undefined, signal);
+/** The values of a surface's sources, read on this computer for this client only (generative UI). */
+export const getSurfaceData = (base: string, proof: SessionProof, conversation: string, body: SurfaceDataRequest, signal?: AbortSignal): Promise<SurfaceData> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/surface-data`, 'SurfaceData', proof, 'POST', body, undefined, signal);
 /** One frame address for a visual in a reply (F3): served once, sandboxed, no network. */
 export const createVisualFrame = (base: string, proof: SessionProof, conversation: string, body: VisualFrameRequest, signal?: AbortSignal): Promise<VisualFrame> =>
   jsonRequest(base, `/conversations/${id(conversation)}/visual-frame`, 'VisualFrame', proof, 'POST', body, undefined, signal);

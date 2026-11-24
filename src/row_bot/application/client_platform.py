@@ -160,21 +160,10 @@ def _surface_action(conversation_id: str, value: Any) -> tuple[str, str] | None:
         raise ClientPlatformError("invalid_command")
     from datetime import datetime, timezone
 
-    from langchain_core.messages import AIMessage
-    from row_bot import threads
     from row_bot.application import surfaces
-    from row_bot.application.answer_components import component_spans
 
-    message_id = str(value.get("message_id") or "")[:256]
-    reply = next((message for message in threads.get_latest_checkpoint_messages(conversation_id)
-                  if isinstance(message, AIMessage) and message.id == message_id), None)
-    if reply is None:
-        raise ClientPlatformError("invalid_command")
-    content = reply.content
-    text = content if isinstance(content, str) else "".join(
-        str(part.get("text") or "") for part in content if isinstance(part, dict) and part.get("type") == "text")
-    surface = next((json.loads(fields["surface_json"]) for _start, _end, kind, fields in component_spans(text)
-                    if kind == "surface" and fields["surface_id"] == value.get("surface_id")), None)
+    surface = surfaces.reply_surface(conversation_id, str(value.get("message_id") or "")[:256],
+                                     str(value.get("surface_id") or ""))
     if surface is None:
         raise ClientPlatformError("invalid_command")
     try:

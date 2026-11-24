@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "description": "The values of a surface's sources (private bindings): read on this computer for the person's client.",
+  "properties": {
+    "message_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_.-]+$",
+      "title": "Message Id",
+      "type": "string"
+    },
+    "refresh": {
+      "default": false,
+      "title": "Refresh",
+      "type": "boolean"
+    },
+    "surface_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+      "title": "Surface Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "message_id",
+    "surface_id"
+  ],
+  "title": "SurfaceDataRequest",
+  "type": "object"
+}

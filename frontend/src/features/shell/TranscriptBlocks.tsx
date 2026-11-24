@@ -371,6 +371,7 @@ export function TranscriptBlocks({
               <SurfaceView
                 json={block.surface_json}
                 blockId={block.id}
+                stateKey={block.state_key}
                 target={target}
                 key={key}
               />

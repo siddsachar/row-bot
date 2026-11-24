@@ -642,3 +642,35 @@
   box-shadow: none;
   animation: none;
 }
+
+/* Private bindings (G4): parts Row-Bot filled in on this computer. */
+.genui-private {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-solid) 35%, transparent);
+  border-radius: 999px;
+  background: var(--accent-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  cursor: default;
+}
+.genui-private:focus-visible {
+  outline: 2px solid var(--accent-solid);
+  outline-offset: 2px;
+}
+.genui-private[data-loading] {
+  opacity: 0.8;
+}
+.genui-problems {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}

@@ -116,6 +116,9 @@ test('a reply draws an interface the person edits and presses', async ({
   // The chat shows the press in the button's words, marked as one.
   await expect(log.getByText('Pressed in an interface')).toBeVisible();
   await expect(log.getByText('Book the hotel · Lisbon trip')).toBeVisible();
+  // Its values read as words, never as data.
+  await expect(log.getByText('Area: Baixa')).toBeVisible();
+  await expect(log.getByText('Budget: 1,800')).toBeVisible();
   await settled(page);
   await dismissNotices(page);
   await screens(page, info, 'genui-pressed', () =>
