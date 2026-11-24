@@ -39,6 +39,7 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.providers.minimax import H3_IMAGE_MODELS
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
@@ -316,7 +317,8 @@ def _route(provider_id: str) -> str:
     return IMAGE_PROVIDER_META[provider_id]["route"]
 
 
-def _request_json(provider_id: str, method: str, path: str, body: dict | None = None) -> dict:
+def _request_json(provider_id: str, method: str, path: str, body: dict | None = None,
+                  *, timeout: int = _DIRECT_TIMEOUT) -> dict:
     """Call an image provider's own API with its key, raising its error message."""
     import httpx
 
@@ -325,7 +327,7 @@ def _request_json(provider_id: str, method: str, path: str, body: dict | None = 
     meta = IMAGE_PROVIDER_META[provider_id]
     _validate_generation()
     response = httpx.request(
-        method, f"{meta['base_url']}{path}", json=body, timeout=_DIRECT_TIMEOUT,
+        method, f"{meta['base_url']}{path}", json=body, timeout=timeout,
         headers={"Authorization": f"Bearer {media_api_key(provider_id)}"},
     )
     if response.status_code >= 400:
@@ -478,6 +480,19 @@ def _together_image(provider_id: str, model: str, prompt: str, size: str, qualit
 def _minimax_image(provider_id: str, model: str, prompt: str, size: str, quality: str, sources: list[str]) -> str:
     from row_bot.providers.media import nearest_aspect_ratio
 
+    if model in H3_IMAGE_MODELS:
+        # H3 bills each generation. Send one request and allow the full server wait.
+        data = _request_json(provider_id, "POST", "/images/generations", {
+            "model": model, "prompt": prompt, "size": size, "n": 1, "response_format": "b64_json",
+            "output_format": "png",
+        }, timeout=600)
+        items = data.get("data")
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            error = items[0].get("error")
+            if isinstance(error, dict):
+                raise RuntimeError(f"MiniMax error {error.get('code', 'unknown')}: {error.get('message') or 'no details'}")
+        return _first_item_b64(data)
+
     body: dict = {"model": model, "prompt": prompt, "n": 1, "response_format": "base64"}
     if size != "auto":
         body["aspect_ratio"] = nearest_aspect_ratio(_OPENAI_SIZE_TO_ASPECT.get(size, "1:1"), _MINIMAX_ASPECTS)
@@ -570,8 +585,9 @@ def _direct_image(provider_id: str, label: str, model: str, prompt: str, size: s
         return (f"{label} image models can only make new images here. "
                 "Choose another image model in Settings › Models to edit one.")
     notes: list[str] = []
+    limit = 0 if route == "minimax" and model in H3_IMAGE_MODELS else _MAX_PICTURES.get(route, _ANY_PICTURES)
     pictures = _fit_pictures(([image_bytes] if image_bytes is not None else []) + list(references or []),
-                             _MAX_PICTURES.get(route, _ANY_PICTURES), label, model, editing=editing, notes=notes)
+                             limit, label, model, editing=editing, notes=notes)
     try:
         b64_str = _DIRECT_IMAGE[route](provider_id, model, prompt, size, quality, [_data_uri(p) for p in pictures])
     except Exception as e:
