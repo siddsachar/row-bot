@@ -6,7 +6,7 @@ import {
   screenshot,
   test,
 } from './evidence';
-import { clickNewChat } from './unified-helpers';
+import { clickNewChat, newConversation } from './unified-helpers';
 
 // Settings › Company (Row-Bot for Teams, C1b): Join, the browser sign-in,
 // joined, Leave, and the disconnected and unreachable states. The company
@@ -745,4 +745,116 @@ test('company documents: an owner adds a document to their space in Settings ›
     { name: 'holiday-notes.md', body: 'Holiday policy: 25 days.' },
   ]);
   await shoot(page, info, 'company-documents-added');
+});
+
+// Share to company (B4b): a reply's action sends it to a space's review
+// queue, and Settings › Company lists it under Your shares. The company's
+// answers are given here; nothing reaches a company server.
+
+const sharing: View = {
+  ...limited,
+  limits: {
+    ...(limited.limits as View),
+    chat_export: true,
+    share_to_company: true,
+  },
+};
+
+const sharesView = (shares: View[], outcome: string | null = null): View => ({
+  schema_version: 1,
+  state: 'ready',
+  company: COMPANY,
+  reason: null,
+  allowed: true,
+  spaces: [
+    { id: SALES_SPACE, name: 'Sales', kind: 'group', is_owner: true },
+    { id: COMPANY_SPACE, name: 'Company', kind: 'company', is_owner: false },
+  ],
+  shares,
+  truncated: false,
+  outcome,
+  words: null,
+});
+
+test('share to company: a reply goes to Sales for review, then waits in Your shares', async ({
+  page,
+}, info) => {
+  const state = { view: sharing, asked: [] as string[] };
+  await companyRoutes(page, state);
+  let shares: View[] = [];
+  const sent: View[] = [];
+  await page.route('**/api/v1/company/shares**', (route: Route) =>
+    route.fulfill({ status: 200, json: sharesView(shares) }),
+  );
+  await page.route(
+    '**/api/v1/company/spaces/*/shares',
+    async (route: Route) => {
+      const body = route.request().postDataJSON() as View;
+      sent.push(body);
+      shares = [
+        {
+          id: 'b0000000-0000-4000-8000-000000000001',
+          title: body.title,
+          text: body.text,
+          source_note: body.source_note || null,
+          space_id: SALES_SPACE,
+          space_name: 'Sales',
+          moved: false,
+          status: 'pending',
+          submitted_at: '2026-11-24T10:00:00+00:00',
+          decided_at: null,
+          reason: null,
+          fact_id: null,
+        },
+      ];
+      await route.fulfill({ status: 200, json: sharesView(shares, 'sent') });
+    },
+  );
+
+  await newConversation(page);
+  const log = page.getByRole('log', { name: 'Conversation' });
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('First fork fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const reply = log
+    .getByRole('article', { name: 'Row-Bot message' })
+    .filter({ hasText: 'Noted: First.' });
+  await expect(reply).toBeVisible({ timeout: 15_000 });
+
+  if (phone(info)) {
+    await reply.locator('.message-text').click({ button: 'right' });
+    await page
+      .getByRole('menu')
+      .getByRole('menuitem', { name: 'Share to company' })
+      .click();
+  } else {
+    await reply.hover();
+    await reply.getByRole('button', { name: 'Share to company' }).click();
+  }
+  const dialog = page.getByRole('dialog', { name: 'Share to company' });
+  await expect(
+    dialog.getByText('Owners of Sales review this before anyone else sees it.'),
+  ).toBeVisible();
+  await expect(dialog.getByLabel(/^Text/)).toHaveValue(/Noted: First\./);
+  await expect(dialog.getByLabel(/^Note/)).toHaveValue(/^From a chat on /);
+  await shoot(page, info, 'company-share-dialog');
+
+  await page.getByRole('button', { name: 'Send for review' }).click();
+  await expect(page.getByText('Sent to Sales for review')).toBeVisible();
+  expect(sent).toHaveLength(1);
+  expect(sent[0].title).toBe('Noted: First.');
+  expect(String(sent[0].text)).toContain('Noted: First.');
+  expect(String(sent[0].source_note)).toMatch(/^From a chat on /);
+
+  await page.getByRole('button', { name: 'Your shares' }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/company/);
+  const group = page.getByRole('region', { name: 'Your shares' });
+  await expect(group.getByText('Waiting for review')).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(
+    group.getByRole('button', { name: 'Withdraw “Noted: First.”' }),
+  ).toBeVisible();
+  await shoot(page, info, 'company-your-shares');
 });

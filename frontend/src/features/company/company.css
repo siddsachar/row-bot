@@ -95,3 +95,31 @@
   flex: 1;
   margin: 0;
 }
+
+/*
+ * Share to company (B4b): the dialog's form reads top to bottom, who sees it
+ * first; the text is the tall field. Your shares reuses the documents'
+ * state and notice rows.
+ */
+.company-share-form {
+  display: grid;
+  gap: 14px;
+}
+.company-share-review,
+.company-share-state,
+.company-share-problem {
+  margin: 0;
+}
+.company-share-review {
+  color: var(--text-secondary);
+}
+.company-share-problem {
+  color: var(--status-danger-text);
+  font-size: var(--text-13);
+}
+.company-share-text.input {
+  min-height: 160px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}

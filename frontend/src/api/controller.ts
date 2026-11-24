@@ -36,6 +36,7 @@ import type {
   CompanyAction,
   CompanyGraphQuery,
   CompanyJoinRequest,
+  CompanyShareRequest,
   EventRecord,
   Snapshot,
   SubscriptionView,
@@ -3319,6 +3320,21 @@ export class ClientController {
     this.query(() =>
       this.transport.removeCompanyDocument?.(documentId, signal),
     );
+  /**
+   * Row-Bot for Teams (B4b): Share to company. The person's shares and the
+   * spaces they may share to; a share goes to a space's review queue, and a
+   * waiting one can be withdrawn (it is deleted). Each call answers the
+   * person's shares as they are afterwards.
+   */
+  companyShares = (status?: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyShares?.(status, signal));
+  shareToCompany = (
+    spaceId: string,
+    body: CompanyShareRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.shareToCompany?.(spaceId, body, signal));
+  withdrawCompanyShare = (shareId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.withdrawCompanyShare?.(shareId, signal));
   /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
   speechModels = (signal?: AbortSignal) =>
     this.query(() => this.transport.speechModels?.(signal));

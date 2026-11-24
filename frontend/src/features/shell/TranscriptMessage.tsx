@@ -6,6 +6,7 @@ import {
   BookOpen,
   BookmarkCheck,
   BookmarkPlus,
+  Building2,
   Copy,
   CornerDownRight,
   Cpu,
@@ -67,6 +68,7 @@ import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
 import { useTeach } from '../learning/chat-learning';
 import { SkillOfferHint, useSkillOffers } from '../skills/skill-offers';
 import { copyUnavailableMessage } from '../../platform/clipboard';
+import { useShareToCompany } from '../company/ShareToCompany';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
 const NO_MEDIA: GeneratedMedia[] = [];
@@ -440,6 +442,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   const teach = useTeach();
   // Save as a skill (C1), in the person's own chats.
   const skillOffers = useSkillOffers();
+  // Share to company (Row-Bot for Teams, B4b): only while joined and allowed.
+  const shareToCompany = useShareToCompany(controller);
   const [expanded, setExpanded] = useState('');
   const [cursor, setCursor] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -584,6 +588,9 @@ export const TranscriptMessage = memo(function TranscriptMessage({
     : skillOffer?.status === 'drafted'
       ? 'Open skill draft'
       : 'Save as skill';
+  const canShare =
+    row.role === 'assistant' && Boolean(shareToCompany) && !failure;
+  const share = () => shareToCompany?.(copyText || text);
   const files = shown.flatMap((block) =>
     block.type === 'attachment' ? [block.name] : [],
   );
@@ -676,6 +683,15 @@ export const TranscriptMessage = memo(function TranscriptMessage({
               <BookmarkPlus size={16} />
             ),
             onSelect: saveSkill,
+          },
+        ]
+      : []),
+    ...(canShare
+      ? [
+          {
+            label: 'Share to company',
+            icon: <Building2 size={16} />,
+            onSelect: share,
           },
         ]
       : []),
@@ -1067,6 +1083,16 @@ export const TranscriptMessage = memo(function TranscriptMessage({
                 ) : (
                   <BookmarkPlus size={15} aria-hidden />
                 )}
+              </IconButton>
+            )}
+            {canShare && (
+              <IconButton
+                size="sm"
+                label="Share to company"
+                title="Send this to a company space for review"
+                onClick={share}
+              >
+                <Building2 size={15} aria-hidden />
               </IconButton>
             )}
             {row.role === 'assistant' && teach && row.message_id && (

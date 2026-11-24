@@ -1435,6 +1435,20 @@ export interface ClientTransport {
     documentId: string,
     signal?: AbortSignal,
   ): Promise<Wire.CompanyDocumentsView>;
+  /** Row-Bot for Teams (B4b): Share to company; each call answers the person's shares. */
+  companyShares?(
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanySharesView>;
+  shareToCompany?(
+    spaceId: string,
+    body: Wire.CompanyShareRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanySharesView>;
+  withdrawCompanyShare?(
+    shareId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CompanySharesView>;
   speechModels?(signal?: AbortSignal): Promise<Wire.SpeechModelsView>;
   installSpeechModel?(
     body: Wire.SpeechModelInstallRequest,

@@ -1,6 +1,7 @@
 import type {
   CompanyDocument,
   CompanyDocumentsView,
+  CompanyShare,
   CompanyView,
 } from '../../api/types';
 import type { Tone } from '../../ui/primitives';
@@ -307,5 +308,62 @@ export function outcomeWords(
       return 'You no longer own this space, so its documents can’t be changed here.';
     case 'not_found':
       return 'That document or space isn’t there any more.';
+  }
+}
+
+/** The note a share starts with (B4b): "From a chat on 24 Nov 2026". */
+export function chatNoteWords(date: Date): string {
+  return `From a chat on ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)}`;
+}
+
+/** The confirm words a share's dialog starts with: who sees it first. */
+export function shareReviewWords(space: string): string {
+  return `Owners of ${space} review this before anyone else sees it.`;
+}
+
+/** The quiet notice after a share is sent. */
+export function shareSentWords(space: string): string {
+  return `Sent to ${space} for review`;
+}
+
+/** The confirm before a waiting share is withdrawn. */
+export const WITHDRAW_WORDS = 'This deletes it. Nobody will see it.';
+
+/**
+ * A share's status in Your shares (B4b): its word and tone, and what became
+ * of it: waiting, a fact in its space (moved there by a reviewer, or whose
+ * fact was deleted later), or rejected with the reviewer's reason.
+ */
+export function shareStatus(share: CompanyShare): {
+  tone: Tone;
+  label: string;
+  detail: string | null;
+} {
+  const space = share.space_name ?? 'a space you no longer read';
+  switch (share.status) {
+    case 'pending':
+      return { tone: 'info', label: 'Waiting for review', detail: null };
+    case 'rejected':
+      return {
+        tone: 'warning',
+        label: 'Rejected',
+        detail: share.reason ? `Why: ${share.reason}` : null,
+      };
+    case 'approved':
+      if (!share.fact_id)
+        return {
+          tone: 'neutral',
+          label: 'Approved',
+          detail: share.moved
+            ? `Moved to ${space}; its fact was deleted later`
+            : 'Its fact was deleted later',
+        };
+      return {
+        tone: 'success',
+        label: 'Approved',
+        detail: share.moved
+          ? `Moved to ${space}, a fact there now`
+          : `A fact in ${space} now`,
+      };
   }
 }

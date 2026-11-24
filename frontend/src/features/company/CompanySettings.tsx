@@ -25,6 +25,7 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
+import CompanyShares from './CompanyShares';
 import {
   JOIN_LINE,
   PIN_INVALID,
@@ -269,67 +270,75 @@ export default function CompanySettings({
 
   if (view.state === 'joined' || view.state === 'unreachable')
     return (
-      <SettingsGroup label="Company">
-        <SettingsItem
-          label={company}
-          help={personWords(view)}
-          icon={<Building2 size={16} aria-hidden />}
-          tone="accent"
-          bind={false}
-          status={
-            lockedDown ? (
-              <StatusLine>{lockdownWords(view)}</StatusLine>
-            ) : view.state === 'joined' ? (
-              <StatusLine tone="success">
-                {joinedWords(view.joined_at)}
-              </StatusLine>
-            ) : (
-              <StatusLine tone="warning">
-                {view.failure === 'busy'
-                  ? `${company} is busy. Row-Bot stays joined; try again in a minute.`
-                  : view.failure
-                    ? failureWords(view.failure, company)
-                    : `Can’t reach ${company} right now. Row-Bot stays joined.`}
-              </StatusLine>
-            )
-          }
-          control={
-            <>
-              {(view.state === 'unreachable' || lockedDown) && (
-                <IconButton
-                  label={lockedDown ? 'Retry' : 'Try again'}
-                  disabled={busy}
-                  onClick={() => void act('check')}
-                >
-                  <RefreshCw size={16} aria-hidden />
-                </IconButton>
-              )}
-              {leaveButton}
-            </>
-          }
-        >
-          {error && <StatusLine tone="danger">{error}</StatusLine>}
-        </SettingsItem>
-        {view.model_count != null && (
+      <>
+        <SettingsGroup label="Company">
           <SettingsItem
-            label={modelsWords(view.model_count, company)}
-            icon={<Cpu size={16} aria-hidden />}
-            tone="neutral"
+            label={company}
+            help={personWords(view)}
+            icon={<Building2 size={16} aria-hidden />}
+            tone="accent"
             bind={false}
-            control={
-              <Link
-                className="button ghost small"
-                to="/settings/models#company-models"
-                aria-label={`See ${company}’s models in Models`}
-              >
-                Models
-              </Link>
+            status={
+              lockedDown ? (
+                <StatusLine>{lockdownWords(view)}</StatusLine>
+              ) : view.state === 'joined' ? (
+                <StatusLine tone="success">
+                  {joinedWords(view.joined_at)}
+                </StatusLine>
+              ) : (
+                <StatusLine tone="warning">
+                  {view.failure === 'busy'
+                    ? `${company} is busy. Row-Bot stays joined; try again in a minute.`
+                    : view.failure
+                      ? failureWords(view.failure, company)
+                      : `Can’t reach ${company} right now. Row-Bot stays joined.`}
+                </StatusLine>
+              )
             }
-          />
-        )}
-        {rules}
-        {told}
-      </SettingsGroup>
+            control={
+              <>
+                {(view.state === 'unreachable' || lockedDown) && (
+                  <IconButton
+                    label={lockedDown ? 'Retry' : 'Try again'}
+                    disabled={busy}
+                    onClick={() => void act('check')}
+                  >
+                    <RefreshCw size={16} aria-hidden />
+                  </IconButton>
+                )}
+                {leaveButton}
+              </>
+            }
+          >
+            {error && <StatusLine tone="danger">{error}</StatusLine>}
+          </SettingsItem>
+          {view.model_count != null && (
+            <SettingsItem
+              label={modelsWords(view.model_count, company)}
+              icon={<Cpu size={16} aria-hidden />}
+              tone="neutral"
+              bind={false}
+              control={
+                <Link
+                  className="button ghost small"
+                  to="/settings/models#company-models"
+                  aria-label={`See ${company}’s models in Models`}
+                >
+                  Models
+                </Link>
+              }
+            />
+          )}
+          {rules}
+          {told}
+        </SettingsGroup>
+        <CompanyShares
+          controller={controller}
+          lock={view.locked?.find(
+            (lock) => lock.setting === 'data.share_to_company',
+          )}
+        />
+      </>
     );
 
   if (view.state === 'disconnected')

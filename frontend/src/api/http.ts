@@ -1011,6 +1011,30 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  companyShares(status?: string, signal?: AbortSignal) {
+    return wire.getCompanyShares(this.base, this.session(), status, signal);
+  }
+  shareToCompany(
+    spaceId: string,
+    body: wire.CompanyShareRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.shareToCompany(
+      this.base,
+      this.session(),
+      spaceId,
+      body,
+      signal,
+    );
+  }
+  withdrawCompanyShare(shareId: string, signal?: AbortSignal) {
+    return wire.withdrawCompanyShare(
+      this.base,
+      this.session(),
+      shareId,
+      signal,
+    );
+  }
   speechModels(signal?: AbortSignal) {
     return wire.getSpeechModels(this.base, this.session(), signal);
   }
