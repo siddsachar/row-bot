@@ -7307,6 +7307,57 @@ def create_router(
 
         return await respond(request, dto.SpeechModelsView, await call(remove, body.model_id))
 
+    # Row-Bot for Teams (C1b): this Row-Bot joined to a company's server. Reading it contacts nothing; Join and
+    # Sign in again open this computer's browser, so only its own desktop app starts them.
+    async def company_view(request: Request, method: Callable, *args: Any) -> JSONResponse:
+        on_machine = on_this_computer(await _context(request))
+        return await respond(request, dto.CompanyView, {**await call(method, *args), "on_this_computer": on_machine})
+
+    @router.get("/company")
+    async def company_status(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_company import status
+
+        return await company_view(request, status)
+
+    @router.post("/company/join")
+    async def company_join(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        body = await _body(request, dto.CompanyJoinRequest, 4096)
+        from row_bot.application.client_company import join
+
+        return await company_view(request, join, body.address, body.device_name)
+
+    @router.post("/company/sign-in-again")
+    async def company_sign_in_again(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        require_this_computer(await _context(request))
+        from row_bot.application.client_company import sign_in_again
+
+        return await company_view(request, sign_in_again)
+
+    @router.post("/company/cancel")
+    async def company_cancel(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_company import cancel
+
+        return await company_view(request, cancel)
+
+    @router.post("/company/check")
+    async def company_check(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_company import check
+
+        return await company_view(request, check)
+
+    @router.post("/company/leave")
+    async def company_leave(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        from row_bot.application.client_company import leave
+
+        return await company_view(request, leave)
+
     @router.post("/setup/model-test")
     async def setup_model_test(request: Request) -> JSONResponse:
         # One short message to the model the person just chose (its provider is

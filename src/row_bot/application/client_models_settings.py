@@ -41,6 +41,11 @@ def _unavailable_words(current: str, option: dict | None) -> str:
 
     parsed = parse_model_ref(current)
     name = model_name(current)
+    from row_bot.company.policy import default_model_words
+
+    company_off = default_model_words(*parsed, name) if parsed else None
+    if company_off:  # Row-Bot for Teams: the company's policy took this model away; nothing is chosen instead.
+        return company_off
     provider = provider_display_label(parsed[0]) if parsed else "its provider"
     if parsed and parsed[0] == "ollama":
         return f"{name} isn't available in {provider} right now. Check it below, or choose another model."

@@ -34,6 +34,8 @@ const mock = vi.hoisted(() => ({
 vi.mock('../../runtime', () => ({
   useClientState: () => mock.state,
   useRuntime: () => ({ controller: mock.controller }),
+  // The picker's company suggestion (Row-Bot for Teams) needs no runtime here.
+  useOptionalRuntime: () => null,
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
