@@ -3507,7 +3507,61 @@ _F3_VISUALS = "\n\n".join([
     "And how saving grows over time:",
     f"```rowbot-visual\n{_F3_SLIDER}\n```",
 ])
+# Generative UI (G1): a reply that draws an interface (A2UI 1.0 in a rowbot-ui fence), and the answer to a
+# press on its button, which Row-Bot writes from the surface as "[The person pressed …]".
+_GENUI_TRIP = {
+    "title": "Lisbon trip",
+    "surfaceId": "lisbon_trip",
+    "components": [
+        {"id": "root", "component": "Column", "children": ["intro", "sections", "actions"]},
+        {"id": "intro", "component": "Text",
+         "text": "## Lisbon · 12–15 March\nFour days for two, planned around trams, tiles and custard tarts."},
+        {"id": "sections", "component": "Tabs", "tabs": [
+            {"title": "Days", "child": "days"}, {"title": "Budget", "child": "budget"},
+            {"title": "Packing", "child": "packing"}]},
+        {"id": "days", "component": "List", "children": {"path": "/days", "componentId": "day"}},
+        {"id": "day", "component": "Card", "child": "day_lines"},
+        {"id": "day_lines", "component": "Column", "children": ["day_title", "day_plan"]},
+        {"id": "day_title", "component": "Text",
+         "text": {"@call": "formatString", "args": {"value": "**${day}** · ${area}"}}},
+        {"id": "day_plan", "component": "Text", "variant": "caption", "text": {"@path": "plan"}},
+        {"id": "budget", "component": "Column", "children": ["budget_slider", "stay", "total"]},
+        {"id": "budget_slider", "component": "Slider", "label": "Budget for the stay", "min": 800, "max": 3000,
+         "steps": 22, "value": {"@path": "/budget"}},
+        {"id": "stay", "component": "ChoicePicker", "label": "Where to stay", "displayStyle": "chips",
+         "options": [{"label": "Alfama", "value": "Alfama"}, {"label": "Baixa", "value": "Baixa"},
+                     {"label": "Belém", "value": "Belém"}],
+         "value": {"@path": "/stay"}},
+        {"id": "total", "component": "Text", "text": {"@call": "formatString", "args": {
+            "value": "Up to **£${/budget}** for three nights in ${/stay/0}"}}},
+        {"id": "packing", "component": "Column", "children": ["passport", "adaptor", "shoes"]},
+        {"id": "passport", "component": "CheckBox", "label": "Passport", "value": {"@path": "/pack/passport"}},
+        {"id": "adaptor", "component": "CheckBox", "label": "Plug adaptor", "value": {"@path": "/pack/adaptor"}},
+        {"id": "shoes", "component": "CheckBox", "label": "Shoes for the hills", "value": {"@path": "/pack/shoes"}},
+        {"id": "actions", "component": "Row", "children": ["book", "swap"]},
+        {"id": "book", "component": "Button", "variant": "primary", "child": "book_label",
+         "action": {"event": {"name": "book_hotel",
+                              "context": {"budget": {"@path": "/budget"}, "area": {"@path": "/stay"}}}}},
+        {"id": "book_label", "component": "Text", "text": "Book the hotel"},
+        {"id": "swap", "component": "Button", "child": "swap_label",
+         "action": {"event": {"name": "swap_day"}}},
+        {"id": "swap_label", "component": "Text", "text": "Swap a day"},
+    ],
+    "dataModel": {
+        "budget": 1500, "stay": ["Alfama"],
+        "days": [
+            {"day": "Thursday", "area": "Alfama", "plan": "Tram 28 up to the castle, fado at night."},
+            {"day": "Friday", "area": "Belém", "plan": "The monastery, the tower and pastéis de Belém."},
+            {"day": "Saturday", "area": "Sintra", "plan": "A day trip to Pena Palace by train."},
+            {"day": "Sunday", "area": "Baixa", "plan": "A slow brunch, then the river walk home."}],
+        "pack": {"passport": True, "adaptor": False, "shoes": False},
+    },
+}
+_GENUI_REPLY = ("Here's a plan you can adjust.\n\n```rowbot-ui\n"
+                + json.dumps(_GENUI_TRIP, ensure_ascii=False) + "\n```")
+_GENUI_PRESSED = "Booked a hotel in Baixa for three nights, within £1,800."
 _F3_REPLIES = {
+    "genui trip fixture": _GENUI_REPLY,
     "f3 components fixture": _F3_COMPONENTS,
     "f3 visuals fixture": _F3_VISUALS,
     "List my subscriptions": "You pay for three: music, cloud storage and a news site.",
@@ -3517,7 +3571,8 @@ _F3_REPLIES = {
 def _f3_stream(text: str, config: dict):
     call = predecessor._record("submit", config, "f3-components")
     try:
-        yield from _natural_final(call, call["conversation_id"], _F3_REPLIES[text.strip()], "f3")
+        reply = _GENUI_PRESSED if text.startswith("[The person pressed") else _F3_REPLIES[text.strip()]
+        yield from _natural_final(call, call["conversation_id"], reply, "f3")
     finally:
         call["quiesced"] = True
 
@@ -3698,8 +3753,9 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         # Pages (N5): the real page tools on the skill's templates.
         yield from _n5_stream(text, config)
         return
-    if text.strip() in _F3_REPLIES:
-        # Answer components (F3): a reply with rowbot-* fences, and the answer to a reply button.
+    if text.strip() in _F3_REPLIES or text.startswith("[The person pressed"):
+        # Answer components (F3) and surfaces (generative UI): a reply with rowbot-* fences, and the answer
+        # to a reply button or a press on a surface's button.
         yield from _f3_stream(text, config)
         return
     if text.startswith("[") and "from the page" in text.split("\n", 1)[0]:

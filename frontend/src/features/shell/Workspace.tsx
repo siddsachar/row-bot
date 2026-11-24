@@ -20,6 +20,7 @@ import {
   Brain,
   ChevronLeft,
   Clapperboard,
+  PanelsTopLeft,
   Code2,
   Columns3,
   Compass,
@@ -124,6 +125,12 @@ import { designCommandSets } from '../panels/design-commands';
 import BrowserPane from '../browser/BrowserPane';
 import { BROWSER_PANEL, onBrowserPaneRequest } from '../browser/open-pane';
 import PagePanel from '../pages/PagePanel';
+import { SurfacePanel } from './surfaces/SurfacePanel';
+import {
+  onSurfaceRequest,
+  SURFACE_PANEL_KIND,
+  type SurfaceRequest,
+} from './surfaces/open-surface';
 import VideoPanel from '../video/VideoPanel';
 import {
   VIDEO_PANEL_KIND,
@@ -176,7 +183,9 @@ function panelIcon(descriptor: PanelDescriptor): LucideIcon {
           ? LayoutTemplate
           : descriptor.panel_kind === VIDEO_PANEL_KIND
             ? Clapperboard
-            : BookOpen;
+            : descriptor.panel_kind === SURFACE_PANEL_KIND
+              ? PanelsTopLeft
+              : BookOpen;
 }
 
 /** The sheet header names the kind; the panel itself shows the resource. */
@@ -210,6 +219,16 @@ function PagePanelContent({
       visible={visible}
     />
   );
+}
+
+/** An interface a reply drew, beside its chat ("Open bigger"); its surface id is the subresource key. */
+function SurfacePanelContent({ panel }: { panel: PanelInstance }) {
+  const conversationId = useClientSelector(
+    (value) => value.selectedConversationId,
+  );
+  const surfaceId = panel.descriptor.subresource_key ?? '';
+  if (!conversationId || !surfaceId) return null;
+  return <SurfacePanel conversationId={conversationId} surfaceId={surfaceId} />;
 }
 
 /** A video project beside its chat (5.3.1 B3); its id is the subresource key. */
@@ -351,6 +370,8 @@ function PanelContent({
     <PagePanelContent panel={panel} visible={visible} />
   ) : panel.descriptor.panel_kind === VIDEO_PANEL_KIND ? (
     <VideoPanelContent panel={panel} visible={visible} />
+  ) : panel.descriptor.panel_kind === SURFACE_PANEL_KIND ? (
+    <SurfacePanelContent panel={panel} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -613,6 +634,22 @@ export default function Workspace() {
     return true;
   });
   useEffect(() => onVideoRequest(openVideo), []);
+  // A surface's Open bigger shows the interface beside its chat (generative UI).
+  const openSurface = useEffectEvent((request: SurfaceRequest) => {
+    if (request.conversationId !== conversationId) return false;
+    showPanel(
+      {
+        panel_kind: SURFACE_PANEL_KIND,
+        title: request.title,
+        subresource_key: request.surfaceId,
+      },
+      undefined,
+      undefined,
+      { wide: true },
+    );
+    return true;
+  });
+  useEffect(() => onSurfaceRequest(openSurface), []);
   useEffect(() => {
     const waiting = conversationId ? takeWaitingVideo(conversationId) : null;
     if (waiting) openVideo(waiting);
@@ -2391,7 +2428,8 @@ export default function Workspace() {
           railPanels.length > 0 &&
           // A page full screen on a phone has Back and × at the top: no third way out (N5).
           compact?.descriptor.panel_kind !== PAGE_PANEL_KIND &&
-          compact?.descriptor.panel_kind !== VIDEO_PANEL_KIND && (
+          compact?.descriptor.panel_kind !== VIDEO_PANEL_KIND &&
+          compact?.descriptor.panel_kind !== SURFACE_PANEL_KIND && (
             <aside
               className={`panel-rail ${desktop ? 'panel-rail-docked' : ''}`}
               aria-label="Panel rail"

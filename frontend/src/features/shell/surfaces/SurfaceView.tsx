@@ -67,11 +67,12 @@ import {
   VolumeX,
   X,
   ExternalLink,
+  Maximize2,
   type LucideIcon,
 } from 'lucide-react';
 import { useOptionalRuntime } from '../../../runtime';
 import { ModalTask, useNotify } from '../../../ui/overlays';
-import { Button, Input, Tabs } from '../../../ui/primitives';
+import { Button, IconButton, Input, Tabs } from '../../../ui/primitives';
 import { sendPrompt, usePromptReady } from '../composer-bridge';
 import {
   changeAnswerState,
@@ -86,14 +87,20 @@ import {
   openableUrl,
   readPath,
   readSurface,
-  truthy,
   writePath,
   type DataModel,
   type Scope,
   type SurfaceComponent,
-  type SurfaceSpec,
 } from './a2ui';
 import { SurfaceText } from './SurfaceText';
+import { requestSurfacePanel } from './open-surface';
+import {
+  setSurfaceModel,
+  useLatestSurfaceBlock,
+  useSurfaceModel,
+} from './surface-store';
+import { accessible, text, weighted, type Context } from './context';
+import { RowBotComponent, ROWBOT_COMPONENTS } from './rowbot-components';
 
 const ICONS: Record<string, LucideIcon> = {
   accountCircle: CircleUserRound,
@@ -163,54 +170,6 @@ const SAVE_DELAY = 800;
 /** Where a surface's button press goes: this chat, as a press on this reply. */
 export type SurfaceTarget = { conversationId?: string; messageId?: string };
 
-type Press = {
-  name: string;
-  componentId: string;
-  context: Record<string, unknown>;
-  label: string;
-};
-
-type Context = {
-  byId: Map<string, SurfaceComponent>;
-  model: DataModel;
-  set: (path: string, value: unknown, scope: Scope) => void;
-  press: (press: Press) => void;
-  ready: boolean;
-  pressed: string | null;
-  uid: string;
-  title: string;
-};
-
-function text(value: unknown, context: Context, scope: Scope): string {
-  return asText(evaluate(value, context.model, scope));
-}
-
-function accessible(
-  component: SurfaceComponent,
-  context: Context,
-  scope: Scope,
-) {
-  const a11y = component['@accessibility'] as
-    | {
-        label?: unknown;
-        description?: unknown;
-        hidden?: unknown;
-        live?: string;
-      }
-    | undefined;
-  if (!a11y) return {};
-  return {
-    'aria-label': a11y.label ? text(a11y.label, context, scope) : undefined,
-    'aria-description': a11y.description
-      ? text(a11y.description, context, scope)
-      : undefined,
-    'aria-hidden':
-      truthy(evaluate(a11y.hidden, context.model, scope)) || undefined,
-    'aria-live':
-      a11y.live && a11y.live !== 'off' ? (a11y.live as 'polite') : undefined,
-  };
-}
-
 const FLEX: Record<string, string> = {
   start: 'flex-start',
   center: 'center',
@@ -220,13 +179,6 @@ const FLEX: Record<string, string> = {
   spaceAround: 'space-around',
   spaceEvenly: 'space-evenly',
 };
-
-function weighted(component: SurfaceComponent): CSSProperties | undefined {
-  const weight = component.weight;
-  return typeof weight === 'number' && weight > 0
-    ? { flexGrow: weight, flexBasis: 0, minWidth: 0 }
-    : undefined;
-}
 
 /** The ids (or template items) a container draws, with each child's scope. */
 function childList(
@@ -434,7 +386,14 @@ function Node({
         <SurfaceInput component={component} context={context} scope={scope} />
       );
     default:
-      return null;
+      // Row-Bot's own components (charts, tables, metrics...), drawn from the same context.
+      return ROWBOT_COMPONENTS.has(component.component) ? (
+        <RowBotComponent
+          component={component}
+          context={context}
+          scope={scope}
+        />
+      ) : null;
   }
 }
 
@@ -936,28 +895,35 @@ export function SurfaceView({
   json,
   blockId,
   target,
+  inPanel = false,
 }: {
   json: string;
   blockId: string;
   target: SurfaceTarget;
+  /** Shown in the side panel ("Open bigger"): the panel names it already. */
+  inPanel?: boolean;
 }) {
   const spec = useMemo(() => readSurface(json), [json]);
   const controller = useOptionalRuntime()?.controller;
   const answers = useAnswerState(controller, target.conversationId);
   const saved = answers.surfaces?.[blockId] as DataModel | undefined;
+  const live = useSurfaceModel(blockId);
+  const latestBlock = useLatestSurfaceBlock(spec?.surfaceId ?? '');
   const ready = usePromptReady(target.conversationId);
   const notify = useNotify();
-  const [model, setModel] = useState<DataModel | null>(null);
   const [pressed, setPressed] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const latest = useRef<DataModel | null>(null);
-  const uid = useMemo(() => `surface-${blockId.slice(-8)}`, [blockId]);
+  const uid = useMemo(
+    () => `surface-${blockId.slice(-8)}${inPanel ? '-panel' : ''}`,
+    [blockId, inPanel],
+  );
   useEffect(() => () => window.clearTimeout(timer.current), []);
   useEffect(() => {
     if (ready) setPressed(null);
   }, [ready]);
   if (!spec) return <SurfaceUnreadable />;
-  const current = model ?? saved ?? spec.dataModel;
+  const current = live ?? saved ?? spec.dataModel;
   const save = (next: DataModel) => {
     latest.current = next;
     window.clearTimeout(timer.current);
@@ -976,7 +942,7 @@ export function SurfaceView({
     model: current,
     set: (path, value, scope) => {
       const next = writePath(current, path, value, scope);
-      setModel(next);
+      setSurfaceModel(blockId, next);
       save(next);
     },
     press: (press) => {
@@ -1006,22 +972,43 @@ export function SurfaceView({
     uid,
     title: spec.title,
   };
-  return <SurfaceFrame spec={spec} context={context} />;
-}
-
-function SurfaceFrame({
-  spec,
-  context,
-}: {
-  spec: SurfaceSpec;
-  context: Context;
-}) {
+  // A later reply drew this interface again: this copy is its history.
+  const superseded = !!latestBlock && latestBlock !== blockId;
+  const open =
+    !inPanel && target.conversationId
+      ? () =>
+          requestSurfacePanel({
+            conversationId: target.conversationId!,
+            surfaceId: spec.surfaceId,
+            title: spec.title,
+          })
+      : undefined;
   return (
     <section
       className="genui"
       aria-label={spec.title}
       data-surface-id={spec.surfaceId}
+      data-in-panel={inPanel ? 'true' : undefined}
+      data-superseded={superseded ? 'true' : undefined}
     >
+      {!inPanel && (
+        <header className="genui-header">
+          <span className="genui-title">{spec.title}</span>
+          {superseded && (
+            <span className="genui-superseded">Updated in a later reply</span>
+          )}
+          {open && (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              label="Open bigger"
+              onClick={() => void open()}
+            >
+              <Maximize2 size={14} aria-hidden />
+            </IconButton>
+          )}
+        </header>
+      )}
       <Node id="root" scope={undefined} context={context} depth={0} />
     </section>
   );

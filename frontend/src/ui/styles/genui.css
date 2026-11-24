@@ -405,3 +405,240 @@
     margin: 0;
   }
 }
+
+/* Row-Bot's own components (G2). */
+.genui-block-title {
+  margin: 0 0 var(--space-2);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.genui-chart,
+.genui-table,
+.genui-code {
+  min-width: 0;
+}
+.genui-chart .rich-chart,
+.genui-table .markdown-table,
+.genui-code .code-block {
+  margin: 0;
+}
+
+.genui-metric {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+.genui-metric-label {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.genui-metric-value {
+  color: var(--text-primary);
+  font-size: var(--text-20);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-20);
+  overflow-wrap: anywhere;
+}
+.genui-metric-delta {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.genui-metric[data-tone='good'] .genui-metric-delta {
+  color: var(--status-success-text);
+}
+.genui-metric[data-tone='bad'] .genui-metric-delta {
+  color: var(--status-danger-text);
+}
+
+.genui-progress {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.genui-progress-line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-13);
+}
+.genui-progress-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.genui-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+.genui-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-solid);
+  transition: width var(--motion-panel) var(--ease-out);
+}
+.genui-progress-bar[data-over] > span {
+  background: var(--status-success-text);
+}
+
+.genui-breakdown {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.genui-breakdown-bar {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+.genui-breakdown-bar > span {
+  min-width: 2px;
+  transition: flex-grow var(--motion-panel) var(--ease-out);
+}
+.genui-breakdown ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.genui-breakdown li {
+  display: grid;
+  grid-template-columns: 10px minmax(72px, 1fr) minmax(96px, 2fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.genui-breakdown-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.genui-breakdown label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-13);
+}
+.genui-breakdown input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent-solid);
+}
+.genui-breakdown output {
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.genui-breakdown-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-hairline);
+}
+.genui-breakdown-total strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.genui-timeline {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  border-left: 2px solid var(--border-hairline);
+  list-style: none;
+}
+.genui-timeline li {
+  position: relative;
+  display: grid;
+  gap: 2px;
+}
+.genui-timeline li::before {
+  position: absolute;
+  top: 6px;
+  left: calc(-1 * var(--space-4) - 6px);
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--accent-solid);
+  content: '';
+}
+.genui-timeline-time {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.genui-timeline-title {
+  font-weight: var(--weight-medium);
+}
+.genui-timeline-detail {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+@media (max-width: 640px) {
+  .genui-breakdown li {
+    grid-template-columns: 10px 1fr auto;
+  }
+  .genui-breakdown input[type='range'] {
+    grid-column: 1 / -1;
+  }
+}
+
+/* The surface's own line: its name, and Open bigger (G3). */
+.genui-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: calc(-1 * var(--space-1)) 0 0;
+}
+.genui-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.genui-superseded {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.genui[data-superseded] {
+  box-shadow: none;
+}
+.genui[data-superseded] > :not(.genui-header) {
+  opacity: 0.72;
+}
+
+/* Opened bigger: the panel is the frame, so the surface sheds its own. */
+.genui-panel {
+  height: 100%;
+  overflow: auto;
+  padding: var(--panel-padding);
+}
+.genui-panel > .genui {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}

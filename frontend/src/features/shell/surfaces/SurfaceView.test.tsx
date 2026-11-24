@@ -4,6 +4,8 @@ import type { TranscriptRow } from '../../../api/types';
 import { registerPromptSender, setPromptReady } from '../composer-bridge';
 import { TranscriptBlocks } from '../TranscriptBlocks';
 import { evaluate, formatDate, writePath } from './a2ui';
+import { onSurfaceRequest } from './open-surface';
+import { SurfaceView } from './SurfaceView';
 
 type Block = TranscriptRow['blocks'][number];
 
@@ -17,7 +19,9 @@ function composer(accepts = true) {
   return sent;
 }
 
-function surface(tree: object, id = 'block:surface'): Block {
+// Each test's surface is its own block, as every reply's is.
+let made = 0;
+function surface(tree: object, id = `block:surface-${++made}`): Block {
   return {
     id,
     type: 'surface',
@@ -263,4 +267,113 @@ it('writes a template item’s relative path into its own row', () => {
     days: [{ name: 'A' }, { name: 'C' }],
   });
   expect(model.days[1].name).toBe('B');
+});
+
+it('draws Row-Bot’s own components, and a breakdown’s total follows its sliders', () => {
+  composer();
+  show(
+    surface({
+      components: [
+        {
+          id: 'root',
+          component: 'Column',
+          children: ['spent', 'goal', 'split', 'costs'],
+        },
+        {
+          id: 'spent',
+          component: 'Metric',
+          label: 'Spent',
+          value: { '@path': '/spent' },
+          unit: '£',
+          delta: '-8%',
+          tone: 'good',
+        },
+        {
+          id: 'goal',
+          component: 'ProgressBar',
+          label: 'Holiday fund',
+          value: 900,
+          max: 1500,
+          unit: '£',
+        },
+        {
+          id: 'split',
+          component: 'Breakdown',
+          items: { '@path': '/parts' },
+          unit: '£',
+          totalLabel: 'Trip total',
+        },
+        {
+          id: 'costs',
+          component: 'Table',
+          title: 'Biggest costs',
+          columns: [
+            { key: 'item', label: 'Item', type: 'text' },
+            { key: 'share', label: 'Share', type: 'percent' },
+          ],
+          rows: { '@path': '/rows' },
+        },
+      ],
+      dataModel: {
+        spent: 2140,
+        parts: [
+          { label: 'Hotel', amount: 600 },
+          { label: 'Flights', amount: 300 },
+        ],
+        rows: [{ item: 'Rent', share: 56 }],
+      },
+    }),
+  );
+  expect(screen.getByText('£2,140')).toBeVisible();
+  expect(
+    screen.getByRole('progressbar', { name: 'Holiday fund' }),
+  ).toHaveAttribute('aria-valuenow', '900');
+  expect(screen.getByText('£900')).toBeVisible();
+  fireEvent.change(screen.getByRole('slider', { name: 'Hotel' }), {
+    target: { value: '700' },
+  });
+  expect(screen.getByText('Trip total').nextSibling).toHaveTextContent(
+    '£1,000',
+  );
+  const table = screen.getByRole('region', { name: 'Biggest costs' });
+  expect(within(table).getByText('56%')).toBeVisible();
+});
+
+it('opens bigger beside the chat, and an edit there shows in the chat at once', () => {
+  composer();
+  const requests: unknown[] = [];
+  const stop = onSurfaceRequest((request) => {
+    requests.push(request);
+    return true;
+  });
+  const block = surface(TRIP, 'block:shared');
+  render(
+    <>
+      <TranscriptBlocks
+        blocks={[block]}
+        conversationId="conversation-s"
+        messageId="reply-1"
+      />
+      <SurfaceView
+        json={(block as Extract<Block, { type: 'surface' }>).surface_json}
+        blockId="block:shared"
+        target={{ conversationId: 'conversation-s', messageId: 'reply-1' }}
+        inPanel
+      />
+    </>,
+  );
+  // Only the chat's copy offers Open bigger; the panel already is bigger.
+  fireEvent.click(screen.getByRole('button', { name: 'Open bigger' }));
+  expect(requests).toEqual([
+    {
+      conversationId: 'conversation-s',
+      surfaceId: 'trip',
+      title: 'Lisbon trip',
+    },
+  ]);
+  const [inChat, inPanel] = screen.getAllByRole('slider', { name: 'Budget' });
+  fireEvent.change(inPanel, { target: { value: '2600' } });
+  expect(inChat).toHaveValue('2600');
+  expect(screen.getAllByText('Total 2,600 for Alfama')).toHaveLength(2);
+  stop();
 });

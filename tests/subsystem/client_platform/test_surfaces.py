@@ -149,3 +149,27 @@ def test_a_press_becomes_a2ui_s_action_message_and_only_for_what_the_surface_dec
         surfaces.action_message(tree, "delete_everything", {}, "book", "now")
     with pytest.raises(surfaces.SurfaceError):
         surfaces.action_message(tree, "book_hotel", {"card_number": "4242"}, "book", "now")
+
+
+def test_row_bot_s_own_components_bind_to_the_data_model_and_read_as_words():
+    [block] = _project(_fence({"title": "October", "components": [
+        {"id": "root", "component": "Column", "children": ["spent", "goal", "split", "costs", "trend"]},
+        {"id": "spent", "component": "Metric", "label": "Spent", "value": {"@path": "/spent"}, "unit": "£",
+         "delta": "-8% vs Sep", "tone": "good"},
+        {"id": "goal", "component": "ProgressBar", "label": "Holiday fund", "value": 900, "max": 1500, "unit": "£"},
+        {"id": "split", "component": "Breakdown", "items": {"@path": "/parts"}, "currency": "GBP"},
+        {"id": "costs", "component": "Table", "title": "Biggest costs",
+         "columns": [{"key": "item", "label": "Item"}, "cost"], "rows": {"@path": "/rows"}},
+        {"id": "trend", "component": "Chart", "kind": "bar", "title": "By month", "x": ["Sep", "Oct"],
+         "series": [{"name": "Total", "values": {"@path": "/totals"}}], "unit": "£"},
+    ], "dataModel": {"spent": 2140, "parts": [{"label": "Rent", "amount": 1200}, {"label": "Food", "amount": 512}],
+                     "rows": [{"item": "Rent", "cost": 1200}], "totals": [2330, 2140]}}))
+    tree = json.loads(block["surface_json"])
+    chart = next(component for component in tree["components"] if component["id"] == "trend")
+    assert chart["series"] == [{"name": "Total", "values": {"@path": "/totals"}}]
+    table = next(component for component in tree["components"] if component["id"] == "costs")
+    assert table["columns"][1] == {"key": "cost", "label": "cost", "type": "text"}  # Healed: a bare key.
+    assert block["text"].splitlines() == [
+        "October", "Spent: £2,140 (-8% vs Sep)", "Holiday fund: £900 of £1,500", "Rent: 1,200", "Food: 512",
+        "Biggest costs", "| Item | cost |", "| --- | --- |", "| Rent | 1,200 |",
+        "Chart: By month", "Sep: Total 2,330", "Oct: Total 2,140"]

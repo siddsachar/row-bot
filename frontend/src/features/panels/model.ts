@@ -78,6 +78,14 @@ export const panelRegistry = {
     capabilities: [],
     compact: 'tab',
   },
+  // An interface a reply drew, opened bigger (generative UI): its surface id is the subresource key.
+  'surface.view': {
+    title: 'Interface',
+    resourceKinds: [],
+    requiresResource: false,
+    capabilities: [],
+    compact: 'tab',
+  },
   // A video project (5.3.1 B3): its id is the subresource key.
   'video.project': {
     title: 'Video',

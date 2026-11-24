@@ -104,6 +104,8 @@ BROWSER_SMOKE_SPECS = (
     "watches",
     "pages",
     "answer-components",
+    # Generative UI (G1): a reply's interface drawn from Row-Bot's controls, edited, pressed, kept on reload.
+    "generative-ui",
     "library-media",
     "video-panel",
     "sandboxes",

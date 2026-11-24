@@ -86,6 +86,21 @@ CATALOG: dict[str, tuple[dict[str, Any], frozenset[str], bool]] = {
     "DateTimeInput": ({"value": "str", "enableDate": "lbool", "enableTime": "lbool", "min": "str", "max": "str",
                        "label": "str"},
                       frozenset({"value"}), True),
+    # Row-Bot's own components (G2), beyond the basic catalog. Their values bind like any other, so a chart
+    # or a total follows a slider as the person moves it.
+    "Chart": ({"kind": frozenset({"bar", "line", "area", "pie"}), "title": "str", "x": "any", "series": "series",
+               "unit": "lstr", "stacked": "lbool"},
+              frozenset({"kind", "x", "series"}), False),
+    "Table": ({"title": "str", "columns": "columns", "rows": "any"}, frozenset({"columns", "rows"}), False),
+    "Metric": ({"label": "str", "value": "any", "unit": "lstr", "delta": "str",
+                "tone": frozenset({"good", "bad", "neutral"})},
+               frozenset({"label", "value"}), False),
+    "ProgressBar": ({"label": "str", "value": "num", "max": "num", "unit": "lstr"},
+                    frozenset({"label", "value", "max"}), False),
+    "Breakdown": ({"items": "any", "currency": "lstr", "unit": "lstr", "totalLabel": "str", "max": "lnum"},
+                  frozenset({"items"}), False),
+    "Timeline": ({"items": "any"}, frozenset({"items"}), False),
+    "Code": ({"code": "str", "language": "lstr"}, frozenset({"code"}), False),
 }
 
 # Basic-catalog functions. ``openUrl`` needs the person's click, so it is allowed only as a Button's action.
@@ -365,8 +380,35 @@ def _property(kind: Any, value: Any) -> Any:
         if value not in kind:
             raise SurfaceError("not one of the allowed values")
         return value
-    if kind in {"str", "num", "bool", "strlist"}:
+    if kind in {"str", "num", "bool", "strlist", "any"}:
         return _value(value, kind)
+    if kind == "lstr":
+        if not isinstance(value, str):
+            raise SurfaceError("not text")
+        return _text(value)[:40]
+    if kind == "series":
+        if not isinstance(value, list) or not value:
+            raise SurfaceError("series are not a list")
+        series = []
+        for item in value[:8]:
+            if not isinstance(item, dict) or "values" not in item:
+                raise SurfaceError("a series has no values")
+            series.append({"name": _value(item.get("name", ""), "str"), "values": _value(item["values"], "any")})
+        return series
+    if kind == "columns":
+        if not isinstance(value, list) or not value:
+            raise SurfaceError("columns are not a list")
+        columns = []
+        for column in value[:12]:
+            if isinstance(column, str):
+                column = {"key": column}  # Healed: a bare column key.
+            if not isinstance(column, dict) or not isinstance(column.get("key"), str):
+                raise SurfaceError("a column has no key")
+            kind_of = column.get("type", "text")
+            columns.append({"key": _text(column["key"])[:64],
+                            "label": _value(column.get("label", column["key"]), "str"),
+                            "type": kind_of if kind_of in {"text", "number", "currency", "percent", "date"} else "text"})
+        return columns
     if kind == "child":
         if not isinstance(value, str):
             raise SurfaceError("a child is not a component id")
@@ -690,6 +732,45 @@ def surface_text(surface: dict[str, Any]) -> str:
                       if isinstance(chosen, list) and option["value"] in chosen]
             label = say(component.get("label"), scope)
             lines.append(f"{label}: {', '.join(labels)}" if label else ", ".join(labels))
+        elif kind == "Chart":
+            title = say(component.get("title"), scope)
+            x = _resolve(component.get("x"), data, scope)
+            names = [say(series.get("name"), scope) for series in component["series"]]
+            values = [_resolve(series["values"], data, scope) for series in component["series"]]
+            lines.append(f"Chart: {title}" if title else "Chart")
+            for index, point in enumerate(x if isinstance(x, list) else []):
+                parts = [f"{name} {_shown(column[index])}".strip() for name, column in zip(names, values)
+                         if isinstance(column, list) and index < len(column)]
+                lines.append(f"{_shown(point)}: {', '.join(parts)}")
+        elif kind == "Table":
+            if title := say(component.get("title"), scope):
+                lines.append(title)
+            columns = component["columns"]
+            lines.append("| " + " | ".join(say(column["label"], scope) for column in columns) + " |")
+            lines.append("| " + " | ".join("---" for _ in columns) + " |")
+            rows = _resolve(component.get("rows"), data, scope)
+            for row in (rows if isinstance(rows, list) else [])[:200]:
+                cells = [_shown(row.get(column["key"])) if isinstance(row, dict) else "" for column in columns]
+                lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+        elif kind == "Metric":
+            delta = say(component.get("delta"), scope)
+            lines.append(f"{say(component['label'], scope)}: {_with_unit(component.get('value'), component, scope)}"
+                         + (f" ({delta})" if delta else ""))
+        elif kind == "ProgressBar":
+            lines.append(f"{say(component['label'], scope)}: {_with_unit(component['value'], component, scope)} of "
+                         f"{_with_unit(component['max'], component, scope)}")
+        elif kind in {"Breakdown", "Timeline"}:
+            items = _resolve(component.get("items"), data, scope)
+            for item in (items if isinstance(items, list) else [])[:50]:
+                if not isinstance(item, dict):
+                    continue
+                if kind == "Breakdown":
+                    lines.append(f"{_shown(item.get('label'))}: {_shown(item.get('amount'))}")
+                else:
+                    line = " — ".join(part for part in (_shown(item.get("time")), _shown(item.get("title"))) if part)
+                    lines.append(line + (f": {_shown(item.get('detail'))}" if item.get("detail") else ""))
+        elif kind == "Code":
+            lines.append(say(component.get("code"), scope))
         elif kind == "Tabs":
             for tab in component["tabs"]:
                 lines.append(say(tab["title"], scope))
@@ -707,6 +788,15 @@ def surface_text(surface: dict[str, Any]) -> str:
             items = read_path(data, children["path"], scope)
             for item in (items if isinstance(items, list) else [])[:200]:
                 walk(children["componentId"], item, depth + 1)
+
+    def _with_unit(value: Any, component: dict[str, Any], scope: Any) -> str:
+        from row_bot.application.answer_components import with_unit
+
+        resolved = _resolve(value, data, scope)
+        unit = str(component.get("unit") or "")
+        if isinstance(resolved, (int, float)) and not isinstance(resolved, bool):
+            return with_unit(resolved, unit or None)
+        return with_unit(_shown(resolved), unit or None) if _shown(resolved) else ""
 
     walk("root", None, 0)
     text = "\n".join(line for line in lines if line)

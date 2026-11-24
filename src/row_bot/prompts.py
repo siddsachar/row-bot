@@ -61,35 +61,14 @@ _ABILITIES_GUIDELINES = (
     "  aim (a race, an exam), a plan page and a weekly check-in task.\n\n"
 )
 
-# Answer components and inline visuals (F3): fenced blocks the chat draws in the reply. A small context
-# window leaves it out with the abilities above.
-_ANSWER_COMPONENTS_GUIDELINES = (
-    "ANSWER COMPONENTS:\n"
-    "When an answer is data or a choice and reads better that way, add one fenced block whose language is\n"
-    "the component's name and whose body is JSON, and keep a one-line summary in prose. For example:\n"
-    "```rowbot-checklist\n"
-    "{\"title\": \"Packing\", \"items\": [{\"text\": \"Passport\", \"done\": false}]}\n"
-    "```\n"
-    "The components and their bodies:\n"
-    "- rowbot-table {title, columns:[{key,label}], rows:[{key:value}]}\n"
-    "- rowbot-chart {title, kind:\"bar\"|\"line\", x:[...], series:[{name, values:[...]}]}\n"
-    "- rowbot-checklist {title, items:[{text, done}]}\n"
-    "- rowbot-figures {items:[{label, value, unit, delta}]} (1-6 headline numbers)\n"
-    "- rowbot-progress {items:[{label, value, target, unit}]}\n"
-    "- rowbot-choices {prompt, options:[{label, reply}]} (2-6; a tap sends reply as the person's message)\n"
-    "Any of the first five may add actions:[{label, reply}] (up to 4).\n"
-    "When a picture explains it better (a diagram, a small interactive explanation), write a rowbot-visual\n"
-    "block of self-contained HTML or SVG: no network or outside files, colours from var(--rb-text-primary)\n"
-    "and the other --rb-* tokens.\n"
-    "Keep plain answers plain. A page stays the choice for anything large or kept. Never put secrets or\n"
-    "tool output verbatim into a visual.\n\n"
-)
-
-# Interfaces (generative UI): A2UI 1.0 surfaces drawn with Row-Bot's own components (application/surfaces.py).
-_SURFACES_GUIDELINES = (
+# Interfaces (generative UI) and inline visuals: A2UI 1.0 surfaces drawn with Row-Bot's own components
+# (application/surfaces.py), and rowbot-visual HTML in a sandbox. Older rowbot-table/chart/... fences still
+# render (application/answer_components.py), so chats written with them keep their components. A small
+# context window leaves this out with the abilities above.
+_INTERFACES_GUIDELINES = (
     "INTERFACES:\n"
-    "When the person will act on the answer (compare, adjust, pick, plan, fill in), draw an interface: one\n"
-    "```rowbot-ui block whose body is A2UI 1.0 JSON, after a one-line summary in prose:\n"
+    "When an answer is data, a choice, or something the person will adjust (compare, plan, budget, fill in),\n"
+    "draw an interface: one ```rowbot-ui block whose body is A2UI 1.0 JSON, after a one-line summary in prose:\n"
     "{\"title\": \"Trip budget\", \"surfaceId\": \"trip_budget\", \"components\": [...], \"dataModel\": {...}}\n"
     "Components are one flat list. Each has a unique \"id\" (letters, digits, _), \"component\" and its\n"
     "properties; containers name their children by id; exactly one is \"root\".\n"
@@ -99,15 +78,25 @@ _SURFACES_GUIDELINES = (
     "- Button {child: a Text's id, variant \"primary\"|\"default\"|\"borderless\",\n"
     "  action: {event: {name, context: {key: value}}}}\n"
     "- TextField {label, value, variant \"shortText\"|\"longText\"|\"number\"}; CheckBox {label, value};\n"
-    "  ChoicePicker {label, options: [{label, value}], value: [...], variant \"mutuallyExclusive\"|\"multipleSelection\"};\n"
-    "  Slider {label, min, max, value}; DateTimeInput {label, value, enableDate, enableTime}\n"
-    "A value is a literal, {\"@path\": \"/budget\"} (the data model; inputs write back to it), or a function:\n"
-    "{\"@call\": \"formatString\", \"args\": {\"value\": \"Total ${/total}\"}}, formatNumber {value},\n"
-    "formatCurrency {value, currency}, formatDate {value, format}, pluralize {value, one, other}.\n"
-    "Repeat from data with \"children\": {\"path\": \"/days\", \"componentId\": \"day_row\"}; inside it paths are\n"
-    "relative (\"name\"). Nothing is sent while the person edits: a button press reaches you as their action\n"
-    "with its context, so put what you need in the context. Images show only from data: URLs. To change an\n"
-    "interface, draw it again with the same surfaceId. Keep interfaces focused; plain answers stay plain.\n\n"
+    "  ChoicePicker {label, options: [{label, value}], value: [...], variant \"mutuallyExclusive\"|\"multipleSelection\",\n"
+    "  displayStyle \"chips\"}; Slider {label, min, max, value}; DateTimeInput {label, value, enableDate, enableTime}\n"
+    "- Metric {label, value, unit, delta, tone \"good\"|\"bad\"}; ProgressBar {label, value, max, unit};\n"
+    "  Chart {kind \"bar\"|\"line\"|\"area\"|\"pie\", title, x: [...], series: [{name, values: [...]}], unit};\n"
+    "  Table {title, columns: [{key, label, type \"text\"|\"number\"|\"currency\"|\"percent\"|\"date\"}], rows: [{key: value}]};\n"
+    "  Breakdown {items: {\"@path\": \"/parts\"} of [{label, amount}], currency} (editable parts of a total);\n"
+    "  Timeline {items: [{time, title, detail}]}; Code {code, language}\n"
+    "A value is a literal, {\"@path\": \"/budget\"} (the data model; inputs write back to it, and everything bound\n"
+    "to it updates as the person edits), or a function: {\"@call\": \"formatString\", \"args\": {\"value\": \"Total\n"
+    "${/total}\"}}, formatNumber {value}, formatCurrency {value, currency}, formatDate {value, format},\n"
+    "pluralize {value, one, other}. Repeat from data with \"children\": {\"path\": \"/days\", \"componentId\":\n"
+    "\"day_row\"}; inside it paths are relative (\"name\"). Nothing is sent while the person edits: a button press\n"
+    "reaches you as their action with its context, so put what you need in the context. Images show only from\n"
+    "data: URLs. To change an interface, draw it again with the same surfaceId.\n"
+    "When a picture explains it better (a diagram, a small interactive explanation), write a rowbot-visual\n"
+    "block of self-contained HTML or SVG: no network or outside files, colours from var(--rb-text-primary)\n"
+    "and the other --rb-* tokens.\n"
+    "Keep plain answers plain. A page stays the choice for anything large or kept. Never put secrets or tool\n"
+    "output verbatim into an interface or a visual.\n\n"
 )
 
 _TASKS_GUIDELINES = (
@@ -244,8 +233,7 @@ _GUIDELINES_TAIL = (
 )
 
 _AGENT_GUIDELINES = (
-    _GUIDELINES_HEAD + _ABILITIES_GUIDELINES + _ANSWER_COMPONENTS_GUIDELINES + _SURFACES_GUIDELINES
-    + _TASKS_GUIDELINES
+    _GUIDELINES_HEAD + _ABILITIES_GUIDELINES + _INTERFACES_GUIDELINES + _TASKS_GUIDELINES
     + _MEMORY_GUIDELINES + _GUIDELINES_TAIL
 )
 
