@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { COMPANY_SPACE } from './fake-brain';
 import { openConsole, ORIGIN } from './serve';
 
 test('people: search, a confirmed suspension, and no actions on yourself', async ({
@@ -98,6 +99,55 @@ test('audit: plain-words events, a filter, older pages, the integrity check and 
   expect(violations).toEqual([]);
 });
 
+test('knowledge: an upload that moves on to ready, a fact and a merge', async ({
+  page,
+}) => {
+  // The document list reads itself again every 5 s while one is being read.
+  test.setTimeout(60_000);
+  const { api, violations } = await openConsole(page, '/console/knowledge');
+  await expect(page.getByRole('heading', { name: 'Knowledge' })).toBeVisible();
+  const spaces = page.getByRole('list', { name: 'Spaces' });
+  await expect(spaces.getByRole('listitem')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Open Company' }).click();
+
+  await page.getByLabel('Choose files to upload').setInputFiles({
+    name: 'onboarding.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# Onboarding\n\nWelcome to the company.'),
+  });
+  const uploaded = page
+    .getByRole('list', { name: 'Documents' })
+    .getByRole('listitem')
+    .filter({ hasText: 'onboarding.md' });
+  await expect(uploaded).toContainText('Queued');
+  await expect(uploaded).toContainText('Ready', { timeout: 20_000 });
+  expect(api.calls.map((call) => `${call.method} ${call.path}`)).toContain(
+    `POST /api/brain/spaces/${COMPANY_SPACE}/documents`,
+  );
+
+  await page.getByRole('tab', { name: 'Facts' }).click();
+  await page.getByRole('button', { name: 'Add fact' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel(/^Fact/).fill('Visitors sign in at reception.');
+  await dialog.getByRole('button', { name: 'Add fact' }).click();
+  await expect(page.getByRole('list', { name: 'Facts' })).toContainText(
+    'Visitors sign in at reception.',
+  );
+
+  await page.getByRole('tab', { name: 'Knowledge graph' }).click();
+  const merge = page.getByRole('button', {
+    name: 'Merge Atlas app into another entry',
+  });
+  await merge.click();
+  await dialog.getByLabel('Into').selectOption({ label: 'Atlas (Project)' });
+  await dialog.getByRole('button', { name: 'Merge' }).click();
+  const knowledge = page.getByRole('list', { name: 'Company knowledge' });
+  await expect(knowledge).toContainText('Also called Atlas app');
+  const merged = knowledge.getByText('Atlas app', { exact: true });
+  await expect(merged).toHaveCount(0);
+  expect(violations).toEqual([]);
+});
+
 test('every page fits a 390 px phone without sideways scrolling', async ({
   page,
 }) => {
@@ -114,12 +164,17 @@ test('every page fits a 390 px phone without sideways scrolling', async ({
     'policy?tab=groups',
     'policy?tab=history',
     'audit',
+    'knowledge',
+    `knowledge?space=${COMPANY_SPACE}&tab=documents`,
+    `knowledge?space=${COMPANY_SPACE}&tab=facts`,
+    `knowledge?space=${COMPANY_SPACE}&tab=graph`,
   ]) {
     await page.goto(`${ORIGIN}/console/${path}`);
     await expect(page.locator('.console-page h1')).toBeVisible();
     await expect(page.getByRole('status', { name: /^Loading/ })).toHaveCount(0);
+    // The tab bar too: all six tabs fit, none is scrolled out of sight.
     const overflow = await page.evaluate(() =>
-      [document.documentElement, ...document.querySelectorAll('.console-main')]
+      [...document.querySelectorAll('html, .console-main, nav')]
         .filter((element) => element.scrollWidth > element.clientWidth)
         .map((element) => element.className || element.tagName),
     );

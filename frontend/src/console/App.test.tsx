@@ -64,7 +64,7 @@ test('a console that cannot open says why and can try again', async () => {
     within(screen.getByRole('navigation', { name: 'Admin console' }))
       .getAllByRole('link')
       .map((link) => link.textContent),
-  ).toEqual(['People', 'Devices', 'Models', 'Policy', 'Audit']);
+  ).toEqual(['People', 'Devices', 'Models', 'Knowledge', 'Policy', 'Audit']);
 });
 
 test('signing out ends the session and says so', async () => {

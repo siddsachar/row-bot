@@ -32,10 +32,13 @@ export function Notice({
   tone = 'info',
   title,
   children,
+  action,
 }: {
   tone?: 'info' | 'warning';
   title: string;
   children?: ReactNode;
+  /** One small control at its end, such as Dismiss. */
+  action?: ReactNode;
 }) {
   const Icon = tone === 'warning' ? AlertTriangle : Info;
   return (
@@ -45,6 +48,7 @@ export function Notice({
         <strong>{title}</strong>
         {children && <div className="console-notice-body">{children}</div>}
       </div>
+      {action && <div className="console-notice-action">{action}</div>}
     </div>
   );
 }

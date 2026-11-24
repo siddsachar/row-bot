@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { openConsole } from './serve';
 import type { FakeState } from './fake-api';
+import { COMPANY_SPACE } from './fake-brain';
 
 // The UX review's screenshots, taken only when ROW_BOT_CONSOLE_SHOTS names a
 // folder: every page at a desktop width in light and dark, filled in, empty
@@ -21,6 +22,10 @@ const PAGES: [string, string][] = [
   ['policy-groups', 'policy?tab=groups'],
   ['policy-history', 'policy?tab=history'],
   ['audit', 'audit'],
+  ['knowledge', 'knowledge'],
+  ['knowledge-documents', `knowledge?space=${COMPANY_SPACE}&tab=documents`],
+  ['knowledge-facts', `knowledge?space=${COMPANY_SPACE}&tab=facts`],
+  ['knowledge-graph', `knowledge?space=${COMPANY_SPACE}&tab=graph`],
 ];
 const THEMES = ['light', 'dark'] as const;
 
@@ -160,6 +165,47 @@ for (const theme of THEMES) {
       .nth(1)
       .click();
     await shoot(page, `audit-checked-${theme}`);
+
+    // Knowledge: no models yet, an entry's details, and a file uploading.
+    await page.unrouteAll();
+    await openConsole(
+      page,
+      `/console/knowledge?space=${COMPANY_SPACE}`,
+      'populated',
+      {
+        answer: (url) =>
+          url.pathname === '/api/admin/models'
+            ? { status: 200, body: { models: [] } }
+            : undefined,
+      },
+    );
+    await settle(page);
+    await shoot(page, `knowledge-no-models-${theme}`);
+
+    await page.goto(
+      `https://org.example.test/console/knowledge?space=${COMPANY_SPACE}&tab=graph`,
+    );
+    await settle(page);
+    await page.getByRole('button', { name: 'Show details for Atlas' }).click();
+    await expect(page.getByText('The new expenses app.')).toBeVisible();
+    await shoot(page, `knowledge-entry-${theme}`);
+
+    await page.unrouteAll();
+    await openConsole(page, `/console/knowledge?space=${COMPANY_SPACE}`);
+    await settle(page);
+    // The upload takes a moment here, so it is seen uploading.
+    await page.route('**/documents', async (route) => {
+      if (route.request().method() === 'POST')
+        await new Promise((done) => setTimeout(done, 3_000));
+      await route.fallback();
+    });
+    await page.getByLabel('Choose files to upload').setInputFiles({
+      name: 'onboarding.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# Onboarding'),
+    });
+    await expect(page.getByText('Uploading')).toBeVisible();
+    await shoot(page, `knowledge-uploading-${theme}`);
 
     await page.unrouteAll();
     await page.setViewportSize({ width: 1440, height: 900 });

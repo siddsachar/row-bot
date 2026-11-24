@@ -373,6 +373,125 @@ body {
   color: var(--text-secondary);
 }
 
+/* -- knowledge ------------------------------------------------------------ */
+.console-notice-action {
+  margin: -4px -8px -4px auto;
+}
+.console-back.button {
+  justify-self: start;
+}
+.console-spread {
+  justify-content: space-between;
+  align-items: center;
+}
+/* A document's or entry's reason under its row's facts. */
+.console-reason {
+  display: block;
+  color: var(--text-secondary);
+}
+.console-reason a,
+.console-notice-body a {
+  color: var(--text-link);
+  font-weight: var(--weight-medium);
+}
+.console-dropzone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text-muted);
+  transition:
+    border-color var(--motion-popover) var(--ease-out),
+    background var(--motion-popover) var(--ease-out);
+}
+.console-dropzone[data-dragging='true'] {
+  border-color: var(--accent-solid);
+  background: color-mix(in srgb, var(--accent-solid) 8%, var(--surface));
+}
+.console-dropzone-text {
+  display: grid;
+  flex: 1 1 16rem;
+  gap: 2px;
+  min-width: 0;
+}
+.console-dropzone-text > strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.console-dropzone-text > small {
+  font-size: var(--type-size-metadata);
+  line-height: var(--type-line-metadata);
+}
+.console-textarea.input {
+  height: auto;
+  min-height: 88px;
+  padding-block: var(--space-2);
+  resize: vertical;
+}
+.console-picker {
+  display: grid;
+  gap: var(--space-2);
+}
+.console-picker-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.console-picker-add .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.console-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.console-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0 2px 0 var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
+  overflow-wrap: anywhere;
+}
+.console-entity {
+  display: grid;
+  gap: var(--space-3);
+}
+.console-entity h3 {
+  margin: 0 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+  font-weight: var(--weight-medium);
+}
+.console-entity p {
+  margin: 0;
+}
+.console-citations {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.console-citations blockquote {
+  margin: 2px 0 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* -- phones and narrow windows -------------------------------------------- */
 @media (max-width: 767px) {
   .console-shell {
@@ -407,7 +526,7 @@ body {
     flex-basis: 100%;
     overflow-x: auto;
   }
-  /* A tab bar: five equal tabs, the label under its icon, so all fit at 390 px. */
+  /* A tab bar: six equal tabs, the label under its icon. */
   .console-nav ul {
     display: flex;
     gap: var(--space-1);
@@ -442,5 +561,23 @@ body {
   .console-setting-stack .input,
   .console-checklist {
     width: 100%;
+  }
+}
+
+/* Six labels don't fit a phone's width: the tabs are icons there, each still
+   named by its label for assistive technology, and the page's title says
+   where you are. */
+@media (max-width: 479px) {
+  .console-nav-link {
+    min-height: 44px;
+  }
+  .console-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
