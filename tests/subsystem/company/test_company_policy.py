@@ -23,7 +23,7 @@ from row_bot.providers import backup, client_status, config as provider_config, 
 from row_bot.providers.model_catalog import build_saved_model_catalog_rows
 from row_bot.providers.runtime import create_chat_model
 
-pytestmark = [pytest.mark.subsystem]
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 DAY = 24 * 60 * 60
 EFFECTIVE = "/api/policy/effective"
