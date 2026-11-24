@@ -36,6 +36,7 @@ import {
 import Preferences from './Preferences';
 import LearningSettings from '../learning/LearningSettings';
 import ProactiveSettings from './ProactiveSettings';
+import CompanySettings from '../company/CompanySettings';
 import ActivitySettings from './ActivitySettings';
 import ApprovalRulesSettings from './ApprovalRulesSettings';
 import { useLearning, useLearningPreview } from '../learning/learning-state';
@@ -576,6 +577,8 @@ export default function SettingRoute() {
           )
         ) : leaf.id === 'proactive' ? (
           <ProactiveSettings />
+        ) : leaf.id === 'company' ? (
+          <CompanySettings controller={controller} />
         ) : leaf.id === 'activity' ? (
           <>
             <ApprovalRulesSettings />

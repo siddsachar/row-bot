@@ -1,0 +1,150 @@
+{
+  "additionalProperties": false,
+  "description": "Settings \u203a Company (C1b): this Row-Bot's company, read without contacting it.",
+  "properties": {
+    "company": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company"
+    },
+    "computer_name": {
+      "maxLength": 200,
+      "title": "Computer Name",
+      "type": "string"
+    },
+    "email": {
+      "anyOf": [
+        {
+          "maxLength": 320,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Email"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "enum": [
+            "not_https",
+            "invalid_address",
+            "not_company_server",
+            "unreachable",
+            "busy",
+            "browser",
+            "cancelled",
+            "denied",
+            "timed_out",
+            "failed",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Failure"
+    },
+    "joined_at": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Joined At"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Name"
+    },
+    "notice": {
+      "anyOf": [
+        {
+          "enum": [
+            "left",
+            "left_offline"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Notice"
+    },
+    "on_this_computer": {
+      "title": "On This Computer",
+      "type": "boolean"
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Origin"
+    },
+    "rejoining": {
+      "title": "Rejoining",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "not_joined",
+        "waiting",
+        "joined",
+        "disconnected",
+        "unreachable"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "company",
+    "origin",
+    "name",
+    "email",
+    "joined_at",
+    "computer_name",
+    "rejoining",
+    "failure",
+    "notice",
+    "on_this_computer"
+  ],
+  "title": "CompanyView",
+  "type": "object"
+}
