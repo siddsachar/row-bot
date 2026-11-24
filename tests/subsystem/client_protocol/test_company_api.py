@@ -37,6 +37,7 @@ def test_with_no_company_the_app_makes_no_company_call_and_loads_nothing_that_op
     assert view.status_code == 200, view.text
     assert view.json()["state"] == "not_joined" and view.json()["on_this_computer"] is True
     assert view.json()["failure"] is None and view.json()["company"] is None
+    assert (view.json()["policy_state"], view.json()["rules"], view.json()["locked"]) == ("not_joined", [], [])
     assert checked.json()["state"] == left.json()["state"] == "not_joined"
     assert not (tmp_path / "company.json").exists()
 
@@ -75,6 +76,10 @@ def test_a_company_joined_through_the_api_is_shown_without_any_token(company_ser
 
     assert view.json()["state"] == "joined" and view.json()["name"] == "Fixture Person"
     assert view.json()["computer_name"] == "Fixture laptop"
+    # The company's policy (C3a), in plain words.
+    assert view.json()["policy_state"] == "current"
+    assert {rule["setting"] for rule in view.json()["rules"]} >= {"models.allowed", "offline.max_days"}
+    assert "Your company turned off personal API keys" in [lock["words"] for lock in view.json()["locked"]]
     assert checked.json()["state"] == "joined"
     assert (left.json()["state"], left.json()["notice"]) == ("not_joined", "left")
     for answer in (started, view, checked, left):

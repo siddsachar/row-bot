@@ -1,5 +1,5 @@
-"""A fake Row-Bot company server (C1a's device routes, S4's catalog and gateway) and a fake browser, for the
-app's company tests.
+"""A fake Row-Bot company server (C1a's device routes, S3's effective policy, S4's catalog and gateway) and a fake
+browser, for the app's company tests.
 
 The server is an ``httpx.MockTransport``: nothing leaves the process. The browser follows the app's sign-in
 address the way a person pressing Connect would, then visits Row-Bot's loopback address for real (loopback
@@ -27,7 +27,8 @@ import pytest
 
 from row_bot import secret_store
 from row_bot.application import client_company
-from row_bot.company import client, provider, sign_in, store
+from row_bot.company import client, policy, provider, sign_in, store
+from row_bot.policy import DEFAULT_POLICY, canonical_json, policy_to_dict
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
 ORIGIN = "https://rowbot.example.test"
@@ -138,6 +139,11 @@ class FakeCompanyServer:
         self.gateway: list[httpx.Request] = []  # Every request that reached a gateway route.
         # The gateway's answer to the next calls instead of the model's: (status, code, message).
         self.refusal: tuple[int, str, str] | None = None
+        # S3's GET /api/policy/effective: the person's effective policy (every setting, with its version).
+        self.policy: dict = policy_to_dict(DEFAULT_POLICY)
+        self.policy_answers: list[int] = []  # The status of each answer to it (200, or 304 for the same ETag).
+        # Nothing reaches the server (a connection error for every request), while True.
+        self.offline = False
         self._numbers = itertools.count(1)
         self._lock = threading.Lock()
         self.transport = httpx.MockTransport(self.handle)
@@ -190,6 +196,7 @@ class FakeCompanyServer:
                               email="person@example.test", device_name="Fixture laptop",
                               joined_at="2026-11-23T09:00:00+00:00")
         store.write_record(record)
+        policy.refresh()  # A finished join reads the company's policy first.
         return record
 
     def _gateway(self, request: httpx.Request) -> httpx.Response:
@@ -211,6 +218,8 @@ class FakeCompanyServer:
         return (_openai_answer if wire == "openai" else _anthropic_answer)(model, body.get("stream") is True)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        if self.offline:
+            raise httpx.ConnectError("offline", request=request)
         self.requests.append(request)
         response = self._route(request)
         # A jar would keep this and send it back; the server refuses a bearer with its session cookie.
@@ -247,6 +256,16 @@ class FakeCompanyServer:
             if self._bearer(request) is None:
                 return httpx.Response(401, json={"error": "invalid_token"})
             return httpx.Response(200, json={"models": self.catalog})
+        if (request.method, path) == ("GET", "/api/policy/effective"):
+            if self._bearer(request) is None:
+                return httpx.Response(401, json={"error": "invalid_token"})
+            body = canonical_json(self.policy)
+            etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+            same = request.headers.get("if-none-match") == etag
+            self.policy_answers.append(304 if same else 200)
+            if same:
+                return httpx.Response(304, headers={"ETag": etag})
+            return httpx.Response(200, content=body, headers={"ETag": etag, "Content-Type": "application/json"})
         if path.startswith("/api/gateway/"):
             return self._gateway(request)
         return httpx.Response(404, json={"error": "not_found"})
@@ -351,6 +370,9 @@ def company_state(monkeypatch) -> None:
     # No company catalog read by another test.
     for name, value in {"_models": (), "_origin": None, "_read_at": None, "_reading": None}.items():
         monkeypatch.setattr(provider, name, value)
+    # No company policy fetched, remembered or logged by another test.
+    for name, value in {"_memo": None, "_attempted_at": None, "_reading": None, "_unknown_logged": set()}.items():
+        monkeypatch.setattr(policy, name, value)
 
 
 @pytest.fixture
@@ -363,3 +385,4 @@ def company_server(tmp_path, monkeypatch, keychain, company_state) -> Iterator[F
     yield server
     client_company.cancel()
     provider.settle()  # A background catalog read ends here, while the fake server still answers it.
+    policy.settle()  # And a background policy refresh.

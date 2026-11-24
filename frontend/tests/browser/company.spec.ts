@@ -275,3 +275,98 @@ test('company models: their own group in the picker, the Company line and Settin
   await expect(page.getByText('Qwen3 32B').first()).toBeVisible();
   await shoot(page, info, 'company-models-settings');
 });
+
+// Company policy (C3a): locked down after the offline lease ran out. The
+// calm line and Retry in Settings › Company and the model picker, the rules
+// behind their disclosure, and Settings › Models' quiet "Set by your
+// company" lines. Every company route is answered here.
+
+const lockedDown: View = {
+  ...joined,
+  state: 'unreachable',
+  model_count: 2,
+  policy_state: 'locked_down',
+  policy_reason: 'lease_expired',
+  policy_since: '2026-11-30T09:00:00+00:00',
+  locked: [
+    {
+      setting: 'models.personal_api_keys',
+      title: 'Allow personal API keys',
+      value: 'Off',
+      words: 'Your company turned off personal API keys',
+    },
+    {
+      setting: 'models.consumer_sign_ins',
+      title: 'Allow consumer sign-ins',
+      value: 'Off',
+      words: 'Your company turned off personal subscriptions',
+    },
+  ],
+  rules: [
+    {
+      setting: 'models.local_models',
+      title: 'Allow local models',
+      help: 'Whether people may run models on their own computer (Ollama, llama.cpp).',
+      value: 'On',
+    },
+    {
+      setting: 'offline.max_days',
+      title: 'Offline days',
+      help: 'Days a Row-Bot may run on its cached policy.',
+      value: '0 days',
+    },
+  ],
+};
+
+const LOCKDOWN_LINE = `Row-Bot can’t reach ${COMPANY}, so it’s using only what’s safe on this computer until it can.`;
+
+test('company policy: locked down, with Retry, the rules and Settings › Models’ quiet lines', async ({
+  page,
+}, info) => {
+  const state = { view: lockedDown, asked: [] as string[] };
+  await companyRoutes(page, state);
+  await page.route('**/api/v1/handshake', async (route: Route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.models = [
+      ...(body.models ?? []),
+      ...companyModels.map((model) => ({
+        ...model,
+        available: false,
+        unavailable_reason: 'unavailable',
+      })),
+    ];
+    await route.fulfill({ response, json: body });
+  });
+
+  await page.goto('/app-v2/settings/company');
+  await expect(page.getByText(LOCKDOWN_LINE)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await page.getByText('Your company’s rules').click();
+  await expect(page.getByText('Offline days')).toBeVisible();
+  await shoot(page, info, 'company-locked-down');
+  const asked = state.asked.length;
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect.poll(() => state.asked.slice(asked)).toContain('/check');
+
+  await page.goto('/app-v2/settings/models');
+  await expect(
+    page.getByText('Your company turned off personal API keys'),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Set by your company').first()).toBeVisible();
+  await shoot(page, info, 'company-models-set-by-company');
+
+  await page.goto('/app-v2/');
+  await clickNewChat(page);
+  const pill = page.getByRole('button', { name: 'Model', exact: true });
+  const plus = page.getByRole('button', { name: 'Add files and more' });
+  await expect(pill.or(plus).first()).toBeVisible({ timeout: 15_000 });
+  if (await pill.isVisible()) await pill.click();
+  else
+    await page
+      .locator('header.conversation-heading')
+      .getByRole('button', { name: /^(Model: |Choose a model$)/ })
+      .click();
+  await expect(page.getByText(LOCKDOWN_LINE)).toBeVisible();
+  await shoot(page, info, 'company-locked-down-picker');
+});

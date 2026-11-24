@@ -74,6 +74,22 @@ export function modelsWords(count: number, company: string): string {
   return `${count} model${count === 1 ? '' : 's'} from ${company}`;
 }
 
+/**
+ * The lockdown line (C3a): Settings › Company and the model picker, while
+ * Row-Bot uses only what's safe on this computer.
+ */
+export function lockdownWords(view: CompanyView): string {
+  const company = view.company ?? 'your company';
+  return view.policy_reason === 'disconnected'
+    ? `${company} disconnected this Row-Bot, so it’s using only what’s safe on this computer until you sign in again.`
+    : `Row-Bot can’t reach ${company}, so it’s using only what’s safe on this computer until it can.`;
+}
+
+/** The tooltip of "Set by your company": the setting and its value. */
+export function lockDetail(lock: { title: string; value: string }): string {
+  return `${lock.title}: ${lock.value}`;
+}
+
 /** Why Join is off on a phone or another computer. */
 export function elsewhereWords(computer: string): string {
   return `Join from Row-Bot on ${computer}: the sign-in opens in that computer’s browser.`;

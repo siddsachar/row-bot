@@ -156,3 +156,36 @@ it('not joined, or no company state at all: no group and no model list asked for
     expect(modelCatalogPage).not.toHaveBeenCalled();
   }
 });
+
+it('the kinds of model the company turned off get one quiet line each, set by the company', async () => {
+  show({
+    ...joined,
+    locked: [
+      {
+        setting: 'models.personal_api_keys',
+        title: 'Allow personal API keys',
+        value: 'Off',
+        words: 'Your company turned off personal API keys',
+      },
+      {
+        setting: 'models.consumer_sign_ins',
+        title: 'Allow consumer sign-ins',
+        value: 'Off',
+        words: 'Your company turned off personal subscriptions',
+      },
+    ],
+  });
+
+  expect(
+    await screen.findByText('Your company turned off personal API keys'),
+  ).toBeVisible();
+  expect(
+    screen.getByText('Your company turned off personal subscriptions'),
+  ).toBeVisible();
+  expect(screen.getAllByText('Set by your company')).toHaveLength(2);
+  expect(
+    screen.getByText(': Allow personal API keys: Off'),
+  ).toBeInTheDocument();
+  // One line, not a list of the providers it hides.
+  expect(screen.queryByText(/OpenAI|Anthropic/)).toBeNull();
+});

@@ -6,8 +6,8 @@ company, sign in again, leave.
 - Join and Sign in again open this computer's browser, which comes back to a loopback address here, so only
   the desktop app on this computer starts them (the routes check). Join first asks the address's ``/healthz``,
   then waits in the background for the browser; the state reads ``waiting`` until it is done.
-- Check is the one light call Settings makes when it opens on a joined Row-Bot (and its Retry): ``/api/me``,
-  refreshing the credential if it is about to end.
+- Check is the one light call Settings makes when it opens on a joined Row-Bot (and its Retry): the company's
+  policy, then ``/api/me`` and its models, refreshing the credential if it is about to end.
 - Leave tells the server, then forgets the credential and the record; if the server can't be reached it still
   forgets them here and says so.
 """
@@ -85,9 +85,10 @@ def status() -> dict[str, Any]:
         failure = None if join else (_unreachable if state == "unreachable" and _unreachable != "offline"
                                      else _failure)
         origin = record.origin if record else (join.origin if join else None)
-        from row_bot.company import provider
+        from row_bot.company import policy, provider
 
         suggested = provider.suggestion(record)
+        rules = policy.state()
         return {
             "schema_version": 1,
             "state": state,
@@ -105,6 +106,13 @@ def status() -> dict[str, Any]:
             "model_count": provider.model_count(record),
             "suggested_model_ref": suggested.ref if suggested else None,
             "suggested_model_name": suggested.name if suggested else None,
+            # The company's policy (C3a): whether it is in force, cached or locked down, why and since when; the
+            # settings it restricts ("Set by your company"); and every setting in plain words.
+            "policy_state": rules.state,
+            "policy_reason": rules.reason,
+            "policy_since": policy.iso(rules.since),
+            "locked": policy.locked(rules.policy),
+            "rules": policy.rules(rules.policy),
         }
 
 
@@ -239,8 +247,9 @@ def _finish(join: _Join) -> None:
             _fresh_next = True
     logger.info("Joining a company %s", f"didn't finish ({failure})" if failure else "finished")
     if failure is None:
-        from row_bot.company import provider
+        from row_bot.company import policy, provider
 
+        policy.refresh()  # Its rules first, so the lists below obey them.
         provider.after_join()  # Its models, in every model list.
 
 
@@ -263,10 +272,12 @@ def check() -> dict[str, Any]:
         busy = _join is not None
     if record is None or record.disconnected or busy:
         return status()
-    from row_bot.company import client
+    from row_bot.company import client, policy, provider
 
-    from row_bot.company import provider
-
+    policy.refresh()  # Settings opened (or its Retry): the company's rules, read again. It keeps its failures.
+    record = store.read_record()
+    if record is None or record.disconnected:
+        return status()
     reach: str | None = None
     try:
         name, email = client.me(record.origin)
@@ -313,9 +324,10 @@ def leave() -> dict[str, Any]:
             told = False
     store.delete_credential()
     store.delete_record()
-    from row_bot.company import provider
+    from row_bot.company import policy, provider
 
-    provider.forget()  # Its models leave every model list.
+    policy.forget()  # Its rules go with it,
+    provider.forget()  # and its models leave every model list.
     with _LOCK:
         _notice, _left = ("left" if told else "left_offline"), record.company
         _failure = _unreachable = None

@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
-import type { CompanyView, ModelChoice } from '../../api/types';
+import type {
+  CompanyView,
+  ConversationModelStatus,
+  ModelChoice,
+} from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
 import ModelPicker from '../shell/ModelPicker';
@@ -52,8 +56,15 @@ const joined: CompanyView = {
   suggested_model_name: 'Qwen3 32B',
 };
 
-function show(current: string | undefined, listed = models) {
-  const company = vi.fn(async () => joined);
+function show(
+  current: string | undefined,
+  listed = models,
+  {
+    view = joined,
+    status,
+  }: { view?: CompanyView; status?: ConversationModelStatus | null } = {},
+) {
+  const company = vi.fn(async (_action?: string) => view);
   const onChoose = vi.fn();
   const onOpenChange = vi.fn();
   render(
@@ -66,7 +77,13 @@ function show(current: string | undefined, listed = models) {
       <ModelPicker
         models={listed}
         current={current}
-        status={current ? { state: 'ready', local: false } : null}
+        status={
+          status !== undefined
+            ? status
+            : current
+              ? { state: 'ready', local: false }
+              : null
+        }
         disabled={false}
         open
         onOpenChange={onOpenChange}
@@ -112,8 +129,8 @@ it('before a model is chosen, offers the company’s suggestion and chooses it o
 it('says nothing once a model is chosen, and asks nothing when no company model is listed', async () => {
   const chosen = show('model:codex:gpt-5.6-sol');
   await screen.findByRole('listbox', { name: 'Models' });
+  await waitFor(() => expect(chosen.company).toHaveBeenCalledWith('status'));
   expect(screen.queryByText(/suggests/)).toBeNull();
-  expect(chosen.company).not.toHaveBeenCalled();
 
   const personal = show(undefined, [models[0]]);
   await waitFor(() =>
@@ -121,4 +138,38 @@ it('says nothing once a model is chosen, and asks nothing when no company model 
   );
   expect(screen.queryByText(/suggests/)).toBeNull();
   expect(personal.company).not.toHaveBeenCalled();
+});
+
+it('when the chosen model can’t be used (the company’s policy took it away), offers the suggestion and chooses nothing', async () => {
+  const { onChoose } = show('model:openai:gpt-5', models, {
+    status: {
+      state: 'unavailable',
+      reason: 'Your company turned off personal API keys',
+      fix: 'choose',
+      local: false,
+    },
+  });
+
+  expect(
+    await screen.findByText(`${COMPANY} suggests Qwen3 32B`),
+  ).toBeVisible();
+  expect(onChoose).not.toHaveBeenCalled();
+});
+
+it('locked down: one calm line with a Retry, and no suggestion', async () => {
+  const locked: CompanyView = {
+    ...joined,
+    policy_state: 'locked_down',
+    policy_reason: 'lease_expired',
+  };
+  const { company } = show(undefined, models, { view: locked });
+
+  expect(
+    await screen.findByText(
+      `Row-Bot can’t reach ${COMPANY}, so it’s using only what’s safe on this computer until it can.`,
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/suggests/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(company).toHaveBeenCalledWith('check'));
 });

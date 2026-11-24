@@ -2879,6 +2879,25 @@ CompanyFailure = Literal["not_https", "invalid_address", "not_company_server", "
                          "cancelled", "denied", "timed_out", "failed", "storage_unavailable"]
 
 
+class CompanyRule(WireModel):
+    """One company policy setting in plain words (C3a): its title and help from the shared model, its value."""
+
+    setting: str = Field(max_length=64)
+    title: str = Field(max_length=128)
+    help: str = Field(max_length=512)
+    value: str = Field(max_length=2048)
+
+
+class CompanyLock(WireModel):
+    """A setting the company's policy restricts, which Settings shows as "Set by your company" (C3a)."""
+
+    setting: str = Field(max_length=64)
+    title: str = Field(max_length=128)
+    value: str = Field(max_length=256)
+    # The quiet line shown where it applies ("Your company turned off personal API keys").
+    words: str = Field(max_length=256)
+
+
 class CompanyView(WireModel):
     """Settings › Company (C1b): this Row-Bot's company, read without contacting it."""
 
@@ -2904,6 +2923,14 @@ class CompanyView(WireModel):
     model_count: int | None = Field(default=None, ge=0, le=512)
     suggested_model_ref: str | None = Field(default=None, max_length=280)
     suggested_model_name: str | None = Field(default=None, max_length=256)
+    # The company's policy (C3a): in force (current), kept from the last confirmation while the server can't
+    # be reached (cached), or locked down to models on this computer; why, and since when.
+    policy_state: Literal["not_joined", "current", "cached", "locked_down"] = "not_joined"
+    policy_reason: Literal["lease_expired", "disconnected", "not_confirmed", "unreachable"] | None = None
+    policy_since: str | None = Field(default=None, max_length=64)
+    # The settings the policy restricts, shown as "Set by your company", and every setting in plain words.
+    locked: list[CompanyLock] = Field(default_factory=list, max_length=64)
+    rules: list[CompanyRule] = Field(default_factory=list, max_length=128)
 
 
 class CompanyJoinRequest(WireModel):

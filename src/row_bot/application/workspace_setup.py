@@ -625,6 +625,13 @@ def model_status(service: Any, controls: dict, conversation_id: str = "") -> dic
     provider_id = str(selection.get("provider_id") or "")
     from row_bot.providers.catalog import provider_billing
 
+    from row_bot.company.policy import turned_off
+    from row_bot.providers.selection import parse_model_ref
+
+    company_off = turned_off(provider_id, (parse_model_ref(model_ref) or ("", ""))[1])
+    if company_off:  # Row-Bot for Teams: the company's policy turns this model off; never shown as ready.
+        return {"state": "unavailable", "reason": company_off, "fix": "choose",
+                "local": provider_billing(provider_id) == "local", "sees_images": None, "backup_name": ""}
     base = {"local": provider_billing(provider_id) == "local", "sees_images": sees_images(model_ref),
             "backup_name": ""}
     if service.readiness_factory is not None:

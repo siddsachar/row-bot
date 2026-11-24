@@ -113,12 +113,12 @@ def normalise_origin(address: str) -> str:
 
 
 def _request(origin: str, method: str, path: str, *, bearer: str | None = None,
-             body: dict[str, str] | None = None) -> httpx.Response:
+             body: dict[str, str] | None = None, extra: dict[str, str] | None = None) -> httpx.Response:
     global _backoff_until
     wait = int(_backoff_until - now())
     if wait > 0:
         raise Busy(wait)
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", **(extra or {})}
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
     try:
@@ -236,15 +236,16 @@ def refreshed(origin: str, stale: store.Credential) -> store.Credential:
     return _refresh(origin, stale)
 
 
-def call(origin: str, method: str, path: str) -> httpx.Response:
+def call(origin: str, method: str, path: str, *, headers: dict[str, str] | None = None) -> httpx.Response:
     """A call with the device's bearer, refreshing it when it is about to end and once more on a 401.
+    ``headers`` are sent too (``If-None-Match``, say).
 
     Raises Disconnected, Unreachable (Busy for a 429) or store.StorageUnavailable (a locked keychain)."""
     credential = bearer(origin)
-    response = _request(origin, method, path, bearer=credential.access_token)
+    response = _request(origin, method, path, bearer=credential.access_token, extra=headers)
     if response.status_code == 401 and _answer(response).get("error") == "invalid_token":
         credential = refreshed(origin, credential)
-        response = _request(origin, method, path, bearer=credential.access_token)
+        response = _request(origin, method, path, bearer=credential.access_token, extra=headers)
         if response.status_code == 401:
             disconnect()
             raise Disconnected

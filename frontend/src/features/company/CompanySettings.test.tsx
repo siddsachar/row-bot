@@ -260,3 +260,57 @@ it('joined with no models offered yet, the line says so', async () => {
     await screen.findByText(`No models from ${COMPANY} yet`),
   ).toBeVisible();
 });
+
+const rules: NonNullable<CompanyView['rules']> = [
+  {
+    setting: 'models.personal_api_keys',
+    title: 'Allow personal API keys',
+    help: 'Whether people may add their own API keys and custom endpoints.',
+    value: 'Off',
+  },
+  {
+    setting: 'offline.max_days',
+    title: 'Offline days',
+    help: 'Days a Row-Bot may run on its cached policy.',
+    value: '7 days',
+  },
+];
+
+it('joined: the company’s rules, in plain words, behind a disclosure', async () => {
+  show({
+    status: joined({ policy_state: 'current', rules }),
+    check: joined({ policy_state: 'current', rules }),
+  });
+
+  const summary = await screen.findByText('Your company’s rules');
+  expect(screen.getByText('Allow personal API keys')).not.toBeVisible();
+  fireEvent.click(summary);
+  expect(screen.getByText('Allow personal API keys')).toBeVisible();
+  expect(screen.getByText('Off')).toBeVisible();
+  expect(screen.getByText('Offline days')).toBeVisible();
+  expect(screen.getByText('7 days')).toBeVisible();
+  expect(screen.queryByText('Locked down')).toBeNull();
+});
+
+it('locked down: one calm line in place of the joined date, a Retry, and the safe rules in force', async () => {
+  const locked = joined({
+    state: 'unreachable',
+    policy_state: 'locked_down',
+    policy_reason: 'lease_expired',
+    rules,
+  });
+  const company = show({ status: locked, check: locked });
+
+  expect(
+    await screen.findByText(
+      `Row-Bot can’t reach ${COMPANY}, so it’s using only what’s safe on this computer until it can.`,
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/Row-Bot stays joined/)).toBeNull();
+  expect(screen.queryByRole('alertdialog')).toBeNull(); // No modal.
+  expect(screen.getByText('Locked down')).toBeVisible();
+  await waitFor(() => expect(company).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(company).toHaveBeenCalledTimes(3));
+  expect(company).toHaveBeenLastCalledWith('check', undefined);
+});

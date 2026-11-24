@@ -31,6 +31,7 @@ import {
   failureWords,
   joinedWords,
   leaveWords,
+  lockdownWords,
   modelsWords,
   noticeWords,
   personWords,
@@ -136,6 +137,27 @@ export default function CompanySettings({
     });
   }
 
+  const lockedDown = view.policy_state === 'locked_down';
+  // Every setting the company's policy sets, in plain words (C3a); while
+  // locked down, the safe settings in force.
+  const ruleList = view.rules ?? [];
+  const rules = ruleList.length ? (
+    <Disclosure
+      summary="Your company’s rules"
+      meta={lockedDown ? 'Locked down' : undefined}
+    >
+      {ruleList.map((rule) => (
+        <SettingsItem
+          key={rule.setting}
+          label={rule.title}
+          help={rule.help}
+          bind={false}
+          status={<StatusLine>{rule.value}</StatusLine>}
+        />
+      ))}
+    </Disclosure>
+  ) : null;
+
   const leaveButton = (
     <IconButton
       label={`Leave ${company}`}
@@ -183,7 +205,9 @@ export default function CompanySettings({
           tone="accent"
           bind={false}
           status={
-            view.state === 'joined' ? (
+            lockedDown ? (
+              <StatusLine>{lockdownWords(view)}</StatusLine>
+            ) : view.state === 'joined' ? (
               <StatusLine tone="success">
                 {joinedWords(view.joined_at)}
               </StatusLine>
@@ -199,9 +223,9 @@ export default function CompanySettings({
           }
           control={
             <>
-              {view.state === 'unreachable' && (
+              {(view.state === 'unreachable' || lockedDown) && (
                 <IconButton
-                  label="Try again"
+                  label={lockedDown ? 'Retry' : 'Try again'}
                   disabled={busy}
                   onClick={() => void act('check')}
                 >
@@ -231,6 +255,7 @@ export default function CompanySettings({
             }
           />
         )}
+        {rules}
       </SettingsGroup>
     );
 
@@ -263,6 +288,7 @@ export default function CompanySettings({
             </>
           }
         />
+        {rules}
       </SettingsGroup>
     );
 

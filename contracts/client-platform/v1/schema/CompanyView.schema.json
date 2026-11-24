@@ -1,4 +1,74 @@
 {
+  "$defs": {
+    "CompanyLock": {
+      "additionalProperties": false,
+      "description": "A setting the company's policy restricts, which Settings shows as \"Set by your company\" (C3a).",
+      "properties": {
+        "setting": {
+          "maxLength": 64,
+          "title": "Setting",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 256,
+          "title": "Value",
+          "type": "string"
+        },
+        "words": {
+          "maxLength": 256,
+          "title": "Words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setting",
+        "title",
+        "value",
+        "words"
+      ],
+      "title": "CompanyLock",
+      "type": "object"
+    },
+    "CompanyRule": {
+      "additionalProperties": false,
+      "description": "One company policy setting in plain words (C3a): its title and help from the shared model, its value.",
+      "properties": {
+        "help": {
+          "maxLength": 512,
+          "title": "Help",
+          "type": "string"
+        },
+        "setting": {
+          "maxLength": 64,
+          "title": "Setting",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2048,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setting",
+        "title",
+        "help",
+        "value"
+      ],
+      "title": "CompanyRule",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "description": "Settings \u203a Company (C1b): this Row-Bot's company, read without contacting it.",
   "properties": {
@@ -67,6 +137,14 @@
       ],
       "title": "Joined At"
     },
+    "locked": {
+      "items": {
+        "$ref": "#/$defs/CompanyLock"
+      },
+      "maxItems": 64,
+      "title": "Locked",
+      "type": "array"
+    },
     "model_count": {
       "anyOf": [
         {
@@ -124,9 +202,59 @@
       ],
       "title": "Origin"
     },
+    "policy_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "lease_expired",
+            "disconnected",
+            "not_confirmed",
+            "unreachable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Reason"
+    },
+    "policy_since": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Since"
+    },
+    "policy_state": {
+      "default": "not_joined",
+      "enum": [
+        "not_joined",
+        "current",
+        "cached",
+        "locked_down"
+      ],
+      "title": "Policy State",
+      "type": "string"
+    },
     "rejoining": {
       "title": "Rejoining",
       "type": "boolean"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/CompanyRule"
+      },
+      "maxItems": 128,
+      "title": "Rules",
+      "type": "array"
     },
     "schema_version": {
       "const": 1,

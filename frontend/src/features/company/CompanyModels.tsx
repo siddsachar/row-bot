@@ -5,7 +5,8 @@ import type { ClientController } from '../../api/controller';
 import type { CompanyView } from '../../api/types';
 import ModelCatalog from '../settings/ModelCatalog';
 import { SettingsGroup, SettingsItem } from '../settings/anatomy';
-import { COMPANY_PROVIDER } from './words';
+import CompanyLock from './CompanyLock';
+import { COMPANY_PROVIDER, lockDetail } from './words';
 
 type CatalogProps = Pick<
   ComponentProps<typeof ModelCatalog>,
@@ -16,7 +17,9 @@ type CatalogProps = Pick<
  * Settings › Models: the company's models as their own group, named after
  * the company (Row-Bot for Teams, C2). Reading the company's state contacts
  * nothing; with no company joined the group isn't there. Disconnected, the
- * models stay listed, unavailable, with the way back.
+ * models stay listed, unavailable, with the way back. The kinds of model the
+ * company's policy turns off (C3a) get one quiet line each, "Set by your
+ * company", not a list of greyed-out providers.
  */
 export default function CompanyModels({
   controller,
@@ -65,6 +68,16 @@ export default function CompanyModels({
           }
         />
       )}
+      {(view.locked ?? [])
+        .filter((lock) => lock.setting.startsWith('models.'))
+        .map((lock) => (
+          <SettingsItem
+            key={lock.setting}
+            label={lock.words}
+            bind={false}
+            control={<CompanyLock detail={lockDetail(lock)} />}
+          />
+        ))}
       <ModelCatalog
         controller={controller}
         provider={COMPANY_PROVIDER}

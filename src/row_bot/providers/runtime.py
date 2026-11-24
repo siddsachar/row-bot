@@ -822,6 +822,9 @@ def _create_chat_model(
     )
     provider = resolved.provider_id
     model_name = resolved.runtime_model
+    from row_bot.company.policy import refuse as company_refuse
+
+    company_refuse(provider, model_name)  # Row-Bot for Teams: a model the company's policy turns off, in words.
     reasoning_plan = _validated_runtime_reasoning_plan(reasoning_plan, resolved.selection_ref)
     ensure_chat_model_compatible(model_name, provider)
     if provider == "company":

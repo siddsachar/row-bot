@@ -13,9 +13,8 @@ from langchain_core.messages import HumanMessage
 from row_bot.application import client_company
 from row_bot.application import live_updates as live_module
 from row_bot.application.live_updates import LiveUpdates
-from row_bot.company import gateway, policy, provider, store
+from row_bot.company import gateway, provider, store
 from row_bot.providers import backup, client_status, config as provider_config, model_catalog_cache
-from row_bot.providers.model_catalog import build_saved_model_catalog_rows
 from row_bot.providers.runtime import create_chat_model
 from tests.fixtures.company_server import COMPANY, GATEWAY_ANTHROPIC, GATEWAY_OPENAI, REPLY
 
@@ -238,16 +237,3 @@ def test_a_model_made_before_leave_sends_nothing_after_it(company_server, lists,
         model.invoke([HumanMessage("Hello?")])
 
     assert len(company_server.requests) == asked and company_server.gateway == []
-
-
-def test_the_policy_seam_can_keep_only_the_companys_models(company_server, lists, monkeypatch):
-    company_server.join_here()
-    provider.refresh()
-    saved = {"model:openai:gpt-5": {"provider": "openai", "label": "GPT-5", "ctx": 400000}}
-    assert {row.provider_id for row in build_saved_model_catalog_rows(
-        cloud_cache=saved, ollama_rows=[], provider_config={})} == {"openai", "company"}
-
-    monkeypatch.setattr(policy, "hides_personal_providers", lambda: True)
-
-    assert {row.provider_id for row in build_saved_model_catalog_rows(
-        cloud_cache=saved, ollama_rows=[], provider_config={})} == {"company"}

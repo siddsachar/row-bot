@@ -271,15 +271,14 @@ export default function ModelPicker({
             search={search}
           />
           <div className="model-picker-footer">
-            {missing && (
-              <CompanySuggestion
-                models={models}
-                onChoose={(model) => {
-                  onChoose(model);
-                  onOpenChange(false);
-                }}
-              />
-            )}
+            <CompanySuggestion
+              models={models}
+              suggest={missing || unavailable}
+              onChoose={(model) => {
+                onChoose(model);
+                onOpenChange(false);
+              }}
+            />
             {reasoning?.available && (
               <div className="model-picker-thinking">
                 <span className="model-picker-footer-label">Thinking</span>

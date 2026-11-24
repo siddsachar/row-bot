@@ -42,9 +42,10 @@ def test_joining_signs_in_through_the_browser_and_keeps_the_credential_in_the_ke
     assert (asked["device_name"], asked["platform"], asked["app_version"]) == ("Fixture laptop", sign_in.platform_name(),
                                                                             __version__)
     assert "device_id" not in asked
-    # Then the company's models (C2), so every model list has them at once.
-    assert [request.url.path for request in company_server.requests] == ["/healthz", "/api/device/token", "/api/me",
-                                                                         "/api/models"]
+    # Then the company's policy (C3a) and its models (C2), so every model list obeys and has them at once.
+    assert [request.url.path for request in company_server.requests] == [
+        "/healthz", "/api/device/token", "/api/me", "/api/policy/effective", "/api/models"]
+    assert view["policy_state"] == "current"
     # The loopback page says to close the tab and loads nothing.
     (answer,) = company_server.loopback_answers
     assert answer.status == 200 and "You can close this tab." in answer.body

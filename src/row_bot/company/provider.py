@@ -9,6 +9,8 @@
   personal provider's model of the same name.
 - Joined: the catalog's chat models are listed under the company's name, ready. Disconnected: the ones already
   read stay listed, unavailable, with the way back (``SIGN_IN_AGAIN``). Not joined: nothing, no network.
+- The company's policy (``policy``, C3a) decides which of its models are listed, and which of this computer's
+  own providers stay in the lists.
 - Embedding models are not offered: Row-Bot's embeddings choose from a fixed list of providers
   (``embedding_providers``), which takes no provider from outside it.
 
@@ -33,6 +35,7 @@ PROVIDER_ID = "company"
 FRESH_SECONDS = 120.0
 MAX_MODELS = 512
 SIGN_IN_AGAIN = "Sign in again in Settings › Company."
+LOCKED_DOWN = "Row-Bot can't reach your company, so only models on this computer can be used for now."
 WIRES = {"openai": TransportMode.OPENAI_CHAT, "anthropic": TransportMode.ANTHROPIC_MESSAGES}
 
 # Seconds on a clock that only moves forward; tests move it.
@@ -245,16 +248,27 @@ def _row(model: CatalogModel, record: store.Record) -> Any:
 
 
 def add_rows(rows: dict[str, Any]) -> None:
-    """Add the company's models to the app's model rows (``build_saved_model_catalog_rows``), keyed by ref.
+    """Add the company's models to the app's model rows (``build_saved_model_catalog_rows``), keyed by ref, and
+    take out the rows of every provider the company's policy turns off (C3a).
 
-    Rows carry their readiness (``project_saved_catalog_readiness`` keeps it). With no company joined this
-    reads one file's absence and nothing else."""
-    if policy.hides_personal_providers():
-        rows.clear()
+    - The company's models outside ``models.allowed`` aren't listed.
+    - Locked down (``policy.state()``), they stay listed, unavailable, with why: models on this computer only.
+    - Rows carry their readiness (``project_saved_catalog_readiness`` keeps it).
+
+    With no company joined this reads one file's absence and nothing else."""
     record = store.read_record()
     if record is None:
         return
+    status = policy.state()
+    policy.refresh_soon()  # A model list read: the app is in use.
+    policy.keep_allowed(rows, status)
+    locked_down = status.state == "locked_down"
     if not record.disconnected:
         _read_soon(record)
     for model in models(record):
-        rows[model.ref] = _row(model, record)
+        if not locked_down and not policy.allows_company_model(model.model_id, status):
+            continue
+        row = _row(model, record)
+        if locked_down and not record.disconnected:
+            row = replace(row, runtime_ready=False, status_reason=LOCKED_DOWN)
+        rows[model.ref] = row

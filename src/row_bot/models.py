@@ -742,6 +742,9 @@ def _ollama_http_json(path: str, payload: dict | None = None, *, timeout: float 
 
 def _chat_ollama(model: str, **kwargs):
     global ChatOllama
+    from row_bot.company.policy import refuse as company_refuse
+
+    company_refuse("ollama", model)  # Row-Bot for Teams: local models, when the company's policy turns them off.
     if ChatOllama is None:
         try:
             # Sends its num_ctx and keep_alive on every request (no runner reloads).
