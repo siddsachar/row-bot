@@ -487,7 +487,8 @@ def test_a_device_recalls_with_its_bearer_and_gets_no_more_than_its_person_reads
             "error": "browser_session_required"}
         # A space's owner uploads from the app with the device's bearer.
         assert upload_with(app, sales, priya_device).status_code == 201
-        assert app.post("/api/brain/recall", json={"query": "quota"}).status_code == 401
+        unknown = app.post("/api/brain/recall", json={"query": "quota"}, headers=bearer("rboa_" + "x" * 43))
+        assert (unknown.status_code, unknown.json()) == (401, {"error": "invalid_token"})
 
 
 def upload_with(app: TestClient, space_id: str, headers: dict[str, str]):
