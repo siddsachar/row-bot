@@ -6,6 +6,7 @@
       "default": "follow",
       "enum": [
         "follow",
+        "spotlight",
         "still"
       ],
       "title": "Camera",

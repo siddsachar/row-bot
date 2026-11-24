@@ -446,7 +446,7 @@ def test_two_hundred_scenes_from_a_hundred_videos_and_pictures_make_one_short_ff
             output.write_bytes(b"")
             drawn.append(("clip", size, fps, sound))
 
-        def add(self, source, start, end, keys, frame, *, stopped):
+        def add(self, source, start, end, keys, frame, *, stopped, marks=()):
             return self._take(("video", source.name, start, end), end - start)
 
         def still(self, source, seconds, keys, frame):

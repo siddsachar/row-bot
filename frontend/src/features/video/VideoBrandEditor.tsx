@@ -22,6 +22,7 @@ const FRAMINGS: [VideoBrand['framing'], string][] = [
 ];
 const CAMERAS: [VideoBrand['camera'], string][] = [
   ['follow', 'Follows what is done'],
+  ['spotlight', 'Spotlights what is done'],
   ['still', 'Stays still'],
 ];
 /** Every word's typeface, and how titles, lower thirds and the end card look (C5). */

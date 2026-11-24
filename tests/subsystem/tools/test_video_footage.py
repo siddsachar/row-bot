@@ -145,6 +145,23 @@ def test_a_clips_moments_are_its_shots_and_its_stretches_of_speech():
     assert len(many) == MAX_FRAMES and many[0][0] == 0.0 and many[-1][1] == 400.0, "neighbours joined to fit"
 
 
+def test_a_long_winded_moment_quotes_only_the_start_of_what_is_said():
+    """Up to 48 moments are listed: a clip that talks without a pause never makes the listing huge."""
+    from row_bot import video_edits
+    from row_bot.video_editing import MOMENT_WORDS
+
+    rambling = [(index * 0.3, index * 0.3 + 0.25, f"word{index}") for index in range(90)]
+    [(_start, _end, quoted)] = moments([], rambling, 27.0)
+
+    assert len(quoted) <= MOMENT_WORDS and quoted.endswith("…") and quoted.startswith("word0 word1 word2")
+    assert quoted[:-1].split()[-1] in {word for _start, _end, word in rambling}, "cut between words, not in one"
+    older = video_edits.VideoEdit(edit_id="edit-0000c4c4", conversation_id="conversation-a", kind="frames",
+                                  summary="Moments in talk.mp4", output_name="talk.mp4", started_at=1.0,
+                                  status="saved", moments=[[0.0, 27.0, " ".join(word for *_times, word in rambling)]])
+    listed = video_edits.summary(older).splitlines()[1]
+    assert len(listed) < MOMENT_WORDS + 20 and listed.endswith("…”"), "an edit kept before the cap is listed capped"
+
+
 def test_where_each_shot_starts_is_read_from_ffmpegs_scene_score():
     written = ("frame:0    pts:60      pts_time:2\nlavfi.scene_score=1.000000\n"
                "frame:1    pts:110     pts_time:3.666667\nlavfi.scene_score=0.512000\n")

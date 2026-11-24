@@ -1466,3 +1466,50 @@ def test_making_a_tidy_video_without_the_speech_model_asks_for_it_first(studio, 
     assert asked == ["Transcribing needs the speech model (Whisper small, about 244 MB) from Hugging Face. "
                      "Download it now?"]
     assert video_projects.list_projects("conversation-a")[0].latest.status == "", "nothing made"
+
+
+def test_a_recordings_scenes_carry_what_was_done_and_each_video_chooses_how_it_shows(studio):
+    """C9: a recorded scene reaches the studio pass with what its recording logged, so it's zoomed in on and
+    ringed (follow, the default), spotlit with the view wide, or left still, as the video or the brand kit says.
+    A recording with no beats marked is cut into a scene per burst of what was done."""
+    import time
+
+    from row_bot import recordings, video_brand, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import video_project_tool
+
+    saved = register_attachment("conversation-a", "generated-screen-recording.mp4", MP4)
+    record = recordings.Recording(recording_id="rec-0c9c9c9c", conversation_id="conversation-a", kind="screen",
+                                  started_at=time.time() - 60, max_seconds=300, status="saved",
+                                  media_ref=saved["attachment_ref"], mime_type="video/mp4",
+                                  actions=[[2.0, 2.5, "click", 0.7, 0.1, 0.05, 0.04, ""],
+                                           [3.0, 5.0, "type", 0.7, 0.1, 0.05, 0.04, ""],
+                                           [20.0, 20.4, "click", 0.2, 0.6, 0.0, 0.0, ""]])
+    record.duration_seconds = 40.0
+    recordings._ensure_loaded()
+    recordings._RECORDS[record.recording_id] = record
+
+    scenes = video_projects.scenes_from_beats("rec-0c9c9c9c", "conversation-a")
+    assert [(scene["start"], scene["end"], scene["speed"]) for scene in scenes] == [
+        (0.0, 6.5, 1.0), (6.5, 19.0, 4.0), (19.0, 21.9, 1.0)], \
+        "no beats: a scene per burst of what was done, the quiet between sped up and the quiet end left out"
+    assert "makes a scene of each burst of what was done (recording=rec-0c9c9c9c)" in recordings.summary(record)
+
+    project = video_projects.create("conversation-a", "Desktop demo", scenes[:1])
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    step = studio["started"][-1].steps[0]
+    assert step.look.camera == "follow", "zoomed in and ringed by default"
+    assert [action[2] for action in step.scenes[0].actions] == ["click", "type"], "what was done in that scene"
+
+    spotlit = video_projects.change(project, by="row-bot", look={"camera": "spotlight"}, note="No zooms")
+    video_projects.make(project, spotlit.number)
+    _wait(project.project_id, spotlit.number)
+    assert studio["started"][-1].steps[0].look.camera == "spotlight"
+    assert "Recordings: what was done is spotlit, the view wide." in video_projects.summary(
+        video_projects.get(project.project_id))
+    with pytest.raises(video_projects.ProjectError, match="The camera is follow, spotlight, still"):
+        video_projects.change(project, by="row-bot", look={"camera": "shaky"})
+
+    assert "camera still" in video_project_tool._video(action="brand", camera="still")
+    assert video_brand.load().camera == "still"

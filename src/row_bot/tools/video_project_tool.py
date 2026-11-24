@@ -79,9 +79,9 @@ class _VideoInput(BaseModel):
     title: str = Field(default="", description="create: the video's name; publish: the post's title (empty: the "
                                                 "video's name).")
     logline: str | None = Field(default=None, description="create, change: what the video is, in one line.")
-    recording: str = Field(default="", description="create: make the scenes from a browser recording's beats "
-                                                   "(rec-…), each with its title and line: live as it is, work "
-                                                   "sped up, cut left out.")
+    recording: str = Field(default="", description="create: make the scenes from a recording's beats (rec-…), "
+                                                   "each with its title and line: live as it is, work sped up, cut "
+                                                   "left out; with no beats, one per burst of what was done.")
     scenes: list[_Scene] | None = Field(default=None, description="create, change: every scene, in order.")
     music: str | None = Field(default=None, description="Music under the video: 'fit' (made to its length, "
                                                          "changing with the music cues), a music file, or '' none.")
@@ -124,13 +124,20 @@ class _VideoInput(BaseModel):
         default=None, description="brand: footage filling the frame (full, default) or inset on the brand colour "
                                   "(framed, only when asked).")
     caption_style: Literal["", "box", "clean", "bold", "title", "word"] | None = Field(
-        default=None, description="How captions look (word: a short's big words, one lit as it's said). brand: "
-                                  "every video's; create, change: this video's ('' the recipe's or the kit's).")
+        default=None, description="How captions look. box: white on a dark box; clean: white with a soft shadow; "
+                                  "bold: larger, outlined; title: large and outlined, mid-picture; word: a short's "
+                                  "few big words, the one said in yellow. brand: every video's; create, change: "
+                                  "this video's ('' the recipe's or the kit's).")
     font: Literal["sans", "modern", "serif", "display"] | None = Field(
         default=None, description="brand: the typeface of every title and caption.")
     title_style: Literal["studio", "minimal", "bold"] | None = Field(
-        default=None, description="brand: titles, lower thirds and the end card: on a card of the brand colour, "
-                                  "white words (title cards on black), or large on solid colour.")
+        default=None, description="brand: titles, lower thirds and the end card. studio: on a card of the brand "
+                                  "colour; minimal: white words over a thin rule of it (title cards on black); "
+                                  "bold: larger, on the solid colour.")
+    camera: Literal["", "follow", "spotlight", "still"] | None = Field(
+        default=None, description="How recordings show what was done. follow: zoom in on each click and ring it "
+                                  "(default); spotlight: stay wide, dim around it; still: neither. brand: every "
+                                  "video's; create, change: this video's ('' the kit's).")
     music_mood: Literal["calm", "upbeat", "focused", "warm"] | None = Field(
         default=None, description="create, change: the mood of 'fit' music (default the kit's); brand: the mood of "
                                   "music made for a video.")
@@ -355,16 +362,17 @@ def _video(action: str = "status", project: str = "", title: str = "", scenes: l
            on_beat: bool | None = None, loudness: float | None = None, recipe: str | None = None,
            grade: str | None = None, grain: bool | None = None, letterbox: bool | None = None,
            transitions: str | None = None, font: str | None = None, title_style: str | None = None,
-           tidy: bool | None = None, clean_voice: bool | None = None,
+           tidy: bool | None = None, clean_voice: bool | None = None, camera: str | None = None,
            platforms: list | None = None, description: str = "", thumbnail: str = "") -> str:
     from row_bot import video_projects
     from row_bot.video_projects import ProjectError
 
     if action == "brand":
         return _brand(framing=framing, captions=caption_style or None, music_mood=music_mood, voice=voice,
-                      voice_speed=voice_speed, loudness=loudness, font=font, titles=title_style)
+                      voice_speed=voice_speed, loudness=loudness, font=font, titles=title_style,
+                      camera=camera or None)
     look = {"recipe": recipe, "grade": grade, "grain": grain, "letterbox": letterbox, "transitions": transitions,
-            "caption_style": caption_style, "tidy": tidy, "clean_voice": clean_voice}
+            "caption_style": caption_style, "tidy": tidy, "clean_voice": clean_voice, "camera": camera}
     conversation = _conversation()
     if not conversation:
         return "Video projects need a conversation."
@@ -445,7 +453,7 @@ def _brand(**changes: object) -> str:
         return str(error)
     shown = {key: value for key, value in asdict(kit).items() if key in {"framing", "captions", "music_mood",
                                                                       "voice", "voice_speed", "loudness", "font",
-                                                                      "titles"}}
+                                                                      "titles", "camera"}}
     return ("Saved in the brand kit (the Video panel’s Brand kit); every new video starts this way: "
             + ", ".join(f"{key} {value or 'default'}" for key, value in shown.items()) + ".")
 
@@ -468,7 +476,7 @@ def langchain_tool():
             "video comes with its checks, by scene and time: fix what they list and make it again; it's ready to "
             "share only when they pass (no analyze_image passes of your own). undo goes back one version; export "
             "makes the same version in another shape or a GIF; publish makes its publish kit, only when the person "
-            "names a platform or asks; brand saves how every video should look (framing, "
+            "names a platform or asks; brand saves how every video should look (framing, camera, "
             "caption style, font, title style, music mood, voice, loudness). For one quick edit use edit_video. A "
             "title or end card is a "
             "scene without a video: never make background videos or other working files in the person's workspace "

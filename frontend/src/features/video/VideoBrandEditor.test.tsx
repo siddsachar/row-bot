@@ -74,7 +74,11 @@ it('edits the brand kit with pictures from Media as logos, and saves it only whe
     screen.getByLabelText('Footage'),
     'Edge to edge',
   );
-  await userEvent.selectOptions(screen.getByLabelText('Camera'), 'Stays still');
+  // C9: what recordings did, spotlit with the view wide instead of zoomed in.
+  await userEvent.selectOptions(
+    screen.getByLabelText('Camera'),
+    'Spotlights what is done',
+  );
   await userEvent.selectOptions(
     await screen
       .findByRole('option', { name: 'George (British)' })
@@ -99,7 +103,7 @@ it('edits the brand kit with pictures from Media as logos, and saves it only whe
     captions: 'bold',
     outro: 'row-bot.ai',
     framing: 'full',
-    camera: 'still',
+    camera: 'spotlight',
     voice: 'bm_george',
     voice_speed: 0.9,
     font: 'serif',

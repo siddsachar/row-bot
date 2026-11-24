@@ -1,4 +1,5 @@
-"""How a window sits on its display, from Windows itself (Windows only).
+"""How a window sits on its display, from Windows itself (Windows only); and the main display's size (Windows and
+macOS), for placing what is done on a screen recording (C9).
 
 Cua Driver works in physical pixels. A Row-Bot process isn't DPI aware by
 default, so Windows would answer it in scaled ("logical") pixels; every call
@@ -88,6 +89,36 @@ def window_display(window_id: int) -> WindowDisplay | None:
         return None
     return WindowDisplay((rect.left, rect.top, rect.right, rect.bottom),
                          (frame.left, frame.top, frame.right, frame.bottom), window_dpi, int(dpi_x.value))
+
+
+def main_display_size() -> tuple[float, float] | None:
+    """The main display's size, in the screen's own coordinates (Cua's): physical pixels on Windows, points on
+    macOS; it starts at 0, 0. None elsewhere, or when the system doesn't say. A screen recording is of this display."""
+
+    if sys.platform == "win32":
+        try:
+            with _physical() as user32:
+                width, height = int(user32.GetSystemMetrics(0)), int(user32.GetSystemMetrics(1))
+        except (AttributeError, OSError):
+            return None
+        return (float(width), float(height)) if width > 0 and height > 0 else None
+    if sys.platform == "darwin":
+        import ctypes
+
+        class _Rect(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double), ("width", ctypes.c_double),
+                        ("height", ctypes.c_double)]
+
+        try:
+            graphics = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+            graphics.CGMainDisplayID.restype = ctypes.c_uint32
+            graphics.CGDisplayBounds.restype = _Rect
+            graphics.CGDisplayBounds.argtypes = [ctypes.c_uint32]
+            bounds = graphics.CGDisplayBounds(graphics.CGMainDisplayID())
+        except (AttributeError, OSError):
+            return None
+        return (float(bounds.width), float(bounds.height)) if bounds.width > 0 and bounds.height > 0 else None
+    return None
 
 
 def cursor_position() -> tuple[int, int] | None:

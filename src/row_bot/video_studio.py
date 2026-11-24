@@ -34,7 +34,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 FRAMINGS = ("framed", "full")
-CAMERAS = ("follow", "still")
 # A key of the camera: seconds from the scene's start (in its recording's time), where the view's middle is (0–1
 # across the picture) and how far in it is (1 is the whole picture).
 Key = tuple[float, float, float, float]
@@ -71,6 +70,8 @@ PUSH_IN = 1.12
 THREADS = 8
 # How a scene is drawn: a change to the drawing changes this, so no clip drawn the old way is reused.
 DRAWING = 1
+# A video in its own footage's shape is at most this long on its longer side, as HD is.
+LONGEST = 1920
 # A project's drawn clips that no make used are kept this long (a make running beside this one may still read them).
 KEEP_SECONDS = 3600.0
 
@@ -228,6 +229,23 @@ def compose(picture: Any, frame: Frame, at: tuple[float, float, float] = (0.5, 0
     return finished
 
 
+def _lay_marks(image: Any, showing: tuple[Any, ...], picture: tuple[int, int], frame: Frame,
+               at: tuple[float, float, float]) -> None:
+    """Lay marks (``video_screen.lit``) on a finished frame that shows a picture of this size through this view."""
+    from row_bot import video_screen
+
+    box, where = placement(picture, frame, at)
+    scale_x, scale_y = (where[2] - where[0]) / (box[2] - box[0]), (where[3] - where[1]) / (box[3] - box[1])
+
+    def place(found: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+        x, y, width, height = found
+        return (where[0] + (x * picture[0] - box[0]) * scale_x, where[1] + (y * picture[1] - box[1]) * scale_y,
+                where[0] + ((x + width) * picture[0] - box[0]) * scale_x,
+                where[1] + ((y + height) * picture[1] - box[1]) * scale_y)
+
+    video_screen.draw(image, showing, place, clip=None if frame.framing == "full" else where)
+
+
 def push_in(seconds: float, box: tuple[float, float, float, float] | None = None) -> tuple[Key, ...]:
     """A picture's camera (Ken Burns): a slow push in over its whole scene, to its middle, or to its zoom's region."""
     target = (0.5, 0.5, PUSH_IN)
@@ -370,13 +388,15 @@ class Studio:
         self.tone = [0.0] * 7
 
     def add(self, source: Path, start: float, end: float, keys: tuple[Key, ...], frame: Frame, *,
-            stopped: Callable[[], bool] = lambda: False) -> tuple[float, float]:
+            stopped: Callable[[], bool] = lambda: False, marks: tuple[Any, ...] = ()) -> tuple[float, float]:
         """Draw ``start``–``end`` of a video (seconds from its start, as ffmpeg's ``-ss``) at the end of the clip:
         where it starts in the clip, and how long. It is read from a seek to the picture before ``start``, and each
         frame of the clip shows the latest picture at or before its moment, so any frame rate, a phone's varying
-        one too, comes out at the clip's."""
+        one too, comes out at the clip's. While a mark (``video_screen.marks``, in the video's own seconds) shows,
+        what was done is ringed or spotlit (C9)."""
         import av
 
+        from row_bot import video_screen
         from row_bot.video_editing import INPUT_FORMATS, EditError
 
         first = self.written
@@ -385,21 +405,27 @@ class Studio:
         direct = frame.framing == "full" and (not keys or (len(keys) == 1 and keys[0][3] == 1.0))
         latest = shown = picture = run = None
         seen = b""
+        upright = (0, 0)  # The footage's size, turned upright.
 
         def show(decoded: Any) -> None:
-            nonlocal shown, picture, run, seen
+            nonlocal shown, picture, run, seen, upright
             if shown is not decoded:
                 shown = decoded
                 if run is None:
                     run = _filters(decoded, time_base, _chain(decoded, keys, frame, direct))
+                    swaps = _upright(decoded.rotation)[1]
+                    upright = (decoded.height, decoded.width) if swaps else (decoded.width, decoded.height)
                 if direct:
                     picture = run(decoded)
                 elif (luma := bytes(decoded.planes[0])) != seen:  # A still page repeats one picture: drawn once.
                     picture, seen = run(decoded).to_image(), luma
-            if direct:
+            showing = video_screen.lit(marks, start + (self.written - first) / self.fps) if marks else ()
+            if direct and showing:
+                self._mark(picture, showing, upright, frame, (*(keys[0][1:3] if keys else (0.5, 0.5)), 1.0))
+            elif direct:
                 self._put(picture)
             else:
-                self._draw(picture, keys, frame, first)
+                self._draw(picture, keys, frame, first, showing)
 
         resample = av.AudioResampler(format="fltp", layout="stereo", rate=self.RATE) if self._audio else None
         with av.open(str(source), options={"protocol_whitelist": "file", "format_whitelist": INPUT_FORMATS}) as reader:
@@ -453,15 +479,32 @@ class Studio:
             self._writer.mux(packet)
         self.written += 1
 
-    def _draw(self, picture: Any, keys: tuple[Key, ...], frame: Frame, first: int) -> None:
+    def _draw(self, picture: Any, keys: tuple[Key, ...], frame: Frame, first: int,
+              showing: tuple[Any, ...] = ()) -> None:
         import av
 
         at = view(keys, (self.written - first) / self.fps)
-        key = (id(picture), frame, tuple(round(value, 5) for value in at))
+        key = (id(picture), frame, tuple(round(value, 5) for value in at), showing)
         if self._drawn[0] != key:
-            self._drawn = (key, compose(picture, frame, at))
+            drawn = compose(picture, frame, at)
+            if showing:
+                _lay_marks(drawn, showing, (picture.width, picture.height), frame, at)
+            self._drawn = (key, drawn)
         self._put(av.VideoFrame.from_image(self._drawn[1]).reformat(format="yuv420p", dst_colorspace="ITU709",
                                                                     dst_color_range="MPEG"))
+
+    def _mark(self, picture: Any, showing: tuple[Any, ...], upright: tuple[int, int], frame: Frame,
+              at: tuple[float, float, float]) -> None:
+        """A frame ffmpeg's scaler drew, with the marks showing laid on it (C9): made RGB only while one shows."""
+        import av
+
+        key = ("marked", id(picture), showing)
+        if self._drawn[0] != key:
+            image = picture.reformat(format="rgb24", src_colorspace="ITU709", src_color_range="MPEG").to_image()
+            _lay_marks(image, showing, upright, frame, at)
+            self._drawn = (key, av.VideoFrame.from_image(image).reformat(format="yuv420p", dst_colorspace="ITU709",
+                                                                          dst_color_range="MPEG"))
+        self._put(self._drawn[1])
 
     def _hear(self, decoded: Any, resample: Any, start: float, end: float) -> None:
         """A piece of a scene's sound, the part inside the scene, onto the clip's sound."""
@@ -613,15 +656,17 @@ def frame_rate(scenes: list[Any], inputs: list[Any]) -> float:
 
 
 def scene_key(item: Any, start: float, end: float, keys: tuple[Key, ...], frame: Frame, fps: float,
-              sound: bool, parts: tuple[tuple[float, float], ...] = ()) -> str:
+              sound: bool, parts: tuple[tuple[float, float], ...] = (), marks: tuple[Any, ...] = ()) -> str:
     """What a scene's clip is drawn from, as a hash: its footage (``InputVideo.identity``: which file, as it is
-    now), the part of it (and the parts it keeps once its pauses are cut, C4), its camera and look, the frame rate and
-    whether the video has sound. Its speed, card, line and voice are the edit's, not the drawing's: changing them
-    draws nothing again."""
+    now), the part of it (and the parts it keeps once its pauses are cut, C4), its camera, its marks (C9) and look,
+    the frame rate and whether the video has sound. Its speed, card, line and voice are the edit's, not the
+    drawing's: changing them draws nothing again."""
     what = [DRAWING, item.identity or item.path, item.info.still, round(start, 3), round(end, 3), keys,
             [*frame.size, frame.framing, *frame.colour, frame.captions], fps, sound]
     if parts:
         what.append([list(part) for part in parts])
+    if marks:
+        what.append(["marks", [list(mark) for mark in marks]])
     return hashlib.sha256(json.dumps(what).encode()).hexdigest()[:32]
 
 
@@ -674,6 +719,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     "new" (drawn now), "reused", or "" (a title card, which the edit draws)."""
     from dataclasses import replace
 
+    from row_bot import video_screen
     from row_bot.video_editing import CARD_SIZES, EditError, InputVideo, Look, VideoInfo, fit_to_lines
 
     if step.aspect and step.aspect not in CARD_SIZES:
@@ -690,7 +736,11 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     footage = [scene for scene in fitted if scene.input is not None]
     first = inputs[footage[0].input].info
     shape = step.aspect or ("16:9" if first.width / max(1, first.height) > 1.2 else "")
-    size = CARD_SIZES[shape] if shape else (first.width // 2 * 2, first.height // 2 * 2)
+    # Its own shape at most HD's size: footage recorded larger (twice over, so a zoom stays sharp: C9) still makes
+    # a video of the usual size.
+    fit = min(1.0, LONGEST / max(first.width, first.height, 1))
+    size = CARD_SIZES[shape] if shape else (max(2, round(first.width * fit)) // 2 * 2,
+                                            max(2, round(first.height * fit)) // 2 * 2)
     fill = Frame(size, look.framing if shape == "16:9" else "full", look.colour,
                  captions=CAPTION_ROOM if step.style == "caption" else 0.0)
     chosen = {True: replace(fill, framing="framed"), False: replace(fill, framing="full")}
@@ -710,6 +760,13 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
             return ((0.0, scene.focus[0], scene.focus[1], 1.0),)  # Cropped to fill around where the pointer was.
         return ()
 
+    def marks_of(scene: Any, start: float, end: float, keys: tuple[Key, ...]) -> tuple[Any, ...]:
+        """What was done in a recorded scene, ringed or spotlit (C9): none for a picture or a scene's own zoom."""
+        if not scene.actions or scene.zoom or inputs[scene.input].info.still:
+            return ()
+        return video_screen.marks(scene.actions, start, end, scene.speed, look.camera,
+                                  keys if look.camera == "follow" and scene.camera else ())
+
     fps = frame_rate(footage, inputs)
     sound = any(inputs[scene.input].info.has_audio for scene in footage)
     shelf = cache or folder
@@ -718,10 +775,12 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     made: list[str] = []
     plans = []  # Each footage scene: (scene, its footage, its part, camera, look, its clip, kept from before).
     pieces: list[tuple[tuple[float, float], ...]] = []  # The parts of it each scene keeps (C4), in the same order.
+    lights: list[tuple[Any, ...]] = []  # And what is ringed or spotlit in it (C9).
     for scene in fitted:
         if scene.input is None:
             plans.append((scene, None, (0.0, 0.0), (), fill, None, False))
             pieces.append(())
+            lights.append(())
             continue
         item = inputs[scene.input]
         keys, frame = keys_of(scene), frame_of(scene)
@@ -731,9 +790,11 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
             start = min(max(0.0, scene.start), item.info.duration)
             end = item.info.duration if scene.end is None else min(scene.end, item.info.duration)
         parts = () if item.info.still else scene_parts(scene, start, end)
-        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound, parts)}.mkv"
+        lit = marks_of(scene, start, end, keys)
+        clip = shelf / f"{size[0]}x{size[1]}-{scene_key(item, start, end, keys, frame, fps, sound, parts, lit)}.mkv"
         plans.append((scene, item, (start, end), keys, frame, clip, cache is not None and _keep(clip)))
         pieces.append(parts or ((start, end),))
+        lights.append(lit)
     drawing = sum(1 for *_rest, clip, kept in plans if clip is not None and not kept)
 
     def matched(scene: Any, item: Any, frame: Frame) -> str:
@@ -746,7 +807,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
     tones: dict[str, list[float]] = {}
     scenes = []
     written = 0
-    for (scene, item, (start, end), keys, frame, clip, kept), parts in zip(plans, pieces, strict=True):
+    for (scene, item, (start, end), keys, frame, clip, kept), parts, lit in zip(plans, pieces, lights, strict=True):
         if clip is None:
             scenes.append(scene)
             made.append("")
@@ -764,7 +825,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
                     studio.still(source, end, keys, frame)
                 else:  # Each part it keeps one after another: its pauses and fillers cut (C4).
                     for begin, until in parts:
-                        studio.add(source, begin, until, keys, frame, stopped=stopped)
+                        studio.add(source, begin, until, keys, frame, stopped=stopped, marks=lit)
             finally:
                 studio.close()
             os.replace(part, clip)
@@ -781,7 +842,7 @@ def prepare(inputs: list[Any], step: Any, folder: Path, *, stopped: Callable[[],
         # Its times are now the video's: what its recording logged moves with it.
         shift = at - start
         scenes.append(replace(scene, input=0, start=round(at, 3), end=round(at + count / fps, 3), zoom=None,
-                              camera=(), waits=tuple((begin + shift, until + shift) for begin, until in scene.waits)))
+                              camera=(), actions=(), waits=tuple((begin + shift, until + shift) for begin, until in scene.waits)))
     if matching:
         _keep_tones(shelf, {path.name: noted[path.name] for path, _seconds in clips if path.name in noted})
         found = colour_match(tones)

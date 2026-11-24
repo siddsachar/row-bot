@@ -426,7 +426,8 @@ class VideoEditingTool(BaseTool):
 
     @property
     def untrusted_tool_names(self) -> set[str]:
-        # A failed edit quotes ffmpeg's own words, which can carry a file's metadata.
+        # Both quote outside content: a failed edit quotes ffmpeg's own words, which can carry a file's metadata,
+        # and the moments listing, word cuts and word errors quote a clip's transcribed speech (C4).
         return {"edit_video", "video"}
 
     def as_langchain_tools(self) -> list:

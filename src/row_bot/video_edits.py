@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-from row_bot.video_editing import ASPECTS, clock, shape_of
+from row_bot.video_editing import ASPECTS, clock, moment_words, shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -1136,7 +1136,7 @@ def summary(edit: VideoEdit) -> str:
     video's output (``media_sources.identity``)."""
     head = f"Video edit {edit.edit_id}: "
     if edit.status == "saved" and edit.moments:
-        lines = [f"{index}. {clock(start)}–{clock(end)}" + (f" “{text}”" if text else "")
+        lines = [f"{index}. {clock(start)}–{clock(end)}" + (f" “{moment_words(text)}”" if text else "")
                  for index, (start, end, text) in enumerate(edit.moments, start=1)]
         said = any(text for _start, _end, text in edit.moments)
         return (head + f"found {len(edit.moments)} moments in {edit.summary.removeprefix('Moments in ')}, each a shot "

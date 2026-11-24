@@ -5,6 +5,10 @@ ends it by accident, and actions the agent takes through computer use aren't wri
 the recording's folder. Cua writes ``recording.mp4`` (the main display)
 into a private folder under Row-Bot's data; once the video is saved to the conversation, the
 whole folder goes. On Windows Cua needs ffmpeg for the video; on macOS it needs macOS 15.
+
+While it records, what Row-Bot does on the screen through computer use is logged with it as a browser recording's
+is (``recordings.Log``: beats it marks, and each click, typing, scroll and app opened with the control's box on the
+main display), so a video made from it has a scene per beat, or per burst of actions, and its camera follows them (C9).
 """
 
 from __future__ import annotations
@@ -15,6 +19,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+
+from row_bot.recordings import Log
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +71,7 @@ def _default_client() -> Any:
     return default_client()
 
 
-class ScreenRecording:
+class ScreenRecording(Log):
     """One recording of the main display, from start to the saved video."""
 
     def __init__(
@@ -91,7 +97,29 @@ class ScreenRecording:
         self._reason = ""
         self._client: Any = None
         self._started = 0.0
+        self._lock = threading.Lock()
+        # Marked moments and what was done, seconds into the recording (``recordings.Log``); where the pointer went.
+        self.beats: list[tuple[float, str, str, str]] = []
+        self.actions: list[list[Any]] = []
+        self.trail: list[tuple[float, float, float]] = []
         self._thread = threading.Thread(target=self._watch, daemon=True, name="row-bot-screen-recording")
+
+    def _now(self) -> float:
+        return max(0.0, self._clock() - self._started) if self._started else 0.0
+
+    def act(self, kind: str, box: tuple[float, float, float, float] | None = None, note: str = "") -> None:
+        """As ``recordings.Log.act``; typing with no box of its own is typed into the control last clicked, and a
+        click or typing moves the pointer's trail there."""
+        if kind == "type" and box is None:
+            with self._lock:
+                clicked = [action for action in self.actions if action[2] == "click"]
+            box = tuple(clicked[-1][3:7]) if clicked else None
+        super().act(kind, box, note)
+        if box is not None and kind in ("click", "type"):
+            with self._lock:
+                self.trail.append((round(self._now(), 2), round(box[0] + box[2] / 2, 4),
+                                   round(box[1] + box[3] / 2, 4)))
+                del self.trail[:-2_000]
 
     @property
     def video(self) -> Path:

@@ -77,10 +77,11 @@ MAX_SCREENSHOT_BYTES = 15 * 1024 * 1024
 # The live picture: the pane's size is honoured up to this, a thumbnail is small.
 MAX_PANE_WIDTH = 1600
 THUMB_WIDTH = 480
-# While a recording runs the page keeps this size, whatever the pane does: a 16:9 desktop window drawn at
-# 1920×1080, so the video fills its frame and text stays sharp when a scene zooms in.
-RECORD_METRICS = (1440, 810, 4 / 3)
-MAX_RECORD_SIDE = 1920
+# While a recording runs the page keeps this size, whatever the pane does: a 16:9 desktop window drawn at twice its
+# size (2880×1620), so the video fills its frame and text stays sharp when a scene zooms in (C9); the video made from
+# it is the usual 1920×1080.
+RECORD_METRICS = (1440, 810, 2.0)
+MAX_RECORD_SIDE = 2880
 # The drawn pointer's height in a recording, in the page's CSS pixels.
 RECORD_POINTER_CSS = 24
 RECORD_QUALITY = 90

@@ -55,6 +55,54 @@ class Capture(Protocol):
     def request_stop(self, reason: str) -> None: ...
 
 
+# Marked moments: what happens next while a recording runs.
+BEATS = ("live", "work", "cut")
+# What Row-Bot did while recording, for a video's camera to follow: clicks, typing, scrolls, pages or apps opened.
+ACTIONS = ("click", "type", "scroll", "open")
+MAX_ACTIONS = 500
+
+
+class Log:
+    """What a capture logs while it records, kept with its recording (``finished``): beats marked on its clock, and
+    what was done. A capture has ``_lock``, ``beats``, ``actions`` and ``_now()`` (seconds into it)."""
+
+    _lock: Any
+    beats: list[tuple[float, str, str, str]]
+    actions: list[list[Any]]
+
+    def _now(self) -> float:
+        raise NotImplementedError
+
+    def beat(self, kind: str, note: str = "", line: str = "") -> float:
+        """Mark this moment, with what happens next and the words said over it; its seconds into the recording."""
+        if kind not in BEATS:
+            raise ValueError(f"A beat is {', '.join(BEATS)}.")
+        at = round(self._now(), 2)
+        with self._lock:
+            self.beats.append((at, kind, str(note or "")[:120], str(line or "")[:300]))
+        return at
+
+    def act(self, kind: str, box: tuple[float, float, float, float] | None = None, note: str = "") -> None:
+        """Something is being done now, on this box of the picture (x, y, width, height, each 0–1 across it; no
+        size: a point; no box: the whole picture)."""
+        if kind not in ACTIONS:
+            raise ValueError(f"An action is {', '.join(ACTIONS)}.")
+        x, y, width, height = box or (0.0, 0.0, 1.0, 1.0)
+        x, y = min(1.0, max(0.0, float(x))), min(1.0, max(0.0, float(y)))
+        width, height = min(1.0 - x, max(0.0, float(width))), min(1.0 - y, max(0.0, float(height)))
+        now = round(self._now(), 2)
+        with self._lock:
+            self.actions.append([now, now, kind, round(x, 4), round(y, 4), round(width, 4), round(height, 4),
+                                 str(note or "")[:80]])
+            del self.actions[:-MAX_ACTIONS]
+
+    def act_done(self) -> None:
+        """The last action has finished (typing ends after its last key)."""
+        with self._lock:
+            if self.actions:
+                self.actions[-1][1] = round(self._now(), 2)
+
+
 @dataclass
 class Recording:
     recording_id: str
@@ -481,6 +529,18 @@ def clock_words(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
 
 
+def beat_words(kind: str, at: float, line: str) -> str:
+    """The result of marking a beat: when, what the video does with it, and how long its line takes to say."""
+    from row_bot.sound import speaking_seconds
+
+    said = speaking_seconds(line)
+    return (f"Marked {kind} at {clock_words(at)}"
+            + {"live": ": shown as it happens.", "work": ": sped up in the video.",
+               "cut": ": left out of the video."}[kind]
+            + (f" Its line takes about {said:.0f} s to say: stay on this step about that long." if kind == "live"
+               and said >= 1 else ""))
+
+
 def size_words(size: int) -> str:
     if size >= 1024 * 1024:
         return f"{size / (1024 * 1024):.1f} MB"
@@ -507,7 +567,8 @@ def summary(record: Recording) -> str:
                 + f" {clock_words(record.duration_seconds)} of {what} ({size_words(record.size_bytes)}) to this "
                 "chat's files: present shows it to the person."
                 + (f" Beats: {beats}. The video tool makes scenes from them (recording={record.recording_id})."
-                   if beats else ""))
+                   if beats else f" The video tool makes a scene of each burst of what was done "
+                   f"(recording={record.recording_id})." if record.actions else ""))
     reason = {
         "too_large": "the video was too large to save to the chat",
         "nothing_recorded": "nothing was recorded",

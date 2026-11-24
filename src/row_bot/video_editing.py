@@ -227,6 +227,9 @@ class SceneCut:
     # Its camera, from what was done while it was recorded (``video_studio.camera``): keys of (seconds from the
     # scene's start, middle x, middle y, zoom).
     camera: tuple[tuple[float, float, float, float], ...] = ()
+    # What its recording logged being done in it (``recordings.Recording.actions``): the studio pass rings or
+    # spotlights it (C9, ``video_screen.marks``).
+    actions: tuple[tuple[Any, ...], ...] = ()
     # Its sound effects and ambience (``video_sound.EFFECTS``, or sound files by name), and its music cue: music
     # made to fit the cut changes section where the cue does.
     effects: tuple[str, ...] = ()
@@ -347,7 +350,8 @@ class Look:
     intro: str = ""
     outro: str = ""
     # How footage sits in a 16:9 video: "full" (filling the frame, the default) or "framed" (inset on the backdrop,
-    # rounded, shadowed); and whether the camera follows what was done ("follow") or stays still ("still").
+    # rounded, shadowed); and whether the camera follows what was done ("follow": zooms in and rings it), stays wide
+    # and spotlights it ("spotlight", C9) or stays still ("still").
     framing: str = "full"
     camera: str = "follow"
     # The typeface of every word (``FONTS``) and how titles, lower thirds and the end card look (``TITLE_STYLES``).
@@ -1229,7 +1233,9 @@ SHOT_CHANGE = 0.3
 CUTS = "cuts.txt"
 # A moment lasts at least this long (a shot at least a second), at most this long; a clip has at most MAX_FRAMES.
 MOMENT_SECONDS = (2.0, 30.0)
-MOMENT_WORDS = 160
+# The words a moment quotes, at most this many characters (up to MAX_FRAMES moments are listed): enough to find "the
+# part where she opens the box" by, never a clip's whole speech.
+MOMENT_WORDS = 120
 # A gap this long between words, or a sentence's end, is where a moment of speech may end.
 MOMENT_GAP = 0.7
 
@@ -1275,9 +1281,18 @@ def moments(shots: list[float], words: list[Word] | tuple[Word, ...], length: fl
     found = []
     for begin, until in spans:
         text = " ".join(word for start, end, word in words if begin <= (start + end) / 2 < until)
-        found.append((round(begin, 2), round(until, 2),
-                      text if len(text) <= MOMENT_WORDS else text[:MOMENT_WORDS].rsplit(" ", 1)[0] + "…"))
+        found.append((round(begin, 2), round(until, 2), moment_words(text)))
     return found
+
+
+def moment_words(text: str) -> str:
+    """What a moment quotes of its speech: at most ``MOMENT_WORDS`` characters, cut at a word and ending with an
+    ellipsis when there's more."""
+    text = " ".join(str(text or "").split())
+    if len(text) <= MOMENT_WORDS:
+        return text
+    kept = text[:MOMENT_WORDS - 1]
+    return (kept.rsplit(" ", 1)[0] if " " in kept else kept).rstrip(" ,;:") + "…"
 
 
 def shape_of(width: int, height: int) -> str:
