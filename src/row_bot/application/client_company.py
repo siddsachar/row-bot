@@ -85,7 +85,7 @@ def status() -> dict[str, Any]:
         failure = None if join else (_unreachable if state == "unreachable" and _unreachable != "offline"
                                      else _failure)
         origin = record.origin if record else (join.origin if join else None)
-        from row_bot.company import policy, provider
+        from row_bot.company import enforce, policy, provider
 
         suggested = provider.suggestion(record)
         rules = policy.state()
@@ -113,6 +113,9 @@ def status() -> dict[str, Any]:
             "policy_since": policy.iso(rules.since),
             "locked": policy.locked(rules.policy),
             "rules": policy.rules(rules.policy),
+            # What the client shows as "Set by your company" beyond models (C3b): tools switched off, the
+            # approval ceiling, chat export and which apps may be added; None with no company.
+            "limits": enforce.limits(rules.policy),
         }
 
 

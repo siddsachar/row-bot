@@ -20,6 +20,8 @@ from row_bot.integrations.safe import public_url
 
 # Blocking code -> (readiness, next action). Order is precedence.
 BLOCKING = {
+    # The person's company doesn't allow it (C3b): nothing to do here, and nothing else to fix first.
+    "company_policy": (None, "none"),
     "configuration_recovery": ("attention", "retry"),
     "change_unconfirmed": ("attention", "retry"),
     "change_in_progress": ("working", "none"),
@@ -512,9 +514,44 @@ def _reconcile(row: dict, validate: Callable[[], None], pending: dict) -> list[d
     return found[:1]
 
 
+def company_held(row: dict) -> str:
+    """Why the person's company doesn't allow an installed item (C3b), in words; "" when it does. A package's
+    included items follow their package."""
+    from row_bot.company import enforce
+    policy = enforce.current() if row.get("parent_id") is None else None
+    if policy is None:
+        return ""
+    if row["kind"] == "plugin":
+        return "" if enforce.allows_plugin(row["owner_ref"], policy) else enforce.APP_HELD["plugins"]
+    if row["kind"] == "mcp" and row.get("_mcp"):
+        return enforce.mcp_refusal(row["_mcp"]["name"], row["_mcp"]["cfg"], policy) or ""
+    if row["kind"] == "skill":
+        return enforce.APP_HELD["skills_hub"] if enforce.skill_held(row["owner_ref"], policy) else ""
+    return ""
+
+
+def company_listed(row: dict, reference: dict) -> str:
+    """Why the person's company doesn't allow a catalog listing to be added (C3b), in words; "" when it does."""
+    from row_bot.company import enforce
+    policy = enforce.current()
+    if policy is None:
+        return ""
+    ref, reference = str(row["owner_ref"]), reference if isinstance(reference, dict) else {}
+    if row["kind"] == "plugin":
+        return "" if enforce.allows_plugin(ref, policy) else enforce.APP_HELD["plugins"]
+    if row["kind"] == "mcp":  # Listed as "<catalog>:<id>": the id is what a saved server keeps as source.id.
+        names = (row["name"], ref, ref.partition(":")[2])
+        return enforce.app_refusal("mcp_servers", *names, policy=policy) or ""
+    if row["kind"] == "skill":
+        names = (ref, str(reference.get("install_ref") or ""), str(reference.get("entry_id") or ""))
+        return enforce.app_refusal("skills_hub", *names, policy=policy) or ""
+    return ""
+
+
 def _live(row: dict, statuses: dict, validate: Callable[[], None], pending: dict) -> dict:
     """Apply live runtime state, requirements and unfinished changes to static facts."""
     row = copy.deepcopy(row)
+    held = company_held(row)
     private = row.pop("_mcp", None)
     if private is not None:
         cfg, excluded = private["cfg"], private.get("excluded", False)
@@ -540,6 +577,9 @@ def _live(row: dict, statuses: dict, validate: Callable[[], None], pending: dict
         message = child["name"] + (": " if required else " (optional): ") + (" ".join(reasons) or "Turn on this included capability.")
         code = "included" if not required else "included_attention" if child["readiness"] == "attention" else "included_needs_setup"
         row["blockers"].append(blocker(code, message, subject=child["name"]))
+    if held:
+        # Kept with its settings, and stopped: the one thing to say about it (C3b).
+        row["blockers"] = [blocker("company_policy", held)]
     return finish(row)
 
 

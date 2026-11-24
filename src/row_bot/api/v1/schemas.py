@@ -126,6 +126,9 @@ class ConversationApprovalView(WireModel):
     full_autonomy_confirmed: bool
     # False where other people share the conversation (a channel thread): Auto at most.
     full_autonomy_available: bool
+    # The highest level the person's company allows (C3b): the levels above it show "Set by your company" and
+    # the chat runs at most at it. None with no company joined.
+    company_max_level: ApprovalLevel | None = None
 
 
 class ConversationAppPayload(WireModel):
@@ -2902,6 +2905,27 @@ class CompanyLock(WireModel):
     words: str = Field(max_length=256)
 
 
+class CompanyAppLimit(WireModel):
+    """Which apps of one kind the company lets people add and run (C3b): none, only the allowed ones, or any."""
+
+    mode: Literal["none", "allow-list", "any"]
+    allowed: list[Annotated[str, StringConstraints(max_length=200)]] = Field(max_length=512)
+
+
+class CompanyLimits(WireModel):
+    """What Settings and the pickers show as "Set by your company" beyond models (C3b)."""
+
+    # Row-Bot's tools (registry names) the company switched off, with every tool each offers.
+    tools_off: list[Annotated[str, StringConstraints(max_length=64)]] = Field(max_length=512)
+    # The highest approval level anyone may choose.
+    max_level: ApprovalLevel
+    chat_export: bool
+    plugins: CompanyAppLimit
+    mcp_servers: CompanyAppLimit
+    skills_hub: CompanyAppLimit
+    channels: CompanyAppLimit
+
+
 class CompanyView(WireModel):
     """Settings › Company (C1b): this Row-Bot's company, read without contacting it."""
 
@@ -2935,6 +2959,7 @@ class CompanyView(WireModel):
     # The settings the policy restricts, shown as "Set by your company", and every setting in plain words.
     locked: list[CompanyLock] = Field(default_factory=list, max_length=64)
     rules: list[CompanyRule] = Field(default_factory=list, max_length=128)
+    limits: CompanyLimits | None = None
 
 
 class CompanyJoinRequest(WireModel):
@@ -8803,6 +8828,8 @@ class TaskSettingsSnapshot(WireModel):
     conversation_id: OpaqueId | None
     # The person turned Hands-off on once on this install: choosing it needs no dialog again.
     full_autonomy_confirmed: bool = False
+    # The highest level the person's company allows (C3b): the workflow runs at most at it. None with no company.
+    company_max_level: ApprovalLevel | None = None
     # The saved folder's name (kept when it is removed) and whether it is still a code folder.
     workspace_name: str | None = Field(default=None, max_length=256)
     workspace_available: bool = True

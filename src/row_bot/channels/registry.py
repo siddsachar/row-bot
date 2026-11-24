@@ -116,6 +116,10 @@ def deliver(channel_name: str, target: str | int, text: str) -> tuple[str, str]:
         return "delivery_failed", f"Unknown channel: {channel_name}"
     if not channel.is_running():
         return "delivery_failed", f"{channel.display_name} is not running"
+    from row_bot.company.enforce import APP_HELD, allows_app
+
+    if not allows_app("channels", channel_name):
+        return "delivery_failed", APP_HELD["channels"]  # The person's company doesn't allow it (C3b).
     try:
         channel.send_message(target, text)
         return "delivered", f"Delivered via {channel.display_name}"

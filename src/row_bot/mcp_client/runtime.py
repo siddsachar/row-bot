@@ -180,6 +180,13 @@ def _failure(exc: BaseException) -> str:
     return " | ".join(parts)[:2000]
 
 
+def _company_refusal(name: str, cfg: dict[str, Any] | None) -> str | None:
+    """Why the person's company doesn't allow this server to run (C3b), or None."""
+    from row_bot.company.enforce import mcp_refusal
+
+    return mcp_refusal(name, cfg)
+
+
 def _get_effective_config() -> dict[str, Any]:
     cfg = mcp_config.get_config()
     try:
@@ -759,6 +766,11 @@ class McpServerRuntime:
         try:
             if self._stop_requested.is_set():
                 return
+            held = _company_refusal(self.name, self.cfg)
+            if held:
+                # The person's company doesn't allow it (C3b): nothing starts; its settings stay as they are.
+                self._status(status="disabled", last_error=held)
+                return
             if not sdk_available():
                 self._status(status="failed" if _sdk_failure else "dependency_missing", last_error=sdk_problem())
                 return
@@ -1194,7 +1206,9 @@ def discover_enabled_servers() -> None:
                 _update_status(name, enabled=True, status="failed" if _sdk_failure else "dependency_missing",
                                last_error=sdk_problem())
         return
-    desired = {name: server for name, server in cfg.get("servers", {}).items() if server.get("enabled")}
+    # What the person's company doesn't allow (C3b) isn't started, and stops if it runs; its settings stay.
+    desired = {name: server for name, server in cfg.get("servers", {}).items()
+               if server.get("enabled") and not _company_refusal(name, server)}
     with _runtime_lock:
         existing = set(_servers)
     for stale in existing - set(desired):
@@ -1403,6 +1417,10 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
     outcome, cancelled = None, False
     try:
         runtime._forget_stderr()
+        held = _company_refusal(name, server_cfg)
+        if held:
+            # The person's company doesn't allow it (C3b): nothing is started; it ends as a failed check does.
+            raise PermissionError(held)
         async with asyncio.timeout(float(server_cfg.get("connect_timeout", 30))):
             runtime._validate_launch()
             await runtime._connect()
@@ -1553,6 +1571,9 @@ def _call_tool_sync(server_name: str, tool_name: str, kwargs: dict[str, Any], *,
         runtime = _servers.get(server_name)
     if not runtime:
         raise RuntimeError(f"MCP server '{server_name}' is not running")
+    held = _company_refusal(server_name, runtime.cfg)
+    if held:
+        return held  # A server the company stopped allowing while it ran (C3b): its tools don't run.
     timeout = float(runtime.cfg.get("tool_timeout", 120))
     deadline = time.monotonic() + timeout
     validate = None

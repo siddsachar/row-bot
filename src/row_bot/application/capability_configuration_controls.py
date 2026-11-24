@@ -454,6 +454,18 @@ def _next_document(
         affected.append(name)
     else:
         raise CapabilityConfigurationError("invalid_command")
+    if operation in {"add", "import", "rename"} and not child:
+        from row_bot.company.enforce import mcp_refusal
+
+        # A server the person's company doesn't allow can't be added (C3b), nor renamed: not into one it
+        # doesn't allow, and not out of one it doesn't allow into a name it does.
+        before = saved.document.get("servers", {})
+        held = [mcp_refusal(name, servers[name]) for name in affected]
+        if operation == "rename":
+            held += [mcp_refusal(name, cfg) for name, cfg in before.items()
+                     if name not in servers and name not in affected]
+        if any(held):
+            raise CapabilityConfigurationError("company_policy")
     if child:
         from row_bot.plugins.state import validate_mcp_child_change
         validate_mcp_child_change(saved.document, document)

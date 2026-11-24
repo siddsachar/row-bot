@@ -233,7 +233,17 @@ def restore(review_id: str) -> None:
         raise
 
 
+def _export_allowed() -> None:
+    """A backup holds every chat: while the person's company turns chat export off, none is made or taken
+    away from this computer (C3b). Restoring stays possible."""
+    from row_bot.company.enforce import allows_chat_export
+
+    if not allows_chat_export():
+        raise ClientPlatformError("company_policy")
+
+
 def backup() -> None:
+    _export_allowed()
     folder = _backups_folder()
     data = _data_dir()
     _start("backup", lambda: profile_backup.create_backup(data, folder, outside=(folder.parent,)))
@@ -260,6 +270,7 @@ def _last_backup() -> Path:
 
 def reveal_last(opener: Callable[[str, Path], bool] | None = None) -> bool:
     """Show the last backup in the file manager (argv only, never a shell)."""
+    _export_allowed()
     target = _last_backup()
     from row_bot.designer.client_exports import _open_path
 
@@ -272,6 +283,7 @@ def open_last_backup(expected: str | None = None) -> tuple[BinaryIO, int, str]:
     ``expected`` is the name the page showed; a newer backup since then is
     refused rather than sent under the older name.
     """
+    _export_allowed()
     target = _last_backup()
     if expected is not None and expected != target.name:
         raise ClientPlatformError("backup_unavailable")

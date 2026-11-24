@@ -370,3 +370,39 @@ test('company policy: locked down, with Retry, the rules and Settings › Models
   await expect(page.getByText(LOCKDOWN_LINE)).toBeVisible();
   await shoot(page, info, 'company-locked-down-picker');
 });
+
+// Company policy beyond models (C3b): a tool the company switched off shows
+// "Set by your company" in place of its switch in Settings › Tools. Every
+// company route is answered here.
+
+const limited: View = {
+  ...joined,
+  model_count: 0,
+  policy_state: 'current',
+  policy_reason: null,
+  policy_since: '2026-11-24T09:00:00+00:00',
+  limits: {
+    tools_off: ['web_search'],
+    max_level: 'auto',
+    chat_export: false,
+    plugins: { mode: 'none', allowed: [] },
+    mcp_servers: { mode: 'allow-list', allowed: ['github'] },
+    skills_hub: { mode: 'any', allowed: [] },
+    channels: { mode: 'allow-list', allowed: ['slack'] },
+  },
+};
+
+test('company policy: a tool the company switched off reads Set by your company in Settings › Tools', async ({
+  page,
+}, info) => {
+  const state = { view: limited, asked: [] as string[] };
+  await companyRoutes(page, state);
+
+  await page.goto('/app-v2/settings/tools');
+  await expect(page.getByText('Tavily web search').first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText('Set by your company').first()).toBeVisible();
+  await expect(page.getByLabel('Enable Tavily web search')).toHaveCount(0);
+  await shoot(page, info, 'company-tools-set-by-company');
+});

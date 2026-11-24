@@ -27,10 +27,12 @@ import { AppIcon } from '../apps/parts';
 export type StepApp = { id: string; name: string; icon: string };
 import { DangerAction, SettingsDangerZone } from '../settings/anatomy';
 import {
+  APPROVAL_LABELS,
   approvalLevel,
   useConfirmFullAutonomy,
   type ApprovalLevel,
 } from '../shell/approval-levels';
+import { SET_BY_COMPANY, cappedLevel, levelAllowed } from '../company/limits';
 import WebhookAddress, {
   type WebhookAddressProps,
   type WebhookConfiguration,
@@ -169,6 +171,20 @@ const LEVEL_NOTES: Record<ApprovalLevel, string> = {
   full: 'Nothing pauses for approval; every action runs and is recorded. The profile and sandbox limits still apply.',
   block: 'Anything that would change something is refused.',
 };
+
+/**
+ * What the chosen level means; above the company's ceiling (C3b), that the
+ * workflow runs at the ceiling while the choice stays saved.
+ */
+function approvalNote(
+  level: ApprovalLevel,
+  ceiling: string | null | undefined,
+) {
+  const runs = cappedLevel(level, ceiling);
+  return runs === level
+    ? LEVEL_NOTES[level]
+    : `${SET_BY_COMPANY}: it runs on ${APPROVAL_LABELS[runs]} at most. ${LEVEL_NOTES[runs]}`;
+}
 
 /** What reaches the workflow's channels under each choice (G8). */
 const SEND_RESULTS: Record<
@@ -600,7 +616,10 @@ export default function TaskSettingsEditor({
             <SettingRow
               label="Approvals"
               htmlFor={`${inputId}-approval`}
-              description={LEVEL_NOTES[approvalLevel(fields.approval_mode)]}
+              description={approvalNote(
+                approvalLevel(fields.approval_mode),
+                snapshot?.company_max_level,
+              )}
             >
               <Select
                 id={`${inputId}-approval`}
@@ -625,10 +644,25 @@ export default function TaskSettingsEditor({
                   }, opener);
                 }}
               >
-                <option value="approve">Ask before actions</option>
-                <option value="auto">Auto, reviewed</option>
-                <option value="full">Hands-off</option>
-                <option value="block">Block actions</option>
+                {(
+                  [
+                    ['approve', 'Ask before actions'],
+                    ['auto', 'Auto, reviewed'],
+                    ['full', 'Hands-off'],
+                    ['block', 'Block actions'],
+                  ] as const
+                ).map(([level, label]) => {
+                  // Above the company's ceiling (C3b): shown, not offered.
+                  const held = !levelAllowed(
+                    level,
+                    snapshot?.company_max_level,
+                  );
+                  return (
+                    <option key={level} value={level} disabled={held}>
+                      {held ? `${label} · ${SET_BY_COMPANY}` : label}
+                    </option>
+                  );
+                })}
               </Select>
             </SettingRow>
             <SettingRow

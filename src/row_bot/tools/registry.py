@@ -180,8 +180,12 @@ def get_all_tools() -> list["BaseTool"]:
 
 
 def get_enabled_tools() -> list["BaseTool"]:
-    """Return only the tools the user has enabled."""
-    return [t for t in get_all_tools() if is_enabled(t.name)]
+    """Return only the tools the user has enabled (less any their company switched off, C3b: their own switch is
+    kept as they set it)."""
+    from row_bot.company.enforce import keep_tools
+
+    kept = set(keep_tools([t.name for t in get_all_tools() if is_enabled(t.name)]))
+    return [t for t in get_all_tools() if t.name in kept]
 
 
 def is_enabled(name: str) -> bool:

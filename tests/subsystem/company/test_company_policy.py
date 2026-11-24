@@ -166,7 +166,8 @@ def test_the_lease_runs_out_into_lockdown_which_ends_at_the_next_fetch(company_s
                                    "offline_days": 2}]
     view = client_company.status()
     assert (view["policy_state"], view["policy_reason"]) == ("locked_down", "lease_expired")
-    assert {lock["setting"] for lock in view["locked"]} == {"models.personal_api_keys", "models.consumer_sign_ins"}
+    assert {lock["setting"] for lock in view["locked"] if lock["setting"].startswith("models.")} == {
+        "models.personal_api_keys", "models.consumer_sign_ins"}
 
     company_server.offline = False
     clock[0] += 60
@@ -347,7 +348,7 @@ def test_settings_shows_the_rules_in_plain_words_and_what_the_company_restricts(
     view = client_company.status()
 
     assert (view["policy_state"], view["policy_reason"]) == ("current", None) and view["policy_since"]
-    assert [lock["words"] for lock in view["locked"]] == [
+    assert [lock["words"] for lock in view["locked"] if lock["setting"].startswith("models.")] == [
         "Your company turned off personal API keys", "Your company turned off personal subscriptions"]
     rules = {rule["setting"]: rule for rule in view["rules"]}
     assert rules["offline.max_days"]["value"] == "7 days" and rules["offline.max_days"]["title"] == "Offline days"

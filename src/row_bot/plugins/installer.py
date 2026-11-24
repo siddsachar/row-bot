@@ -381,6 +381,11 @@ def install_plugin(
     from row_bot.plugins.devtools import compute_plugin_checksum
     from row_bot.package_files import contained_path
     operation_id = operation_id or str(uuid.uuid4())
+    from row_bot.company.enforce import APP_HELD, allows_plugin
+
+    if not allows_plugin(plugin_id):
+        # The person's company doesn't allow it (C3b): nothing is downloaded or changed.
+        return InstallResult(False, plugin_id, APP_HELD["plugins"], code="company_policy")
     try:
         dest = _owned_package(plugin_id)
         previous_state = state.get_plugin_package_state(plugin_id)

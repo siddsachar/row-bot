@@ -104,9 +104,14 @@ def collect_enabled_skill_records(*, load_manual: bool = True) -> list[SkillReco
         if load_manual
         else skills.get_enabled_manual_skills_snapshot()
     )
+    from row_bot.company.enforce import current as company_policy, skill_held
+
+    policy = company_policy()
     for skill in manual_skills:
         if skills.is_tool_guide(skill):
             continue
+        if policy is not None and skill_held(str(skill.name), policy):
+            continue  # A Skills Hub skill the person's company doesn't allow (C3b): kept, not used.
         records.append(SkillRecord(
             canonical_id=str(skill.name),
             alias=None,

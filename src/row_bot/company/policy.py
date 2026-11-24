@@ -97,11 +97,21 @@ REFUSED = {
                    "Choose a model on this computer, or try again later.",
 }
 # The settings a company can set that Settings shows as "Set by your company", with the line shown while the
-# company's value restricts the person.
+# company's value restricts the person: a switch off, a list that switches something off, a choice below the
+# most permissive one (C3b).
 _LOCK_WORDS = {
     "models.personal_api_keys": TURNED_OFF["personal"],
     "models.consumer_sign_ins": TURNED_OFF["consumer"],
     "models.local_models": TURNED_OFF["local"],
+    "tools.disabled_groups": "Your company switched off some of Row-Bot's tools",
+    "tools.disabled_tools": "Your company switched off some single tools",
+    "approvals.max_level": "Your company limits how much Row-Bot may do without asking",
+    "apps.plugins": "Your company limits which plugins you can add",
+    "apps.mcp_servers": "Your company limits which MCP servers you can add",
+    "apps.skills_hub": "Your company limits which Skills Hub skills you can add",
+    "apps.channels": "Your company limits which chat channels you can use",
+    "data.chat_export": "Your company turned off chat export",
+    "data.share_to_company": "Your company turned off Share to company",
 }
 _SWITCH = {"personal": "personal_api_keys", "consumer": "consumer_sign_ins", "local": "local_models"}
 _CHOICE_WORDS = {"block": "Block", "approve": "Ask", "auto": "Auto", "full": "Hands-off", "none": "None",
@@ -242,6 +252,9 @@ def _changed() -> None:
         agent.clear_agent_cache()
     if models is not None:
         models.clear_llm_cache()
+    ways = sys.modules.get("row_bot.integrations.builtin")
+    if ways is not None:
+        ways.changed()  # Apps shows a channel the company now holds (or lets go) as it is (C3b).
     publish("models")
 
 
@@ -576,9 +589,11 @@ def locked(policy: Policy | None) -> list[dict[str, str]]:
     for setting, words in _LOCK_WORDS.items():
         section, name = setting.split(".", 1)
         value = getattr(getattr(policy, section), name)
-        if value is False:
-            spec = shared.specs(section)[name]
-            found.append({"setting": setting, "title": spec.title, "value": _value_words(spec, value),
+        spec = shared.specs(section)[name]
+        restricts = (value is False if spec.kind == "bool" else bool(value) if spec.kind == "list"
+                     else spec.kind == "enum" and value != spec.choices[-1])
+        if restricts:
+            found.append({"setting": setting, "title": spec.title, "value": _value_words(spec, value)[:256],
                           "words": words})
     return found
 
