@@ -130,7 +130,7 @@ def test_a_share_waits_for_its_spaces_owner_who_approves_it_edited_into_a_fact_w
         # Behind the API, a decided share keeps who sent it, when and what it is, even beside its fact's going.
         with runtime_pool(org_database) as pool:
             for change, args in (("submitted_at = now()", ()), ("source_note = 'Changed'", ()),
-                                 ("submitted_by = %s", (priya_id,)), ("submitter_groups = '{Sales}'", ())):
+                                 ("submitted_by = %s", (priya_id,)), ("submitter_groups = '{Finance}'", ())):
                 with principal_transaction(pool, priya_id, []) as conn, \
                         pytest.raises(psycopg.errors.InsufficientPrivilege):
                     conn.execute(f"UPDATE row_bot_org.brain_submissions SET fact_id = NULL, {change} WHERE id = %s",
