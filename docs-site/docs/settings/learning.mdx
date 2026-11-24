@@ -1,0 +1,116 @@
+---
+title: "Settings: Learning"
+description: "Turn Learning off or on, choose what it learns from, how changes are used, its monthly token limit, experimental learning, the personal model and its training, and delete learning data in Settings › Learning."
+---
+
+# Settings: Learning
+
+Settings › Learning turns [Learning](/docs/learning/) off and on and holds all its settings: what it learns from, how changes are used, how much it may spend, experimental learning, the personal model, and the learning data on this computer. Learning is on from the start; experimental learning, reading past chats and the personal model are off until you turn them on. **Create skills while chatting** is here too, with Learning on or off.
+
+## Where To Find It
+
+Open **Settings**, then choose **Learning** in the **General** group, or search for it with **Find a setting**. In the Learning tab, **⋯ › Learning settings** opens it too.
+
+## While Learning Is Off
+
+A card says what Learning does, with **Turn on Learning**, which opens the setup sheet (see [Turn It On Again](/docs/learning/#turn-it-on-again)). **How it works** opens a short summary:
+
+- Row-Bot keeps a private record of how it handled your requests, on this computer.
+- During quiet hours it looks for things to do better and tests each idea on tasks it hasn't seen. Nothing changes without a test, and it asks you first.
+- It can also train a personal model of your own that runs on this computer. Downloads always ask first.
+- Everything can be undone, and you can delete the data at any time.
+
+If learning data from before is kept, the card says how much, with **Delete learning data…**. If Learning's saved settings can't be read, the card says so and Learning stays off.
+
+## Status
+
+At the top: **Learning on** or **Learning paused**, with this month's spending ("240K of 2M tokens this month", or "3M tokens this month (no limit)"). While a command is under way it says **Pausing Learning…**, **Resuming Learning…** or **Turning Learning off…**.
+
+The page menu (**More for Learning**) has **Open Learning** and **Pause Learning** or **Resume Learning**.
+
+## Learning
+
+- **Learning** switches it off. "Turn off Learning?" says that Row-Bot stops recording, testing and training, that changes and models in use stay in use (undo them in Learning), and that your learning data is kept until you delete it. Choose **Turn off** or **Keep it on**.
+- While paused, the row says "Paused: nothing new is recorded, tested or trained", with **Resume**.
+
+## Learn From
+
+- **My chats**: your chats in Row-Bot, and your own direct chats on Telegram, Slack and other apps.
+- **Workflows and goals**.
+- **Also learn from the last 30 days of chats** (off unless you turn it on): Row-Bot reads them in the background, and the row shows "Reading 214 past chats · 61 done" while it does.
+
+Chats with other people are never used. Switch any chat off from its menu with **Don't learn from this chat**. A messaging app set up without your own user ID shows a line such as "Telegram chats are used once your user ID is set in Settings › Apps › Telegram."
+
+## Changes And Spending
+
+### Using Changes
+
+- **Ask me first** (the default): a change that passes its test waits for you to review it.
+- **Use changes that pass their tests**: lessons, ways of working and skill edits that pass go into use by themselves, listed under Overnight with **Undo**.
+
+New personal-model versions always ask. See [Using Changes](/docs/learning/changes#using-changes).
+
+### Monthly Limit
+
+Learning uses your default model to find and test improvements. **Monthly limit** caps the tokens it uses each calendar month. The row shows how many it used this month, and the hint says what the limit buys, such as "About 20 tests of a change. Local models don't count."
+
+| Choice | What it does |
+| --- | --- |
+| **500K tokens** to **50M tokens** | A fixed limit: 500K, 1M, 2M (the default), 5M, 10M, 20M or 50M tokens a month. |
+| **Custom amount…** | Type any amount from 0.1 to 1,000 million tokens, such as 75 or 2.5. It's saved when you press Enter or leave the field. |
+| **No limit** | Nothing caps what Learning spends each month, comparing methods included. It asks first ("Change it" or "Cancel"). What it spends still shows each month. |
+| **No model calls** | Learning makes no model calls. Local models still work. |
+
+- Tokens from local models, such as Ollama or a custom endpoint on this computer, don't count.
+- When the limit is reached, testing waits for the next month and local training continues. Overview shows the date, with **Raise limit**, which opens this setting.
+- With experimental learning on, comparing learning methods uses at most a fifth of the limit, kept for it, and the hint says so. With **No limit**, each method in a comparison still gets the same budget.
+
+### Quiet Hours
+
+When Learning does its work: the same hours as Dream Cycle. **Change** opens them in Settings › Preferences › Overnight tidy-up.
+
+## Experimental
+
+**Try experimental learning** is off unless you turn it on. It adds three things, each still tested and still asking you first:
+
+- **Practice**: during quiet hours, Row-Bot makes up a few tasks like the ones it got wrong, runs them in throwaway sandboxes, and uses those it checks in its tests and, if you train one, in your personal model's training. Overview's **Overnight** says how it went, such as "Practised 12 document tasks it made up: 9 passed".
+- **A quick question**: at most once a day, when it can't tell what to change, Overview's **Needs you** asks one question with two answers. It never holds anything up; **✕** waves it away.
+- **Comparing ways of learning**: see [How Row-Bot Learns](/docs/learning/how-row-bot-learns).
+
+They use more of the **Monthly limit**.
+
+## Personal Model
+
+See [Personal Model](/docs/learning/personal-model) for what each part does.
+
+- **Train during quiet hours** (off unless you turn it on): trains a model of your own on your work while you're away. Turning it on, on a computer that can train, asks to download the training engine and the starting model ("Download the training engine and Qwen3.5 9B?"): **Download** or **Not now**. Off, a run starts only when you choose **Train now**.
+- **Where to train**: **This computer** or **Hugging Face**. Hugging Face uses your own account, priced before each run.
+- **Training engine**: installed and its size, with **Remove** (it asks first: nothing trains until you download it again), or **Download…**. It shows the download while it runs.
+- **Starting model**: its name, licence and that it comes from Hugging Face, with its size or download size. **Change…** (when training on this computer) opens the starting models, with **Other models**; **Delete** removes a downloaded one (it asks first), and **Download…** downloads it.
+- **Download**: while the engine or starting model downloads, or needs you, its progress and **Stop**, **Resume**, **Cancel** or **Try again**.
+
+With **Where to train** set to **Hugging Face**:
+
+- **Hugging Face account**: **Sign in with Hugging Face**, or who you're signed in as, with **Sign out**.
+- **Model on Hugging Face**: the model it trains there. Only models this computer can run afterwards are offered. **Other models…** finds and checks any open model.
+- **Monthly spending cap**: $10, $20, $50 or $100 a month, with what you've spent this month. Runs in quiet hours start only while they fit the cap. Until your first run: "Chosen with your first run".
+
+See [Training On Hugging Face](/docs/learning/hugging-face).
+
+## While Chatting
+
+**Create skills while chatting** lets Row-Bot offer to save multi-step work as a skill under a reply ([Save how Row-Bot did something](/docs/skills/#save-how-row-bot-did-something)) and suggest improvements to the skills it uses. Nothing is saved until you approve. Turn it off to keep the skill library exactly as you set it. It works with Learning on or off. It used to be **Learn new skills** in Settings › Preferences.
+
+## Learning Data
+
+**Kept on this computer** shows the size of your learning data, including pictures from browser and computer use (up to 10 GB; the oldest go first). Turning Learning off keeps it. **Delete learning data…** lists what it deletes and can't be undone. See [Pause, Turn Off Or Delete](/docs/learning/#pause-turn-off-or-delete).
+
+## Privacy And Safety
+
+Learning's records, tests and models stay on this computer. Its own model calls go to your default model's provider. Hugging Face is used only if you choose it. See [Privacy And Safety](/docs/privacy-safety/#learning).
+
+## Troubleshooting
+
+- **Turn on Learning is missing**: Learning's saved settings can't be read, so Learning stays off.
+- **Learning spends nothing**: the limit is **No model calls**, or your default model is local.
+- **Training doesn't start**: check **Train during quiet hours**, the training engine and the starting model here, then the Personal model view for what it's waiting for.

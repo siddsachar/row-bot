@@ -1,0 +1,108 @@
+---
+title: "Learning: Changes"
+description: "Review the lessons, ways of working and skills Learning drafted: why, what changes and how its test went, then use, undo or turn them down."
+---
+
+# Learning: Changes
+
+A change is an improvement Learning drafted from your work: a **lesson**, a **way of working** or a **skill**. Every change is tested before it's offered, and goes into use only with **Undo** beside it. Changes is where you review them.
+
+## Where To Find It
+
+Choose **Home › Learning**, then **Changes**. Changes ready to review also show in Overview's **Needs you**.
+
+## Kinds Of Change
+
+| Kind | What it is | Shown as |
+| --- | --- | --- |
+| **Lesson** | A short "do it this way" that Row-Bot recalls when it's relevant. In use, it's a memory of how to work. See [Lessons](/docs/learning/lessons). | "Lesson for document lookups" |
+| **Way of working** | A standing instruction in one of three places: how Row-Bot approaches the work, how it uses its tools, or when it hands work to a helper. | "Way of working for tool workflows · How Row-Bot uses its tools" |
+| **Skill** | A new skill, or an edit to one of yours, shown as a before-and-after. | "New skill for small coding tasks", "Skill edit for your work" |
+
+## The List
+
+Choose a filter:
+
+- **Ready**: tested, better, and waiting for you.
+- **Testing**: waiting to be tested, being tested, or edited and waiting to be tested again.
+- **In use**: changes you use (or that went into use by themselves), each with **Undo**.
+- **Not used**: changes that tested no better, that you turned down, or that you undid.
+
+Each row shows the change's title, its kind, its kind of work and when it was drafted, with **Review** (or **Undo** for one in use).
+
+| Status | What it means |
+| --- | --- |
+| **Ready** | Its test passed. Review it. |
+| **Waiting to be tested** | Drafted. Row-Bot tests it in quiet hours, or now with **Test now**. |
+| **Testing** | Being tested now. |
+| **Edited: test again** | You edited it, so it needs a new test before it can be used. |
+| **In use** | You chose to use it. |
+| **In use · by itself** | It passed its test and went into use under **Use changes that pass their tests**. |
+| **Not better** | Its test found no clear gain, or it did worse. |
+| **Turned down** | You chose **Don't suggest this again**. |
+| **Undone** | It was in use and you undid it. |
+
+## Review A Change
+
+**Review** opens the change in a side sheet (full screen on a phone):
+
+- **Why**: what Learning saw, in counts only, never anyone's words: "In 4 chats about document lookups, you corrected Row-Bot twice and a step failed once." It adds how many came from past chats Learning read. A lesson Row-Bot saved for itself during a chat says so.
+- **What changes**: the lesson's or way of working's words, or a skill's before-and-after. **Edit** changes the words.
+- **Test result**: a table of tasks passed **Without** and **With** the change, out of the number in brackets. For example, "Document lookups it hadn't seen (24)": 15 without, 21 with; "Other tasks (80)": 80 and 80. A line under it says how many tokens testing used ("Testing used 85K tokens"), and "Small test, so expect some variation." when it was small.
+
+The **⋯** menu holds **Don't suggest this again** and **Experiment details**.
+
+### What You Can Do
+
+- **Use this change** puts it into use. The notice says "Now in use." with **Undo**.
+- **Not now** keeps it in **Ready** without asking again from Needs you.
+- **Don't suggest this again** turns it down. It isn't proposed again unless something new comes up.
+- **Edit** opens the words. Row-Bot tests it again before you can use it: the result reads "Edited: test again before using", and the main button becomes **Test again**.
+- **Test now** tests a change that's waiting, at once. "Testing it now. It stops while you use Row-Bot and carries on later."
+- **Undo**, on a change in use, takes it back out at once: "Undone. Row-Bot works as it did before." Undo is also on its row in **Changes › In use**.
+
+A skill change can't be edited here; edit the skill itself in Settings › Skills.
+
+### Experiment Details
+
+Read-only, for those who want the numbers:
+
+- **Kind of change**, and when it was **Drafted**.
+- **Test**: the verdict, the difference on its own kind of work in points with its 95% interval, and that the test ran the same tasks with and without the change at the same budget, each problem 3 times.
+- **Automatic use**: "Never by itself: it rests only on what tools or web pages said." for a change drawn only from tool results or web pages.
+
+## How A Change Is Tested
+
+Row-Bot runs the same tasks with and without the change, at the same budget, on work it hasn't seen: your own work of that kind held back from drafting, corrections you made, and Row-Bot's own test tasks. It runs a few other kinds of work too, to check the change doesn't make them worse.
+
+A change counts as **better** only when it does better on its own kind of work and isn't clearly worse on the rest. The test result says which:
+
+- "Better on work it hadn't seen."
+- "No clear difference. Not used."
+- "Worse on its own kind of work. Not used."
+- "Better on its own kind of work but worse on other tasks. Not used."
+
+Tests use your default model, and their tokens count against the **Monthly limit**. A test stops at the limit and says so.
+
+## Using Changes
+
+**Using changes** in Settings › Learning decides what happens once a change passes:
+
+- **Ask me first** (the default): it waits in **Ready** for you.
+- **Use changes that pass their tests**: a lesson, way of working or skill edit that passes goes into use by itself. Overview's **Overnight** lists each one with **Undo**, and the morning notification mentions it. A change that rests only on what tools or web pages said never goes into use by itself.
+
+In both modes, a new personal-model version always asks.
+
+## What A Change Can't Touch
+
+No change, in any mode, reaches approvals, tools, permissions, spending, or who can reach Row-Bot. A change's words may not add addresses, links, passwords or permissions; Row-Bot checks again when it's used and after every edit.
+
+## What Is Saved
+
+Changes in use live where Row-Bot keeps that kind of thing: lessons as memories, skills with your skills, and ways of working in a small file beside Learning's settings. They stay in use while Learning is paused or off, and after you delete learning data. How each change was drafted and tested is learning data, on this computer.
+
+## Troubleshooting
+
+- **Nothing is ready**: "Row-Bot proposes a change only after testing it on work it hasn't seen." Most nights find nothing new, and that's normal.
+- **A change keeps saying Testing**: tests stop while you use Row-Bot and carry on when you're away, or with **Test now**.
+- **Use is refused**: the change was edited and needs testing again, or its words would add something a change may not.
