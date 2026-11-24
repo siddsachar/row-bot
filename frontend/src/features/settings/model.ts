@@ -31,7 +31,8 @@ export const settingsGroups = [
   {
     id: 'system',
     label: 'System',
-    leaves: ['system', 'activity', 'access', 'updates', 'data'],
+    // Company last: a personal Row-Bot's lists stay as they were, and on a phone Updates stays in view.
+    leaves: ['system', 'activity', 'access', 'updates', 'data', 'company'],
   },
 ] as const;
 
@@ -57,6 +58,7 @@ const leafLabels: Record<ListedLeafId, string> = {
   tools: 'Tools',
   skills: 'Skills',
   apps: 'Apps',
+  company: 'Company',
   system: 'System',
   activity: 'Activity',
   access: 'Devices & remote access',
@@ -85,6 +87,8 @@ export const settingsKeywords: Record<ListedLeafId, string> = {
     'utilities built-in search web research custom tools api key tavily wolfram',
   skills: 'skill library slash commands instructions clawhub create import',
   apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes accounts github google gmail calendar x twitter outlook microsoft office 365 oauth channels telegram discord slack sms whatsapp messaging',
+  company:
+    'teams organisation organization work server join leave sign in admin device',
   system:
     'shell commands browser computer use workspace folder logging logs files blocked privacy telemetry',
   activity:

@@ -48,6 +48,7 @@ describe('settings navigation metadata', () => {
       'Devices & remote access',
       'Updates',
       'Data',
+      'Company',
     ]);
     // Every leaf id that existed before the regroup still resolves, except
     // goals, which belong to one conversation and open its Context instead.

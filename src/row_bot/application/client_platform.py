@@ -1402,6 +1402,11 @@ class ClientPlatformService:
             profile = require_agent_profile(payload["profile_id"], enabled_only=True) if payload.get("profile_id") else None
             from row_bot import full_autonomy
             from row_bot.approval_policy import normalize_approval_mode
+            from row_bot.company.enforce import above_ceiling
+            if (normalize_approval_mode(payload["approval_mode"]) != normalize_approval_mode(row.get("approval_mode"))
+                    and above_ceiling(normalize_approval_mode(payload["approval_mode"]))):
+                # Above the person's company's ceiling (C3b): not offered. A level chosen before stays stored.
+                raise ClientPlatformError("company_policy")
             if payload["approval_mode"] == "full" and normalize_approval_mode(row.get("approval_mode")) != "full":
                 # Only for the person's own chats, and after its one-time dialog on this install.
                 if full_autonomy.is_shared_conversation(target):
@@ -2255,7 +2260,10 @@ class ClientPlatformService:
             fallback_reason=str((context.get("reason") if agent_request else "") or row["message"] or ""),
         )
         from row_bot.application.approval_grants import approval_kinds
-        repeatable = row["resume_kind"] == "conversation" and approval_kinds(context.get("interrupt")) is not None
+        from row_bot.company.enforce import allows_standing_approvals
+        # "Allow in this chat" isn't offered below a company ceiling of Auto (C3b): each action is asked there.
+        repeatable = (row["resume_kind"] == "conversation" and approval_kinds(context.get("interrupt")) is not None
+                      and allows_standing_approvals())
         # "Always allow…" (D1): one action whose card the gate gave a rule scope, still one a rule may cover.
         from row_bot import approval_rules
         rule_eligible = row["status"] == "pending" and approval_rules.from_interrupt(
@@ -2352,8 +2360,9 @@ class ClientPlatformService:
                    "Approved" if approved else "Edited" if edited else "Denied", approval_id=approval_id)
             if approved and payload.get("scope") in {"turn", "chat"} and alone is None:
                 from row_bot.application import approval_grants
+                from row_bot.company.enforce import allows_standing_approvals
                 kinds = approval_grants.approval_kinds(interrupt)
-                if kinds:
+                if kinds and allows_standing_approvals():  # Never kept below a company ceiling of Auto (C3b).
                     approval_grants.grant(conversation_id, kinds, payload["scope"])
             answered = ({"interrupt_ids": [edited[0]], "resume_values": {edited[0]: edited[1]}} if edited
                         else {"interrupt_ids": [alone_id], "resume_values": {alone_id: approved}} if asks_again

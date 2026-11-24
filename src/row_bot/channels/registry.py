@@ -84,6 +84,29 @@ def running_channels() -> list["Channel"]:
     return [channel for channel in _channels.values() if channel.is_running()]
 
 
+def stop_held_channels() -> list[str]:
+    """Stop every running channel the person's company doesn't allow (C3b), on the loop it started on; its
+    settings and sign-ins stay. Returns the names asked to stop."""
+    import asyncio
+
+    from row_bot.company.enforce import allows_app
+
+    stopped = []
+    for channel in running_channels():
+        if allows_app("channels", channel.name):
+            continue
+        loop = getattr(channel, "_started_loop", None)
+        if loop is None or loop.is_closed() or not loop.is_running():
+            log.warning("A channel the company doesn't allow is running, but can't be stopped here: %s", channel.name)
+            continue
+        asyncio.run_coroutine_threadsafe(channel.stop(), loop)
+        stopped.append(channel.name)
+        log.info("Stopping a channel the company doesn't allow: %s", channel.name)
+    if stopped:
+        clear_agent_cache_if_loaded()
+    return stopped
+
+
 def configured_channels() -> list["Channel"]:
     """Return only channels that have valid configuration."""
 

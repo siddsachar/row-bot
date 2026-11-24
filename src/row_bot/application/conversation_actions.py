@@ -139,9 +139,17 @@ def _snapshot(service: Any, conversation_id: str, validate: Callable[[], None]) 
             "rename": {"available": True, "code": None},
             "pin": {"available": True, "code": None},
             "archive": {"available": False, "code": "conversation_archive_unavailable"},
-            "export": {"available": True, "code": None},
+            # The person's company may turn chat export off (C3b).
+            "export": {"available": True, "code": None} if _export_allowed()
+            else {"available": False, "code": "company_policy"},
         },
     }
+
+
+def _export_allowed() -> bool:
+    from row_bot.company.enforce import allows_chat_export
+
+    return allows_chat_export()
 
 
 def read_conversation_actions(service: Any, conversation_id: str, *,
@@ -157,6 +165,8 @@ def _review_payload(action: str, payload: object) -> dict[str, Any]:
         raise _error("invalid_conversation_action")
     if action == "conversation.archive":
         raise _error("conversation_archive_unavailable")
+    if action == "conversation.export" and not _export_allowed():
+        raise _error("company_policy")  # The person's company turned chat export off (C3b).
     expected = {"title"} if action == "conversation.rename" else {"pinned"} if action == "conversation.pin" else set()
     optional = {"format"} if action == "conversation.export" else set()
     if not expected <= set(payload) <= expected | optional:
@@ -379,6 +389,8 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
             or type(payload.get("checkpoint_revision")) is not str
             or type(payload.get("action_digest")) is not str):
         raise _error("invalid_conversation_action")
+    if action == "conversation.export" and not _export_allowed():
+        raise _error("company_policy")  # Turned off by the person's company since it was reviewed (C3b).
     fields = {name: deepcopy(payload[name]) for name in plain_keys}
 
     def frozen_review() -> dict[str, Any]:

@@ -24,6 +24,7 @@ import {
   Select,
   StatusDot,
 } from '../../ui/primitives';
+import CompanySuggestion from '../company/CompanySuggestion';
 import { hasLocalModelSettings } from '../local-runtime/LocalModelSheet';
 import ModelList, {
   type ListedModel,
@@ -281,6 +282,14 @@ export default function ModelPicker({
             search={search}
           />
           <div className="model-picker-footer">
+            <CompanySuggestion
+              models={models}
+              suggest={missing || unavailable}
+              onChoose={(model) => {
+                onChoose(model);
+                onOpenChange(false);
+              }}
+            />
             {reasoning?.available && (
               <div className="model-picker-thinking">
                 <span className="model-picker-footer-label">Thinking</span>

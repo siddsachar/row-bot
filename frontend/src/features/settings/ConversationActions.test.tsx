@@ -179,6 +179,26 @@ it('is one dialog named after the conversation, with no second heading or archiv
   expect(props.execute).not.toHaveBeenCalled();
 });
 
+it('says chat export is set by the company and offers no export while it is off (C3b)', async () => {
+  const props = options();
+  props.load.mockResolvedValue({
+    ...snapshot,
+    capabilities: {
+      ...snapshot.capabilities,
+      export: { available: false, code: 'company_policy' },
+    },
+  });
+  const { dialog } = await openDialog(props);
+  expect(
+    await within(dialog).findByText('Your company turned off chat export.'),
+  ).toBeVisible();
+  expect(within(dialog).getByText('Set by your company')).toBeVisible();
+  expect(
+    within(dialog).queryByRole('button', { name: /Markdown|PDF/ }),
+  ).toBeNull();
+  expect(props.review).not.toHaveBeenCalled();
+});
+
 it('renames on Enter, not when the field loses focus, and retitles the dialog (B237)', async () => {
   const props = options();
   const { user, dialog } = await openDialog(props);

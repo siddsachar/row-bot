@@ -307,10 +307,16 @@ def _write_json(path: pathlib.Path, data: dict):
 # ── Enabled State ────────────────────────────────────────────────────────────
 @_locked_state
 def is_plugin_enabled(plugin_id: str) -> bool:
+    """Whether a plugin runs: the person turned it on, its source still stands, and their company allows it
+    (C3b). Their own switch is kept as they set it."""
     _ensure_loaded()
     from row_bot.plugins.hermes_catalog import activation_block
     record = _state.get(plugin_id, {})
-    return bool(record.get("enabled", False)) and not activation_block(record)
+    if not bool(record.get("enabled", False)) or activation_block(record):
+        return False
+    from row_bot.company.enforce import allows_plugin
+
+    return allows_plugin(plugin_id)
 
 
 @_locked_state

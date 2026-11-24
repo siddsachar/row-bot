@@ -828,6 +828,10 @@ def review_plugin_command(
     if detail["revision"] != payload["revision"]:
         raise _error("plugin_changed")
     capability = action.removeprefix("plugin.")
+    from row_bot.company.enforce import allows_plugin
+
+    if action == "plugin.enable" and not allows_plugin(detail["plugin_id"]):
+        raise _error("company_policy")  # The person's company doesn't allow it (C3b): nothing is changed.
     if not detail["capabilities"][capability]["available"]:
         raise _error(str(detail["capabilities"][capability]["code"]))
     intent: dict[str, Any] = {

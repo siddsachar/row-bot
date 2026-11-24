@@ -1,0 +1,411 @@
+{
+  "$defs": {
+    "CompanyAppLimit": {
+      "additionalProperties": false,
+      "description": "Which apps of one kind the company lets people add and run (C3b): none, only the allowed ones, or any.",
+      "properties": {
+        "allowed": {
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Allowed",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "none",
+            "allow-list",
+            "any"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "allowed"
+      ],
+      "title": "CompanyAppLimit",
+      "type": "object"
+    },
+    "CompanyLimits": {
+      "additionalProperties": false,
+      "description": "What Settings and the pickers show as \"Set by your company\" beyond models (C3b).",
+      "properties": {
+        "channels": {
+          "$ref": "#/$defs/CompanyAppLimit"
+        },
+        "chat_export": {
+          "title": "Chat Export",
+          "type": "boolean"
+        },
+        "max_level": {
+          "enum": [
+            "block",
+            "approve",
+            "auto",
+            "full"
+          ],
+          "title": "Max Level",
+          "type": "string"
+        },
+        "mcp_servers": {
+          "$ref": "#/$defs/CompanyAppLimit"
+        },
+        "plugins": {
+          "$ref": "#/$defs/CompanyAppLimit"
+        },
+        "skills_hub": {
+          "$ref": "#/$defs/CompanyAppLimit"
+        },
+        "tools_off": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 512,
+          "title": "Tools Off",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tools_off",
+        "max_level",
+        "chat_export",
+        "plugins",
+        "mcp_servers",
+        "skills_hub",
+        "channels"
+      ],
+      "title": "CompanyLimits",
+      "type": "object"
+    },
+    "CompanyLock": {
+      "additionalProperties": false,
+      "description": "A setting the company's policy restricts, which Settings shows as \"Set by your company\" (C3a).",
+      "properties": {
+        "setting": {
+          "maxLength": 64,
+          "title": "Setting",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 256,
+          "title": "Value",
+          "type": "string"
+        },
+        "words": {
+          "maxLength": 256,
+          "title": "Words",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setting",
+        "title",
+        "value",
+        "words"
+      ],
+      "title": "CompanyLock",
+      "type": "object"
+    },
+    "CompanyRule": {
+      "additionalProperties": false,
+      "description": "One company policy setting in plain words (C3a): its title and help from the shared model, its value.",
+      "properties": {
+        "help": {
+          "maxLength": 512,
+          "title": "Help",
+          "type": "string"
+        },
+        "setting": {
+          "maxLength": 64,
+          "title": "Setting",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 2048,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setting",
+        "title",
+        "help",
+        "value"
+      ],
+      "title": "CompanyRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a Company (C1b): this Row-Bot's company, read without contacting it.",
+  "properties": {
+    "company": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company"
+    },
+    "computer_name": {
+      "maxLength": 200,
+      "title": "Computer Name",
+      "type": "string"
+    },
+    "email": {
+      "anyOf": [
+        {
+          "maxLength": 320,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Email"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "enum": [
+            "not_https",
+            "invalid_address",
+            "not_company_server",
+            "unreachable",
+            "busy",
+            "browser",
+            "cancelled",
+            "denied",
+            "timed_out",
+            "failed",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Failure"
+    },
+    "joined_at": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Joined At"
+    },
+    "limits": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CompanyLimits"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "locked": {
+      "items": {
+        "$ref": "#/$defs/CompanyLock"
+      },
+      "maxItems": 64,
+      "title": "Locked",
+      "type": "array"
+    },
+    "model_count": {
+      "anyOf": [
+        {
+          "maximum": 512,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Count"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Name"
+    },
+    "notice": {
+      "anyOf": [
+        {
+          "enum": [
+            "left",
+            "left_offline"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Notice"
+    },
+    "on_this_computer": {
+      "title": "On This Computer",
+      "type": "boolean"
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Origin"
+    },
+    "policy_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "lease_expired",
+            "disconnected",
+            "not_confirmed",
+            "unreachable"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Reason"
+    },
+    "policy_since": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Since"
+    },
+    "policy_state": {
+      "default": "not_joined",
+      "enum": [
+        "not_joined",
+        "current",
+        "cached",
+        "locked_down"
+      ],
+      "title": "Policy State",
+      "type": "string"
+    },
+    "rejoining": {
+      "title": "Rejoining",
+      "type": "boolean"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/CompanyRule"
+      },
+      "maxItems": 128,
+      "title": "Rules",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "not_joined",
+        "waiting",
+        "joined",
+        "disconnected",
+        "unreachable"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "suggested_model_name": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggested Model Name"
+    },
+    "suggested_model_ref": {
+      "anyOf": [
+        {
+          "maxLength": 280,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggested Model Ref"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "company",
+    "origin",
+    "name",
+    "email",
+    "joined_at",
+    "computer_name",
+    "rejoining",
+    "failure",
+    "notice",
+    "on_this_computer"
+  ],
+  "title": "CompanyView",
+  "type": "object"
+}

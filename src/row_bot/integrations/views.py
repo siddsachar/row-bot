@@ -438,6 +438,9 @@ def _admit(render_id: str, name: str, arguments: dict) -> tuple[dict, Any, Any, 
         raise ViewError("view_tool_refused", "This view can't use that tool.")
     if not info.enabled:
         raise ViewError("view_tool_refused", "That tool is off for this app.")
+    from row_bot.company.enforce import tool_refusal
+    if tool_refusal(info.prefixed_name, parent="mcp"):  # The person's company switched it off (C3b).
+        raise ViewError("view_tool_refused", "Your company switched that tool off.")
     item = _app_of(record["server"])
     if item is None or not app_on(item):
         raise ViewError("views_off", "Views from this app are off.")

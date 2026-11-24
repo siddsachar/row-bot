@@ -126,6 +126,9 @@ class ConversationApprovalView(WireModel):
     full_autonomy_confirmed: bool
     # False where other people share the conversation (a channel thread): Auto at most.
     full_autonomy_available: bool
+    # The highest level the person's company allows (C3b): the levels above it show "Set by your company" and
+    # the chat runs at most at it. None with no company joined.
+    company_max_level: ApprovalLevel | None = None
 
 
 class ConversationAppPayload(WireModel):
@@ -2876,6 +2879,93 @@ class LocalModelInstallRequest(WireModel):
 class LocalModelRemoveRequest(WireModel):
     # One model; absent: the runtime and every model.
     model_id: LocalModelId | None = None
+
+
+# Row-Bot for Teams (C1b): why the last Join or Sign in again didn't join, or why the server can't be used now.
+CompanyFailure = Literal["not_https", "invalid_address", "not_company_server", "unreachable", "busy", "browser",
+                         "cancelled", "denied", "timed_out", "failed", "storage_unavailable"]
+
+
+class CompanyRule(WireModel):
+    """One company policy setting in plain words (C3a): its title and help from the shared model, its value."""
+
+    setting: str = Field(max_length=64)
+    title: str = Field(max_length=128)
+    help: str = Field(max_length=512)
+    value: str = Field(max_length=2048)
+
+
+class CompanyLock(WireModel):
+    """A setting the company's policy restricts, which Settings shows as "Set by your company" (C3a)."""
+
+    setting: str = Field(max_length=64)
+    title: str = Field(max_length=128)
+    value: str = Field(max_length=256)
+    # The quiet line shown where it applies ("Your company turned off personal API keys").
+    words: str = Field(max_length=256)
+
+
+class CompanyAppLimit(WireModel):
+    """Which apps of one kind the company lets people add and run (C3b): none, only the allowed ones, or any."""
+
+    mode: Literal["none", "allow-list", "any"]
+    allowed: list[Annotated[str, StringConstraints(max_length=200)]] = Field(max_length=512)
+
+
+class CompanyLimits(WireModel):
+    """What Settings and the pickers show as "Set by your company" beyond models (C3b)."""
+
+    # Row-Bot's tools (registry names) the company switched off, with every tool each offers.
+    tools_off: list[Annotated[str, StringConstraints(max_length=64)]] = Field(max_length=512)
+    # The highest approval level anyone may choose.
+    max_level: ApprovalLevel
+    chat_export: bool
+    plugins: CompanyAppLimit
+    mcp_servers: CompanyAppLimit
+    skills_hub: CompanyAppLimit
+    channels: CompanyAppLimit
+
+
+class CompanyView(WireModel):
+    """Settings › Company (C1b): this Row-Bot's company, read without contacting it."""
+
+    schema_version: Literal[1]
+    state: Literal["not_joined", "waiting", "joined", "disconnected", "unreachable"]
+    # The company as Row-Bot names it (its server's host), also after Leave for the notice.
+    company: str | None = Field(max_length=256)
+    origin: str | None = Field(max_length=512)
+    # Who signed in (the company's /api/me), once known.
+    name: str | None = Field(max_length=200)
+    email: str | None = Field(max_length=320)
+    joined_at: str | None = Field(max_length=64)
+    # This computer's name as the company's server shows it.
+    computer_name: str = Field(max_length=200)
+    # Waiting on a Sign in again as the same device.
+    rejoining: bool
+    failure: CompanyFailure | None
+    notice: Literal["left", "left_offline"] | None
+    # False on another device (a phone): Join and Sign in again open this computer's browser.
+    on_this_computer: bool
+    # Company models (C2): how many the company offers this person, None until its catalog is read; and the
+    # one it suggests to a person who hasn't chosen a model.
+    model_count: int | None = Field(default=None, ge=0, le=512)
+    suggested_model_ref: str | None = Field(default=None, max_length=280)
+    suggested_model_name: str | None = Field(default=None, max_length=256)
+    # The company's policy (C3a): in force (current), kept from the last confirmation while the server can't
+    # be reached (cached), or locked down to models on this computer; why, and since when.
+    policy_state: Literal["not_joined", "current", "cached", "locked_down"] = "not_joined"
+    policy_reason: Literal["lease_expired", "disconnected", "not_confirmed", "unreachable"] | None = None
+    policy_since: str | None = Field(default=None, max_length=64)
+    # The settings the policy restricts, shown as "Set by your company", and every setting in plain words.
+    locked: list[CompanyLock] = Field(default_factory=list, max_length=64)
+    rules: list[CompanyRule] = Field(default_factory=list, max_length=128)
+    limits: CompanyLimits | None = None
+
+
+class CompanyJoinRequest(WireModel):
+    address: str = Field(min_length=1, max_length=512)
+    # This computer's name for the company's server; empty: the computer's own name.
+    device_name: str = Field(default="", max_length=200)
 
 
 SpeechModelId = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")]
@@ -8738,6 +8828,8 @@ class TaskSettingsSnapshot(WireModel):
     conversation_id: OpaqueId | None
     # The person turned Hands-off on once on this install: choosing it needs no dialog again.
     full_autonomy_confirmed: bool = False
+    # The highest level the person's company allows (C3b): the workflow runs at most at it. None with no company.
+    company_max_level: ApprovalLevel | None = None
     # The saved folder's name (kept when it is removed) and whether it is still a code folder.
     workspace_name: str | None = Field(default=None, max_length=256)
     workspace_available: bool = True

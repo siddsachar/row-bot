@@ -47,7 +47,8 @@ def approval_view(service) -> dict:
 def test_full_autonomy_needs_the_dialog_the_first_time_and_never_again(platform, data_dir):
     from row_bot.application.client_platform import ClientPlatformError
 
-    assert approval_view(platform) == {"full_autonomy_confirmed": False, "full_autonomy_available": True}
+    assert approval_view(platform) == {"full_autonomy_confirmed": False, "full_autonomy_available": True,
+                                       "company_max_level": None}  # No company joined: no ceiling (C3b).
     with pytest.raises(ClientPlatformError, match="full_autonomy_unconfirmed"):
         save_level(platform, "full-unconfirmed", "full")
     assert level(platform) == "approve"
@@ -86,7 +87,8 @@ def test_a_conversation_other_people_share_can_not_turn_on_full_autonomy(platfor
     tasks.record_thread_channel_ref("conversation-a", channel="slack", target="C1:1700000000.000100",
                                     external_conversation_id="C1:1700000000.000100", shared=True)
 
-    assert approval_view(platform) == {"full_autonomy_confirmed": True, "full_autonomy_available": False}
+    assert approval_view(platform) == {"full_autonomy_confirmed": True, "full_autonomy_available": False,
+                                       "company_max_level": None}
     with pytest.raises(ClientPlatformError, match="full_autonomy_shared_conversation"):
         save_level(platform, "shared-full", "full", confirm_full_autonomy=True)
     save_level(platform, "shared-auto", "auto")

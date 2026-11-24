@@ -467,11 +467,14 @@ class ComputerUseService:
         """The first use of an app in a chat asks once (by the chat's approval level)."""
 
         from row_bot.approval_policy import normalize_approval_mode
+        from row_bot.company.enforce import allows_standing_approvals
         from row_bot.tools.approval_gate import APPROVAL_FULL_AUTONOMY, current_approval_mode
 
         key = _key(app)
+        # Below a company ceiling of Auto the chat's allowance isn't used or kept: each use asks (C3b).
+        standing = allows_standing_approvals()
         with self._lock:
-            given = self._allowed.get(session.thread_id, {}).get(key)
+            given = self._allowed.get(session.thread_id, {}).get(key) if standing else None
         if given == "person" or (given == "reviewer" and normalize_approval_mode(current_approval_mode()) == "auto"):
             return
         question = f"Let Row-Bot {'open and use' if opening else 'use'} {app} in this chat?"
@@ -492,7 +495,7 @@ class ComputerUseService:
                              "Ask the person to change the approval level."),
             cancelled_message=f"The person said no: Row-Bot won't use {app}.",
         )
-        if line != APPROVAL_FULL_AUTONOMY:
+        if line != APPROVAL_FULL_AUTONOMY and standing:
             with self._lock:
                 self._allowed.setdefault(session.thread_id, {})[key] = (
                     "reviewer" if line.startswith("Approval: approved by the reviewer") else "person")

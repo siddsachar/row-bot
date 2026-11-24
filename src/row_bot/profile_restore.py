@@ -41,6 +41,9 @@ SECRET_ENTRIES = frozenset({
     # The key a container made for its secure-secrets (secret_store.DATA_VOLUME_KEY_DIR_NAME, H2): never
     # beside the records in a backup, and a restore leaves it with them.
     "secret-store-key",
+    # The company this installation joined and its policy (Row-Bot for Teams): this device's own, never
+    # carried in a backup to another one, and never replaced by a restore.
+    "company.json", "company_policy.json",
 })
 # Rebuildable or machine-local: caches, runtimes, logs and earlier backups. Learning's
 # ``learning_models`` holds re-downloadable or re-trainable bulk (starting-model weights,

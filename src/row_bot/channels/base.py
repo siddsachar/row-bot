@@ -11,6 +11,9 @@ task-delivery routing.
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -100,6 +103,46 @@ def get_last_activity(channel_name: str) -> float | None:
     return _channel_activity.get(channel_name)
 
 
+# ── Company policy (Row-Bot for Teams, C3b) ─────────────────────────
+
+# Everything a channel sends goes through one of these: a channel the person's company doesn't allow sends
+# nothing, whichever part of Row-Bot asked (a workflow's delivery, a moment, a chat notice, a share).
+_OUTBOUND = ("send_message", "send_photo", "send_document", "send_approval_request")
+
+
+class ChannelHeld(RuntimeError):
+    """The person's company doesn't allow this channel: nothing was sent."""
+
+
+def _held(channel: "Channel") -> None:
+    from row_bot.company.enforce import app_refusal
+
+    words = app_refusal("channels", str(channel.name))
+    if words:
+        raise ChannelHeld(words)
+
+
+def _guard_outbound(method):
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        _held(self)
+        return method(self, *args, **kwargs)
+
+    guarded._company_guarded = True
+    return guarded
+
+
+def _note_loop(method):
+    @functools.wraps(method)
+    async def started(self, *args, **kwargs):
+        # Where it runs, so a stop the company's policy calls for can be scheduled there (registry).
+        self._started_loop = asyncio.get_running_loop()
+        return await method(self, *args, **kwargs)
+
+    started._company_guarded = True
+    return started
+
+
 # ── Channel ABC ──────────────────────────────────────────────────────
 
 class Channel(ABC):
@@ -110,6 +153,19 @@ class Channel(ABC):
     default ``NotImplementedError`` stubs — override only those that
     the channel actually supports.
     """
+
+    # The loop the channel last started on (``start``), or None.
+    _started_loop: asyncio.AbstractEventLoop | None = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        for name in _OUTBOUND:
+            method = cls.__dict__.get(name)
+            if callable(method) and not getattr(method, "_company_guarded", False):
+                setattr(cls, name, _guard_outbound(method))
+        start = cls.__dict__.get("start")
+        if inspect.iscoroutinefunction(start) and not getattr(start, "_company_guarded", False):
+            setattr(cls, "start", _note_loop(start))
 
     # ── Identity (must override) ─────────────────────────────────────
 

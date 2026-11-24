@@ -151,7 +151,10 @@ def decision_for_action(
 
     if read_only:
         return "allow"
-    normalized = normalize_approval_mode(mode)
+    from row_bot.company.enforce import cap
+
+    # At most the person's company's ceiling (C3b); with no company joined, the level itself.
+    normalized = cap(normalize_approval_mode(mode))
     if normalized == "block":
         return "block"
     if by_person and normalized in {"auto", "full"}:
