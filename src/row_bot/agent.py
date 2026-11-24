@@ -6338,7 +6338,7 @@ RARELY_USED_TOOL_GROUPS = frozenset({
     "sound", "media", "weather", "wikipedia", "linked_conversations", "chart",
 })
 RARELY_USED_TOOLS = frozenset({
-    "agent_profiles", "agent_profile_save", "agent_promote", "agent_retry",
+    "agent_profiles", "agent_profile_save", "agent_promote", "agent_retry", "board_show",
     "row_bot_create_skill", "row_bot_patch_skill", "row_bot_send_feedback", "row_bot_apply_proposal",
     "row_bot_reject_proposal", "row_bot_verify_proposal", "row_bot_review_skill_library", "row_bot_fix",
     "browser_record", "sandbox", "browser_viewport", "browser_upload", "browser_download", "browser_select",

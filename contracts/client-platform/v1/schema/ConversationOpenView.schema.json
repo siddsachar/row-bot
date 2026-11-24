@@ -2726,7 +2726,8 @@
             "request_corrected",
             "linked_conversation",
             "video_project",
-            "setting_change"
+            "setting_change",
+            "pinned_surface"
           ],
           "title": "Kind",
           "type": "string"
@@ -2780,6 +2781,13 @@
           "maxLength": 64,
           "pattern": "^(page-[0-9a-f]{8})?$",
           "title": "Page Id",
+          "type": "string"
+        },
+        "pin_id": {
+          "default": "",
+          "maxLength": 16,
+          "pattern": "^(pin-[0-9a-f]{12})?$",
+          "title": "Pin Id",
           "type": "string"
         },
         "process_id": {

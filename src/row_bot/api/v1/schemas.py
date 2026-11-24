@@ -10630,6 +10630,8 @@ class TraceSpecialization(WireModel):
         "video_project",
         # A setting Row-Bot changed: its card shows what changed and offers Undo.
         "setting_change",
+        # An interface pinned to Home that board_show named (generative UI): its card shows it, live.
+        "pinned_surface",
     ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
@@ -10673,6 +10675,8 @@ class TraceSpecialization(WireModel):
     project_id: str = Field(default="", max_length=32, pattern=r"^(vid-[0-9a-f]{8})?$")
     # setting_change: what changed, in words, and its row; Undo sends the step's result message id.
     setting_change: SettingChange | None = None
+    # pinned_surface: the Board's pin the card shows, re-read by id.
+    pin_id: str = Field(default="", max_length=16, pattern=r"^(pin-[0-9a-f]{12})?$")
 
 
 class TranscriptTraceItem(WireModel):

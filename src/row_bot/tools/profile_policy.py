@@ -40,7 +40,7 @@ _READ_OPERATIONS = {
     "url_reader": {"read_url"},
     "agents": {"agent_status", "agent_wait", "agent_profiles"},
     "weather": {"get_current_weather", "get_weather_forecast"},
-    "pages": {"page_read"},
+    "pages": {"page_read", "board_show"},
     "x": {"x_accounts"},
 }
 _RETRIEVAL_PARENTS = {

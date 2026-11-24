@@ -105,6 +105,26 @@ def _page_read(page: str, version: int | None = None, include_html: bool = False
     return json.dumps(result, ensure_ascii=False, indent=1)
 
 
+def _board_show(name: str = "") -> str:
+    """Show one of the person's pinned interfaces in this chat, from the Home Board, by its name."""
+    from row_bot.application.boards import find_pin
+
+    found, titles = find_pin(name)
+    if not titles:
+        return "Nothing is pinned to Home yet. Draw the interface, and the person can pin it."
+    if found is None:
+        listed = "; ".join(title for title in titles if title)
+        return f"No pinned interface is called that. Pinned: {listed}."
+    # The handle line: the chat shows the pinned interface itself, live, with its data filled in.
+    return (f"Pinned interface ({found['pin_id']}): {found.get('title') or 'Interface'}\n"
+            "It is shown in the chat as it is on Home, with the person's data filled in on their computer. "
+            "Don't draw it again.")
+
+
+class _BoardShowInput(BaseModel):
+    name: str = Field(default="", description="Its name, in the person's words; empty lists what is pinned.")
+
+
 class _CreateInput(BaseModel):
     title: str
     html: str = Field(description="One document, CSS and JS inline, no network; window.rowbot for data and state.")
@@ -173,6 +193,15 @@ class PagesTool(BaseTool):
                     "version: its state and decisions stay."
                 ),
                 args_schema=_UpdateInput,
+            ),
+            StructuredTool.from_function(
+                func=_board_show,
+                name="board_show",
+                description=(
+                    "Show an interface the person pinned to Home (their Board) in this chat, instantly, by its "
+                    "name: \"show my trip planner\". Prefer it to drawing a pinned interface again."
+                ),
+                args_schema=_BoardShowInput,
             ),
             StructuredTool.from_function(
                 func=_page_read,

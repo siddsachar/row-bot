@@ -111,6 +111,30 @@ def pin(service: Any, conversation_id: str, message_id: str, surface_id: str) ->
     return board(service)
 
 
+def find_pin(name: str) -> tuple[dict[str, Any] | None, list[str]]:
+    """The pin whose title best matches ``name`` (the person's words, "my trip board"), and every title."""
+
+    import re
+
+    with _LOCK:
+        pins = _load()
+    titles = [str(pin.get("title") or "") for pin in pins]
+
+    def words(text: str) -> set[str]:
+        return {word for word in re.findall(r"\w+", text.lower()) if word not in {"my", "the", "board", "a"}}
+
+    wanted = words(name)
+    best, score = None, 0
+    for pin, title in zip(pins, titles):
+        have = words(title)
+        overlap = len(wanted & have) if wanted else 0
+        if title.lower() == name.strip().lower():
+            overlap = 1000
+        if overlap > score:
+            best, score = pin, overlap
+    return best, titles
+
+
 def unpin(service: Any, pin_id: str) -> dict[str, Any]:
     with _LOCK:
         pins = _load()

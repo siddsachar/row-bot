@@ -82,3 +82,22 @@ def test_a_deleted_chat_takes_its_pins_with_it(service, chat, tmp_path):
         assert client.get("/api/v1/boards", headers=headers).json() == {"items": []}
     # Not even its title stays behind.
     assert "My day" not in (tmp_path / "boards.json").read_text(encoding="utf-8")
+
+
+def test_asking_for_a_pinned_interface_by_name_shows_it_in_the_chat(service, chat):
+    from row_bot.application.conversation_traces import specialize_tool_result
+    from row_bot.tools.pages_tool import _board_show
+
+    assert _board_show("my day").startswith("Nothing is pinned")
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        [item] = client.post("/api/v1/boards/pins", headers=headers, json={
+            "conversation_id": chat, "message_id": "first", "surface_id": "day"}).json()["items"]
+    shown = _board_show("show my day board")
+    assert shown.startswith(f"Pinned interface ({item['pin_id']}): My day")
+    # Its handle line becomes the card that shows the pinned interface itself.
+    card = specialize_tool_result({"name": "board_show", "content": shown})
+    assert (card.kind, card.pin_id) == ("pinned_surface", item["pin_id"])
+    missing = _board_show("tax return")
+    assert missing == "No pinned interface is called that. Pinned: My day."
+    assert specialize_tool_result({"name": "board_show", "content": missing}) is None

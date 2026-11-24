@@ -46,6 +46,8 @@ _VIDEO_EDIT_FRAMES = re.compile(r"saved \d+ frames |taking the frames\.")
 _DELIVERY_LINE = re.compile(r"Delivery (send-[0-9a-f]{8}): ")
 # A page a step made or changed (N5): the result's first line names it, and the card opens it by that id.
 _PAGE_TOOLS = frozenset({"page_create", "page_update"})
+# board_show's handle line (generative UI, G6): the chat shows that pinned interface itself.
+_PINNED_LINE = re.compile(r"^Pinned interface \((pin-[0-9a-f]{12})\): ")
 _PAGE_LINE = re.compile(r"Page (page-[0-9a-f]{8}): ")
 _VIDEO_PROJECT_LINE = re.compile(r"Video project (vid-[0-9a-f]{8}): ")
 # A call the model got wrong and is told to send again (U11): arguments that didn't fit the tool, a tool
@@ -188,6 +190,8 @@ class TraceSpecialization:
     project_id: str = ""
     # setting_change (self system): {label, where, href, before, after}, from the result's own Undo line.
     setting_change: dict | None = None
+    # pinned_surface (generative UI): the Board's pin a board_show step named; its card shows it live.
+    pin_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -750,6 +754,14 @@ def _page_specialization(name: str, content: Any) -> TraceSpecialization | None:
     return TraceSpecialization(kind="page", page_id=match.group(1)) if match else None
 
 
+def _pinned_specialization(name: str, content: Any) -> TraceSpecialization | None:
+    """The pinned interface a board_show step named: its card shows it as it is on Home."""
+    if name != "board_show" or not isinstance(content, str):
+        return None
+    match = _PINNED_LINE.match(content.partition("\n")[0])
+    return TraceSpecialization(kind="pinned_surface", pin_id=match.group(1)) if match else None
+
+
 def _setting_change_specialization(name: str, content: Any) -> TraceSpecialization | None:
     """A setting Row-Bot changed: what its result's Undo line says, in words, with the row."""
     if name != "row_bot_update_setting" or not isinstance(content, str):
@@ -821,6 +833,7 @@ def specialize_tool_result(result: Any, media_prompt: str = "") -> TraceSpeciali
         or _video_edit_specialization(name, _content(result))
         or _delivery_specialization(name, _content(result))
         or _page_specialization(name, _content(result))
+        or _pinned_specialization(name, _content(result))
         or _video_project_specialization(name, _content(result))
         or _setting_change_specialization(name, _content(result))
         or _sandbox_specialization(name, _content(result))
@@ -982,6 +995,7 @@ def _public_specialization(
             **({"page_id": specialization.page_id} if specialization.page_id else {}),
             **({"link_id": specialization.link_id} if specialization.link_id else {}),
             **({"project_id": specialization.project_id} if specialization.project_id else {}),
+            **({"pin_id": specialization.pin_id} if specialization.pin_id else {}),
             **({"setting_change": dict(specialization.setting_change)} if specialization.setting_change else {}),
             **({"outcome": specialization.outcome,
                 "answers": [dict(answer) for answer in specialization.answers]}

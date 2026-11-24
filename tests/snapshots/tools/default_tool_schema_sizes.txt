@@ -9,6 +9,7 @@ agent_wait: 501
 analyze_image: 1042
 arxiv: 607
 ask_person: 1104
+board_show: 415
 browser_click: 442
 browser_download: 307
 browser_extract: 273
@@ -133,4 +134,4 @@ workspace_read_file: 626
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (135 tools): 96851
+TOTAL (136 tools): 97266

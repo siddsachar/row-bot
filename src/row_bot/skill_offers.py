@@ -114,7 +114,7 @@ _READS = frozenset({
     "web_search", "duckduckgo", "wikipedia", "arxiv", "read_url", "youtube_search", "youtube_transcript",
     "documents", "analyze_image", "calculate", "get_current_weather", "get_weather_forecast",
     "get_system_info", "read_terminal", "search_memory", "list_memories", "explore_connections",
-    "list_conversations", "search_conversations", "conversation_links", "media_find", "page_read",
+    "list_conversations", "search_conversations", "conversation_links", "media_find", "page_read", "board_show",
     "tracker_query", "task_list", "wiki_read", "wiki_stats", "browser_navigate", "browser_extract",
     "browser_screenshot", "browser_scroll", "browser_tabs", "browser_wait_for", "browser_viewport",
     "browser_download", "workspace_read_file", "workspace_find", "workspace_list_directory", "workspace_file_search",

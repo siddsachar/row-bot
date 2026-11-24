@@ -39,6 +39,7 @@ import { DeliveryCard } from './DeliveryCard';
 import { SandboxJobCard } from './SandboxJobCard';
 import { SandboxPrepareOffer } from './SandboxPrepare';
 import { PageCard } from '../pages/PageCard';
+import { PinnedSurfaceCard } from './surfaces/HomeBoard';
 import { VideoProjectCard } from '../video/VideoProjectCard';
 import { LinkedConversationCard } from './LinkedConversationCard';
 import { MediaPreview } from './MediaPreview';
@@ -91,6 +92,8 @@ export type TranscriptCard =
   | { kind: 'sandbox_offer'; reason: string }
   /** A page a step made or changed, with Open (N5). */
   | { kind: 'page'; pageId: string }
+  /** An interface pinned to Home that board_show named: shown live, as on Home (generative UI). */
+  | { kind: 'pinned_surface'; pinId: string }
   /** A video project a step made or changed, with Open (5.3.1 B3). */
   | { kind: 'video_project'; projectId: string }
   /** A conversation this one started or proposed, followed by its link (5.3.1 C). */
@@ -181,6 +184,11 @@ export function cardOf(
     } satisfies TranscriptCard;
   if (value.kind === 'page' && value.page_id)
     return { kind: 'page', pageId: value.page_id } satisfies TranscriptCard;
+  if (value.kind === 'pinned_surface' && value.pin_id)
+    return {
+      kind: 'pinned_surface',
+      pinId: value.pin_id,
+    } satisfies TranscriptCard;
   if (value.kind === 'video_project' && value.project_id)
     return {
       kind: 'video_project',
@@ -231,15 +239,17 @@ export function cardKey(card: TranscriptCard) {
                   ? `answer:${card.callId}`
                   : card.kind === 'page'
                     ? `page:${card.pageId}`
-                    : card.kind === 'video_project'
-                      ? `video_project:${card.projectId}`
-                      : card.kind === 'linked'
-                        ? `linked:${card.linkId}`
-                        : card.kind === 'sandbox_job'
-                          ? `sandbox_job:${card.jobId}`
-                          : card.kind === 'sandbox_offer'
-                            ? 'sandbox_offer'
-                            : `connect:${card.target}`;
+                    : card.kind === 'pinned_surface'
+                      ? `pinned_surface:${card.pinId}`
+                      : card.kind === 'video_project'
+                        ? `video_project:${card.projectId}`
+                        : card.kind === 'linked'
+                          ? `linked:${card.linkId}`
+                          : card.kind === 'sandbox_job'
+                            ? `sandbox_job:${card.jobId}`
+                            : card.kind === 'sandbox_offer'
+                              ? 'sandbox_offer'
+                              : `connect:${card.target}`;
 }
 
 export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
@@ -829,6 +839,8 @@ function CardView({
     <SettingCard card={card} conversation={conversation} />
   ) : card.kind === 'page' ? (
     <PageCard pageId={card.pageId} conversationId={conversation} />
+  ) : card.kind === 'pinned_surface' ? (
+    <PinnedSurfaceCard pinId={card.pinId} />
   ) : card.kind === 'video_project' ? (
     <VideoProjectCard
       projectId={card.projectId}
