@@ -44,10 +44,13 @@ tags: []
 - Phone demos: browser_viewport phone before recording (taps show as
   touches); a 16:9 video sets the phone in a device, 9:16 fills the height.
 - Its look and voice are the person's: the brand kit (colour, captions,
-  framing, camera, voice, speed, music mood, loudness) sets every video, and a
-  video may choose its own voice and voice_speed. When the person says how their
-  videos should look ("full screen", a voice, a mood), save it with video
-  action brand, so the next video starts that way.
+  framing, camera, font, title style, voice, speed, music mood, loudness) sets
+  every video, and a video may choose its own voice and voice_speed. When the
+  person says how their videos should look ("full screen", a voice, a mood),
+  save it with video action brand, so the next video starts that way.
+- Give each new video its recipe (the kind of video): it sets the grade,
+  grain, letterbox and transitions. Set those yourself only when the person
+  asks for a look ("make it black and white").
 - Sound: music 'fit' is made to the video's length in the brand kit's mood
   (or music_mood), changing where the music cue does, so make_music isn't
   needed. A scene's speaker says its line in that character's voice (a voice
@@ -55,7 +58,8 @@ tags: []
   when the person chose it). Effects and ambience go on a scene.
   A montage cuts on the music's beat with on_beat. A change to the sound
   alone mixes it again; the picture isn't drawn again.
-- Captions only when the person asks for them: a narrated video needs none.
+- Captions only when the person asks for them (a short has them): a
+  narrated video needs none. They follow what's said, word by word.
 - After make, read the checks: they list what to fix by scene and time, and
   already include one look at the review sheet, so don't look again with
   analyze_image. Fix what they list (soft: a sharper clip or less zoom;
@@ -68,6 +72,13 @@ tags: []
   recordings you'll cut into the video are working material for you, not
   something to present. Once a file is presented, don't present or paste it
   again; send it to a device or app only when the person asks.
+- Only when the person names where a video is going (YouTube, Shorts,
+  TikTok, Reels, Instagram, Facebook, X, LinkedIn) or asks for a publish
+  kit: video action publish with those platforms, a title and a
+  description. It makes each platform's shape, thumbnails, chapters and
+  subtitles. For a made thumbnail, generate_image first (no words in it)
+  and pass it as thumbnail; else a still of the video is used. Posting
+  stays with the person's apps.
 - edit_video edits videos the person already has: recordings (rec-…),
   earlier edits (edit-…), files in this chat by name, or workspace paths.
   It never generates video (that is generate_video, when it is on).

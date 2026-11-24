@@ -6503,6 +6503,17 @@ class VideoEditPage(WireModel):
 VideoProjectId = Annotated[str, StringConstraints(pattern=r"^vid-[0-9a-f]{8}$")]
 VideoSceneId = Annotated[str, StringConstraints(pattern=r"^s[0-9a-f]{6}$")]
 VideoFootage = Literal["clip", "picture", "ai", "card", "screen"]
+VideoRecipe = Literal["", "film", "youtube", "vlog", "montage", "explainer", "demo", "short"]
+VideoGrade = Literal["natural", "warm", "cinematic", "vivid", "bw"]
+VideoTransitions = Literal["cut", "crossfade"]
+# How captions look: in a box, clean (a soft shadow), bold, centred, or a short's big words, one lit as it's said.
+VideoCaptionStyle = Literal["box", "clean", "bold", "title", "word"]
+
+
+class VideoChapter(WireModel):
+    """Where a chapter of a made video starts, and its title (C7): for a YouTube description."""
+    at: float = Field(ge=0)
+    title: str = Field(max_length=120)
 
 
 class VideoScene(WireModel):
@@ -6576,18 +6587,41 @@ class VideoVersionView(WireModel):
 
 class VideoExportView(WireModel):
     """The same version in another shape, or as a GIF: the edit that makes it."""
-    shape: Literal["16:9", "1:1", "9:16", "gif"]
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"]
     edit: VideoEditView
 
 
 class VideoProjectExport(WireModel):
-    shape: Literal["16:9", "1:1", "9:16", "gif"]
+    shape: Literal["16:9", "1:1", "9:16", "4:5", "gif"]
+
+
+VideoPlatform = Literal["youtube", "shorts", "tiktok", "reels", "instagram", "facebook", "x", "linkedin"]
+
+
+class VideoPublishFile(WireModel):
+    """A file of a publish kit in the chat's files: a thumbnail in a shape, or the subtitles in a format."""
+    name: str = Field(min_length=1, max_length=240)
+    ref: str = Field(min_length=1, max_length=512)
+    shape: Literal["", "16:9", "1:1", "9:16", "4:5"] = ""
+    format: Literal["", "srt", "vtt"] = ""
+
+
+class VideoPublishKit(WireModel):
+    """A made version's publish kit (C10), made when the person named where it's going: the post's title and
+    description (YouTube's limits), a YouTube video's chapters, a thumbnail in each platform's shape, and its
+    subtitles. Each platform's video is the version's own, or its export in that shape."""
+    platforms: list[VideoPlatform] = Field(min_length=1, max_length=8)
+    title: str = Field(max_length=100)
+    description: str = Field(max_length=5000)
+    chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
+    thumbnails: list[VideoPublishFile] = Field(max_length=4)
+    subtitles: list[VideoPublishFile] = Field(max_length=2)
 
 
 class VideoBrand(WireModel):
     """The brand kit (5.3.1 B3): the look every video project uses unless a version turns it off."""
     colour: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
-    captions: Literal["box", "bold", "title"]
+    captions: VideoCaptionStyle
     # A picture from Library › Media, by its reference; "" for none.
     logo: str = Field(max_length=512)
     logo_corner: Literal["top-left", "top-right", "bottom-left", "bottom-right"]
@@ -6602,6 +6636,9 @@ class VideoBrand(WireModel):
     voice_speed: float = Field(default=1.0, ge=0.9, le=1.25)
     # Every video's mix is brought to this loudness (LUFS): -14 for social video.
     loudness: float = Field(default=-14.0, ge=-24, le=-10)
+    # Every word's typeface, and how titles, lower thirds and the end card look (C5).
+    font: Literal["sans", "modern", "serif", "display"] = "sans"
+    titles: Literal["studio", "minimal", "bold"] = "studio"
 
 
 class VideoProjectView(WireModel):
@@ -6639,15 +6676,27 @@ class VideoProjectView(WireModel):
     checks: list[str] = Field(max_length=12)
     checks_passed: bool | None
     # Its shape ("" keeps its first video's), and its exports in other shapes or as a GIF.
-    aspect: Literal["", "16:9", "1:1", "9:16"]
-    exports: list[VideoExportView] = Field(max_length=4)
+    aspect: Literal["", "16:9", "1:1", "9:16", "4:5"]
+    exports: list[VideoExportView] = Field(max_length=5)
     # Made with the brand kit.
     brand: bool
     # Its own voice and speed for its lines ("" and 0: the brand kit's).
     voice: str = Field(default="", max_length=64)
     voice_speed: float = Field(default=0.0, ge=0, le=1.25)
+    # Its look as it's made (C5): its kind ("" none), and its grade, grain, letterbox and transitions (its own, else
+    # its kind's); its footage's colour is matched to one look first.
+    recipe: VideoRecipe = ""
+    grade: VideoGrade = "natural"
+    grain: bool = False
+    letterbox: bool = False
+    transitions: VideoTransitions = "cut"
+    # How its captions look (its own, else its kind's, else the brand kit's), and a made video's chapters (C7).
+    caption_style: VideoCaptionStyle = "box"
+    chapters: list[VideoChapter] = Field(default_factory=list, max_length=200)
     # The made video's review sheet in the chat's files: frames of each scene, labelled ("" none yet).
     review_sheet: str = Field(default="", max_length=200)
+    # Its publish kit, made when the person named a platform (C10); None none.
+    publish: VideoPublishKit | None = None
 
 
 class VideoProjectChange(WireModel):
@@ -6661,6 +6710,12 @@ class VideoProjectChange(WireModel):
     voice: str | None = Field(default=None, max_length=64)
     # A voice for a character who speaks (kept with a saved character in Library › Media).
     cast: list[VideoCastMember] | None = Field(default=None, max_length=200)
+    # Its look (C5): left out, the version's own (else its kind's).
+    grade: VideoGrade | None = None
+    grain: bool | None = None
+    letterbox: bool | None = None
+    transitions: VideoTransitions | None = None
+    caption_style: VideoCaptionStyle | None = None
     note: str = Field(default="", max_length=200)
 
 

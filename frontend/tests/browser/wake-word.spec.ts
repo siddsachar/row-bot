@@ -63,15 +63,29 @@ function microphones(page: Page) {
   });
 }
 
+// By role and exact name: the workspace's mark also names "Hey Row-Bot".
+const wakeSwitch = (page: Page) =>
+  page.getByRole('switch', { name: 'Hey Row-Bot', exact: true });
+
 async function setWakeWord(page: Page, on: boolean) {
   await page.goto('/app-v2/settings/voice');
-  const toggle = page.getByLabel('Hey Row-Bot');
+  const toggle = wakeSwitch(page);
   await expect(toggle).toBeVisible();
-  if ((await toggle.isChecked()) !== on) await toggle.click();
+  if ((await toggle.isChecked()) === on) return;
+  await toggle.click();
   await expect(toggle).toBeChecked({ checked: on });
+  // Saved for the specs after this one only once its notice shows.
+  await expect(
+    page
+      .getByText(
+        on ? 'Row-Bot listens for “Hey Row-Bot”' : 'Wake word turned off',
+      )
+      .first(),
+  ).toBeVisible();
 }
 
-// The switch is this profile's saved one: a test that stops early still turns it off.
+// The switch is this profile's saved one, which the specs after this one share:
+// a test that stops early still turns it off, at the width that shows it.
 test.afterEach(async ({ page }) => {
   const bar = page.getByRole('region', { name: 'Voice conversation' });
   if (await bar.isVisible().catch(() => false))
@@ -79,7 +93,8 @@ test.afterEach(async ({ page }) => {
       .getByRole('button', { name: 'End voice' })
       .click()
       .catch(() => undefined);
-  await setWakeWord(page, false).catch(() => undefined);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await setWakeWord(page, false);
 });
 
 const LISTENING = 'Listening for “Hey Row-Bot”. Turn off';
@@ -92,7 +107,7 @@ test('off until turned on; then it listens with a clear mark, hearing it starts 
   await expect(group).toContainText(
     'Listens on this computer for “Hey Row-Bot” while a Row-Bot window is open; nothing is recorded or sent anywhere.',
   );
-  await expect(page.getByLabel('Hey Row-Bot')).not.toBeChecked();
+  await expect(wakeSwitch(page)).not.toBeChecked();
   expect((await microphones(page)).acquired).toBe(0);
   await expect(page.getByRole('button', { name: LISTENING })).toHaveCount(0);
 

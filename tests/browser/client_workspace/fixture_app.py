@@ -2822,6 +2822,8 @@ def _b3_project(thread: str) -> str:
     from row_bot import video_edits, video_projects
     from row_bot.application.attachments import register_attachment
 
+    from row_bot.video_editing import estimated_words
+
     clip = _s3_video()
     for name in ("signup.mp4", "pricing.mp4"):
         register_attachment(thread, name, clip)
@@ -2840,7 +2842,11 @@ def _b3_project(thread: str) -> str:
         status="saved", expected_seconds=3.0, ended_at=clock.time(), media_ref=str(saved["attachment_ref"]),
         mime_type="video/mp4", size_bytes=len(clip), marks=[0.0, 1.6, 3.0], checks_passed=True,
         checks=["Length 0:03, 640×400.", "Sound: present (average -19.2 dB, peak -3.1 dB).", "Black: none.",
-                "Still: none."])
+                "Still: none."], shape="16:9",
+        # What it says, for its subtitles (C10).
+        words=[*estimated_words("First, sign up in a few seconds.", 1.6),
+               *((start + 1.6, end + 1.6, word) for start, end, word in
+                 estimated_words("Then pick the plan that fits.", 1.4))])
     video_edits._ensure_loaded()
     video_edits._RECORDS[edit.edit_id] = edit
     video_edits._save(edit)
@@ -2861,6 +2867,31 @@ def _b3_cards(thread: str) -> str:
         {"card": "Row-Bot 5.3", "line": "Meet Row-Bot."},
         {"source": "signup.mp4", "end": 2, "line": "Sign up in a few seconds."}])
     return video_projects.summary(project)
+
+
+def _c10_stream(text: str, config: dict):
+    """Ready to publish (C10): the panel asked for a platform's kit; the real kit is made for the video it names."""
+    import re
+
+    from row_bot import video_projects, video_publish
+
+    call = predecessor._record("submit", config, "c10-publish")
+    thread = call["conversation_id"]
+    identity = f"c10:{call['generation_id']}"
+    try:
+        project = video_projects.get(re.search(r"vid-[0-9a-f]{8}", text).group(0), thread)
+        args = {"action": "publish", "project": project.project_id, "platforms": ["youtube"],
+                "title": "Sign up for Launch in seconds", "description": "Sign up, then pick the plan that fits."}
+
+        def publish():
+            video_publish.make(project, ["youtube"], title=args["title"], description=args["description"])
+            return video_projects.summary(video_projects.get(project.project_id, thread)), []
+
+        yield from _s3_steps(thread, identity, [("video", args, publish)])
+        yield from _natural_final(call, thread, "It's ready for YouTube: the thumbnail, title, description and "
+                                  "subtitles are in the Video panel.", "c10")
+    finally:
+        call["quiesced"] = True
 
 
 def _b3_stream(text: str, config: dict):
@@ -3363,6 +3394,10 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                                                     and '"First snow"' in text):
         # A storyboard first (C1): its cards, Make through Row-Bot, a comment on one card made again alone.
         yield from _storyboard_stream(text, config)
+        return
+    if text.startswith("Get version") and "ready to publish on" in text and '"Launch demo"' in text:
+        # Ready to publish (C10): the Video panel asked for a platform's publish kit.
+        yield from _c10_stream(text, config)
         return
     if text.strip() in {"b3 video fixture", "b3 title card fixture"}:
         # A video project Row-Bot made (5.3.1 B3): its card opens the Video panel.

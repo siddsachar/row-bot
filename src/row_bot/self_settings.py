@@ -339,9 +339,9 @@ def _main_local_model() -> tuple[str, dict]:
     except ValueError:
         view = None
     if view is None or not view["context"]["editable"]:
-        raise SettingRefused("The main model's window isn't set by Row-Bot: it is a cloud model (use "
-                             "cloud_reading_limit) or its server sets it. Its settings sheet in Settings › Models "
-                             "says where.")
+        raise SettingRefused("The main model's window isn't set here: it is a cloud model (use "
+                             "cloud_reading_limit), its server sets it, or it is the personal model, which runs as "
+                             "Learning trained it. Settings › Models says which.")
     return ref, view
 
 

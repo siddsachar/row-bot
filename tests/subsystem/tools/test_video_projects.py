@@ -1238,3 +1238,118 @@ def test_cuts_on_the_beat_without_music_say_there_is_no_beat_and_make_as_they_ar
     scored = video_projects.create("conversation-a", "Montage", [dict(SCENES[0])], on_beat=True, music="fit")
     assert "No music" not in video_projects.summary(scored)
 
+
+def test_a_recipe_sets_a_videos_look_its_own_choices_win_and_the_make_gets_both(studio, monkeypatch):
+    """C5: a film is graded cinematic with grain and a letterbox, a montage crossfades, a short is tall; a video's
+    own choice wins over its recipe's, stays through changes and going back, and reaches the render with which
+    scenes take part in colour matching (never a screen recording)."""
+    from row_bot import ffmpeg_runtime, video_projects
+    from row_bot.application.attachments import register_attachment
+    from row_bot.tools import video_project_tool
+
+    register_attachment("conversation-a", "rec-shot.mp4", MP4)
+    film = video_projects.create("conversation-a", "Night", [dict(SCENES[0]), dict(SCENES[1])],
+                                 look={"recipe": "film"})
+    view = video_projects.view(film)
+    assert (view["recipe"], view["grade"], view["grain"], view["letterbox"], view["transitions"]) == (
+        "film", "cinematic", True, True, "cut")
+    warmer = video_projects.change(film, by="you", look={"grade": "warm", "transitions": "crossfade"})
+    assert (video_projects.finish_of(warmer).grade, video_projects.finish_of(warmer).grain,
+            video_projects.finish_of(warmer).transition) == ("warm", True, "crossfade"), "its own choices win"
+    kept = video_projects.change(film, by="row-bot", note="Shorter title", title="Night two")
+    assert video_projects.finish_of(kept) == video_projects.finish_of(warmer), "a change keeps the look"
+    back = video_projects.restore(film, 1, by="you")
+    assert video_projects.finish_of(back).grade == "cinematic", "going back goes back to its look"
+
+    reel = video_projects.create("conversation-a", "Reel", [dict(SCENES[0])], look={"recipe": "short"})
+    assert video_projects.view(reel)["aspect"] == "9:16", "a short is tall"
+    montage = video_projects.create("conversation-a", "Summer", [dict(SCENES[0])], look={"recipe": "montage"})
+    assert video_projects.finish_of(montage.latest).transition == "crossfade"
+    with pytest.raises(video_projects.ProjectError, match="The grade is"):
+        video_projects.create("conversation-a", "Bad", [dict(SCENES[0])], look={"grade": "sepia"})
+
+    mixed = video_projects.create("conversation-a", "Mixed", [dict(SCENES[0]), {"source": "rec-shot.mp4",
+                                                                                 "footage": "screen", "end": 2}],
+                                  look={"recipe": "film", "letterbox": False})
+    video_projects.make(mixed, 1)
+    _wait(mixed.project_id, 1)
+    step = studio["started"][-1].steps[0]
+    assert step.finish == video_projects.finish_of(mixed.latest) and not step.finish.letterbox
+    assert [scene.matched for scene in step.scenes] == [True, False], "a clip is matched; a screen recording isn't"
+    assert "Look: film, cinematic grade, film grain." in video_projects.summary(mixed)
+
+    monkeypatch.setattr(video_project_tool, "_conversation", lambda: "conversation-a")
+    monkeypatch.setattr(ffmpeg_runtime, "find", lambda: object())
+    said = video_project_tool._video(action="create", title="Trip", scenes=SCENES, recipe="vlog", grade="bw")
+    made = video_projects.list_projects("conversation-a")[0]
+    assert (made.latest.recipe, made.latest.grade) == ("vlog", "bw") and "Look: vlog, bw grade." in said
+    assert "font display" in video_project_tool._brand(font="display", titles="minimal")
+
+
+def test_captions_follow_each_lines_voice_and_a_clips_own_speech_heard_once(studio, monkeypatch):
+    """C7: a line's caption takes the times the local speech model hears its voice say it (the written words kept);
+    a scene with no line is captioned with what its clip says; what was heard is kept, so making it again hears
+    nothing again. Without the speech model, a line is spread over its voice and a clip's speech isn't captioned."""
+    from row_bot import sound, video_projects
+
+    heard: list[tuple] = []
+
+    def hear(*args):
+        heard.append(args)
+        return [sound.Segment(0.1, 1.4, "First sign up", ((0.1, 0.5, "First"), (0.5, 0.9, "sign"),
+                                                           (0.9, 1.4, "up")))], "en"
+
+    monkeypatch.setattr(sound, "can_transcribe", lambda: True)
+    monkeypatch.setattr(sound, "transcribe", hear)
+    monkeypatch.setattr(sound, "transcribe_bytes", hear)
+    scenes = [{"source": "signup.mp4", "end": 4, "line": "First, sign up."}, {"source": "pricing.mp4", "end": 3}]
+    project = video_projects.create("conversation-a", "Trip", scenes, captions=True)
+    video_projects.make(project, 1)
+    _wait(project.project_id, 1)
+    line, clip = (cut.words for cut in studio["started"][-1].steps[0].scenes)
+    assert line == ((0.1, 0.5, "First,"), (0.5, 0.9, "sign"), (0.9, 1.4, "up.")), "heard times, written words"
+    assert [word for _start, _end, word in clip] == ["First", "sign", "up"], "the clip's own speech"
+    assert len(heard) == 2
+
+    again = video_projects.change(project, by="you", note="Again")
+    video_projects.make(project, again.number)
+    _wait(project.project_id, again.number)
+    assert len(heard) == 2 and studio["started"][-1].steps[0].scenes[0].words == line, "kept: nothing heard again"
+
+    monkeypatch.setattr(sound, "can_transcribe", lambda: False)
+    plain = video_projects.create("conversation-a", "Plain", scenes, captions=True)
+    video_projects.make(plain, 1)
+    _wait(plain.project_id, 1)
+    line, clip = (cut.words for cut in studio["started"][-1].steps[0].scenes)
+    assert [word for _start, _end, word in line] == ["First,", "sign", "up."] and line[-1][1] == pytest.approx(1.5), \
+        "spread over its voice (1.5 s)"
+    assert clip == () and "Whisper speech model" in video_projects.summary(plain)
+
+
+def test_a_recipe_sets_the_words_a_short_has_big_captions_and_a_youtube_video_opens_with_its_title(studio):
+    """C7: a short is captioned word by word in big words and ends without the kit's end card; a YouTube video opens
+    with its title (its first scene's card) and lists chapters YouTube accepts."""
+    from row_bot import video_brand, video_projects
+
+    video_brand.update({"outro": "row-bot.ai"})
+    short = video_projects.create("conversation-a", "Reel", [dict(SCENES[0]), dict(SCENES[1])], captions=None,
+                                  look={"recipe": "short"})
+    assert short.latest.captions and video_projects.view(short)["caption_style"] == "word"
+    video_projects.make(short, 1)
+    _wait(short.project_id, 1)
+    look = studio["started"][-1].steps[0].look
+    assert (look.captions, look.outro) == ("word", ""), "big words, and no end card on a short"
+    plain = video_projects.create("conversation-a", "Plain", [dict(SCENES[0])], captions=True)
+    assert video_projects.view(plain)["caption_style"] == "box" and not video_projects.create(
+        "conversation-a", "Quiet", [dict(SCENES[0])], captions=None).latest.captions
+
+    youtube = video_projects.create("conversation-a", "Ten tips", [{"source": "signup.mp4", "end": 40},
+                                                                   {"source": "pricing.mp4", "card": "Pricing"},
+                                                                   {"source": "signup.mp4", "card": "Wrap up"}],
+                                    look={"recipe": "youtube"})
+    assert youtube.latest.scenes[0].card == "Ten tips", "it opens with its title, there to change"
+    assert video_projects.chapters(youtube.latest, youtube.title, [0.0, 40.0, 52.5, 80.0], 80.0) == [
+        (0.0, "Ten tips"), (40.0, "Pricing"), (52.0, "Wrap up")]
+    assert video_projects.chapters(youtube.latest, youtube.title, [0.0, 40.0, 45.0, 80.0], 80.0) == [], \
+        "a chapter under ten seconds is dropped, and two aren't enough for YouTube"
+

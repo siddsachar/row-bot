@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Blend,
   Clapperboard,
   CircleAlert,
+  Copy,
+  Film,
   Music,
+  RectangleHorizontal,
   CircleCheck,
   Download,
   Repeat,
@@ -21,6 +25,7 @@ import {
   type SavedFile,
   unavailable,
 } from '../../platform/types';
+import { writeClipboardText } from '../../platform/clipboard';
 import { useClientSelector, useRuntime } from '../../runtime';
 import {
   Button,
@@ -39,14 +44,22 @@ import { announceSaved } from '../shell/save-file';
 import { editLive } from '../shell/video-edits';
 import { LivePreview } from './LivePreview';
 import { acquire, release } from './media-urls';
+import { PublishKit } from './PublishKit';
 import { StoryboardCard } from './StoryboardCard';
 import { useVoiceChoices, VideoBrandEditor } from './VideoBrandEditor';
 import { VideoTimeline } from './VideoTimeline';
 import {
+  CAPTION_STYLES,
+  type CaptionStyle,
+  chapterLines,
+  GRADES,
+  type Grade,
   SHAPES,
   type VideoDraft,
+  type VideoLook,
   clockWords,
   draftOf,
+  lookChanges,
   isPlanned,
   musicSections,
   musicWords,
@@ -222,6 +235,9 @@ export default function VideoPanel({
       ),
     });
   }
+  function setLook(patch: Partial<VideoLook>) {
+    if (edited) edit({ ...edited, look: { ...edited.look, ...patch } });
+  }
   function move(index: number, by: -1 | 1) {
     if (!edited) return;
     const next = [...edited.scenes];
@@ -272,6 +288,7 @@ export default function VideoPanel({
         brand: edited.brand,
         voice: edited.voice,
         ...(cast.length ? { cast } : {}),
+        ...lookChanges(view, edited.look),
         note: 'Edited in the panel',
       }),
     );
@@ -325,10 +342,12 @@ export default function VideoPanel({
 
   // The desktop app's Save dialog (Exports while it reconnects), or a browser download.
   async function download(edit = view?.edit) {
-    if (!edit?.media_ref) return;
-    const name = edit.output_name || 'video.mp4';
+    if (edit?.media_ref)
+      await saveFile(edit.media_ref, edit.output_name || 'video.mp4');
+  }
+  async function saveFile(ref: string, name: string) {
     const result = await platform
-      .save(edit.media_ref, name)
+      .save(ref, name)
       .catch((): CapabilityResult<SavedFile> =>
         unavailable('operation_failed'),
       );
@@ -336,7 +355,7 @@ export default function VideoPanel({
     if (result.status !== 'ok') {
       setError(
         result.reason === 'user_gesture_required'
-          ? 'Press Download again to save the video.'
+          ? 'Press Download again to save it.'
           : `Couldn't download ${name}. Try again.`,
       );
       return;
@@ -604,6 +623,23 @@ export default function VideoPanel({
           />
           <span aria-hidden>Captions</span>
         </label>
+        {edited.captions && (
+          <Select
+            aria-label="Caption style"
+            className="video-caption-style"
+            value={edited.look.caption_style}
+            disabled={!latest}
+            onChange={(event) =>
+              setLook({ caption_style: event.target.value as CaptionStyle })
+            }
+          >
+            {Object.entries(CAPTION_STYLES).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        )}
         <label className="video-captions">
           <Toggle
             label="Brand kit"
@@ -629,6 +665,54 @@ export default function VideoPanel({
             </option>
           ))}
         </Select>
+      </div>
+      <div className="video-look" role="group" aria-label="Look">
+        <span className="video-cast-name">Look</span>
+        <Select
+          aria-label="Grade"
+          className="video-grade"
+          value={edited.look.grade}
+          disabled={!latest}
+          onChange={(event) => setLook({ grade: event.target.value as Grade })}
+        >
+          {Object.entries(GRADES).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <IconButton
+          size="sm"
+          label="Film grain"
+          pressed={edited.look.grain}
+          disabled={!latest}
+          onClick={() => setLook({ grain: !edited.look.grain })}
+        >
+          <Film size={16} aria-hidden />
+        </IconButton>
+        <IconButton
+          size="sm"
+          label="Letterbox (2.39, wide videos)"
+          pressed={edited.look.letterbox}
+          disabled={!latest}
+          onClick={() => setLook({ letterbox: !edited.look.letterbox })}
+        >
+          <RectangleHorizontal size={16} aria-hidden />
+        </IconButton>
+        <IconButton
+          size="sm"
+          label="Crossfade between scenes"
+          pressed={edited.look.transitions === 'crossfade'}
+          disabled={!latest}
+          onClick={() =>
+            setLook({
+              transitions:
+                edited.look.transitions === 'crossfade' ? 'cut' : 'crossfade',
+            })
+          }
+        >
+          <Blend size={16} aria-hidden />
+        </IconButton>
       </div>
       {speakers.length > 0 && (
         <div className="video-cast" role="group" aria-label="Voices">
@@ -791,6 +875,36 @@ export default function VideoPanel({
               Post to X
             </Button>
           </div>
+          {view.chapters && view.chapters.length > 0 && (
+            <>
+              <div className="video-chapters-head">
+                <h3>Chapters</h3>
+                <IconButton
+                  size="sm"
+                  label="Copy the chapters"
+                  onClick={() =>
+                    void writeClipboardText(
+                      chapterLines(view.chapters ?? []),
+                      platform.writeClipboard,
+                    ).then((done) =>
+                      done
+                        ? setNotice('Chapters copied, for the description.')
+                        : setError("Couldn't copy the chapters."),
+                    )
+                  }
+                >
+                  <Copy size={16} aria-hidden />
+                </IconButton>
+              </div>
+              <ol className="video-chapters" aria-label="Chapters">
+                {view.chapters.map((item) => (
+                  <li key={item.at}>
+                    <span>{clockWords(item.at)}</span> {item.title}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
           <h3>Other shapes</h3>
           <ul className="video-exports" aria-label="Other shapes">
             {SHAPES.filter((item) => item.shape !== view.aspect).map((item) => {
@@ -830,6 +944,20 @@ export default function VideoPanel({
               );
             })}
           </ul>
+          <PublishKit
+            view={view}
+            busy={busy}
+            onAsk={(text) => void ask(text)}
+            onSave={(ref, name) => void saveFile(ref, name)}
+            onCopy={(text, what) =>
+              void writeClipboardText(text, platform.writeClipboard).then(
+                (done) =>
+                  done
+                    ? setNotice(`${what} copied.`)
+                    : setError(`Couldn't copy the ${what.toLowerCase()}.`),
+              )
+            }
+          />
         </section>
       )}
       <Disclosure

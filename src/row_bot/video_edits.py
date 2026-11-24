@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-from row_bot.video_editing import clock
+from row_bot.video_editing import ASPECTS, clock, shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ ACTIVE: frozenset[str] = frozenset({"getting_ffmpeg", "preparing", "editing", "s
 KEEP_PER_CONVERSATION = 100
 PROBE_SECONDS = 30
 FRAMES_PER_OPEN = 8  # Frames taken by opening the video at each time; more are picked in one read.
+MAX_WORDS = 50_000  # A video's words kept for its subtitles: a few hours of speech.
 _FOLDER = "video-edits"
 _LISTENERS: list[Callable[[], None]] = []
 
@@ -85,6 +86,10 @@ class VideoEdit:
     # How each of a video project's scenes was made: "new" (drawn now), "reused" (unchanged, drawn before) or ""
     # (a title card).
     scene_makes: list[str] = field(default_factory=list)
+    # What a video project's video says, word by word in time (``Plan.spoken``), and its shape ("16:9", …; "" another
+    # or not known): its subtitles and publish kit (C10).
+    words: list[tuple[float, float, str]] = field(default_factory=list)
+    shape: str = ""
     done: threading.Event = field(default_factory=threading.Event)
     stop_event: threading.Event = field(default_factory=threading.Event)
 
@@ -171,7 +176,7 @@ def _iso(value: float | None) -> str | None:
 _SAVED_FIELDS = ("edit_id", "conversation_id", "kind", "summary", "output_name", "started_at", "status",
                  "expected_seconds", "process_id", "ended_at", "stopped_by", "problem", "detail", "media_ref",
                  "mime_type", "size_bytes", "frame_refs", "frame_times", "frame_names", "ffmpeg", "checks", "checks_passed", "marks",
-                 "sheet", "silent", "scene_makes")
+                 "sheet", "silent", "scene_makes", "words", "shape")
 
 
 def _save(edit: VideoEdit) -> None:
@@ -213,6 +218,9 @@ def _load(path: Path) -> VideoEdit | None:
         edit.silent = bool(data.get("silent"))
         edit.scene_makes = [str(item) if item in ("new", "reused") else ""
                             for item in data.get("scene_makes") or []][:MAX_SCENES]
+        edit.words = [(float(start), float(end), str(word)[:80]) for start, end, word in data.get("words") or []
+                      ][:MAX_WORDS]
+        edit.shape = str(data.get("shape") or "") if data.get("shape") in ASPECTS else ""
         return edit
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -699,7 +707,7 @@ def _on_beat(step: Any, inputs: list[Any], request: Request, sounds: dict[str, s
     from dataclasses import replace
 
     from row_bot import music, video_sound
-    from row_bot.video_editing import BOOKEND_SECONDS, on_the_beat
+    from row_bot.video_editing import BOOKEND_SECONDS, CROSSFADE, on_the_beat
 
     if request.score:
         beats = video_sound.grid(music.STYLES[request.score].bpm, music.MAX_SECONDS)
@@ -710,8 +718,9 @@ def _on_beat(step: Any, inputs: list[Any], request: Request, sounds: dict[str, s
         path = Path(sounds[track])
         beats = video_sound.file_beats(path if path.is_absolute() else folder / path)
     offset = BOOKEND_SECONDS if step.look is not None and step.look.intro else 0.0
+    fading = step.finish is not None and step.finish.transition == "crossfade" and len(step.scenes) > 1
     cut = on_the_beat(step.scenes, [item.info.duration for item in inputs], [item.info.still for item in inputs],
-                      beats, offset=offset)
+                      beats, offset=offset, overlap=CROSSFADE if fading else 0.0)
     return replace(step, scenes=cut)
 
 
@@ -834,7 +843,8 @@ def _run(edit: VideoEdit, request: Request) -> None:
 
                 video_studio.narration([(at, folder / path) for at, path in plan.voices], plan.duration,
                                        folder / NARRATION)
-            _set(edit, expected_seconds=round(plan.duration, 2), marks=list(plan.marks))
+            _set(edit, expected_seconds=round(plan.duration, 2), marks=list(plan.marks),
+                 words=list(plan.spoken[:MAX_WORDS]), shape=shape_of(plan.width, plan.height))
             if plan.mix is None:
                 _run_process(edit, ffmpeg, plan.args, folder, "Video edit")
             else:  # Its picture (made, or as made before), then its sound mixed and laid beside it.
