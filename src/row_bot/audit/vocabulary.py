@@ -94,6 +94,8 @@ class TargetKind(StrEnum):
     SETTING = "setting"
     SPACE = "space"
     FACT = "fact"
+    ENTITY = "entity"
+    RELATION = "relation"
 
 
 class Category(StrEnum):
@@ -114,6 +116,7 @@ class Category(StrEnum):
     ORG_SETTINGS = "org_settings"
     SPACE = "space"
     FACT = "fact"
+    GRAPH = "graph"
 
 
 class Action(StrEnum):
@@ -146,6 +149,7 @@ class Action(StrEnum):
     ORG_SETTINGS_CHANGED = "org_settings.changed"
     SPACE_CHANGED = "space.changed"
     FACT_CHANGED = "fact.changed"
+    GRAPH_CHANGED = "graph.changed"
 
 
 # The forms an identifier may take. Ids match CON-1's (no "/", so no path can pass as one); model ids may hold "/".
@@ -210,6 +214,10 @@ ROLES = ("admin", "member", "space_owner")
 SPACE_FIELDS = ("name", "reader_groups", "owner_groups", "owner_principals")
 SPACE_FIELD_SETS = tuple(",".join(chosen) for size in range(1, len(SPACE_FIELDS) + 1)
                          for chosen in combinations(SPACE_FIELDS, size))
+# A company-graph entity's fields an owner's edit changed (never their values), as for spaces.
+ENTITY_FIELDS = ("subject", "entity_type", "description", "aliases")
+ENTITY_FIELD_SETS = tuple(",".join(chosen) for size in range(1, len(ENTITY_FIELDS) + 1)
+                          for chosen in combinations(ENTITY_FIELDS, size))
 
 _P, _A, _S, _O = ActorKind.PERSON, ActorKind.ADMIN, ActorKind.SERVICE, ActorKind.OPERATOR
 _TEAM, _COMPANY, _ORG = AuditLayer.TEAM, AuditLayer.COMPANY, AuditLayer.ORG
@@ -298,4 +306,10 @@ SPECS: MappingProxyType[Action, ActionSpec] = MappingProxyType({
     # A fact in a company-brain space written, edited, retired or deleted by an owner or an admin (B1).
     Action.FACT_CHANGED: _spec({_P, _A}, _SHARED, {TargetKind.FACT}, _DONE,
                                change=_enum("created", "updated", "retired", "deleted"), **_SPACE),
+    # An owner or an admin curating a company-graph entity (edited, merged into another, retired, restored) or
+    # relation (made by hand, retired, restored) (B7): which fields an edit changed, and what a merge went into.
+    Action.GRAPH_CHANGED: _spec({_P, _A}, _SHARED, {TargetKind.ENTITY, TargetKind.RELATION}, _DONE,
+                                change=_enum("created", "updated", "merged", "retired", "restored"),
+                                fields=_enum(*ENTITY_FIELD_SETS, required=False), merged_into=Detail("id"),
+                                **_SPACE),
 })

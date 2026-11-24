@@ -311,6 +311,16 @@ space from a browser session.
   documents wait ("Add an embeddings model in Models") and are searched by their words only.
 - Row-Bots ask with `POST /api/brain/recall`, as their person: answers come only from spaces that person reads,
   each with where it came from. An admin is a member there too.
+- **The knowledge graph.** Once a document is ready, the server reads its first 40 parts, and each fact, with the
+  catalog's **default chat model**, for the people, teams, projects, products, customers, systems, policies and
+  terms they name and how these relate. These are model calls of the uploader (or the fact's writer), counted
+  against their usage and budgets: about one call per part. **The uploader or writer pays for extraction,
+  backfills included**: when a chat model is first added (or the default changes after a failure), every ready
+  document and fact not yet read is read then, each billed to whoever uploaded or wrote it. Without a chat model
+  documents wait ("Add a chat model in Models"); with a budget spent, or the model's endpoint failing, they wait
+  and try again an hour later. A deleted document takes what only it mentioned out of the graph. Each space has its own graph, read
+  by the space's readers (`GET /api/brain/graph`); owners correct it (rename, merge, retire, relate by hand) from a
+  browser session.
 
 ## Policy
 

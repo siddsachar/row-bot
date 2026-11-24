@@ -17,7 +17,9 @@ when the call ends (a stream's event can't share the transaction that let the ca
 
 The company brain (``row_bot_org.brain``) embeds in process through ``GatewayService.embed``, with the company's
 default embeddings model, metered and budgeted as a call of the person it embeds for (the uploader, or who
-recalls). That model is the brain's, not a person's choice, so their ``models.allowed`` doesn't apply to it.
+recalls). That model is the brain's, not a person's choice, so their ``models.allowed`` doesn't apply to it. Its
+knowledge graph asks the company's default chat model the same way (``GatewayService.complete``, one prompt, not
+streamed), as a call of the person whose document or fact it reads.
 
 A person may use the catalog models their effective policy allows (``models.allowed``, with their groups'
 overrides): ``/api/models`` lists only those, and a call to any other is refused as unknown.
@@ -86,13 +88,32 @@ class NoEmbeddingsModel(Exception):
     """The catalog has no default embeddings model: the company brain searches text only."""
 
 
-class EmbeddingsFailed(Exception):
-    """The default embeddings model couldn't embed these texts: ``code`` says why for programs (``budget_exceeded``
-    is the person's own; the rest are the model's or its endpoint's), ``message`` for a person to read."""
+class NoChatModel(Exception):
+    """The catalog has no default chat model: the company brain's graph waits for one."""
+
+
+class ModelCallFailed(Exception):
+    """An in-process call of the company's default model failed: ``code`` says why for programs
+    (``budget_exceeded`` is the person's own; the rest are the model's or its endpoint's), ``message`` for a person
+    to read."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code, self.message = code, message
+
+
+class EmbeddingsFailed(ModelCallFailed):
+    """The default embeddings model couldn't embed these texts."""
+
+
+class ChatFailed(ModelCallFailed):
+    """The default chat model couldn't answer."""
+
+
+# The most an in-process chat answer may hold (the company brain's extraction asks for a short JSON array).
+MAX_CHAT_RESPONSE_BYTES = 1024 * 1024
+# Anthropic needs a limit on the answer; OpenAI-compatible endpoints keep their own (some refuse max_tokens).
+CHAT_MAX_TOKENS = 4096
 
 
 def embeddings_problem(route: store.Route) -> str | None:
@@ -103,6 +124,34 @@ def embeddings_problem(route: store.Route) -> str | None:
     if not route.enabled:
         return "The default embeddings model's endpoint is turned off."
     return None
+
+
+def chat_problem(route: store.Route) -> str | None:
+    """Why the default chat model ``route`` can't be used at all (until an admin changes the catalog), or None."""
+    if not route.enabled:
+        return "The default chat model's endpoint is turned off."
+    return None
+
+
+def _answer_text(api: str, answer: Any) -> str:
+    """The text of a whole (not streamed) chat answer in ``api``'s wire format; ValueError when it has none."""
+    if not isinstance(answer, dict):
+        raise ValueError("the answer isn't an object")
+    if api == upstream.ANTHROPIC:
+        blocks = answer.get("content")
+        if not isinstance(blocks, list):
+            raise ValueError("the answer has no content")
+        texts = [block.get("text") for block in blocks if isinstance(block, dict) and block.get("type") == "text"]
+        if not texts or not all(isinstance(text, str) for text in texts):
+            raise ValueError("the answer has no text")
+        return "".join(texts)
+    choices = answer.get("choices")
+    message = choices[0].get("message") if isinstance(choices, list) and choices and isinstance(
+        choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str):
+        raise ValueError("the answer has no text")
+    return content
 
 
 def _vectors(answer: Any, count: int) -> list[list[float]]:
@@ -215,45 +264,15 @@ class GatewayService:
         and this one are the same); ``timeout`` (seconds) shortens the endpoint's own. Returns the catalog model's
         name and the vectors, in order. ``NoEmbeddingsModel`` when the catalog has no default embeddings model;
         ``EmbeddingsFailed`` for anything else. It waits for the endpoint: call it from a worker thread."""
-        with principal_transaction(self.pool, principal.principal_id, principal.groups) as conn:
-            if route is None:
-                route = store.default_route(conn, "embeddings")
-            budgets = store.budget_state(conn) if route is not None else []
+        route, budgets = self._default_route(principal, "embeddings", route)
         if route is None:
             raise NoEmbeddingsModel
         if (problem := embeddings_problem(route)) is not None:
             raise EmbeddingsFailed("model_unusable", problem)
+        parsed, started = self._post(principal, route, budgets, {"model": route.upstream_model, "input": texts},
+                                     failure=EmbeddingsFailed, timeout=timeout, max_bytes=MAX_RESPONSE_BYTES,
+                                     failed="The company's model endpoint couldn't embed the text.")
         try:
-            _check_budgets(budgets)
-            api_key = self._key_of(route)
-        except _Refusal as refusal:
-            raise EmbeddingsFailed(refusal.code, refusal.message) from None
-        seconds = route.timeout_seconds if timeout is None else min(timeout, route.timeout_seconds)
-        body = json.dumps({"model": route.upstream_model, "input": texts}).encode("utf-8")
-        started = time.perf_counter()
-        answer = bytearray()
-        try:
-            # No redirects, as for every call: one would carry the key elsewhere.
-            with (httpx.Client(follow_redirects=False, timeout=httpx.Timeout(seconds)) as client,
-                  client.stream("POST", upstream.target_url(route.api, route.base_url, "embeddings"),
-                                headers=upstream.request_headers(route.api, api_key, {}), content=body) as response):
-                status = response.status_code
-                for chunk in response.iter_bytes():
-                    answer += chunk
-                    if len(answer) > MAX_RESPONSE_BYTES:
-                        raise _Refusal(502, "endpoint_response_too_large", "The endpoint's answer was too large.")
-        except (httpx.HTTPError, _Refusal) as error:
-            self._meter(principal, route, upstream.Usage(), started, "error")
-            refusal = _upstream_refusal(route, error)
-            raise EmbeddingsFailed(refusal.code, refusal.message) from None
-        if status >= 400:
-            logger.warning("endpoint %s answered %s", route.endpoint_name, status)
-            self._meter(principal, route, upstream.Usage(), started, "error")
-            if status in (401, 403):
-                raise EmbeddingsFailed("endpoint_auth_failed", "The company's model endpoint refused the server's key.")
-            raise EmbeddingsFailed("endpoint_error", "The company's model endpoint couldn't embed the text.")
-        try:
-            parsed = json.loads(answer)
             vectors = _vectors(parsed, len(texts))
         except ValueError:
             logger.warning("endpoint %s gave embeddings that can't be used", route.endpoint_name)
@@ -262,6 +281,84 @@ class GatewayService:
                                    "The company's model endpoint gave an answer that can't be used.") from None
         self._meter(principal, route, upstream.usage_of(route.api, parsed), started, "ok")
         return route.model, vectors
+
+    def complete(self, principal: RequestPrincipal, prompt: str, *, route: store.Route | None = None,
+                 timeout: float | None = None) -> str:
+        """The company's default chat model's answer to ``prompt`` (one user message, not streamed), as a call of
+        ``principal``'s: metered, audited and budgeted like ``embed``. ``route`` is that model when the caller
+        already looked it up (the brain's worker). ``NoChatModel`` when the catalog has no default chat model;
+        ``ChatFailed`` for anything else. It waits for the endpoint: call it from a worker thread."""
+        route, budgets = self._default_route(principal, "chat", route)
+        if route is None:
+            raise NoChatModel
+        if (problem := chat_problem(route)) is not None:
+            raise ChatFailed("model_unusable", problem)
+        body: dict[str, Any] = {"model": route.upstream_model, "messages": [{"role": "user", "content": prompt}]}
+        if route.api == upstream.ANTHROPIC:
+            body["max_tokens"] = CHAT_MAX_TOKENS
+        parsed, started = self._post(principal, route, budgets, body, failure=ChatFailed, timeout=timeout,
+                                     max_bytes=MAX_CHAT_RESPONSE_BYTES,
+                                     failed="The company's model endpoint couldn't answer.")
+        try:
+            text = _answer_text(route.api, parsed)
+        except ValueError:
+            logger.warning("endpoint %s gave a chat answer that can't be used", route.endpoint_name)
+            self._meter(principal, route, upstream.Usage(), started, "error")
+            raise ChatFailed("bad_endpoint_response",
+                             "The company's model endpoint gave an answer that can't be used.") from None
+        self._meter(principal, route, upstream.usage_of(route.api, parsed), started, "ok")
+        return text
+
+    def _default_route(self, principal: RequestPrincipal, kind: str,
+                       route: store.Route | None) -> tuple[store.Route | None, list[store.BudgetState]]:
+        """``route`` (or the default ``kind`` model's), and ``principal``'s budgets, from their own transaction."""
+        with principal_transaction(self.pool, principal.principal_id, principal.groups) as conn:
+            if route is None:
+                route = store.default_route(conn, kind)
+            return route, store.budget_state(conn) if route is not None else []
+
+    def _post(self, principal: RequestPrincipal, route: store.Route, budgets: list[store.BudgetState],
+              payload: dict[str, Any], *, failure: type[ModelCallFailed], timeout: float | None, max_bytes: int,
+              failed: str) -> tuple[Any, float]:
+        """Send ``payload`` to ``route``'s endpoint for ``principal`` (refused, as ``failure``, past a hard budget):
+        its answer parsed as JSON, and when the call started. A call that fails is metered here; one that answers
+        is metered by the caller, once it knows whether the answer can be used."""
+        try:
+            _check_budgets(budgets)
+            api_key = self._key_of(route)
+        except _Refusal as refusal:
+            raise failure(refusal.code, refusal.message) from None
+        seconds = route.timeout_seconds if timeout is None else min(timeout, route.timeout_seconds)
+        body = json.dumps(payload).encode("utf-8")
+        started = time.perf_counter()
+        answer = bytearray()
+        try:
+            # No redirects, as for every call: one would carry the key elsewhere.
+            with (httpx.Client(follow_redirects=False, timeout=httpx.Timeout(seconds)) as client,
+                  client.stream("POST", upstream.target_url(route.api, route.base_url, route.kind),
+                                headers=upstream.request_headers(route.api, api_key, {}), content=body) as response):
+                status = response.status_code
+                for chunk in response.iter_bytes():
+                    answer += chunk
+                    if len(answer) > max_bytes:
+                        raise _Refusal(502, "endpoint_response_too_large", "The endpoint's answer was too large.")
+        except (httpx.HTTPError, _Refusal) as error:
+            self._meter(principal, route, upstream.Usage(), started, "error")
+            refusal = _upstream_refusal(route, error)
+            raise failure(refusal.code, refusal.message) from None
+        if status >= 400:
+            logger.warning("endpoint %s answered %s", route.endpoint_name, status)
+            self._meter(principal, route, upstream.Usage(), started, "error")
+            if status in (401, 403):
+                raise failure("endpoint_auth_failed", "The company's model endpoint refused the server's key.")
+            raise failure("endpoint_error", failed)
+        try:
+            return json.loads(answer), started
+        except ValueError:
+            logger.warning("endpoint %s gave an answer that isn't JSON", route.endpoint_name)
+            self._meter(principal, route, upstream.Usage(), started, "error")
+            raise failure("bad_endpoint_response",
+                          "The company's model endpoint gave an answer that can't be used.") from None
 
     def _meter(self, principal: RequestPrincipal, route: store.Route, usage: upstream.Usage, started: float,
                outcome: str) -> None:
@@ -818,5 +915,6 @@ def gateway_router(service: GatewayService) -> APIRouter:
     return router
 
 
-__all__ = ["BUDGET_WARNING_HEADER", "MAX_EMBEDDING_DIMENSIONS", "EmbeddingsFailed", "GatewayService",
-           "NoEmbeddingsModel", "embeddings_problem", "gateway_router"]
+__all__ = ["BUDGET_WARNING_HEADER", "CHAT_MAX_TOKENS", "MAX_CHAT_RESPONSE_BYTES", "MAX_EMBEDDING_DIMENSIONS",
+           "ChatFailed", "EmbeddingsFailed", "GatewayService", "ModelCallFailed", "NoChatModel", "NoEmbeddingsModel",
+           "chat_problem", "embeddings_problem", "gateway_router"]
