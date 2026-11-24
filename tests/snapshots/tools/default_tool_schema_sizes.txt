@@ -60,7 +60,7 @@ developer_workspace_info: 233
 developer_write_file: 719
 documents: 438
 duckduckgo: 368
-edit_video: 3333
+edit_video: 3813
 explore_connections: 474
 export_to_pdf: 687
 get_current_weather: 418
@@ -116,7 +116,7 @@ tracker_query: 597
 transcribe: 447
 update_memory: 921
 use_code_folder: 413
-video: 11058
+video: 12080
 wait_for: 1944
 wait_stop: 259
 waits: 160
@@ -133,4 +133,4 @@ workspace_read_file: 626
 workspace_write_file: 556
 youtube_search: 660
 youtube_transcript: 725
-TOTAL (135 tools): 94752
+TOTAL (135 tools): 96254

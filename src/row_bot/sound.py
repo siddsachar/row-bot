@@ -260,6 +260,34 @@ def transcribe_bytes(data: bytes, suffix: str, start: float = 0.0,
         return transcribe(path, start, end)
 
 
+def heard(shelf: Path, key: str, source: tuple[Path | None, bytes, str], start: float = 0.0,
+          end: float | None = None) -> list[tuple[float, float, str]] | None:
+    """The words the local speech model hears in a sound (a voice file, a clip or its part, a narration), each with
+    its time in the file, kept on *shelf* by *key*, so the same sound is heard once (C7's captions, C4's cuts and
+    moments). *source*: its path, or its bytes and suffix. None when nothing could be heard."""
+    import hashlib
+    import logging
+
+    kept = shelf / f"{hashlib.sha256(key.encode()).hexdigest()[:32]}.json"
+    try:
+        return [(float(start), float(end), str(word)) for start, end, word in json.loads(kept.read_text("utf-8"))]
+    except (OSError, ValueError, TypeError):
+        pass
+    path, data, suffix = source
+    try:
+        segments, _language = (transcribe(path, start, end) if path is not None
+                               else transcribe_bytes(data, suffix, start, end))
+    except (SoundError, OSError, ValueError):
+        logging.getLogger(__name__).info("No words were heard in a sound")
+        return None
+    words = [word for segment in segments for word in segment.words]
+    shelf.mkdir(parents=True, exist_ok=True)
+    partial = kept.with_name(f"{kept.name}.{uuid.uuid4().hex[:6]}.part")
+    partial.write_text(json.dumps(words), encoding="utf-8", newline="\n")
+    os.replace(partial, kept)
+    return words
+
+
 def clock(seconds: float, *, millis: bool = False) -> str:
     whole = int(seconds)
     hours, minutes, secs = whole // 3600, whole % 3600 // 60, whole % 60
