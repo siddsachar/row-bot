@@ -101,11 +101,54 @@ export function modelsWords(count: number, company: string): string {
  * The lockdown line (C3a): Settings › Company and the model picker, while
  * Row-Bot uses only what's safe on this computer.
  */
-export function lockdownWords(view: CompanyView): string {
+export function lockdownWords(
+  view: Pick<CompanyView, 'company' | 'policy_reason'>,
+): string {
   const company = view.company ?? 'your company';
   return view.policy_reason === 'disconnected'
     ? `${company} disconnected this Row-Bot, so it’s using only what’s safe on this computer until you sign in again.`
     : `Row-Bot can’t reach ${company}, so it’s using only what’s safe on this computer until it can.`;
+}
+
+/** Why a disconnected Row-Bot can't use its company, and what stays (C1b). */
+export function disconnectedWords(company: string): string {
+  return `${company} no longer accepts this Row-Bot. That happens when an admin removes it, your account is paused, or it’s been a month since you last signed in. Your own chats and memory are still here.`;
+}
+
+/** Joined, but the company's server can't be used now (C1b's words). */
+export function unreachableWords(
+  company: string,
+  reason: string | null,
+): string {
+  if (reason === 'busy')
+    return `${company} is busy. Row-Bot stays joined; try again in a minute.`;
+  if (reason === 'storage_unavailable')
+    return failureWords('storage_unavailable', company);
+  return `Can’t reach ${company} right now. Row-Bot stays joined.`;
+}
+
+/** Knowledge home's Company scope (B8): a graph with nothing in it yet. */
+export const NO_DOCUMENTS = 'Your company hasn’t added documents yet';
+
+/** The Company scope's filters found nothing. */
+export const NO_MATCH = 'Nothing matches';
+
+/** The quiet line an owner of a space sees on its entities (they curate it there). */
+export const EDITED_IN_CONSOLE = 'Edited in the admin console';
+
+/** Where the company's knowledge mentions an entity: "From Sales: Accounts 2026". */
+export function citationWords(citation: {
+  space: string;
+  document: string | null;
+}): string {
+  return citation.document
+    ? `From ${citation.space}: ${citation.document}`
+    : `From ${citation.space}`;
+}
+
+/** The note on a graph larger than what is drawn: "Showing 300 of 1,204". */
+export function showingWords(shown: number, total: number): string {
+  return `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}`;
 }
 
 /** The tooltip of "Set by your company": the setting and its value. */

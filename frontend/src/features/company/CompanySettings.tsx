@@ -30,6 +30,7 @@ import {
   PIN_INVALID,
   auditFields,
   auditWords,
+  disconnectedWords,
   elsewhereWords,
   failureWords,
   hostOf,
@@ -336,7 +337,7 @@ export default function CompanySettings({
       <SettingsGroup label="Company">
         <SettingsItem
           label="Your company disconnected this Row-Bot"
-          help={`${company} no longer accepts this Row-Bot. That happens when an admin removes it, your account is paused, or it’s been a month since you last signed in. Your own chats and memory are still here.`}
+          help={disconnectedWords(company)}
           icon={<Unplug size={16} aria-hidden />}
           tone="neutral"
           bind={false}

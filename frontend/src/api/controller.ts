@@ -34,6 +34,7 @@ import type {
   Command,
   CommandReceipt,
   CompanyAction,
+  CompanyGraphQuery,
   CompanyJoinRequest,
   EventRecord,
   Snapshot,
@@ -3282,6 +3283,14 @@ export class ClientController {
             throw clientError({ code: 'capability_unavailable' });
           return this.transport.company(action, body, signal);
         });
+  /**
+   * Row-Bot for Teams (B8): Knowledge home's Company scope, read only. The
+   * company's server filters its knowledge graph to what the person may read.
+   */
+  companyGraph = (query: CompanyGraphQuery = {}, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyGraph?.(query, signal));
+  companyEntity = (entityId: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.companyEntity?.(entityId, signal));
   /** Row-Bot Voice's streaming speech models: the pick for this computer and what is installed. */
   speechModels = (signal?: AbortSignal) =>
     this.query(() => this.transport.speechModels?.(signal));

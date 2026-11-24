@@ -406,3 +406,247 @@ test('company policy: a tool the company switched off reads Set by your company 
   await expect(page.getByLabel('Enable Tavily web search')).toHaveCount(0);
   await shoot(page, info, 'company-tools-set-by-company');
 });
+
+// The company's knowledge graph (B8): Knowledge home's Company scope beside
+// Mine, read only. The company's state, graph and entity are answered here;
+// nothing reaches a company server.
+
+const COMPANY_SPACE = '5a000000-0000-4000-8000-000000000001';
+const SALES_SPACE = '5a000000-0000-4000-8000-000000000002';
+const ATLAS = 'e0000000-0000-4000-8000-000000000001';
+const ADA = 'e0000000-0000-4000-8000-000000000002';
+const ORION = 'e0000000-0000-4000-8000-000000000003';
+
+const entityNode = (
+  id: string,
+  subject: string,
+  entityType: string,
+  relations: number,
+  description: string,
+) => ({
+  id,
+  revision: 'a'.repeat(64),
+  subject,
+  description,
+  entity_type: entityType,
+  source: 'document',
+  updated_at: '2026-11-20T09:00:00+00:00',
+  relation_count: relations,
+  orphan: false,
+  is_user: false,
+  status: 'active',
+  tier: 'resource',
+  source_label: '',
+});
+
+const companyKnowledge: View = {
+  schema_version: 1,
+  state: 'ready',
+  company: COMPANY,
+  reason: null,
+  nodes: [
+    entityNode(ATLAS, 'Atlas', 'project', 2, 'The billing platform rebuild.'),
+    entityNode(ADA, 'Ada Lovelace', 'person', 1, 'Leads the platform team.'),
+    entityNode(ORION, 'Orion Foods', 'customer', 1, 'A customer since 2024.'),
+  ],
+  edges: [
+    {
+      id: 'f0000000-0000-4000-8000-000000000001',
+      source_id: ADA,
+      target_id: ATLAS,
+      relation_type: 'leads',
+      updated_at: '2026-11-20T09:00:00+00:00',
+    },
+    {
+      id: 'f0000000-0000-4000-8000-000000000002',
+      source_id: ORION,
+      target_id: ATLAS,
+      relation_type: 'uses',
+      updated_at: '2026-11-21T09:00:00+00:00',
+    },
+  ],
+  spaces: [
+    { id: COMPANY_SPACE, name: 'Company', kind: 'company', is_owner: false },
+    { id: SALES_SPACE, name: 'Sales', kind: 'group', is_owner: true },
+  ],
+  space_ids: [],
+  total_entities: 3,
+  total_relations: 2,
+  shown_entities: 3,
+  shown_relations: 2,
+  truncated: false,
+  entity_types: ['customer', 'person', 'project'],
+};
+
+const noKnowledge: View = {
+  ...companyKnowledge,
+  nodes: [],
+  edges: [],
+  total_entities: 0,
+  total_relations: 0,
+  shown_entities: 0,
+  shown_relations: 0,
+  entity_types: [],
+};
+
+const atlasDetail: View = {
+  schema_version: 1,
+  state: 'ready',
+  company: COMPANY,
+  reason: null,
+  entity: {
+    id: ATLAS,
+    subject: 'Atlas',
+    entity_type: 'project',
+    description: 'The billing platform rebuild.',
+    aliases: ['Project Atlas'],
+    status: 'active',
+    space_id: SALES_SPACE,
+    space_name: 'Sales',
+    updated_at: '2026-11-22T09:00:00+00:00',
+    edited_at: null,
+  },
+  relations: [
+    {
+      relation_type: 'leads',
+      direction: 'incoming',
+      peer_id: ADA,
+      peer_subject: 'Ada Lovelace',
+      peer_type: 'person',
+    },
+    {
+      relation_type: 'uses',
+      direction: 'incoming',
+      peer_id: ORION,
+      peer_subject: 'Orion Foods',
+      peer_type: 'customer',
+    },
+  ],
+  mentions: [
+    {
+      kind: 'document',
+      space: 'Company',
+      document: 'Platform plan 2027',
+      excerpt: 'The billing rebuild replaces the old system by June.',
+    },
+    {
+      kind: 'fact',
+      space: 'Sales',
+      document: null,
+      excerpt: 'Orion Foods runs its invoicing on the new platform.',
+    },
+  ],
+  mention_count: 2,
+};
+
+/** The company's graph and entity; a search answers nothing. */
+async function companyKnowledgeRoutes(page: Page, asked: URL[]) {
+  await page.route('**/api/v1/company/graph**', async (route: Route) => {
+    const url = new URL(route.request().url());
+    asked.push(url);
+    const spaces = url.searchParams.get('spaces');
+    await route.fulfill({
+      status: 200,
+      json: url.searchParams.get('q')
+        ? noKnowledge
+        : { ...companyKnowledge, space_ids: spaces ? spaces.split(',') : [] },
+    });
+  });
+  await page.route('**/api/v1/company/entities/**', (route: Route) =>
+    route.fulfill({ status: 200, json: atlasDetail }),
+  );
+}
+
+test('company knowledge: the Company scope beside Mine, its graph, filters and an entity’s citations, read only', async ({
+  page,
+}, info) => {
+  const state = { view: joined, asked: [] as string[] };
+  await companyRoutes(page, state);
+  const asked: URL[] = [];
+  await companyKnowledgeRoutes(page, asked);
+
+  await page.goto('/app-v2/?tab=knowledge');
+  const scope = page.getByRole('radiogroup', { name: 'Knowledge scope' });
+  await expect(scope).toBeVisible({ timeout: 15_000 });
+  await expect(scope.getByRole('radio', { name: 'Mine' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  expect(asked).toEqual([]); // The company's graph is read only once chosen.
+  await shoot(page, info, 'company-knowledge-mine');
+
+  await scope.getByRole('radio', { name: 'Company' }).click();
+  await expect(page.getByText('3 entities')).toBeVisible();
+  const drawn = page.locator(
+    '.company-graph .knowledge-network-shell[data-renderer-status="ready"]',
+  );
+  const noWebgl = page.getByRole('status').filter({ hasText: 'needs WebGL' });
+  await expect(drawn.or(noWebgl)).toBeVisible();
+  expect(asked[0].search).toBe('?limit=300');
+  await shoot(page, info, 'company-knowledge-graph');
+
+  await page
+    .getByRole('combobox', { name: 'Space' })
+    .selectOption({ label: 'Sales' });
+  await expect
+    .poll(() => asked.at(-1)?.searchParams.get('spaces'))
+    .toBe(SALES_SPACE);
+  await page
+    .getByRole('searchbox', { name: 'Search company knowledge' })
+    .fill('nobody');
+  await expect(page.getByText('Nothing matches')).toBeVisible();
+  await shoot(page, info, 'company-knowledge-nothing-matches');
+  await page.getByRole('button', { name: 'Show everything' }).click();
+  await expect(page.getByText('3 entities')).toBeVisible();
+
+  // Where the canvas can't draw, the entities are listed: a row opens one.
+  // Company stays chosen on this device.
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      kind: string,
+      ...rest: unknown[]
+    ) {
+      return kind.startsWith('webgl')
+        ? null
+        : (original as (...args: unknown[]) => unknown).call(
+            this,
+            kind,
+            ...rest,
+          );
+    } as typeof original;
+  });
+  await page.reload();
+  await expect(page.getByRole('radio', { name: 'Company' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+    { timeout: 15_000 },
+  );
+  await page.getByRole('row', { name: /Atlas/ }).click();
+  const detail = page.getByRole('region', { name: 'Selected entity detail' });
+  await expect(
+    detail.getByText('From Company: Platform plan 2027'),
+  ).toBeVisible();
+  await expect(detail.getByText('From Sales')).toBeVisible();
+  await expect(detail.getByText('Edited in the admin console')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /^(Edit|Merge|Archive|Delete)/ }),
+  ).toHaveCount(0);
+  await shoot(page, info, 'company-knowledge-entity');
+
+  // Disconnected: C1b's words and the way back.
+  await page.unroute('**/api/v1/company/graph**');
+  await page.route('**/api/v1/company/graph**', (route: Route) =>
+    route.fulfill({
+      status: 200,
+      json: { ...noKnowledge, state: 'disconnected', spaces: [] },
+    }),
+  );
+  await page.reload();
+  await expect(
+    page.getByText('Your company disconnected this Row-Bot'),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('link', { name: 'Sign in again' })).toBeVisible();
+  await shoot(page, info, 'company-knowledge-disconnected');
+});

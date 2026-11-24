@@ -2,6 +2,7 @@ import * as wire from '../../../contracts/client-platform/v1/typescript/client';
 import type {
   ClientTransport,
   CompanyAction,
+  CompanyGraphQuery,
   OutputFilter,
   RowBotSandboxCreate,
   VideoBrand,
@@ -955,6 +956,19 @@ export class HttpTransport implements ClientTransport {
       leave: wire.leaveCompany,
     }[action];
     return send(this.base, proof, signal);
+  }
+  companyGraph(query: CompanyGraphQuery, signal?: AbortSignal) {
+    return wire.getCompanyGraph(
+      this.base,
+      this.session(),
+      query.spaces?.length ? query.spaces.join(',') : undefined,
+      query.q?.trim() || undefined,
+      query.limit,
+      signal,
+    );
+  }
+  companyEntity(entityId: string, signal?: AbortSignal) {
+    return wire.getCompanyEntity(this.base, this.session(), entityId, signal);
   }
   speechModels(signal?: AbortSignal) {
     return wire.getSpeechModels(this.base, this.session(), signal);
