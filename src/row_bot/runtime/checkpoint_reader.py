@@ -186,22 +186,25 @@ class BlobReader:
         return safe
 
     def media_prompt(self, position: int) -> str:
-        """Read only the ``prompt`` of one media tool's encoded arguments, bounded (5.3.3)."""
+        """Read only what names one media tool's output from its encoded arguments, bounded: its ``title`` when it
+        gave one (F8), else its ``prompt`` (5.3.3)."""
 
         node = self.node(position)
         if node.kind != "map" or node.size > 64:
             return ""
+        found: dict[str, str] = {}
         current = node.body
         for _ in range(node.size):
             key = self.text(current, 128)
             current = self.end(current)
             value = self.node(current)
-            if key == "prompt" and value.kind == "str":
+            if key in {"title", "prompt"} and value.kind == "str":
                 self.blob.seek(value.body)
                 # Reads stay within one 1 KiB step, as every bounded read here does.
-                return self._read(min(value.size, 1024)).decode("utf-8", errors="ignore")
+                found[key] = self._read(min(value.size, 1024)).decode("utf-8", errors="ignore")
             current = self.end(current)
-        return ""
+        title = found.get("title", "")
+        return title if title.strip() else found.get("prompt", "")
 
     def safe_attachments(self, position: int) -> list[dict[str, Any]]:
         """Decode only the closed public metadata written at input admission."""

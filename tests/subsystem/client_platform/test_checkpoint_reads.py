@@ -234,7 +234,7 @@ def test_reloaded_trace_restores_only_opaque_generated_media_metadata(platform):
     assert "must-not-project" not in json.dumps(trace)
 
 
-def test_reloaded_media_names_its_picture_by_its_prompt_and_nothing_else(platform):
+def test_reloaded_media_names_its_picture_by_its_title_or_prompt_and_nothing_else(platform):
     from row_bot import threads
     from row_bot.api.v1.schemas import TranscriptPage
     from row_bot.application.attachments import register_attachment
@@ -253,6 +253,10 @@ def test_reloaded_media_names_its_picture_by_its_prompt_and_nothing_else(platfor
                                          "reference_image": "private-path-must-not-project"}),
         *made("long", "generate_image", {"prompt": "word " * 600}),
         *made("other", "image_gen", {"prompt": "a prompt only a media tool may show"}),
+        # F8: a picture the reply calls "Red Lighthouse at Sunset" is named so, not "Change only the time of…".
+        *made("titled", "edit_image", {"prompt": "Change only the time of day in this existing picture",
+                                       "title": "Red Lighthouse at Sunset"}),
+        *made("blank", "generate_image", {"title": "  ", "prompt": "A blank title names nothing"}),
     ])
 
     transcript = platform.transcript("conversation-a")
@@ -262,6 +266,8 @@ def test_reloaded_media_names_its_picture_by_its_prompt_and_nothing_else(platfor
     assert media[0]["prompt"] == "A fox in a misty forest at dawn"
     assert len(media[1]["prompt"]) <= 1000 and media[1]["prompt"].startswith("word word")
     assert "prompt" not in media[2]
+    assert media[3]["prompt"] == "Red Lighthouse at Sunset"
+    assert media[4]["prompt"] == "A blank title names nothing"
     shown = json.dumps(transcript)
     assert "private-path-must-not-project" not in shown
     assert "a prompt only a media tool may show" not in shown

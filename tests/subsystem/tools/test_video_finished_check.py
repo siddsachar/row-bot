@@ -268,6 +268,8 @@ def test_the_check_looks_at_the_review_sheet_once_with_a_fixed_rubric_and_lists_
     assert sheet == b"review sheet", "one call, on the review sheet"
     assert "scene 1: Open the shop." in question and "scene 2: Ship it" in question, "what each scene says"
     assert "warped hands or faces" in question and "cut off at an edge" in question and "reply OK" in question
+    # F10: a big caption over an illustrated fox, where no face finder sees a face, is asked about too.
+    assert "cover a face, a character or what the scene shows" in question
     assert "Check scene 2 · 0:02: the hand on the box looks warped" in edit.checks
     assert "Check 0:00.5: the caption runs off the right edge" in edit.checks
     assert not any("reads well" in line for line in edit.checks), "only problems, not what's fine"
