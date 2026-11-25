@@ -261,6 +261,26 @@ describe('Home › For you', () => {
     );
   });
 
+  it('waits while another first-run note is on Home, then introduces itself', async () => {
+    window.localStorage.removeItem('row-bot:proactive-introduced:v1');
+    const io = fakeIO({ moments: [] });
+    const page = (introWaits: boolean) => (
+      <MemoryRouter>
+        <ForYou io={io} now={now} introWaits={introWaits} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(page(true));
+    await waitFor(() => expect(io.settings).toHaveBeenCalled());
+    expect(
+      screen.queryByRole('region', { name: 'Row-Bot can speak first' }),
+    ).not.toBeInTheDocument();
+
+    rerender(page(false));
+    expect(
+      await screen.findByRole('region', { name: 'Row-Bot can speak first' }),
+    ).toBeVisible();
+  });
+
   it('introduces itself once, with the level and the privacy line', async () => {
     window.localStorage.removeItem('row-bot:proactive-introduced:v1');
     const io = fakeIO({ moments: [] });
