@@ -185,8 +185,10 @@ def _title_model(model_ref: str) -> Any:
     """The conversation's own model with the title caps."""
     from row_bot.models import get_llm_for
     from row_bot.providers.reasoning import (
+        BACKGROUND_SCOPE,
         ReasoningRequestPlan,
         ReasoningSelection,
+        background_reasoning_rejected,
         canonical_reasoning_model_ref,
         resolve_reasoning_capabilities_for_ref,
     )
@@ -196,13 +198,18 @@ def _title_model(model_ref: str) -> Any:
     canonical = canonical_reasoning_model_ref(resolved.provider_id, resolved.runtime_model)
     capabilities = resolve_reasoning_capabilities_for_ref(canonical)
     # A reasoning model would otherwise spend hundreds of tokens thinking about a title.
-    if capabilities is not None and capabilities.can_disable and not capabilities.mandatory:
+    if background_reasoning_rejected(canonical):
+        # The provider refused a lowered setting earlier in this process: ask at its default.
+        selection = ReasoningSelection()
+    elif capabilities is not None and capabilities.can_disable and not capabilities.mandatory:
         selection = ReasoningSelection(kind="off")
     elif capabilities is not None and capabilities.supported_efforts:
         selection = ReasoningSelection(kind="effort", effort=capabilities.supported_efforts[0])
     else:
         selection = ReasoningSelection()
-    llm = get_llm_for(resolved.selection_ref, reasoning_plan=ReasoningRequestPlan(canonical, selection, capabilities))
+    # A background plan: a refusal is remembered and never resets the conversation's own setting.
+    plan = ReasoningRequestPlan(canonical, selection, capabilities, scope=BACKGROUND_SCOPE)
+    llm = get_llm_for(resolved.selection_ref, reasoning_plan=plan)
     # A cool temperature, but only where no reasoning runs: reasoning requests refuse one.
     sampling = {"temperature": _TEMPERATURE} if capabilities is None or selection.kind == "off" else {}
     if resolved.provider_id == "google":
