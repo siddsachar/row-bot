@@ -1587,11 +1587,12 @@ test('Models catalog applies a default and retains it across navigation', async 
     exact: true,
   });
   await expect(defaultPicker).toBeVisible();
-  const index = /Saved example 104\b/.test(
+  // Specs share one server: use models the U10 spec (103, 104) never stars.
+  const index = /Saved example 102\b/.test(
     (await defaultPicker.textContent()) ?? '',
   )
-    ? '103'
-    : '104';
+    ? '101'
+    : '102';
   const label = 'Saved example ' + index;
   await models
     .getByRole('button', { name: /^Open / })
