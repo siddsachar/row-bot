@@ -308,6 +308,40 @@ def test_a_made_video_is_named_by_its_chat_file_never_its_private_path(conversat
     assert found.read_bytes() == _video_bytes(1)
 
 
+def test_a_made_picture_is_named_by_the_title_its_reply_uses(conversation, monkeypatch):
+    """F8 (24 Nov): the reply called it "Red Lighthouse at Sunset", but its file, its viewer and its Outputs tile
+    read "change-only-the-time-of-day-in-this-existing", from the prompt sent to the image model."""
+    from row_bot import agent, media_sources
+    from row_bot.tools import image_gen_tool
+
+    pictures = iter(b"\x89PNG\r\n\x1a\n" + bytes([number]) for number in range(4))
+
+    def made(*_args, **_options) -> str:
+        image_gen_tool._set_pending_image(base64.b64encode(next(pictures)).decode())
+        return "Image generated successfully."
+
+    monkeypatch.setattr(image_gen_tool, "_generate_image", made)
+    monkeypatch.setattr(image_gen_tool, "_selection", lambda: "")
+    prompt = "Change only the time of day in this existing watercolour of a red lighthouse"
+
+    def first_line(args: dict) -> str:
+        return _run_tool("generate_image", args, image_gen_tool._generate_image_tool).splitlines()[0]
+
+    assert first_line({"prompt": prompt, "title": "Red Lighthouse at Sunset"}) == (
+        'Output "Red Lighthouse at Sunset" v1 (final) · Red Lighthouse at Sunset.png')
+    assert first_line({"prompt": prompt, "title": "Row-Bot 5.4: the launch"}) == (
+        'Output "Row-Bot 5.4- the launch" v1 (final) · Row-Bot 5.4- the launch.png'), "only what no file name takes"
+    assert first_line({"prompt": prompt}) == (
+        'Output "change-only-the-time-of-day" v1 (final) · change-only-the-time-of-day.png'), (
+        "no title: named from the prompt, as before")
+    [found] = media_sources.resolve("Red Lighthouse at Sunset", "fixture")
+    assert found.read_bytes() == b"\x89PNG\r\n\x1a\n\x00"
+    # The same title is the picture's caption in the chat (its viewer, its download, its Outputs tile).
+    call = {"id": "call-1", "name": "edit_image", "args": {"prompt": prompt, "title": "Red Lighthouse at Night"}}
+    assert agent._tool_call_payload(call).media_prompt == "Red Lighthouse at Night"
+    assert agent._tool_call_payload({**call, "args": {"prompt": prompt}}).media_prompt == prompt
+
+
 def test_analyze_image_finds_a_chat_file_named_as_its_file_path(conversation, monkeypatch):
     """R2: the video tool's review sheet is a chat file; file_path looked only in the workspace."""
     from row_bot.tools import vision_tool

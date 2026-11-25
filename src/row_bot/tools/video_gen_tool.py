@@ -1335,7 +1335,7 @@ def _what(duration: int, resolution: str, shot: _Shot, made: str) -> str:
 
 def _generate_video_tool(prompt: str, duration_seconds: int = 8, aspect_ratio: str = "16:9",
                          resolution: str = "", references: list[str] | None = None, character: str = "",
-                         style: str = "", last_frame: str = "", extend: str = "") -> str:
+                         style: str = "", last_frame: str = "", extend: str = "", title: str = "") -> str:
     from row_bot.tools.image_gen_tool import _led, paid_generation_check
 
     if not _get_configured_selection():
@@ -1356,7 +1356,7 @@ def _generate_video_tool(prompt: str, duration_seconds: int = 8, aspect_ratio: s
 
 def _animate_image_tool(prompt: str, image_source: str = "last", duration_seconds: int = 8,
                         aspect_ratio: str = "16:9", resolution: str = "", references: list[str] | None = None,
-                        character: str = "", style: str = "", last_frame: str = "") -> str:
+                        character: str = "", style: str = "", last_frame: str = "", title: str = "") -> str:
     from row_bot.providers.media import bills_per_call
     from row_bot.tools.image_gen_tool import _led, paid_generation_check, reference_picture
 
@@ -1388,6 +1388,9 @@ _REFERENCES = ("Up to 3 pictures the shot holds to (a character, a product, a pl
 _CHARACTER = "A character saved in Library › Media (pictures tagged 'character: <name>'), by name."
 _STYLE = "A style saved in Library › Media (a still tagged 'style: <name>'), by name."
 _LAST_FRAME = "A picture the shot ends on, so the next shot can start there; named as references are."
+# A title only names the saved clip (agent._media_label): the tools take it and leave it.
+_TITLE = ("A short name for the clip, as your reply calls it (e.g. 'Waves at Dusk'): its file's name and its title "
+          "in the chat. Empty: named from the prompt.")
 _RESOLUTION = ("Leave empty for the highest the model makes at this length, up to 1080p; or '480p', '720p', "
                "'1080p', '4k'.")
 
@@ -1417,6 +1420,7 @@ class _GenerateVideoInput(BaseModel):
         description=("An earlier clip to continue instead of starting a new one: 'last' for this chat's newest "
                      "video, or its name in this chat's files."),
     )
+    title: str = Field(default="", description=_TITLE)
 
 
 class _AnimateImageInput(BaseModel):
@@ -1446,6 +1450,7 @@ class _AnimateImageInput(BaseModel):
     character: str = Field(default="", description=_CHARACTER)
     style: str = Field(default="", description=_STYLE)
     last_frame: str = Field(default="", description=_LAST_FRAME)
+    title: str = Field(default="", description=_TITLE)
 
 
 # ── Tool registration ───────────────────────────────────────────────────

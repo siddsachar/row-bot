@@ -480,6 +480,7 @@ RUBRIC = (
     "3. Is anything important cut off at an edge?\n"
     "4. Does each scene's picture fit what's said over it?\n"
     "5. Any visible AI artefacts: warped hands or faces, melting objects, garbled text?\n"
+    "6. Do any words (a caption, a title) cover a face, a character or the scene's main subject?\n"
     "Reply with one line for each clear problem a viewer would notice, starting with the label under its frame, "
     "for example \"scene 3 · 0:12: the caption runs off the right edge\". At most 6 lines. If there's none, reply "
     "OK. Don't describe what's fine."
