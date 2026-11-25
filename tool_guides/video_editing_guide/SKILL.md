@@ -28,7 +28,7 @@ tags: []
 - For footage not made yet its words are enough; make a frame with
   generate_image only when the person asked for pictures in the storyboard.
 - Render the final through the video tool whenever it can do the job. An
-  illustrated video (drawn or animated, or with no video model) is
+  illustrated video, or any video when no video model is chosen, is
   pictures: make each scene's picture with generate_image, then change
   those scenes with it as their source; to remake a scene, make its picture
   again. Never write a renderer or draw frames with a script for it. Only
