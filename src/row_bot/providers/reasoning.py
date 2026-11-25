@@ -718,6 +718,25 @@ _CATALOGUE_REASONING: dict[str, ReasoningCapabilities] = {
 }
 
 
+_OPENAI_POINT_RELEASE = re.compile(r"^gpt-5\.(\d+)")
+
+
+def _openai_efforts(model_id: str) -> tuple[str, ...]:
+    """The efforts OpenAI's API takes for a GPT-5 point release (F5).
+
+    GPT-5 takes ``minimal``; from GPT-5.1 its lowest is ``none`` instead, and from
+    GPT-5.2 the top is ``xhigh``. Codex models start at ``low``.
+    """
+    name = str(model_id or "").strip().lower()
+    match = _OPENAI_POINT_RELEASE.match(name)
+    if match is None:
+        return _OPENAI_EFFORTS
+    later = int(match.group(1)) >= 2
+    if "codex" in name:
+        return ("low", "medium", "high", "xhigh") if later else ("low", "medium", "high")
+    return ("none", "low", "medium", "high", "xhigh") if later else ("none", "low", "medium", "high")
+
+
 def _catalogue_reasoning_capabilities(provider_id: str, model_id: str) -> ReasoningCapabilities | None:
     """A control for a model models.dev says reasons, in the style its provider's API takes."""
     caps = _CATALOGUE_REASONING.get(provider_id)
@@ -729,7 +748,11 @@ def _catalogue_reasoning_capabilities(provider_id: str, model_id: str) -> Reason
         known = lookup(provider_id, model_id)
     except Exception:
         return None
-    return caps if known is not None and known.reasoning else None
+    if known is None or not known.reasoning:
+        return None
+    if provider_id == "openai":
+        return _catalogue_caps(_openai_efforts(model_id), style="openai")
+    return caps
 
 
 def _with_default_request_style(caps: ReasoningCapabilities, provider_id: str) -> ReasoningCapabilities:
