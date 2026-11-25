@@ -141,9 +141,10 @@ it('lists every connected local runtime and Row-Bot’s download as one entry am
   expect(
     within(group).getByRole('list', { name: 'Models Row-Bot downloaded' }),
   ).toHaveTextContent('Qwen3.8 27B · 2-bit9.9 GB · reads 32K');
+  // Manage opens that runtime's own sheet on this page (F11).
   expect(
-    within(group).getByRole('link', { name: 'Manage LM Studio in Providers' }),
-  ).toHaveAttribute('href', '/settings/providers');
+    within(group).getByRole('link', { name: 'Manage Ollama' }),
+  ).toHaveAttribute('href', '/settings/models?provider=ollama');
 });
 
 it('Remove asks first, names the space it frees and says what it freed', async () => {

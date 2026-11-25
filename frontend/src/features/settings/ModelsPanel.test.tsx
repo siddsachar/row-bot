@@ -121,23 +121,31 @@ const clientSnapshot = { handshake: { models: [] } };
 function fixture() {
   const state = structuredClone(baseState);
   let saved = structuredClone(defaultSnapshot);
+  let saves = 0;
   const controller = {
     modelsSettings: vi.fn(async () => structuredClone(state)),
     defaultModel: vi.fn(async () => structuredClone(saved)),
     agentRuntimeSettings: vi.fn(async () => structuredClone(agent)),
-    reviewDefaultModel: vi.fn(async (body) => ({
-      ...body,
-      operation: 'provider.default_model.save',
-      action_digest: 'digest',
-      nonce: 'review-nonce',
-      snapshot: saved,
-    })),
-    executeDefaultModel: vi.fn(async (_review, _commandId) => {
+    // As the server: a review against an older revision is refused.
+    reviewDefaultModel: vi.fn(async (body) => {
+      if (body.settings_revision !== saved.revision)
+        throw { code: 'revision_conflict' };
+      return {
+        ...body,
+        operation: 'provider.default_model.save',
+        action_digest: 'digest',
+        nonce: 'review-nonce',
+        snapshot: saved,
+      };
+    }),
+    executeDefaultModel: vi.fn(async (review, _commandId) => {
+      saves += 1;
       saved = {
         ...saved,
-        selection_ref: 'model:codex:gpt-5.5',
-        model_id: 'gpt-5.5',
-        revision: 'b'.repeat(64),
+        selection_ref: `model:${review.provider_id}:${review.model_id}`,
+        provider_id: review.provider_id,
+        model_id: review.model_id,
+        revision: String.fromCharCode(97 + saves).repeat(64),
       };
       state.brain.current_ref = saved.selection_ref!;
       return structuredClone(saved);
@@ -567,15 +575,135 @@ it('confirms a Brain change with the floating notice, whose Undo saves the previ
     name: 'Undo',
   });
   await act(async () => fireEvent.click(undo));
+  // Undo reviews against the revision the first save left (F11).
   await waitFor(() =>
-    expect(controller.reviewDefaultModel).toHaveBeenLastCalledWith(
-      expect.objectContaining({
+    expect(controller.reviewDefaultModel).toHaveBeenLastCalledWith({
+      settings_revision: 'b'.repeat(64),
+      provider_id: 'codex',
+      model_id: 'gpt-6-astra',
+    }),
+  );
+  expect(await notice('Main model changed back')).toBeInTheDocument();
+  expect(controller.executeDefaultModel).toHaveBeenCalledTimes(2);
+  expect(await controller.defaultModel()).toMatchObject({
+    selection_ref: brain,
+  });
+  expect(screen.getByRole('button', { name: 'Main model' })).toHaveTextContent(
+    'GPT-6-Astra',
+  );
+});
+
+it('makes a Catalog row the main model only from its labelled ✓, and Undo puts the old one back on the server (F11)', async () => {
+  const controller = fixture();
+  vi.spyOn(controller, 'modelCatalogSummary').mockResolvedValue({
+    schema_version: 1,
+    revision: 'one',
+    surface: 'chat',
+    providers: [
+      {
         provider_id: 'codex',
-        model_id: 'gpt-6-astra',
+        display_name: 'ChatGPT / Codex',
+        total: 1,
+        ready: 1,
+        pinned: 0,
+      },
+    ],
+  });
+  vi.spyOn(controller, 'modelCatalogPage').mockResolvedValue({
+    schema_version: 1,
+    revision: 'one',
+    generated_at: 1000,
+    freshness: 'fresh',
+    total: 1,
+    next_cursor: null,
+    items: [
+      {
+        provider_id: 'codex',
+        model_id: 'gpt-5.5',
+        selection_ref: 'model:codex:gpt-5.5',
+        display_name: 'GPT-5.5',
+        provider_display_name: 'ChatGPT / Codex',
+        categories: ['chat'],
+        input_modalities: ['text'],
+        output_modalities: ['text'],
+        tool_calling: true,
+        reasoning: null,
+        context_window: 272000,
+        installed: true,
+        configured: true,
+        runtime_ready: true,
+        status_reason: '',
+        runtime_mode: 'agent',
+        source: 'saved_catalog',
+        runtime_state: 'unknown',
+        favourite_rank: null,
+      },
+    ],
+  } as never);
+  show(controller);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Open ChatGPT / Codex' }),
+  );
+  // The star only adds it to your models; the ✓ says it makes it the main model.
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add GPT-5.5 to your models' }),
+  );
+  await waitFor(() =>
+    expect(controller.updateModelVisibility).toHaveBeenCalledOnce(),
+  );
+  expect(controller.executeDefaultModel).not.toHaveBeenCalled();
+  const check = screen.getByRole('button', {
+    name: 'Make GPT-5.5 the main model',
+  });
+  await waitFor(() => expect(check).toBeEnabled());
+  fireEvent.click(check);
+  const confirmation = await notice('Main model is now GPT-5.5');
+  expect(await controller.defaultModel()).toMatchObject({
+    selection_ref: 'model:codex:gpt-5.5',
+  });
+  await act(async () =>
+    fireEvent.click(
+      within(confirmation.closest('li')!).getByRole('button', {
+        name: 'Undo',
       }),
     ),
   );
-  expect(controller.executeDefaultModel).toHaveBeenCalledTimes(2);
+  expect(await notice('Main model changed back')).toBeInTheDocument();
+  expect(await controller.defaultModel()).toMatchObject({
+    selection_ref: brain,
+  });
+  expect(screen.getByRole('button', { name: 'Main model' })).toHaveTextContent(
+    'GPT-6-Astra',
+  );
+  // Settings opened again reads the same main model.
+  cleanup();
+  show(controller);
+  expect(
+    await screen.findByRole('button', { name: 'Main model' }),
+  ).toHaveTextContent('GPT-6-Astra');
+});
+
+it('says so when Undo could not put the main model back, and shows what is saved', async () => {
+  const controller = fixture();
+  show(controller);
+  await chooseDefault(/GPT-5\.5/);
+  const confirmation = await notice('Main model is now GPT-5.5');
+  vi.spyOn(controller, 'reviewDefaultModel').mockRejectedValueOnce({
+    code: 'model_configuration_unavailable',
+  });
+  await act(async () =>
+    fireEvent.click(
+      within(confirmation.closest('li')!).getByRole('button', {
+        name: 'Undo',
+      }),
+    ),
+  );
+  expect(
+    await notice("The main model wasn't changed back"),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Main model' })).toHaveTextContent(
+    'GPT-5.5',
+  );
 });
 
 it('updates media toggles, defaults, camera, context, and delegation through their typed owners', async () => {

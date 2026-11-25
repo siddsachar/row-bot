@@ -21,8 +21,8 @@ from typing import Literal
 from row_bot.providers.catalog import PROVIDER_DEFINITIONS
 from row_bot.providers.config import load_provider_config
 from row_bot.providers.custom import normalize_custom_endpoint
-from row_bot.providers.model_catalog import (CatalogModelRow, build_saved_model_catalog_rows, picker_options,
-                                             project_saved_catalog_readiness)
+from row_bot.providers.model_catalog import (CatalogModelRow, build_saved_model_catalog_rows, newest_first,
+                                             picker_options, project_saved_catalog_readiness)
 from row_bot.providers.model_catalog_cache import (
     CATALOG_CACHE_TTL_SECONDS,
     is_model_catalog_refresh_running,
@@ -330,7 +330,8 @@ def _build(include_readiness: bool) -> _Built:
                               else True if include_readiness else None),
                 local_settings=has_sheet(row))
         for row in rows
-    ), key=lambda row: (row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id)))
+    ), key=lambda row: (row.provider_display_name.casefold(), newest_first(row.display_name), row.provider_id,
+                        row.model_id)))
     providers = []
     for key, label in sorted(labels.items(), key=lambda item: (item[1].casefold(), item[0])):
         definition = PROVIDER_DEFINITIONS.get(key)

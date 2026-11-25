@@ -129,6 +129,20 @@ def test_capabilities_unknowns_and_local_install_state(saved):
     assert rows["model:ollama:unknown"].installed is None
 
 
+def test_a_providers_models_are_listed_newest_first_within_each_family(saved):
+    # The first-run list and the Catalog read this page; the pickers read the same order.
+    names = ["GPT-5.6 Luna", "GPT-5.6 Sol", "GPT-6 Sol", "GPT-6.2 Sol", "GPT-5.5", "gpt-image-2", "Codex"]
+    saved(cloud={f"model-{index}": _model(provider="codex", label=name) for index, name in enumerate(names)})
+    page = status.list_cached_models(provider_id="codex", now=1000)
+    assert [row.display_name for row in page.items] == [
+        "Codex", "GPT-6.2 Sol", "GPT-6 Sol", "GPT-5.6 Luna", "GPT-5.6 Sol", "GPT-5.5", "gpt-image-2",
+    ]
+    rows = model_catalog.build_saved_model_catalog_rows(
+        cloud_cache={f"model-{index}": _model(provider="codex", label=name) for index, name in enumerate(names)},
+        ollama_rows=[], provider_config={})
+    assert [row.display_name for row in rows] == [row.display_name for row in page.items]
+
+
 def test_search_before_paging_counts_and_revision_invalidation(saved):
     saved(cloud={f"model-{i:03}": _model(label=f"Name {i:03}") for i in range(205)})
     first = status.list_cached_models(limit=100, now=1000)
