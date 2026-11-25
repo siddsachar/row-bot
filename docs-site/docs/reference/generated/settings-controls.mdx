@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: f0935a04ef105d31 -->
+<!-- inventory-hash: f23d25a257acdfca -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -20,7 +20,6 @@ Group: General. Open in Row-Bot: `/app-v2/settings/preferences`. Guide: [/docs/s
 | --- | --- | --- | --- |
 | Assistant name | identity call itself | `/app-v2/settings/preferences#identity.name` | `frontend/src/features/settings/model.ts#identity.name` |
 | Personality | behaviour tone | `/app-v2/settings/preferences#identity.personality` | `frontend/src/features/settings/model.ts#identity.personality` |
-| Learn new skills | self-improvement improve | `/app-v2/settings/preferences#identity.self_improvement_enabled` | `frontend/src/features/settings/model.ts#identity.self_improvement_enabled` |
 | Open Row-Bot in | window mode app native browser launch | `/app-v2/settings/preferences#window_mode` | `frontend/src/features/settings/model.ts#window_mode` |
 | Desktop notifications | notify alerts sound toast workflow finished timer approval | `/app-v2/settings/preferences#desktop_notifications` | `frontend/src/features/settings/model.ts#desktop_notifications` |
 | Dream Cycle | overnight tidy-up background consolidation hours | `/app-v2/settings/preferences#dream-cycle` | `frontend/src/features/settings/model.ts#dream-cycle` |
@@ -47,6 +46,23 @@ Dependencies: Desktop overlay behaviour depends on native-window support.
 | --- | --- | --- | --- |
 | Show Buddy |  | `/app-v2/settings/buddy#buddy-visibility` | `frontend/src/features/settings/model.ts#buddy-visibility` |
 | Buddy look and motion | avatar pack | `/app-v2/settings/buddy#buddy-look` | `frontend/src/features/settings/model.ts#buddy-look` |
+
+## Learning Controls
+
+Group: General. Open in Row-Bot: `/app-v2/settings/learning`. Guide: [/docs/settings/](/docs/settings/).
+
+Dependencies: Training needs the training engine and a starting model, downloaded only after you agree.
+
+Security: Learning is on from the start, for learning from your corrections; experimental learning, reading past chats and the personal model are off until you turn them on. Its records, tests and models stay on this computer; its own model calls go to your default model's provider, and Hugging Face is used only if you choose it.
+
+| Setting | Search keywords | Open in Row-Bot | Source |
+| --- | --- | --- | --- |
+| Create skills while chatting | learn new skills self-improvement improve | `/app-v2/settings/learning#identity.self_improvement_enabled` | `frontend/src/features/settings/model.ts#identity.self_improvement_enabled` |
+| Learn from | chats workflows goals past 30 days | `/app-v2/settings/learning#learning-sources` | `frontend/src/features/settings/model.ts#learning-sources` |
+| Learning monthly limit | tokens spending budget | `/app-v2/settings/learning#monthly_token_limit` | `frontend/src/features/settings/model.ts#monthly_token_limit` |
+| Experimental learning | practice quick question compare methods trials | `/app-v2/settings/learning#learning-experimental` | `frontend/src/features/settings/model.ts#learning-experimental` |
+| Personal model | train training gpu hugging face download qwen | `/app-v2/settings/learning#personal-model` | `frontend/src/features/settings/model.ts#personal-model` |
+| Delete learning data | learning data storage | `/app-v2/settings/learning#learning-data` | `frontend/src/features/settings/model.ts#learning-data` |
 
 ## Proactive Controls
 
@@ -83,7 +99,7 @@ Security: Credentials are stored through the configured secret store; values are
 | Vision model | camera images screenshots see look | `/app-v2/settings/models#vision-model` | `frontend/src/features/settings/model.ts#vision-model` |
 | Image model | generation pictures | `/app-v2/settings/models#image-model` | `frontend/src/features/settings/model.ts#image-model` |
 | Video model | clips animate generation | `/app-v2/settings/models#video-model` | `frontend/src/features/settings/model.ts#video-model` |
-| Reading limit | context window tokens advanced | `/app-v2/settings/models#reading-limit` | `frontend/src/features/settings/model.ts#reading-limit` |
+| Cloud reading limit | context window tokens cloud advanced | `/app-v2/settings/models#reading-limit` | `frontend/src/features/settings/model.ts#reading-limit` |
 | Limits for long work | helpers helper levels agents time limit goal turns | `/app-v2/settings/models#long-work` | `frontend/src/features/settings/model.ts#long-work` |
 | Model catalog | pin models | `/app-v2/settings/models#model-catalog` | `frontend/src/features/settings/model.ts#model-catalog` |
 
@@ -95,11 +111,17 @@ Dependencies: Voice extras, provider credentials, and OS audio permissions may b
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Talk | realtime microphone listen | `/app-v2/settings/voice#talk` | `frontend/src/features/settings/model.ts#talk` |
+| Talk | listen with microphone deepgram assemblyai cloud speech to text | `/app-v2/settings/voice#talk` | `frontend/src/features/settings/model.ts#talk` |
 | Live captions | subtitles talk | `/app-v2/settings/voice#runtime.captions_enabled` | `frontend/src/features/settings/model.ts#runtime.captions_enabled` |
+| When you pause | turn taking interrupts answers too soon talk | `/app-v2/settings/voice#runtime.turn_eagerness` | `frontend/src/features/settings/model.ts#runtime.turn_eagerness` |
+| Push to talk | hold to talk space hotkey hold a key | `/app-v2/settings/voice#runtime.push_to_talk` | `frontend/src/features/settings/model.ts#runtime.push_to_talk` |
+| Microphone and speaker | input output headset headphones audio device | `/app-v2/settings/voice#devices` | `frontend/src/features/settings/model.ts#devices` |
 | Dictation |  | `/app-v2/settings/voice#dictation` | `frontend/src/features/settings/model.ts#dictation` |
 | Speech model | whisper model size transcription | `/app-v2/settings/voice#local.whisper_model` | `frontend/src/features/settings/model.ts#local.whisper_model` |
-| Read aloud | text to speech tts kokoro voice | `/app-v2/settings/voice#read-aloud` | `frontend/src/features/settings/model.ts#read-aloud` |
+| Read aloud | text to speech tts kokoro voice elevenlabs cartesia gemini describe a voice | `/app-v2/settings/voice#read-aloud` | `frontend/src/features/settings/model.ts#read-aloud` |
+| Speak with | cloud voice text to speech elevenlabs cartesia | `/app-v2/settings/voice#runtime.speech_output_provider` | `frontend/src/features/settings/model.ts#runtime.speech_output_provider` |
+| Language | language detect automatically voice notes | `/app-v2/settings/voice#language` | `frontend/src/features/settings/model.ts#language` |
+| Live voice | openai realtime gemini live grok speech to speech realtime voice model | `/app-v2/settings/voice#live-voice` | `frontend/src/features/settings/model.ts#live-voice` |
 
 ## Memory Controls
 

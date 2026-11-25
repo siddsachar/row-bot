@@ -1,5 +1,5 @@
 {
- "fetched_at": "2026-11-19T08:08:17+00:00",
+ "fetched_at": "2026-11-25T19:14:57+00:00",
  "providers": {
   "alibaba": {
    "deepseek-v4-flash-0731": {
@@ -20,6 +20,15 @@
     "tool_call": true,
     "vision": false
    },
+   "glm-5.3-prime": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
    "kimi-k3": {
     "context": 1048576,
     "output": [
@@ -29,8 +38,17 @@
     "tool_call": true,
     "vision": true
    },
-   "qvq-max": {
-    "context": 131072,
+   "kimi-k3.1-pro": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "kimi-k3.1-pro-prime": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -65,35 +83,6 @@
     "tool_call": false,
     "vision": false
    },
-   "qwen-mt-turbo": {
-    "context": 16384,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "qwen-omni-turbo": {
-    "context": 32768,
-    "output": [
-     "audio",
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "qwen-omni-turbo-realtime": {
-    "context": 32768,
-    "output": [
-     "audio",
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "qwen-plus": {
     "context": 1000000,
     "output": [
@@ -112,87 +101,14 @@
     "tool_call": false,
     "vision": false
    },
-   "qwen-turbo": {
-    "context": 1000000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen-vl-max": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "qwen-vl-ocr": {
-    "context": 34096,
+    "context": 38192,
     "output": [
      "text"
     ],
     "reasoning": false,
     "tool_call": false,
     "vision": true
-   },
-   "qwen-vl-plus": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "qwen2-5-omni-7b": {
-    "context": 32768,
-    "output": [
-     "audio",
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "qwen3-14b": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-235b-a22b": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-32b": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-8b": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
    },
    "qwen3-asr-flash": {
     "context": 53248,
@@ -201,24 +117,6 @@
     ],
     "reasoning": false,
     "tool_call": false,
-    "vision": false
-   },
-   "qwen3-coder-30b-a3b-instruct": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-coder-480b-a35b-instruct": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
     "vision": false
    },
    "qwen3-coder-flash": {
@@ -230,75 +128,10 @@
     "tool_call": true,
     "vision": false
    },
-   "qwen3-coder-plus": {
-    "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-livetranslate-flash-realtime": {
-    "context": 53248,
-    "output": [
-     "audio",
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": true
-   },
-   "qwen3-max": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-next-80b-a3b-instruct": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "qwen3-next-80b-a3b-thinking": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "qwen3-omni-flash": {
     "context": 65536,
     "output": [
      "audio",
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "qwen3-omni-flash-realtime": {
-    "context": 65536,
-    "output": [
-     "audio",
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "qwen3-vl-235b-a22b": {
-    "context": 131072,
-    "output": [
      "text"
     ],
     "reasoning": true,
@@ -404,15 +237,6 @@
     "tool_call": true,
     "vision": true
    },
-   "qwen3.6-max-preview": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "qwen3.6-plus": {
     "context": 1000000,
     "output": [
@@ -476,14 +300,14 @@
     "tool_call": true,
     "vision": true
    },
-   "qwq-plus": {
-    "context": 131072,
+   "qwen4-max": {
+    "context": 1000000,
     "output": [
      "text"
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    }
   },
   "anthropic": {
@@ -710,7 +534,7 @@
   },
   "fireworks-ai": {
    "accounts/fireworks/models/deepseek-v4p1-flash": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -719,7 +543,7 @@
     "vision": true
    },
    "accounts/fireworks/models/deepseek-v4p1-flash-1017": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -747,6 +571,15 @@
    },
    "accounts/fireworks/models/glm-5p3-flash": {
     "context": 1048573,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "accounts/fireworks/models/hy4-flash": {
+    "context": 524288,
     "output": [
      "text"
     ],
@@ -782,7 +615,7 @@
     "vision": false
    },
    "accounts/fireworks/models/minimax-m3p1-flash": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -817,8 +650,35 @@
     "tool_call": true,
     "vision": true
    },
+   "accounts/fireworks/models/qwen4-max": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "accounts/fireworks/models/ultramarine-1-flash-us": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "accounts/fireworks/routers/deepseek-flash-latest": {
     "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "accounts/fireworks/routers/deepseek-v4p1-flash-1017-flex": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -844,8 +704,26 @@
     "tool_call": true,
     "vision": true
    },
+   "accounts/fireworks/routers/deepseek-v4p1-flash-1017-us": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "accounts/fireworks/routers/deepseek-v4p1-flash-spot": {
     "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "accounts/fireworks/routers/deepseek-v4p1-flash-us": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -863,6 +741,15 @@
     "vision": false
    },
    "accounts/fireworks/routers/glm-5p3-spot": {
+    "context": 1048573,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "accounts/fireworks/routers/glm-5p3-us": {
     "context": 1048573,
     "output": [
      "text"
@@ -916,7 +803,16 @@
     "tool_call": true,
     "vision": true
    },
-   "accounts/fireworks/routers/kimi-k3-spot": {
+   "accounts/fireworks/routers/kimi-k3-us": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "accounts/fireworks/routers/kimi-k3p1-pro-us": {
     "context": 1048576,
     "output": [
      "text"
@@ -974,15 +870,6 @@
     "tool_call": true,
     "vision": true
    },
-   "gemini-2.5-computer-use-preview-10-2025": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "gemini-2.5-flash": {
     "context": 1048576,
     "output": [
@@ -993,7 +880,7 @@
     "vision": true
    },
    "gemini-2.5-flash-image": {
-    "context": 32768,
+    "context": 65536,
     "output": [
      "image",
      "text"
@@ -1080,15 +967,6 @@
     "context": 65536,
     "output": [
      "image",
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "gemini-3.1-flash-lite-preview": {
-    "context": 1048576,
-    "output": [
      "text"
     ],
     "reasoning": true,
@@ -1259,15 +1137,6 @@
     "tool_call": true,
     "vision": true
    },
-   "gemini-omni-flash-preview": {
-    "context": 131072,
-    "output": [
-     "video"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": true
-   },
    "gemini-pro-latest": {
     "context": 1048576,
     "output": [
@@ -1296,7 +1165,7 @@
     "vision": true
    },
    "lyria-3-clip-preview": {
-    "context": 1048576,
+    "context": 131072,
     "output": [
      "audio",
      "text"
@@ -1306,7 +1175,7 @@
     "vision": true
    },
    "lyria-3-pro-preview": {
-    "context": 1048576,
+    "context": 131072,
     "output": [
      "audio",
      "text"
@@ -1445,13 +1314,22 @@
    }
   },
   "huggingface": {
-   "MiniMaxAI/MiniMax-M1-80k": {
-    "context": 1000000,
+   "CohereLabs/command-a-plus-05-2026-bf16": {
+    "context": 192000,
     "output": [
      "text"
     ],
     "reasoning": true,
     "tool_call": true,
+    "vision": true
+   },
+   "Gryphe/MythoMax-L2-13b": {
+    "context": 8192,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
     "vision": false
    },
    "MiniMaxAI/MiniMax-M2": {
@@ -1473,7 +1351,7 @@
     "vision": false
    },
    "MiniMaxAI/MiniMax-M2.5": {
-    "context": 204800,
+    "context": 65536,
     "output": [
      "text"
     ],
@@ -1482,7 +1360,7 @@
     "vision": false
    },
    "MiniMaxAI/MiniMax-M2.7": {
-    "context": 204800,
+    "context": 196608,
     "output": [
      "text"
     ],
@@ -1491,7 +1369,7 @@
     "vision": false
    },
    "MiniMaxAI/MiniMax-M3": {
-    "context": 524288,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -1500,7 +1378,7 @@
     "vision": true
    },
    "MiniMaxAI/MiniMax-M3.1-Flash": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -1508,7 +1386,7 @@
     "tool_call": true,
     "vision": true
    },
-   "Qwen/Qwen2.5-Coder-32B-Instruct": {
+   "NousResearch/Hermes-3-Llama-3.1-70B": {
     "context": 131072,
     "output": [
      "text"
@@ -1517,17 +1395,26 @@
     "tool_call": true,
     "vision": false
    },
-   "Qwen/Qwen3-235B-A22B": {
-    "context": 40960,
+   "NousResearch/Hermes-4-405B": {
+    "context": 131072,
     "output": [
      "text"
     ],
     "reasoning": true,
+    "tool_call": false,
+    "vision": false
+   },
+   "Qwen/Qwen2.5-Coder-32B-Instruct": {
+    "context": 32768,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
     "tool_call": true,
     "vision": false
    },
    "Qwen/Qwen3-235B-A22B-Instruct-2507": {
-    "context": 262144,
+    "context": 131072,
     "output": [
      "text"
     ],
@@ -1536,7 +1423,7 @@
     "vision": false
    },
    "Qwen/Qwen3-235B-A22B-Thinking-2507": {
-    "context": 262144,
+    "context": 128000,
     "output": [
      "text"
     ],
@@ -1563,7 +1450,7 @@
     "vision": false
    },
    "Qwen/Qwen3-32B": {
-    "context": 131072,
+    "context": 40960,
     "output": [
      "text"
     ],
@@ -1635,7 +1522,7 @@
     "vision": false
    },
    "Qwen/Qwen3-VL-235B-A22B-Instruct": {
-    "context": 131072,
+    "context": 262144,
     "output": [
      "text"
     ],
@@ -1643,17 +1530,8 @@
     "tool_call": true,
     "vision": true
    },
-   "Qwen/Qwen3-VL-235B-A22B-Thinking": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "Qwen/Qwen3-VL-30B-A3B-Instruct": {
-    "context": 131072,
+    "context": 262144,
     "output": [
      "text"
     ],
@@ -1725,7 +1603,7 @@
     "vision": true
    },
    "Qwen/Qwen3.8-2.4T-A95B": {
-    "context": 262144,
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -1734,6 +1612,15 @@
     "vision": false
    },
    "Qwen/Qwen3.8-27B": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "Qwen/Qwen3.8-Flash-Next": {
     "context": 262144,
     "output": [
      "text"
@@ -1741,6 +1628,24 @@
     "reasoning": true,
     "tool_call": true,
     "vision": true
+   },
+   "Qwen/Qwen3.8-Flash-Next-FP8": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "Undi95/ReMM-SLERP-L2-13B": {
+    "context": 6144,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
+    "vision": false
    },
    "XiaomiMiMo/MiMo-V2.5": {
     "context": 262144,
@@ -1758,6 +1663,33 @@
     ],
     "reasoning": true,
     "tool_call": true,
+    "vision": false
+   },
+   "aisingapore/Gemma-SEA-LION-v4-27B-IT": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
+    "vision": false
+   },
+   "alpindale/WizardLM-2-8x22B": {
+    "context": 65535,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
+    "vision": false
+   },
+   "anthracite-org/magnum-v4-72b": {
+    "context": 32768,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
     "vision": false
    },
    "deepseek-ai/DeepSeek-R1": {
@@ -1779,15 +1711,6 @@
     "vision": false
    },
    "deepseek-ai/DeepSeek-V3": {
-    "context": 64000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "deepseek-ai/DeepSeek-V3-0324": {
     "context": 163840,
     "output": [
      "text"
@@ -1796,8 +1719,17 @@
     "tool_call": true,
     "vision": false
    },
-   "deepseek-ai/DeepSeek-V3.1": {
+   "deepseek-ai/DeepSeek-V3-0324": {
     "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": false
+   },
+   "deepseek-ai/DeepSeek-V3.1": {
+    "context": 163840,
     "output": [
      "text"
     ],
@@ -1851,7 +1783,7 @@
     "vision": false
    },
    "deepseek-ai/DeepSeek-V4-Pro-0813": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -1876,6 +1808,15 @@
     "reasoning": true,
     "tool_call": true,
     "vision": true
+   },
+   "dphn/Dolphin-Mistral-24B-Venice-Edition": {
+    "context": 128000,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
+    "vision": false
    },
    "google/gemma-2-27b-it": {
     "context": 8192,
@@ -1931,6 +1872,51 @@
     "tool_call": true,
     "vision": true
    },
+   "ibm-granite/granite-4.2-8b": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "inclusionAI/Ling-3.0-flash": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "inclusionAI/Ling-3.0-flash-Fin": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "inclusionAI/Ling-3.0-flash-VL": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "inclusionAI/Ling-3.1-flash": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
    "meta-llama/Llama-3.1-70B-Instruct": {
     "context": 131072,
     "output": [
@@ -1959,7 +1945,7 @@
     "vision": false
    },
    "meta-llama/Llama-3.2-3B-Instruct": {
-    "context": 80000,
+    "context": 131072,
     "output": [
      "text"
     ],
@@ -1976,6 +1962,24 @@
     "tool_call": true,
     "vision": false
    },
+   "meta-llama/Llama-4-Maverick-17B-128E-Instruct": {
+    "context": 524288,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": true
+   },
+   "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
+    "context": 327680,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": true
+   },
    "meta-llama/Llama-Guard-4-12B": {
     "context": 163840,
     "output": [
@@ -1983,6 +1987,33 @@
     ],
     "reasoning": false,
     "tool_call": false,
+    "vision": true
+   },
+   "meta-models/Muse-Glimmer-30B": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "meta-models/Muse-Spark-Open-816B-A42B": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "mistralai/Mistral-Large-4-1T-A52B": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
     "vision": true
    },
    "moonshotai/Kimi-K2-Instruct": {
@@ -2040,7 +2071,7 @@
     "vision": true
    },
    "moonshotai/Kimi-K3": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -2049,6 +2080,60 @@
     "vision": true
    },
    "moonshotai/Kimi-K3.1-Pro": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4": {
     "context": 1048576,
     "output": [
      "text"
@@ -2068,6 +2153,24 @@
    },
    "openai/gpt-oss-20b": {
     "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "openai/gpt-oss-safeguard-20b": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "reflection/Beam-1.0-501B-A23B": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -2102,6 +2205,15 @@
     "tool_call": true,
     "vision": false
    },
+   "tencent/Hy4": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "tencent/Hy4-flash": {
     "context": 1048576,
     "output": [
@@ -2112,7 +2224,7 @@
     "vision": true
    },
    "tencent/Hy4-preview": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -2121,6 +2233,15 @@
     "vision": false
    },
    "thinkingmachines/Inkling": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "thinkingmachines/Inkling-2-Mini": {
     "context": 1048576,
     "output": [
      "text"
@@ -2184,7 +2305,7 @@
     "vision": true
    },
    "zai-org/GLM-4.6": {
-    "context": 204800,
+    "context": 202752,
     "output": [
      "text"
     ],
@@ -2211,7 +2332,7 @@
     "vision": true
    },
    "zai-org/GLM-4.7": {
-    "context": 204800,
+    "context": 202752,
     "output": [
      "text"
     ],
@@ -2220,7 +2341,7 @@
     "vision": false
    },
    "zai-org/GLM-4.7-Flash": {
-    "context": 200000,
+    "context": 131072,
     "output": [
      "text"
     ],
@@ -2247,7 +2368,7 @@
     "vision": false
    },
    "zai-org/GLM-5.2": {
-    "context": 262144,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -2376,33 +2497,6 @@
     "tool_call": true,
     "vision": true
    },
-   "devstral-2512": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "devstral-latest": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "devstral-medium-latest": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
    "glm-5-2": {
     "context": 1048576,
     "output": [
@@ -2411,24 +2505,6 @@
     "reasoning": true,
     "tool_call": true,
     "vision": false
-   },
-   "labs-devstral-small-2512": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "labs-leanstral-1-5-1": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
    },
    "magistral-medium-latest": {
     "context": 262144,
@@ -2440,6 +2516,15 @@
     "vision": true
    },
    "ministral-14b-2512": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": true
+   },
+   "ministral-14b-latest": {
     "context": 262144,
     "output": [
      "text"
@@ -2511,39 +2596,12 @@
     "tool_call": true,
     "vision": true
    },
-   "mistral-large-4-0-8": {
-    "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "mistral-large-latest": {
     "context": 1048576,
     "output": [
      "text"
     ],
     "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "mistral-medium-2505": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "mistral-medium-2508": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
     "tool_call": true,
     "vision": true
    },
@@ -2565,15 +2623,6 @@
     "tool_call": true,
     "vision": true
    },
-   "mistral-small-2506": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "mistral-small-2603": {
     "context": 262144,
     "output": [
@@ -2589,24 +2638,6 @@
      "text"
     ],
     "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "open-mistral-nemo": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "pixtral-12b": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
     "tool_call": true,
     "vision": true
    },
@@ -2866,44 +2897,8 @@
     "tool_call": true,
     "vision": true
    },
-   "mistralai/magistral-small-2506": {
-    "context": 32768,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "mistralai/mistral-7b-instruct-v0.3": {
-    "context": 65536,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "mistralai/mistral-medium-3-instruct": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": true
-   },
    "moonshotai/kimi-k2.6": {
     "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "moonshotai/kimi-k3": {
-    "context": 1048576,
     "output": [
      "text"
     ],
@@ -2947,15 +2942,6 @@
     "tool_call": false,
     "vision": true
    },
-   "nvidia/llama-3.1-nemotron-70b-instruct": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
    "nvidia/llama-3.1-nemotron-safety-guard-8b-v3": {
     "context": 128000,
     "output": [
@@ -2963,15 +2949,6 @@
     ],
     "reasoning": false,
     "tool_call": false,
-    "vision": false
-   },
-   "nvidia/llama-3.1-nemotron-ultra-253b-v1": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
     "vision": false
    },
    "nvidia/llama-nemotron-embed-vl-1b-v2": {
@@ -3055,24 +3032,6 @@
     "tool_call": true,
     "vision": false
    },
-   "nvidia/rerank-qa-mistral-4b": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "nvidia/riva-translate-4b-instruct-v1.1": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
    "nvidia/sparsedrive": {
     "context": 128000,
     "output": [
@@ -3101,24 +3060,6 @@
     "vision": false
    },
    "nvidia/synthetic-video-detector": {
-    "context": 0,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "nvidia/usdcode": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "nvidia/usdvalidate": {
     "context": 0,
     "output": [
      "text"
@@ -3180,15 +3121,6 @@
     "reasoning": true,
     "tool_call": true,
     "vision": true
-   },
-   "z-ai/glm-5.3": {
-    "context": 1000000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
    },
    "z-ai/glm-5.3-flash": {
     "context": 1000000,
@@ -3299,6 +3231,15 @@
     "reasoning": true,
     "tool_call": true,
     "vision": false
+   },
+   "hy4": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
    },
    "inkling-2-small": {
     "context": 1048576,
@@ -3456,33 +3397,6 @@
     "tool_call": false,
     "vision": true
    },
-   "gpt-3.5-turbo": {
-    "context": 16385,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "gpt-4": {
-    "context": 8192,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "gpt-4-turbo": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "gpt-4.1": {
     "context": 1047576,
     "output": [
@@ -3501,25 +3415,7 @@
     "tool_call": true,
     "vision": true
    },
-   "gpt-4.1-nano": {
-    "context": 1047576,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "gpt-4o": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "gpt-4o-2024-05-13": {
     "context": 128000,
     "output": [
      "text"
@@ -3627,15 +3523,6 @@
     "tool_call": true,
     "vision": true
    },
-   "gpt-5.3-codex-spark": {
-    "context": 128000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "gpt-5.4": {
     "context": 1050000,
     "output": [
@@ -3735,6 +3622,15 @@
     "tool_call": true,
     "vision": true
    },
+   "gpt-6-astra-healthcare": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "gpt-6-luna": {
     "context": 1050000,
     "output": [
@@ -3762,6 +3658,15 @@
     "tool_call": true,
     "vision": true
    },
+   "gpt-6.1-sol-healthcare": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "gpt-6.1-terra": {
     "context": 1050000,
     "output": [
@@ -3780,7 +3685,25 @@
     "tool_call": true,
     "vision": true
    },
+   "gpt-6.2-astra-healthcare": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "gpt-6.2-sol": {
+    "context": 1050000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gpt-6.2-sol-healthcare": {
     "context": 1050000,
     "output": [
      "text"
@@ -3836,34 +3759,6 @@
     "tool_call": false,
     "vision": true
    },
-   "gpt-realtime-2.1": {
-    "context": 128000,
-    "output": [
-     "audio",
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "o1": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "o1-pro": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "o3": {
     "context": 200000,
     "output": [
@@ -3873,25 +3768,7 @@
     "tool_call": true,
     "vision": true
    },
-   "o3-mini": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "o3-pro": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "o4-mini": {
     "context": 200000,
     "output": [
      "text"
@@ -4793,6 +4670,15 @@
     "tool_call": true,
     "vision": true
    },
+   "kimi-k3.1-pro": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "laguna-s-2.1-free": {
     "context": 256000,
     "output": [
@@ -5171,6 +5057,15 @@
     "tool_call": true,
     "vision": true
    },
+   "qwen4-max-free": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "ring-2.6-1t-free": {
     "context": 262000,
     "output": [
@@ -5353,6 +5248,15 @@
     "tool_call": true,
     "vision": true
    },
+   "hungerg-free": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "hy3": {
     "context": 256000,
     "output": [
@@ -5381,7 +5285,7 @@
     "vision": true
    },
    "hy4-preview": {
-    "context": 1024000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -5433,6 +5337,15 @@
     "reasoning": true,
     "tool_call": true,
     "vision": false
+   },
+   "longcat-2.5": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
    },
    "longcat-2.5-free": {
     "context": 1000000,
@@ -5967,15 +5880,6 @@
     "tool_call": true,
     "vision": false
    },
-   "cohere/north-mini-code:free": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "deepseek/deepseek-chat": {
     "context": 163840,
     "output": [
@@ -6095,15 +5999,6 @@
    },
    "deepseek/deepseek-v4.1-flash-1017": {
     "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "dots-studio/dots-3-note-preview:free": {
-    "context": 512000,
     "output": [
      "text"
     ],
@@ -6519,7 +6414,7 @@
     "vision": false
    },
    "inclusionai/ling-3.1-flash": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -6599,15 +6494,6 @@
     "tool_call": false,
     "vision": false
    },
-   "meituan/longcat-2.0": {
-    "context": 1048756,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "meta-llama/llama-3.1-70b-instruct": {
     "context": 131072,
     "output": [
@@ -6624,15 +6510,6 @@
     ],
     "reasoning": false,
     "tool_call": true,
-    "vision": false
-   },
-   "meta-llama/llama-3.2-1b-instruct": {
-    "context": 60000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
     "vision": false
    },
    "meta-llama/llama-3.2-3b-instruct": {
@@ -6771,7 +6648,7 @@
     "vision": false
    },
    "minimax/minimax-m2.5": {
-    "context": 198000,
+    "context": 65536,
     "output": [
      "text"
     ],
@@ -6887,30 +6764,12 @@
     "tool_call": true,
     "vision": true
    },
-   "mistralai/mistral-medium-3": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "mistralai/mistral-medium-3-5": {
     "context": 262144,
     "output": [
      "text"
     ],
     "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "mistralai/mistral-medium-3.1": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
     "tool_call": true,
     "vision": true
    },
@@ -6977,6 +6836,15 @@
     "tool_call": true,
     "vision": false
    },
+   "mistralai/pixtral-large-2502": {
+    "context": 128000,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": false,
+    "vision": true
+   },
    "mistralai/voxtral-small-24b-2507": {
     "context": 32768,
     "output": [
@@ -7003,33 +6871,6 @@
     "reasoning": true,
     "tool_call": false,
     "vision": true
-   },
-   "moonshotai/kimi-k2": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "moonshotai/kimi-k2-0905": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "moonshotai/kimi-k2-thinking": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
    },
    "moonshotai/kimi-k2.5": {
     "context": 262144,
@@ -8288,6 +8129,15 @@
     "tool_call": true,
     "vision": true
    },
+   "radixark/daisyrose-27b": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "recursive/flint-v1.0:free": {
     "context": 262144,
     "output": [
@@ -8424,7 +8274,7 @@
     "vision": true
    },
    "stepfun/step-3.7-flash": {
-    "context": 262144,
+    "context": 256000,
     "output": [
      "text"
     ],
@@ -8469,15 +8319,6 @@
     "vision": false
    },
    "tencent/hy3": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "tencent/hy3-preview": {
     "context": 262144,
     "output": [
      "text"
@@ -8541,15 +8382,6 @@
     "vision": false
    },
    "thinkingmachines/inkling": {
-    "context": 524288,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "thinkingmachines/inkling-2-small": {
     "context": 1048576,
     "output": [
      "text"
@@ -8558,7 +8390,16 @@
     "tool_call": true,
     "vision": true
    },
-   "thinkingmachines/inkling-2-small:free": {
+   "thinkingmachines/inkling-2-mini": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "thinkingmachines/inkling-2-small": {
     "context": 1048576,
     "output": [
      "text"
@@ -8576,32 +8417,14 @@
     "tool_call": true,
     "vision": true
    },
-   "unbiased/pareto-26.10": {
-    "context": 1048576,
+   "tngtech/deepseek-r1t2-chimera": {
+    "context": 131072,
     "output": [
      "text"
     ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "unbiased/pareto-26.10-preview": {
-    "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
-   "unbiased/pareto-26.9": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
+    "reasoning": true,
+    "tool_call": false,
+    "vision": false
    },
    "undi95/remm-slerp-l2-13b": {
     "context": 6144,
@@ -8612,7 +8435,25 @@
     "tool_call": false,
     "vision": false
    },
+   "upstage/solar-mini-4-5": {
+    "context": 524288,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
    "upstage/solar-mini4": {
+    "context": 524288,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "upstage/solar-pro-4-contributor": {
     "context": 524288,
     "output": [
      "text"
@@ -8693,35 +8534,17 @@
     "tool_call": true,
     "vision": true
    },
-   "x-ai/grok-build-0.1": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "xiaomi/mimo-v2.5": {
-    "context": 1000000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "xiaomi/mimo-v2.5-pro": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "xiaomi/mimo-v2.6-flash": {
-    "context": 1050000,
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "xiaomi/mimo-v2.6-flash-mopd": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -8730,7 +8553,7 @@
     "vision": true
    },
    "xiaomi/mimo-v2.6-pro": {
-    "context": 1050000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -8802,7 +8625,7 @@
     "vision": false
    },
    "z-ai/glm-4.7-flash": {
-    "context": 200000,
+    "context": 131072,
     "output": [
      "text"
     ],
@@ -9032,15 +8855,6 @@
      "text"
     ],
     "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "~unbiased/pareto-latest": {
-    "context": 1048576,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
     "tool_call": true,
     "vision": true
    },
@@ -9669,6 +9483,33 @@
     "tool_call": true,
     "vision": true
    },
+   "gemini-4-neon": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-neon@eu": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "gemini-4-neon@us": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "gemma-4-26b-a4b-it": {
     "context": 262144,
     "output": [
@@ -10119,15 +9960,6 @@
     "tool_call": true,
     "vision": true
    },
-   "grok-build-0.1": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": true
-   },
    "hy3": {
     "context": 262144,
     "output": [
@@ -10236,24 +10068,6 @@
     "tool_call": true,
     "vision": true
    },
-   "leanstral-1-5": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
-   "leanstral-1-5@eu": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "mimo-v2.5": {
     "context": 262144,
     "output": [
@@ -10290,26 +10104,8 @@
     "tool_call": true,
     "vision": true
    },
-   "minimax-m2.7": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "minimax-m2.7-highspeed": {
-    "context": 200000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "minimax-m3": {
-    "context": 1000000,
+    "context": 512000,
     "output": [
      "text"
     ],
@@ -10318,7 +10114,7 @@
     "vision": true
    },
    "minimax-m3.1-flash": {
-    "context": 1000000,
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -10688,35 +10484,8 @@
    }
   },
   "togetherai": {
-   "LiquidAI/LFM2-24B-A2B": {
-    "context": 32768,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": false,
-    "vision": false
-   },
-   "MiniMaxAI/MiniMax-M2.5": {
-    "context": 204800,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "MiniMaxAI/MiniMax-M2.7": {
-    "context": 196608,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
-   "MiniMaxAI/MiniMax-M3": {
-    "context": 524288,
+   "MiniMaxAI/MiniMax-M3.1-Flash": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -10724,43 +10493,7 @@
     "tool_call": true,
     "vision": true
    },
-   "Qwen/Qwen2.5-7B-Instruct-Turbo": {
-    "context": 32768,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "Qwen/Qwen3-235B-A22B-Instruct-2507-tput": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "Qwen/Qwen3-Coder-Next-FP8": {
-    "context": 262144,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "Qwen/Qwen3.5-397B-A17B": {
+   "Prism-ML/Ternary-Bonsai-27B": {
     "context": 262144,
     "output": [
      "text"
@@ -10796,26 +10529,8 @@
     "tool_call": true,
     "vision": false
    },
-   "deepseek-ai/DeepSeek-R1": {
-    "context": 163839,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": false,
-    "vision": false
-   },
-   "deepseek-ai/DeepSeek-V3": {
-    "context": 131072,
-    "output": [
-     "text"
-    ],
-    "reasoning": false,
-    "tool_call": true,
-    "vision": false
-   },
-   "deepseek-ai/DeepSeek-V3-1": {
-    "context": 131072,
+   "Qwen/Qwen3.7-Plus": {
+    "context": 1000000,
     "output": [
      "text"
     ],
@@ -10823,14 +10538,23 @@
     "tool_call": true,
     "vision": false
    },
-   "deepseek-ai/DeepSeek-V4-Flash-0731": {
-    "context": 1048576,
+   "Qwen/Qwen3.8-Flash": {
+    "context": 1000000,
     "output": [
      "text"
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
+   },
+   "Qwen/Qwen4-Max": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
    },
    "deepseek-ai/DeepSeek-V4-Pro-0813": {
     "context": 1048576,
@@ -10850,23 +10574,41 @@
     "tool_call": true,
     "vision": true
    },
-   "essentialai/Rnj-1-Instruct": {
-    "context": 32768,
+   "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+    "context": 1048576,
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
-   "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+   "deepseek-ai/DeepSeek-V4.1-Flash-1017-fast": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "elorian-labs/glimpse-1.0": {
+    "context": 262144,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "meta-models/Muse-Glimmer-30B": {
     "context": 131072,
     "output": [
      "text"
     ],
-    "reasoning": false,
+    "reasoning": true,
     "tool_call": true,
-    "vision": false
+    "vision": true
    },
    "meta-models/Muse-Spark-Open-816B-A42B": {
     "context": 1048576,
@@ -10904,15 +10646,6 @@
     "tool_call": true,
     "vision": true
    },
-   "nvidia/nemotron-3-ultra-550b-a55b": {
-    "context": 512300,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
-   },
    "openai/gpt-oss-120b": {
     "context": 131072,
     "output": [
@@ -10931,6 +10664,24 @@
     "tool_call": true,
     "vision": false
    },
+   "ricursive-ai/Ripple-65B-Preview": {
+    "context": 131072,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": false
+   },
+   "tencent/Hy4": {
+    "context": 1048576,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
    "thinkingmachines/Inkling": {
     "context": 524288,
     "output": [
@@ -10940,23 +10691,14 @@
     "tool_call": true,
     "vision": true
    },
-   "zai-org/GLM-5": {
-    "context": 202752,
+   "thinkingmachines/Inkling-2-Small": {
+    "context": 1048576,
     "output": [
      "text"
     ],
     "reasoning": true,
     "tool_call": true,
-    "vision": false
-   },
-   "zai-org/GLM-5.1": {
-    "context": 202752,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": false
+    "vision": true
    },
    "zai-org/GLM-5.2": {
     "context": 1048575,
@@ -11057,15 +10799,6 @@
     ],
     "reasoning": false,
     "tool_call": false,
-    "vision": false
-   },
-   "alibaba/qwen3-max-thinking": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
     "vision": false
    },
    "alibaba/qwen3-next-80b-a3b-instruct": {
@@ -11848,7 +11581,7 @@
      "text"
     ],
     "reasoning": true,
-    "tool_call": false,
+    "tool_call": true,
     "vision": false
    },
    "deepseek/deepseek-v3.1": {
@@ -11915,7 +11648,7 @@
     "vision": false
    },
    "deepseek/deepseek-v4-pro-0813": {
-    "context": 1000000,
+    "context": 1048600,
     "output": [
      "text"
     ],
@@ -12254,6 +11987,15 @@
     "vision": true
    },
    "google/gemini-4-neon": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "google/gemini-4-neon-fast": {
     "context": 1000000,
     "output": [
      "text"
@@ -12813,7 +12555,7 @@
     "vision": false
    },
    "minimax/minimax-m2.7": {
-    "context": 196608,
+    "context": 204800,
     "output": [
      "text"
     ],
@@ -13056,7 +12798,7 @@
     "vision": true
    },
    "morph/morph-v3-fast": {
-    "context": 262144,
+    "context": 81920,
     "output": [
      "text"
     ],
@@ -13065,7 +12807,7 @@
     "vision": false
    },
    "morph/morph-v3-large": {
-    "context": 262144,
+    "context": 81920,
     "output": [
      "text"
     ],
@@ -14232,15 +13974,6 @@
     "tool_call": true,
     "vision": true
    },
-   "spacexai/grok-build-0.1": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "spacexai/grok-imagine-image": {
     "context": 16000,
     "output": [
@@ -14396,6 +14129,15 @@
    },
    "thinkingmachines/inkling": {
     "context": 256000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "thinkingmachines/inkling-2-mini": {
+    "context": 1048576,
     "output": [
      "text"
     ],
@@ -14828,15 +14570,6 @@
     "tool_call": true,
     "vision": true
    },
-   "grok-build-0.1": {
-    "context": 256000,
-    "output": [
-     "text"
-    ],
-    "reasoning": true,
-    "tool_call": true,
-    "vision": true
-   },
    "grok-imagine-image": {
     "context": 16000,
     "output": [
@@ -14875,6 +14608,15 @@
    }
   },
   "zai": {
+   "glm-4-32b-0414-128k": {
+    "context": 128000,
+    "output": [
+     "text"
+    ],
+    "reasoning": false,
+    "tool_call": true,
+    "vision": false
+   },
    "glm-4.5": {
     "context": 131072,
     "output": [
@@ -15020,6 +14762,15 @@
     "vision": true
    },
    "glm-5.3-flashx": {
+    "context": 1000000,
+    "output": [
+     "text"
+    ],
+    "reasoning": true,
+    "tool_call": true,
+    "vision": true
+   },
+   "glm-5.3-flashx-legal": {
     "context": 1000000,
     "output": [
      "text"
