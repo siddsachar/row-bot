@@ -179,7 +179,7 @@ def _task_create(
         if task.get("at"):
             parts.append(f"  Fires at: {task['at']}")
         if not task.get("schedule") and not task.get("at"):
-            parts.append("  Runs: only when started. It hasn't run yet; task_run_now starts it.")
+            parts.append("  Runs: only when started. It hasn't run yet; task_run_now starts it if the person wants it run now.")
         if task.get("notify_only"):
             parts.append("  Type: Notification only")
         else:

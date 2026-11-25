@@ -75,6 +75,6 @@ def test_a_workflow_with_no_schedule_says_it_has_not_run(tool):
 
     task = tasks.get_task(_created_id(reply))
     assert (task.get("schedule"), task.get("at")) == (None, None)
-    assert "It hasn't run yet; task_run_now starts it." in reply
+    assert "hasn't run yet" in reply
     scheduled = task_tool._task_create(name="Daily", prompts=["Say hi."], schedule="daily:09:00")
     assert "Task created successfully." in scheduled and "hasn't run" not in scheduled
