@@ -617,9 +617,9 @@ def _system(
 
     cua_state = readiness(enabled=bool(_enabled("computer_use", tools, registered)))
     cua_platform = platform.system().casefold()
-    log_level = _text(user.get("file_log_level") or "DEBUG", 16).upper()
+    log_level = _text(user.get("file_log_level") or "INFO", 16).upper()
     if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        log_level = "DEBUG"
+        log_level = "INFO"
     workspace = _text(filesystem.get("workspace_root"), 4096)
     selected_ops = _strings(
         filesystem.get("selected_operations"), allowed=_FILESYSTEM_OPERATIONS
@@ -1847,7 +1847,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
     "system": {
         "remote_access.listen_mode": "local_only",
         "tunnel.provider": "ngrok",
-        "logging.level": "DEBUG",
+        "logging.level": "INFO",
     },
     "documents": {
         "processing_model": "",

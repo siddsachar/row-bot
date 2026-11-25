@@ -555,15 +555,13 @@ def check_dream_cycle() -> CheckResult:
 
 
 def check_tts() -> CheckResult:
-    """Check TTS engine status — installed and enabled."""
+    """Check that Kokoro, the voice Read aloud and Talk speak with, is installed."""
     try:
         from row_bot.tts import TTSService
         svc = TTSService()
-        if not svc._enabled:
-            return CheckResult("TTS", "inactive", "Disabled", settings_tab="Voice")
         if not svc.is_installed():
             return CheckResult("TTS", "warn", "Model not installed", settings_tab="Voice")
-        voice = svc._voice or "default"
+        voice = svc.voice or "default"
         return CheckResult("TTS", "ok", f"Kokoro · {voice}", settings_tab="Voice")
     except Exception as exc:
         return CheckResult("TTS", "error", str(exc), settings_tab="Voice")
