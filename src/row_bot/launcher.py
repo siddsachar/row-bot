@@ -1376,7 +1376,7 @@ def _process_tree(pid: int) -> set[int]:
         return {pid}
 
 
-_SERVER_JOB: int | None = None  # Windows: the job that ends this launcher's servers with it
+_SERVER_JOB: int | None = None  # Windows: the job that ends this launcher's servers and window with it
 
 
 def _end_with_this_launcher(proc: subprocess.Popen) -> bool:
@@ -2993,6 +2993,8 @@ def _open_window(
             env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        # Ended with the launcher, however it ends: a window left alone shows a dead app.
+        _end_with_this_launcher(proc)
         if proc.stdin is None:
             raise RuntimeError("Native window script pipe is unavailable")
         proc.stdin.write(_WINDOW_SCRIPT)

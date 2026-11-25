@@ -604,6 +604,29 @@ static void set_version_environment(const wchar_t *root)
     }
 }
 
+/* The job that ends launcher.py with this process, however this one ends: Windows doesn't end a
+   child with its parent, so a Row-Bot.exe ended from Task Manager left launcher.py running. What
+   launcher.py starts breaks away silently; launcher.py ends those with itself. */
+static HANDLE launch_job(void)
+{
+    static HANDLE job = NULL;
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+
+    if (job)
+        return job;
+    job = CreateJobObjectW(NULL, NULL);
+    if (!job)
+        return NULL;
+    memset(&limits, 0, sizeof limits);
+    limits.BasicLimitInformation.LimitFlags =
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof limits)) {
+        CloseHandle(job);
+        job = NULL;
+    }
+    return job;
+}
+
 /* Starts launcher.py of `version`; the process comes back in *process. */
 static int start_version(const char *version, PROCESS_INFORMATION *process)
 {
@@ -616,6 +639,7 @@ static int start_version(const char *version, PROCESS_INFORMATION *process)
            err = GetStdHandle(STD_ERROR_HANDLE);
     BOOL inherit = FALSE;
     BOOL started;
+    HANDLE job;
 
     version_root(root, version);
     swprintf(python, MAX_PATH, L"%ls\\python\\python.exe", root);
@@ -644,13 +668,18 @@ static int start_version(const char *version, PROCESS_INFORMATION *process)
     }
     memset(process, 0, sizeof *process);
     started = CreateProcessW(python, command, NULL, NULL, inherit,
-                             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, NULL, app, &startup,
-                             process);
+                             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, NULL, app,
+                             &startup, process);
     free(command);
     if (!started) {
         log_line("could not start %s (error %lu)", version, GetLastError());
         return 0;
     }
+    /* Tied before it runs, so nothing it starts is missed; untied, it still runs as before. */
+    job = launch_job();
+    if (!job || !AssignProcessToJobObject(job, process->hProcess))
+        log_line("could not tie %s to Row-Bot.exe (error %lu)", version, GetLastError());
+    ResumeThread(process->hThread);
     CloseHandle(process->hThread);
     log_line("started %s (pid %lu)", version, process->dwProcessId);
     return 1;
