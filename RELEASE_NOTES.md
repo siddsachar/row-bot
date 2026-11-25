@@ -2,6 +2,392 @@
 
 ---
 
+## v5.4.0 - Talk Like A Person, Learning For Everyone, And A Video Studio
+
+Row-Bot 5.4 talks like a person. Press Talk and it listens hands-free, answers as soon
+as its first sentence is ready, stops when you talk over it, and tells you what it's
+doing while it works. It speaks the whole answer, in your language, and you can share
+your camera or screen while you talk. Say "Hey Row-Bot" to start, or talk through
+OpenAI Realtime, Gemini Live or Grok Voice with your own key. Learning comes to
+everyone: Row-Bot learns from your corrections, tests every idea on work it hasn't
+seen, and asks before it changes anything. A personal model of your own is there when
+you want one. Videos get a studio: a storyboard to review first, any footage in any
+scene, one look across all of it, sound that fits the cut, captions timed to the words
+and a kit ready to publish. Every video gets a finished check. What Row-Bot makes is
+shown large and named by its title, and its working files fold away. Models on this
+computer read larger windows, think only when it helps, and each has one settings
+sheet. On a phone, Row-Bot is simpler: Home shows what needs you, Chats has your
+files, and Back closes the open sheet first. 5.4 arrives through background updates.
+
+### Talk Like A Person
+
+- **A real conversation** - one tap on Talk opens a voice bar above the composer.
+  Row-Bot listens hands-free, starts answering when its first sentence is ready, and
+  stops when you talk over it. A cough or an "mhm" doesn't stop it. It's the same
+  Row-Bot as typed chat, with the same tools, memory and approvals, and voice and
+  typing mix in one chat.
+- **The voice bar** - it shows when Row-Bot is listening, thinking, speaking or
+  waiting for you, with live captions for both of you, mute and Type instead. Talk no
+  longer stops after 10 minutes; a quiet session pauses itself and lets go of the
+  microphone.
+- **The whole answer, made for listening** - Talk speaks the whole answer, not just
+  its first three sentences, in plain sentences with no formatting read aloud. Code,
+  tables and links stay on screen, and Row-Bot says when there's something to read.
+  Answers from turns that used tools or helpers are spoken too.
+- **Talking while it works** - Row-Bot says what it's doing ("Checking your
+  calendar…"), and you can ask "how's it going?" without stopping it. When helpers
+  finish after the turn has ended, it says their answer at the next pause.
+- **Approvals by voice** - Row-Bot says what needs your OK. Say "yes" for things that
+  can be undone; anything that deletes, sends, pays or runs a command waits for a tap
+  on its card.
+- **Show Row-Bot what you mean** - share your camera (front or back on a phone) or a
+  screen or window from the voice bar. Each thing you say carries one still of what
+  you show, saved in your message so you see exactly what was sent. The bar always
+  shows when the camera or screen is on, and one tap stops it.
+- **Your words as you speak** - Talk can listen with a faster speech model picked for
+  your computer (Moonshine Base, about a 111 MB download), so your words appear as you
+  speak and Row-Bot answers sooner. Download it in **Settings › Voice › Talk**; nothing
+  downloads until you press Download. Whisper is still there, and Dictate keeps it.
+- **In your language** - **Settings › Voice › Language** detects what you speak, or you
+  choose it, for Talk, Dictate and voice notes from chat apps. Answers in Spanish,
+  French, Hindi, Italian or Portuguese are spoken with a voice for that language;
+  answers in a language Row-Bot's voice can't speak stay on screen, and the bar says so.
+  Captions read right to left for Arabic, Hebrew, Persian and Urdu. An English-only
+  speech model with another language says so and offers Whisper.
+- **"Hey Row-Bot"** - say it to start talking. Turn it on in **Settings › Voice › Wake
+  word**, on the computer running Row-Bot. It listens only on that computer while a
+  Row-Bot window is open, and nothing is recorded or sent anywhere. "Hey robot" works
+  too.
+- **Your microphone and speaker** - choose them in **Settings › Voice › Microphone and
+  speaker** or from the voice bar. If your microphone is unplugged, Row-Bot keeps
+  listening with the default one and says so.
+- **Push to talk and When you pause** - **Settings › Voice** has **Push to talk** (hold
+  Space in Row-Bot's window, or in the Windows app choose a key to hold anywhere while
+  voice is open) and **When you pause**, for how soon Row-Bot answers.
+- **Talk from anywhere** - Talk and Dictate start from Home on a computer, as on a
+  phone. Headset buttons and lock-screen controls mute, unmute and end voice where the
+  phone or browser shows them, and a phone says once when listening stops (a locked
+  screen, another app). Buddy lip-syncs with OpenAI's Live voice, and the desktop Buddy
+  listens and talks along with voice.
+- **Read aloud in Row-Bot's voice** - Read aloud now speaks a reply with Kokoro, in the
+  voice and speed you chose, starting after the first sentence, and stops when you
+  press Stop. Without Kokoro it says so and opens Voice settings. Talk and Read aloud
+  say the words you've taught Row-Bot to pronounce.
+- **Voice notes answered with voice notes** - send Row-Bot a voice note on Telegram or
+  WhatsApp and it answers with one too, after the text. Turn it off per channel with
+  **Reply to voice notes with a voice note**. Voice notes are transcribed with the
+  speech model you chose for Dictate, in the language you speak; without one, Row-Bot
+  says so instead of downloading it.
+
+### Live Voice And Cloud Voices
+
+- **Live voice** - talk with OpenAI Realtime, Gemini Live or Grok Voice with your own
+  key, from the Talk menu, in the same voice bar. It knows the chat's recent messages,
+  hands real work to Row-Bot, tells you what Row-Bot is doing and says the answer when
+  it's ready. Its own replies are saved in the chat. Gemini Live can see what you
+  share on camera or screen.
+- **Said before you start** - before you use a provider the first time, Row-Bot says
+  what goes to it and roughly what it costs ("About $0.02 a minute"); a provider
+  without a key says so. Your keys stay on the computer running Row-Bot: Gemini Live
+  and Grok Voice are relayed by Row-Bot, and the app page never connects to a
+  provider.
+- **Cloud speech parts** - Row-Bot Voice can listen with Deepgram, AssemblyAI, OpenAI
+  or Gemini, and speak with ElevenLabs, Cartesia or Gemini, with your own keys. Local
+  stays the default and is listed first, and Settings shows each one's price and what
+  it sends. A chosen service whose key is missing falls back to Row-Bot's own speech
+  part and says so, never to another company.
+- **Voices** - choose a ready-made voice for a cloud voice, or describe one in words:
+  Gemini follows your description, and ElevenLabs makes a new voice from it. Row-Bot
+  never copies a voice from a recording.
+- **Tidier Voice settings** - **Listen with** offers only speech-to-text, on this
+  computer or with a cloud service; OpenAI Realtime's voice and model are under **Live
+  voice**. Switches that did nothing are gone (Read replies aloud, Auto-speak voice
+  responses, Realtime's Fall back), and **Find a setting** finds the voice controls.
+
+### Learning, For Everyone
+
+- **Row-Bot learns from your corrections** - Learning keeps a private record of how
+  Row-Bot handled your own chats, workflows and goals, on this computer. It notices when
+  you correct Row-Bot, stop a reply, press Retry or turn down an action, and when a step
+  fails. Home says so once, with what it records and what it costs.
+- **Teach Row-Bot** - on a reply's toolbar, or on a step that failed, say what went
+  wrong and what it should do next time. Nothing changes right away: it's evidence for
+  Learning's next look.
+- **Tested, then offered** - during quiet hours (Dream Cycle's), Learning drafts a
+  lesson, a way of working or a skill fix for what went wrong, and tests it on work it
+  hasn't seen, with and without the change. Only a change that does better is offered,
+  with why it was drafted and how its test went. **Ask me first** is the default;
+  **Undo** takes a change back out at once.
+- **The Learning tab** - **Home › Learning** has Overview (what it did overnight and
+  what needs you), Changes, Lessons and Personal model. A reply that used a lesson says
+  "Used a lesson".
+- **What it never records** - chats with other people, incognito chats, work Row-Bot
+  does on its own, and secrets, which are removed before anything is stored. Leave any
+  chat out with **Don't learn from this chat** in its ⋯ menu. Learning can't change
+  approvals, tools, permissions, spending or who can reach Row-Bot.
+- **What it spends** - its own model calls use your default model, only on nights with
+  something to fix, up to a **Monthly limit** of 2M tokens unless you change it (a
+  fixed amount, a custom one, No limit or No model calls). Local models don't count,
+  and a Claude plan isn't used for it.
+- **Off until you turn them on** - **Also learn from the last 30 days of chats**; **Try
+  experimental learning** (practice on tasks it makes up from its mistakes, a quick
+  question at most once a day, and trying new ways of learning against the current
+  one); and **Train during quiet hours**.
+- **A personal model** - turn on **Train during quiet hours** and Row-Bot trains an open
+  model on your work, on an NVIDIA graphics card here or in your own Hugging Face
+  account, priced before each run and within a monthly spending cap. It asks before it
+  downloads the training engine and starting model. Each new version is compared with
+  your main model and asks before it's used; you choose which kinds of work it answers,
+  and it shows in the model picker as "Personal model v1". **Other models…** finds and
+  checks any open model on Hugging Face.
+- **Pause, turn off or delete** - Pause and Resume in the Learning tab, switch it off in
+  **Settings › Learning**, or **Delete learning data…**. Changes and models in use stay
+  in use until you undo them. On a Mac, without an NVIDIA card or in Docker, Learning
+  still improves Row-Bot with lessons, ways of working and skills.
+- **Create skills while chatting** moves from Preferences to Settings › Learning, and
+  works with Learning on or off.
+
+### A Video Studio
+
+- **Storyboard first, when you want one** - ask to plan, draft or storyboard a video, or
+  to work on one together, and Row-Bot lays out a storyboard in the Video panel: each
+  scene's footage, what it shows, its line and music cue, as cards you can approve,
+  comment on, swap, retake, move or remove. **Make video** makes it. Say "make a video
+  of…" and it's made at once, as is a video a workflow makes.
+- **Remakes redo only what changed** - a change redraws just the scenes it touches and
+  reuses the rest ("1 changed scene drawn, 3 reused").
+- **Any footage in any scene** - clips, photos, screenshots, AI shots, title cards and
+  recordings mix in one video, up to 200 scenes. A picture gets a gentle push-in.
+  Files from your workspace or elsewhere on this computer are used where they are,
+  never copied; one outside your workspace is asked about once for that video.
+- **Full screen** - footage fills the frame by default, and clips of another shape are
+  cropped to fill, so 4:3, 9:16 and AI clips play as one film with no bars. A long
+  render carries on, and Row-Bot checks back in the chat when it's made.
+- **AI shots that hold together** - give a shot up to three reference pictures, or a
+  character or style saved in **Library › Media**, a picture to end on, or an earlier
+  clip to extend. Clips are made at the best resolution the model allows, up to 1080p,
+  and the approval card prices it. Pictures come in 16:9, 9:16 and 4:5 too. Gemini's
+  video uses Gemini Omni Flash.
+- **One look across mixed footage** - a recipe (film, YouTube, vlog, montage,
+  explainer, demo, short) sets the look: grades (natural, warm, cinematic, vivid, black
+  and white), colour matched across sources, optional film grain and letterbox, and
+  crossfades for a montage. The brand kit adds a font and a title style.
+- **Sound that carries the story** - each character can speak in its own voice, music
+  is made to the video's exact length and changes with its scenes, a montage can cut on
+  the beat, and scenes can carry effects and ambience (rain, wind, a whoosh). Music dips
+  under every voice, and loudness is evened out. A change to the sound remixes only the
+  sound.
+- **Captions timed to the words** - captions follow what's said, in a clean style or a
+  short's big words. A new film or YouTube video opens with its title card, a YouTube
+  video or explainer lists its chapters, and the end card carries your logo.
+- **Real-footage helpers** - Row-Bot finds a clip's best moments, cuts or keeps parts
+  by their words, tidies away fillers and long pauses, cleans up a voice and lays b-roll
+  over the picture.
+- **Screen recordings that point** - a recorded click or field gets a highlight ring,
+  or a spotlight, as the camera zooms in. The browser records at twice the size so
+  zooms stay sharp, and desktop recordings get beats like browser ones.
+- **Ready to publish** - say where it's going (YouTube, Shorts, TikTok, Reels,
+  Instagram, Facebook, X or LinkedIn) or use **Ready to publish** in the review, and
+  Row-Bot makes that platform's shape (4:5 included), a thumbnail, a title and
+  description to copy, and subtitles as SRT and WebVTT. Posting still goes through your
+  apps and their approvals.
+- **A finished check on every video** - each video is checked for blur, words over the
+  action, a face or a character, text outside a phone's safe areas, loudness, black or
+  frozen stretches, jump cuts and AI shots that don't match, with scene numbers and
+  times, and Row-Bot fixes what it lists.
+- **Illustrated without a video model** - with no video model chosen, a video is made in
+  the studio from pictures, scene by scene, in a chat or a workflow, with no scripts or
+  extra files in your workspace.
+
+### What Row-Bot Makes
+
+- **Finals first** - Row-Bot shows the finished picture, video or file large in its
+  reply, headed by its title. Recordings, stills, voice lines and other working files
+  fold under "N working files", and a draft's card updates in place.
+- **Named by their title** - pictures and videos are named the way the reply names
+  them ("Red Lighthouse at Sunset") in the chat, the viewer, the download and Outputs,
+  with £, € and accents kept. A new version keeps its name.
+- **One list of outputs** - the Outputs pane, **Library › Media** (Made, Uploads and
+  Working files) and the phone's Files show the same list: one tile per output, with a
+  Draft mark and its versions. **Save to workspace** saves any output under its name in
+  a **Saved outputs** folder.
+- **Sends that play** - a file sent to your devices plays in the chat and stays there;
+  only the download link of a file too large for a chat ends after 7 days.
+- **Media tools stay at hand** - once a chat makes media, its media tools stay ready for
+  the rest of the chat, so Row-Bot no longer loses track of a file it made or forgets to
+  deliver it.
+- **Pronunciations kept** - tell Row-Bot how to say a word and every later voice line
+  and video says it that way; captions keep the written word.
+- **MiniMax H3 Image** - pick **MiniMax H3 Image** or **H3 Image Highspeed** after
+  refreshing MiniMax's catalog to make pictures with it.
+
+### Models On This Computer
+
+- **One settings sheet per model** - each local model has a sheet, opened from the
+  sliders on its row in **Settings › Models › Local**, its Catalog row or the model
+  picker: **Context** (Automatic shows what it picks and what it takes of your card),
+  **Thinking**, and under More, **Reply length** and **Sampling**.
+- **Larger windows on Download with Row-Bot** - each model reads the largest window
+  that fits on your graphics card, up to 128K (32K on a Mac, where speed decides), with
+  a smaller memory cache. The server stays loaded for 30 idle minutes instead of five,
+  so a reply after a pause starts warm.
+- **Thinking when it helps** - the built-in Qwen3.5 9B and 4B answer without thinking
+  unless the chat turns it on; the 27B keeps thinking. The chat's Thinking choice now
+  reaches llama.cpp, vLLM and SGLang servers on this computer.
+- **Settings from the model card** - Qwen3.5 and Qwen3.8 models running locally get
+  their makers' recommended sampling settings, so they stop repeating themselves.
+- **Servers here count as local** - llama.cpp, LM Studio and vLLM servers on this
+  computer are sized like Ollama's models, and their context is read from what each
+  server actually loaded. **Connect** checks a found server first.
+- **Stuck replies end in plain words** - a local model that sends nothing for 10
+  minutes, or writes to its length limit without a reply, is stopped with a line
+  saying so, instead of a timeout or a second try. A llama.cpp reply has an output
+  limit, so a looping model can't run on for an hour.
+- **Cloud reading limit** - Settings › Models › Defaults' Advanced context is now
+  **Cloud models › Cloud reading limit**, for cloud models only.
+
+### Models
+
+- **GPT-6 thinking levels** - on the ChatGPT plan, GPT-6 models show their Thinking
+  levels, and GPT-6 on an OpenAI key uses the right API instead of failing. A bare
+  `/reasoning` shows the choices.
+- **Newer GPT-5 models on an OpenAI key** offer their real Thinking levels, None
+  included, and naming a new chat no longer wastes a request.
+
+### On Your Phone
+
+Everything here applies below 768 px; the desktop and tablets are unchanged.
+
+- **No drawer** - the header names the place, with one Search that finds chats, files
+  and settings; ‹ in a chat goes back to where you opened it, and a swipe in from the
+  left does the same.
+- **Home is what needs you** - approvals with Approve and Deny on the card, then Now
+  (replies being written, workflows running) and Recent. The Ask box sits above the tab
+  bar with +, mic and Talk, each one tap.
+- **Chats | Files** - labelled chips, a tap opens a chat and a long-press offers Pin,
+  Rename and Delete (with Undo). Files lists what Row-Bot made, newest first.
+- **A simpler chat** - the model sits under the title, New chat is in the header, and
+  icons show only on the newest messages; long-press any other for its actions. The +
+  sheet starts with Camera, Photos and Files, and **Chat settings** (approvals, agent,
+  mode, folder, incognito) is one level down.
+- **Workflows** - each one is a row with its status and a switch. A tap opens a sheet
+  with Run now, Open chat and recent runs; editing stays on the computer.
+- **Settings** - **This phone** (notifications, theme), **Row-Bot** (Models, Voice,
+  Memory, Apps, Activity, Buddy & Proactive) and **More settings**, each page with one
+  header row.
+- **Memory as a list** - search your memories, open one to edit, or delete it. The
+  graph, import and clean-up are on the computer.
+- **Review on the go** - a design or code folder opens to look through on a phone;
+  editing, Run and Git are on the computer.
+- **Back closes the sheet first** - on a phone, Back closes the open sheet or menu one
+  level at a time before it leaves the page. There's no pull-to-refresh, and the
+  browser's bar follows your theme.
+- **Faster lists** - the Library and the phone's Chats open quickly on a large history,
+  with loading rows in the list's shape.
+
+### Work That Carries On
+
+- **A progress line doesn't end the turn** - when Row-Bot writes a line on what it found
+  and what's next, it goes on working instead of stopping there.
+- **More stops caught** - a turn that ends "I'm checking…" or "I still need to verify…"
+  carries on, still confirmed by your model first. A finished picture is no longer
+  followed by "Carrying on with the next step" and an empty extra message.
+- **A browser stop you can resume** - why a turn stopped in the browser still shows
+  after a reload or a restart, and Resume and a new message work on every provider,
+  the Claude plan included.
+- **Past chats, closer matches** - when no message has every word Row-Bot searched for,
+  it gets the closest ones instead of nothing.
+- **Workflows say when they haven't run** - a new workflow that runs only by hand is no
+  longer described as running.
+- **`row-bot run`** - a new command runs one task from start to finish without the
+  window, writes what it did, and exits with a status code. It uses a throwaway data
+  folder unless you give one.
+
+### Updates And Installing
+
+- **A background update** - 5.3 installs update to 5.4 in the background, with no full
+  installer needed.
+- **Quitting on Windows** - Row-Bot's server and window always end with the app,
+  however the app ends, so nothing is left running after a crash or a forced quit.
+- **A quicker first reply on Windows** - Row-Bot no longer starts PowerShell at every
+  start just to read its version.
+
+### Privacy And Data
+
+- **Smaller backups** - **Back up now** leaves out what downloads or renders again (the
+  ffmpeg Row-Bot downloaded, app catalogs and a video's drawn scenes); finished videos
+  and projects stay in.
+- **Libraries' telemetry, switched off** - speech on this computer (Kokoro, turn
+  detection and the wake word) runs on Microsoft's ONNX Runtime, whose usage events on
+  Windows Row-Bot switches off before any voice model loads, so they're never sent; the
+  faster speech models use a copy built without them. Learning's training engine
+  switches off each library's own usage reporting and runs behind a network guard that
+  refuses any connection beyond this computer, and Hugging Face's library runs with its
+  usage reporting off. This is those libraries' reporting, not Row-Bot's.
+- **Install stats unchanged** - Row-Bot's only telemetry is still the daily install
+  count, which **Settings › System › Privacy** turns off. `row-bot run` never sends it.
+
+### Fixes
+
+- **Settings › Models** - Undo after changing the main model really changes it back,
+  and the next chat uses the model Settings shows. In the Catalog the ✓ says what it
+  does ("Make … the main model") and the star only adds a model to Your models. Manage
+  on Ollama or LM Studio opens its settings, and lists show each family's newest model
+  first.
+- **Busy free models** - when an OpenRouter free model is busy, the chat says so and
+  suggests the Free Models Router instead of "Provider returned error".
+- **Imported memories** are labelled with the app they came from ("Imported from
+  ChatGPT") and can be filtered, and the ChatGPT and Gemini import help says only what
+  Row-Bot reads.
+- **The details card** over a chat's Outputs is no longer see-through over a bright
+  video, and a video card's Open stays on its row on a phone.
+- **Logs that match the setting** - a new profile logs at **Normal**, and **Everything
+  (debug)** now really writes debug lines to the log file.
+
+### For Hosts
+
+- Talk and Live voice now use WebSockets, the first in Row-Bot's API
+  (`/api/v1/voice/stream` and `/api/v1/voice/live`). A reverse proxy must pass WebSocket
+  connections through for them to work; Tailscale Serve, the public link and the Caddy
+  example already do. The microphone still needs HTTPS.
+- The server never opens a microphone or speaker: the host microphone and playback are
+  removed, and the image no longer installs `libportaudio2`. The browser captures and
+  plays the audio; the server recognises and speaks it. New core dependency:
+  `websockets`; the voice extra adds `pipecat-ai` and `sherpa-onnx` and drops
+  `sounddevice`. The wake word is never offered on a hosted server.
+- OpenAI Realtime is no longer a **Listen with** choice. A server that used it now reads
+  it as local speech-to-text, and its voice and model move to **Live voice**. Below 3.5
+  GB, local speech-to-text still doesn't fit: choose a cloud service under **Listen
+  with** (**Use cloud speech-to-text** picks one, Deepgram unless another key is saved,
+  and asks for its key). No new recommended size.
+- Cloud speech and Live voice connect from the server only after a person chooses one
+  and saves its key, while they talk: api.deepgram.com, streaming.assemblyai.com,
+  api.openai.com, generativelanguage.googleapis.com, api.elevenlabs.io, api.cartesia.ai
+  and api.x.ai. Gemini Live and Grok Voice are relayed through the server. The faster
+  speech models download from GitHub only after a person presses Download, into
+  `models/speech/` in the data folder.
+- Learning ships in every build and is on by default, on hosted installs too. It keeps
+  `learning.db`, `learning_config.json` and a `learning/` folder in the data folder
+  (pictures from browser and computer use up to 10 GB, oldest first), and its model calls
+  use each person's default model, up to 2M tokens a month unless they change it. A
+  personal model needs an NVIDIA card and doesn't train in the Docker image; Hugging
+  Face (huggingface.co) is contacted only if a person chooses it.
+  `ROW_BOT_LEARNING_PREVIEW` is gone. A person turns Learning off in Settings › Learning.
+- New setting: `ROW_BOT_MINIMAX_CN=1` sends MiniMax requests to the mainland China
+  endpoint (`api.minimax.cn`) for keys issued there; the default is the global one.
+- A video's drawn scenes are kept under `video-projects/<chat>/<project>-scenes/` and
+  removed after an hour unused. Backups now leave out `ffmpeg`, `catalogs` and those
+  scene folders.
+- `row-bot run` runs one task headless and exits with a status code (0 done, 1 failed,
+  2 usage, 3 refused for want of approval, 4 out of budget, 5 the model endpoint
+  failed). It uses a throwaway data folder unless `--data-dir` is given, sends no install
+  stats, and reads most flags from `ROW_BOT_RUN_<FLAG>`; `--approval`, `--data-dir` and
+  the task are never read from the environment.
+- A new profile's log detail is Normal (INFO), which is what was written before; Everything
+  (debug) now really writes debug lines.
+
+---
+
 ## v5.3.4 - Proactive Row-Bot, Models On Your Computer, And A Living Buddy
 
 Row-Bot 5.3.4 starts speaking first: Proactive Row-Bot notices a reply you're still
