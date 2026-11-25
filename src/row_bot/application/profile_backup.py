@@ -45,6 +45,9 @@ _UPLOAD_STAGING = re.compile(r"upload_[a-z0-9_]{8}")
 # A running reply's text as it streams (live_content): rewritten every moment, and the finished message is
 # saved with the chat, so a backup never holds it (U11).
 _LIVE_PIECE = re.compile(r"live_[a-z0-9_]{8}")
+# A video project's drawn scene clips, music and effects (video_projects.scene_cache): working renders,
+# keyed by what made them, that the next make draws again. The finished videos are in media.
+_SCENE_RENDERS = re.compile(r".+-scenes")
 SKIPPED_SHOWN = 20
 logger = logging.getLogger(__name__)
 LEFT_OUT = (
@@ -100,6 +103,9 @@ def _files(data_dir: Path, outside: dict) -> list[Path]:
                 continue
             if relative.parts[0] == "media" and (_UPLOAD_STAGING.fullmatch(path.name)
                                                  or _LIVE_PIECE.fullmatch(path.name)):
+                continue
+            if (relative.parts[0] == "video-projects" and len(relative.parts) > 3
+                    and _SCENE_RENDERS.fullmatch(relative.parts[2])):
                 continue
             chosen.append(path)
     return chosen
