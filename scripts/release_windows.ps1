@@ -107,10 +107,13 @@ function Invoke-Native {
 }
 
 function Get-NativeOutput {
-    # Runs a program and returns its standard output; fails on a non-zero exit code.
+    # Runs a program and returns its standard output; fails on a non-zero exit code, with its last lines as the reason.
     param([Parameter(Mandatory = $true)][string]$File, [string[]]$Arguments = @())
     $output = & $File @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "$([IO.Path]::GetFileName($File)) failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) {
+        $said = (@($output) | Select-Object -Last 5) -join "`n"
+        throw "$([IO.Path]::GetFileName($File)) failed with exit code $LASTEXITCODE$(if ($said) { ":`n$said" })"
+    }
     return $output
 }
 

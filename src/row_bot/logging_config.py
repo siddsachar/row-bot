@@ -93,10 +93,17 @@ def setup_file_logging() -> None:
     _file_handler.suffix = "%Y-%m-%d"
     _file_handler.setFormatter(JsonFormatter())
 
-    level = _load_file_log_level()
-    _file_handler.setLevel(getattr(logging, level, logging.DEBUG))
+    level = getattr(logging, _load_file_log_level(), logging.INFO)
+    _file_handler.setLevel(level)
 
-    logging.getLogger().addHandler(_file_handler)
+    root = logging.getLogger()
+    if level < root.getEffectiveLevel():
+        # The root logger lets the chosen detail through to the file; the console keeps the level it had.
+        for handler in root.handlers:
+            if handler.level == logging.NOTSET:
+                handler.setLevel(root.getEffectiveLevel())
+        root.setLevel(level)
+    root.addHandler(_file_handler)
     logger.info("File logging started → %s", log_path)
 
     # Clean up old log files beyond retention
@@ -108,10 +115,10 @@ def _load_file_log_level() -> str:
     try:
         if _CONFIG_PATH.exists():
             cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            return cfg.get("file_log_level", "DEBUG").upper()
+            return cfg.get("file_log_level", "INFO").upper()
     except Exception:
         pass
-    return "DEBUG"
+    return "INFO"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
