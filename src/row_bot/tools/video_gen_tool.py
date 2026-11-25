@@ -71,8 +71,9 @@ _POLL_TIMEOUT = 360           # 6 minutes hard ceiling
 # No preset: video generation stays off and unset until the person chooses a
 # model in Settings › Models (decision 9).
 NO_VIDEO_MODEL = (
-    "No video model is chosen yet. Choose a video model in Settings › Models, "
-    "then ask again."
+    "No video model is chosen yet, so no generated footage can be made. Unless the person asked for "
+    "generated footage, make the video with the video tool instead: illustrated scenes (generate_image) "
+    "with camera motion, voices and music. Otherwise tell them to choose a video model in Settings › Models."
 )
 
 # ── Google constraints ───────────────────────────────────────────────────

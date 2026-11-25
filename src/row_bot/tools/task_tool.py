@@ -178,6 +178,8 @@ def _task_create(
             parts.append(f"  Schedule: {task['schedule']} ({task.get('timezone') or 'this computer’s time'})")
         if task.get("at"):
             parts.append(f"  Fires at: {task['at']}")
+        if not task.get("schedule") and not task.get("at"):
+            parts.append("  Runs: only when started. It hasn't run yet; task_run_now starts it.")
         if task.get("notify_only"):
             parts.append("  Type: Notification only")
         else:
