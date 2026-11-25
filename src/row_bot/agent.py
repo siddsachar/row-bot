@@ -1220,17 +1220,18 @@ def _refused_by_caller(exc: BaseException) -> bool:
 
 
 def _provider_refusal(exc: BaseException) -> list[tuple] | None:
-    """The events for a provider that said why it can't answer (signed out, a plan's limit), possibly
+    """The events for a provider that said why it can't answer (signed out, a plan's limit, a busy free model), possibly
     wrapped: ``provider_refusal`` with a code the chat shows instead of "interrupted", then the error."""
     from row_bot.providers.claude_subscription import ClaudePlanUnavailable
     from row_bot.providers.runtime import ProviderSignInRequired
+    from row_bot.providers.transports.openrouter_errors import FreeModelBusy
     current: BaseException | None = exc
     for _ in range(8):
         if current is None:
             return None
         if isinstance(current, ProviderSignInRequired):
             refusal = {"code": "sign_in_required", "provider": current.label}
-        elif isinstance(current, ClaudePlanUnavailable):
+        elif isinstance(current, (ClaudePlanUnavailable, FreeModelBusy)):
             refusal = {"code": "provider_unavailable", "message": str(current)[:400]}
         else:
             current = current.__cause__ or current.__context__

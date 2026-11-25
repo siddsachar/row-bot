@@ -3,12 +3,14 @@
 For ``anthropic/claude-*`` models it also caches a conversation's tail with
 OpenRouter's documented top-level ``cache_control`` (with ``ttl``), and retries
 a request once without cache instructions when OpenRouter rejects them
-(``prompt_cache_breakpoints``).
+(``prompt_cache_breakpoints``). A failed request is logged with OpenRouter's
+own details, and a busy free model fails in plain words (``openrouter_errors``).
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -21,6 +23,7 @@ from row_bot.prompt_cache import content_has_cache_control, conversation_cache_t
 from row_bot.providers.cache_affinity import conversation_cache_key
 from row_bot.providers.capabilities import PROMPT_CACHE_ROUTE_OPENROUTER, prompt_cache_route
 from row_bot.providers.transports import prompt_cache_breakpoints as cache_breakpoints
+from row_bot.providers.transports.openrouter_errors import described_failure
 from row_bot.providers.transports.cancellable_http import (
     cancellable_async_http_client,
     cancellable_http_client,
@@ -99,12 +102,13 @@ class CancellableChatOpenRouter(ChatOpenRouter):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
-        try:
+        with self._described_errors():
+            try:
+                return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            except Exception as exc:
+                if not self._cache_retry(messages, exc):
+                    raise
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
-        except Exception as exc:
-            if not self._cache_retry(messages, exc):
-                raise
-        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _agenerate(
         self,
@@ -113,12 +117,13 @@ class CancellableChatOpenRouter(ChatOpenRouter):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
-        try:
+        with self._described_errors():
+            try:
+                return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            except Exception as exc:
+                if not self._cache_retry(messages, exc):
+                    raise
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
-        except Exception as exc:
-            if not self._cache_retry(messages, exc):
-                raise
-        return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
     def _stream(
         self,
@@ -128,16 +133,17 @@ class CancellableChatOpenRouter(ChatOpenRouter):
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         started = False
-        try:
-            for chunk in super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
-                started = True
-                yield chunk
-            return
-        except Exception as exc:
-            # Only a rejection before anything streamed: nothing has reached the caller yet.
-            if started or not self._cache_retry(messages, exc):
-                raise
-        yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        with self._described_errors():
+            try:
+                for chunk in super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                    started = True
+                    yield chunk
+                return
+            except Exception as exc:
+                # Only a rejection before anything streamed: nothing has reached the caller yet.
+                if started or not self._cache_retry(messages, exc):
+                    raise
+            yield from super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _astream(
         self,
@@ -147,16 +153,28 @@ class CancellableChatOpenRouter(ChatOpenRouter):
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
         started = False
-        try:
+        with self._described_errors():
+            try:
+                async for chunk in super()._astream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                    started = True
+                    yield chunk
+                return
+            except Exception as exc:
+                if started or not self._cache_retry(messages, exc):
+                    raise
             async for chunk in super()._astream(messages, stop=stop, run_manager=run_manager, **kwargs):
-                started = True
                 yield chunk
-            return
+
+    @contextmanager
+    def _described_errors(self) -> Iterator[None]:
+        """Log a failed request with OpenRouter's details; a busy free model fails in plain words."""
+        try:
+            yield
         except Exception as exc:
-            if started or not self._cache_retry(messages, exc):
-                raise
-        async for chunk in super()._astream(messages, stop=stop, run_manager=run_manager, **kwargs):
-            yield chunk
+            busy = described_failure(exc, str(self.model_name or ""))
+            if busy is not None:
+                raise busy from exc
+            raise
 
     # ── Transport ───────────────────────────────────────────────────────────
 
