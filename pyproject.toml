@@ -226,6 +226,9 @@ version = { attr = "row_bot.version.__version__" }
 
 [tool.uv]
 required-version = ">=0.7"
+# num2words (Pipecat's text transforms, voice extra) depends on docopt only for its command-line
+# script, which Row-Bot never runs. docopt ships only as source, and an update's parts carry wheels.
+override-dependencies = ["docopt; sys_platform == 'never'"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
