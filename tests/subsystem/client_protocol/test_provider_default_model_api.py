@@ -73,3 +73,34 @@ def test_lost_ack_has_passive_receipt_without_another_publication(service, saved
         assert response.status_code == 200, response.text
         assert response.json()['status'] == 'completed' and response.json()['published']
         assert saved.read_bytes() == before
+
+
+def save(client, headers, provider, revision=None):
+    """Review then save one main model, as Settings › Models does; returns the save's response."""
+    revision = revision or client.get(BASE, headers=headers).json()['revision']
+    payload = {'settings_revision': revision, 'provider_id': provider, 'model_id': 'same'}
+    reviewed = client.post(BASE + '/review', headers=headers, json=payload)
+    if reviewed.status_code != 200:
+        return reviewed
+    return send(client, headers, {'command_id': str(uuid4()), 'client_session_id': headers['X-Client-Session'],
+        'type': 'provider.default_model.save', 'expected_revision': '0',
+        'payload': {**payload, 'nonce': reviewed.json()['nonce']}})
+
+
+def test_undo_after_a_catalog_pick_leaves_the_saved_main_model_as_it_was(service, saved):
+    # F11: a Catalog ✓ saves another main model; its Undo saves the previous one back.
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        assert save(client, headers, 'openai').status_code == 200
+        before = json.loads(saved.read_text())['model']
+        first = client.get(BASE, headers=headers).json()['revision']
+        assert save(client, headers, 'anthropic').status_code == 200
+        assert json.loads(saved.read_text())['model'] == 'model:anthropic:same'
+        # Undo with the revision read before the pick is refused and changes nothing...
+        stale = save(client, headers, 'openai', revision=first)
+        assert stale.status_code == 409 and stale.json()['code'] == 'revision_conflict'
+        assert json.loads(saved.read_text())['model'] == 'model:anthropic:same'
+        # ...so Undo reviews against the revision the pick left, and the old model is saved again.
+        assert save(client, headers, 'openai').status_code == 200
+        assert json.loads(saved.read_text())['model'] == before
+        assert client.get(BASE, headers=headers).json()['selection_ref'] == before

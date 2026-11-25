@@ -221,12 +221,11 @@ export default function ModelsPanel({
   const [search, setSearch] = useSearchParams();
   const sheetModel = search.get('model-settings');
   const [state, setState] = useState<ModelsSettingsState | null>(null);
-  const [snapshot, setSnapshot] =
-    useProviderSettingsValue<DefaultModelSnapshot | null>(
-      session,
-      'snapshot',
-      null,
-    );
+  const [, setSnapshot] = useProviderSettingsValue<DefaultModelSnapshot | null>(
+    session,
+    'snapshot',
+    null,
+  );
   const [pending, setPending] = useProviderSettingsValue<{
     commandId: string;
   } | null>(session, 'pending', null);
@@ -315,20 +314,27 @@ export default function ModelsPanel({
       previous && previous !== ref
         ? {
             label: 'Undo',
-            onAction: () => void brainDefault(previous, true).catch(() => {}),
+            onAction: () =>
+              void brainDefault(previous, true).catch(() =>
+                notify("The main model wasn't changed back", 'warning'),
+              ),
           }
         : undefined,
     );
   }
   async function brainDefault(ref: string, undoing = false) {
-    if (!session.active || pending || busy)
+    // The notice's Undo runs this from the render before the save it undoes:
+    // read the pending save and the revision from the session, not the render (F11).
+    if (!session.active || session.get('pending', null) || busy)
       throw { code: 'operation_uncertain' };
     setBusy('brain');
     setError('');
     setBrainNote('');
     const previous = state?.brain.current_ref ?? '';
     try {
-      const current = snapshot ?? (await controller.defaultModel());
+      const current =
+        session.get<DefaultModelSnapshot | null>('snapshot', null) ??
+        (await controller.defaultModel());
       const { provider_id, model_id } = selectionParts(ref);
       const review = await controller.reviewDefaultModel({
         settings_revision: current.revision,
@@ -381,6 +387,8 @@ export default function ModelsPanel({
       }
     } catch (cause) {
       setError(clientError(cause).message);
+      // Show what the server holds, so the page and the next chat agree.
+      await reload().catch(() => undefined);
       throw cause;
     } finally {
       setBusy('');

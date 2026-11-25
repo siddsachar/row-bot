@@ -15,6 +15,7 @@ import type { ClientController } from '../../api/controller';
 import { useOverlay } from '../../ui/overlays';
 import { Button, IconButton } from '../../ui/primitives';
 import { SettingsGroup, SettingsItem, StatusLine } from '../settings/anatomy';
+import { providerSheetPath } from '../shell/model-choices';
 import { LocalModelSettingsButton } from './LocalModelSheet';
 import LocalWays from './LocalWays';
 import RunOnThisComputer from './RunOnThisComputer';
@@ -295,10 +296,11 @@ export default function LocalModelsSettings({
           bind={false}
           status={<StatusLine tone="success">Connected</StatusLine>}
           control={
+            // Its sheet on this page: /settings/providers only led back here (F11).
             <Link
               className="button ghost small"
-              to="/settings/providers"
-              aria-label={`Manage ${card.display_name} in Providers`}
+              to={providerSheetPath(card.provider_id)}
+              aria-label={`Manage ${card.display_name}`}
             >
               Manage
             </Link>

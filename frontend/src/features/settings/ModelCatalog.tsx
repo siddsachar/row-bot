@@ -394,7 +394,7 @@ export default function ModelCatalog({
                       {model.display_name}
                       {isDefault && (
                         <span className="settings-catalog-default">
-                          Default
+                          {surface === 'chat' ? 'Main model' : 'Default'}
                         </span>
                       )}
                     </strong>
@@ -456,7 +456,8 @@ export default function ModelCatalog({
                     {surface !== 'voice' && (
                       <IconButton
                         size="sm"
-                        label={`Set ${model.display_name} as ${surface} default`}
+                        // Says what it does: chat's is the main model (F11).
+                        label={`Make ${model.display_name} the ${surface === 'chat' ? 'main' : surface} model`}
                         disabled={!usable || isDefault || !!busyRef}
                         onClick={() => void act('default', model)}
                       >

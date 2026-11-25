@@ -129,7 +129,7 @@ export default function SettingRoute() {
   const { setting = 'preferences', '*': item = '' } = useParams();
   const navigate = useNavigate();
   const onThisComputer = useOnThisComputer();
-  const [search] = useSearchParams();
+  const [search, setSearch] = useSearchParams();
   const location = useLocation();
   const phone = usePhone();
   const leaf = resolveSetting(setting);
@@ -624,6 +624,12 @@ export default function SettingRoute() {
                     hideLocal={Boolean(settingsSnapshot?.system.hosted_by)}
                     models={models}
                     openProvider={search.get('provider') ?? ''}
+                    onSheetClosed={() => {
+                      if (!search.has('provider')) return;
+                      const next = new URLSearchParams(search);
+                      next.delete('provider');
+                      setSearch(next, { replace: true });
+                    }}
                     onAddServer={
                       providerConfigurationOwner?.get()
                         ? (profile) => {

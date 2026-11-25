@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import logging
+import re
 import time
 from typing import Any, Collection, Iterable
 
@@ -216,6 +217,24 @@ def _normalize_ollama_show_response(raw: Any) -> dict[str, Any]:
     return metadata
 
 
+_VERSION = re.compile(r"\d+(?:\.\d+)*")
+
+
+def newest_first(display_name: str) -> tuple[str, tuple[int, ...], str]:
+    """A model name's place in its provider's list: by family, the newest version first.
+
+    "GPT-6.2 Sol" comes before "GPT-5.6 Luna"; a name without a number keeps
+    its alphabetical place.
+    """
+    name = display_name.casefold()
+    match = _VERSION.search(name)
+    if match is None:
+        return name, (), ""
+    # Negated so a higher version sorts first; the trailing 1 puts 6.2 before 6.
+    version = tuple(-int(part) for part in match.group().split(".")) + (1,)
+    return name[:match.start()], version, name[match.end():]
+
+
 def build_saved_model_catalog_rows(
     *,
     cloud_cache: dict[str, dict[str, Any]],
@@ -283,7 +302,7 @@ def build_saved_model_catalog_rows(
         if isinstance(info, dict):
             add("ollama", info.get("model_id") or "", info, local=True)
     return sorted(rows.values(), key=lambda row: (
-        row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id,
+        row.provider_display_name.casefold(), newest_first(row.display_name), row.provider_id, row.model_id,
     ))
 
 

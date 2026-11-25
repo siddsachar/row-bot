@@ -210,7 +210,7 @@ it('stars and applies actual defaults through compact icons; unavailable rows ar
   expect(screen.getByText(/^In your models · /)).toBeVisible();
   expect(props.onChanged).toHaveBeenCalledTimes(1);
   fireEvent.click(
-    screen.getByRole('button', { name: 'Set GPT-6-Astra as chat default' }),
+    screen.getByRole('button', { name: 'Make GPT-6-Astra the main model' }),
   );
   await waitFor(() => expect(props.onDefault).toHaveBeenCalledOnce());
   // An unavailable model can't be starred or chosen.
@@ -218,7 +218,7 @@ it('stars and applies actual defaults through compact icons; unavailable rows ar
     screen.getByRole('button', { name: 'Add Offline to your models' }),
   ).toBeDisabled();
   expect(
-    screen.getByRole('button', { name: 'Set Offline as chat default' }),
+    screen.getByRole('button', { name: 'Make Offline the main model' }),
   ).toBeDisabled();
   expect(screen.queryByText(/Brain draft/)).not.toBeInTheDocument();
 });
