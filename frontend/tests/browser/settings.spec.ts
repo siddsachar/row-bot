@@ -1611,7 +1611,7 @@ test('Models catalog applies a default and retains it across navigation', async 
     }),
   ).toBeVisible();
   await row
-    .getByRole('button', { name: 'Set ' + label + ' as chat default' })
+    .getByRole('button', { name: 'Make ' + label + ' the main model' })
     .click();
   await expect(defaultPicker).toContainText(label);
   await page.goto('/app-v2/settings/tracker');
