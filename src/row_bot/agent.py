@@ -9400,6 +9400,16 @@ def _joined_visible_answer(parts: list[str]) -> str:
     return text if text.strip() else ""
 
 
+def _append_step_words(parts: list[str], text: str, new_step: bool) -> None:
+    """Add streamed words to the turn's joined reply; a model step after tool results starts a new paragraph.
+
+    The transcript shows each step as its own row; the joined reply (``row-bot run``, workflow results) read
+    "...in my memories.Based on..." without the break. Only the joined text gets it: live tokens stay exact."""
+    if new_step and "".join(parts)[-1:] not in ("", "\n", " ", "\t"):
+        parts.append("\n\n")
+    parts.append(text)
+
+
 # Ends a reply the provider cut off at its output token limit (F17). The saved
 # message keeps the model's own text; the client marks that row instead.
 _OUTPUT_LIMIT_NOTICE = (
@@ -9796,6 +9806,7 @@ def _stream_graph(agent, input_data, config: dict,
     phase_timings = dict(phase_timings or {})
     _graph_stream_started = time.perf_counter()
     full_answer = []
+    _new_step = False  # a tool result came since the last words: the next words start a new model step
     thinking_signalled = False
     decoder = _ReasoningTextStreamDecoder()
     _finish_reason: str | None = None  # tracks API finish_reason from last chunk
@@ -10048,6 +10059,7 @@ def _stream_graph(agent, input_data, config: dict,
                         _finish_provider_call(event_seen_at, "tool_result")
                         _last_tool_result_at = event_seen_at
                         _tool_result_count += 1
+                        _new_step = True
                         yield ("tool_done", {
                             "tool_call_id": str(getattr(m, "tool_call_id", "") or ""),
                             "message_id": str(getattr(m, "id", "") or ""),
@@ -10140,7 +10152,8 @@ def _stream_graph(agent, input_data, config: dict,
                     provider_call["answer_chars"] = int(provider_call.get("answer_chars") or 0) + len(decoded_text)
                     _answer_chars += len(decoded_text)
                     _answer_chunks += 1
-                    full_answer.append(decoded_text)
+                    _append_step_words(full_answer, decoded_text, _new_step)
+                    _new_step = False
                     yield ("token", decoded_text)
             continue
 
@@ -10215,6 +10228,7 @@ def _stream_graph(agent, input_data, config: dict,
                                         )
                                         yield ("tool_call", _tool_call_payload(tc))
                                 if m.type == "tool":
+                                    _new_step = True
                                     yield ("tool_done", {
                                         "tool_call_id": str(getattr(m, "tool_call_id", "") or ""),
                                         "message_id": str(getattr(m, "id", "") or ""),
@@ -10249,7 +10263,8 @@ def _stream_graph(agent, input_data, config: dict,
                             )
                             _answer_chars += len(content)
                             _answer_chunks += 1
-                            full_answer.append(content)
+                            _append_step_words(full_answer, content, _new_step)
+                            _new_step = False
                             yield ("token", content)
             except Exception as retry_exc:
                 if _refused_by_caller(retry_exc):
