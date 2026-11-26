@@ -110,7 +110,7 @@ def _get_thread_messages(thread_id: str, *, own: bool = False) -> list[dict]:
 
 _CONTRACTIONS = frozenset({"it's", "let's", "that's", "what's", "there's", "here's", "he's", "she's", "who's",
                            "where's", "how's"})
-_WHOLE_WORDS = frozenset({"news", "series", "species", "evening"})  # look inflected, aren't
+_WHOLE_WORDS = frozenset({"news", "series", "species", "evening", "does", "goes"})  # look inflected, aren't
 _VOWELS = frozenset("aeiouy")
 
 
@@ -127,7 +127,7 @@ def _keyword(word: str) -> str:
 
 def _bases(word: str) -> set[str]:
     """The plain forms *word* may be an inflection of: hikes -> hike, classes -> class, movies -> movie and
-    movy, hiking -> hik and hike, planned -> plann, plan and plane. A word that isn't inflected is its own."""
+    movy, hiking -> hik and hike, planned -> plann, planne and plan. A word that isn't inflected is its own."""
     if word in _WHOLE_WORDS:
         return {word}
     if word.endswith("ies") and len(word) >= 5:
