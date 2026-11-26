@@ -229,8 +229,10 @@ class Followup:
     unchecked: bool = False
 
 
-def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool) -> bool:
-    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't."""
+def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool,
+                   strict: bool = False) -> bool:
+    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't.
+    Anything but NO counts as yes, unless *strict*: then only a YES does, and a check that can't run says no."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     try:
@@ -242,20 +244,25 @@ def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecke
             get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
             "verifier", thread_id=conversation_id)
         answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
-        return not str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper().startswith("NO")
+        said = str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper()
+        if not said.startswith(("YES", "NO")):
+            _LOG.info("The stop check for %s answered neither YES nor NO: %r", conversation_id, said[:40])
+        return said.startswith("YES") if strict else not said.startswith("NO")
     except Exception as exc:
         _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
-        return unchecked
+        return False if strict else unchecked
 
 
-def followup_after(conversation_id: str, reply: str, model_ref: str, *, headless: bool = False) -> Followup | None:
+def followup_after(conversation_id: str, reply: str, model_ref: str, *, headless: bool = False,
+                   strict: bool = False) -> Followup | None:
     """The one follow-up the app would start after a completed turn that ended with *reply*, decided now (the
     stop check included), or None. For a caller that runs its own turns (``row-bot run``, *headless*: its
-    carry-on doesn't send the model to a person); never after a follow-up, as in the app."""
+    carry-on doesn't send the model to a person). The app never starts one after a follow-up; a caller that
+    does passes *strict*, so the stop check must say YES."""
     _carry_on(conversation_id, status="completed", assistant_text=reply, followup_kind="")
     followup = take(conversation_id)
     if followup is None or (followup.check_reply and not _still_working(
-            conversation_id, followup.check_reply, model_ref, unchecked=followup.unchecked)):
+            conversation_id, followup.check_reply, model_ref, unchecked=followup.unchecked, strict=strict)):
         return None
     if headless and followup.prompt == CARRY_ON_PROMPT:
         return replace(followup, prompt=HEADLESS_CARRY_ON_PROMPT)

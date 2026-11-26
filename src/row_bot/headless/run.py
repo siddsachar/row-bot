@@ -68,6 +68,7 @@ class RunResult:
     answer: str = ""
     model: str = ""
     turns: int = 0
+    tool_calls: int = 0
     refused_actions: list[dict[str, str]] = field(default_factory=list)
     unanswered_questions: int = 0
     prompts: list[str] = field(default_factory=list)
@@ -256,10 +257,12 @@ def _new_conversation(model_ref: str, options: RunOptions) -> str:
 
 def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult | None = None) -> RunResult:
     """Run the task on the conversation *thread_id*: its turn, then the follow-up the app would start after it,
-    if any (never after a follow-up), answering what waits for a person as nobody can. The settled result."""
+    if any, answering what waits for a person as nobody can. The settled result. Unlike the app, a reply that
+    stops on its next step again after a carry-on that used tools gets another, when the stop check says a clear
+    YES (``MAX_CARRY_ONS`` in all); a file check stays once."""
 
     import row_bot.agent as agent
-    from row_bot.application.conversation_followups import followup_after
+    from row_bot.application.conversation_followups import followup_after, stopped_on_next_step
     from row_bot.tools import registry
     from row_bot.tools.approval_gate import nobody_to_ask
 
@@ -277,6 +280,7 @@ def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult
             while prompt is not None and result.status == "running":
                 result.turns += 1
                 result.prompts.append(prompt)
+                tools_before = result.tool_calls
                 config = {"configurable": {
                     "thread_id": thread_id, "model_override": model_ref, "runtime_mode": "agent",
                     "runtime_surface": "normal_chat", "approval_mode": options.approval_mode,
@@ -292,9 +296,18 @@ def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult
                     result.stop("refused", f"the turn still waited for a person after {MAX_ANSWERS} answers")
                 if stop.is_set():
                     result.stop("budget", f"the run's --timeout of {options.timeout:g} seconds ran out")
-                if result.status != "running" or result.turns > MAX_CARRY_ONS:
+                if result.status != "running":
                     break
-                followup = followup_after(thread_id, result.answer, model_ref, headless=True)
+                again = result.turns > 1
+                if again and (result.tool_calls == tools_before or result.turns > MAX_CARRY_ONS):
+                    # A carry-on that ran nothing didn't take; the cap is a backstop. Say so if work is still owed.
+                    if stopped_on_next_step(result.answer):
+                        result.reason = (f"stopped after {result.turns - 1} carry-on(s); the last reply still says "
+                                         "what it would do next")
+                    break
+                followup = followup_after(thread_id, result.answer, model_ref, headless=True, strict=again)
+                if followup is not None and again and not followup.check_reply:
+                    followup = None  # A file check, once per run.
                 prompt = followup.prompt if followup is not None else None
     finally:
         if timer is not None:
@@ -324,6 +337,8 @@ def _consume(events: Iterable[tuple[str, Any]], result: RunResult) -> list[dict[
                         else f"the turn stopped ({reason or 'terminal'})")
         elif kind == "interrupt":
             waiting.extend(item for item in (payload or []) if isinstance(item, dict))
+        elif kind == "tool_call":
+            result.tool_calls += 1
     return waiting
 
 
