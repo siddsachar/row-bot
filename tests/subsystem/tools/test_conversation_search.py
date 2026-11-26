@@ -147,6 +147,15 @@ def test_word_forms_match_whole_words_only(chats, query, found) -> None:
     assert (_matches(search(query)) == ["mixed"]) is found
 
 
+def test_a_quoted_word_is_matched_as_typed(chats) -> None:
+    # LongMemEval-V2 replay: a model's "comments" asks for the quoted key, not every comment.
+    threads, search, _current, _tool = chats
+    _chat(threads, "page", ['The page data: {"comments": ["Reply", "Permalink"]}', "Noted."])
+    _chat(threads, "chat", ["I left two comments on the draft.", "Thanks."])
+
+    assert _matches(search('"comments"')) == ["page"]
+
+
 def test_what_the_typed_word_found_before_it_still_finds(chats) -> None:
     threads, search, _current, _tool = chats
     _chat(threads, "inside", ["The cookery class was great.", "Glad to hear it."])

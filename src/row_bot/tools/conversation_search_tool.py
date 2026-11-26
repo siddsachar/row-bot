@@ -115,17 +115,20 @@ _VOWELS = frozenset("aeiouy")
 
 
 def _keyword(word: str) -> str:
-    """A query word as it is matched: lower case, without the punctuation around it or a possessive 's."""
-    word = word.lower().replace("\u2019", "'").strip(".,;:!?\"'()[]{}")
-    if word.endswith("'s") and len(word) > 3 and word not in _CONTRACTIONS:
-        return word[:-2]
+    """A query word as it is matched: lower case, and a name's possessive 's dropped ("Melanie's").
+
+    Other punctuation stays: a quoted "comments" still asks for the quotes, as a model often means it to."""
+    word = word.lower()
+    plain = word.replace("\u2019", "'")
+    if plain.endswith("'s") and plain[:-2].isalpha() and len(plain) > 3 and plain not in _CONTRACTIONS:
+        return plain[:-2]
     return word
 
 
 def _bases(word: str) -> set[str]:
     """The plain forms *word* may be an inflection of: hikes -> hike, classes -> class, movies -> movie and
     movy, hiking -> hik and hike, planned -> plann, plan and plane. A word that isn't inflected is its own."""
-    if word in _WHOLE_WORDS or not word.isalpha():
+    if word in _WHOLE_WORDS:
         return {word}
     if word.endswith("ies") and len(word) >= 5:
         return {word[:-3] + "y", word[:-3] + "ie"}
@@ -157,9 +160,10 @@ def _inflections(base: str) -> set[str]:
 @lru_cache(maxsize=512)
 def _pattern(keyword: str) -> re.Pattern[str]:
     """*keyword* anywhere, as before, or one of its other word forms as a whole word: "hikes" finds hiking,
-    "stories" story, "movies" movie, while "notes" never finds "not" nor "string" "strong"."""
+    "stories" story, "movies" movie, while "notes" never finds "not" nor "string" "strong". Only a plain
+    word has other forms: one with punctuation or digits is matched as typed."""
     derived = sorted({form for base in _bases(keyword) for form in _inflections(base)} - {keyword},
-                     key=len, reverse=True)
+                     key=len, reverse=True) if keyword.isalpha() else []
     if not derived:
         return re.compile(re.escape(keyword))
     return re.compile(re.escape(keyword) + r"|\b(?:" + "|".join(map(re.escape, derived)) + r")\b")
