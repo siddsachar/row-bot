@@ -98,10 +98,10 @@ _SURE_NEXT_STEP = re.compile(
 _STOP_CHECK = (
     "You check one reply from an assistant that works with tools. Its turn has ended, so it does nothing more "
     "unless it is woken. Answer YES if the reply says it will do more of the work now, or that the work isn't "
-    "finished, and it needs nothing from the person. Work it would run itself next (tests, a build, a commit) "
-    "is not waiting: that is YES. Answer NO if the work is done, or the reply asks the "
+    "finished, and it needs nothing from the person. Answer NO if the work is done, or the reply asks the "
     "person something, waits for them or for something else (a sign-in, an approval, a set time), or only "
-    "offers more. Answer with one word: YES or NO.")
+    "offers more. A test run or a build that it would start itself is not something else it waits for. "
+    "Answer with one word: YES or NO.")
 # The reply hands over to the person: their answer, OK or choice is what comes next.
 _HANDS_OVER = re.compile(
     r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
