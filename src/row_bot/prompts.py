@@ -368,6 +368,10 @@ ENTITIES — Only extract what passes the key test:
 
 Write descriptions as if they will appear in a knowledge base article — be \
 descriptive and include context, not just telegraphic labels.
+Keep the specifics that were said: the names, items, numbers, reasons and \
+feelings, in the words used ("bought a blue road bike to cycle to work", \
+"felt relieved and proud"), not a summary of them ("got a bike", "was \
+happy"). When several things are listed, keep each one.
 
 THE "User" ENTITY:
 - The user of this system is ALWAYS represented by the entity with subject "User".
