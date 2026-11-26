@@ -62,9 +62,9 @@ FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
 CARRY_ON_NOTE = "Carrying on with the next step"
-#: Carry-ons in a row in the app: a repeat comes only after a carry-on turn that used tools, on the stop check's
-#: clear YES; past this the reply waits for the person, as before (lane E's DeepSWE traces, 26 Nov).
-APP_MAX_CARRY_ONS = 3
+#: Carry-ons in a row, in the app and in ``row-bot run``: a repeat comes only after a carry-on turn that used
+#: tools, on the stop check's clear YES; past this the reply waits for the person (lane E's DeepSWE traces, 26 Nov).
+MAX_CARRY_ONS = 10
 CARRY_ON_PROMPT = (
     "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
     "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
@@ -138,7 +138,7 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
               last_reply: str = "", depth: int = 0, used_tools: bool = False) -> None:
     """Schedule a carry-on turn after a reply that stopped on its next step, or that names files it says it
     saved and that aren't there. After a carry-on (*depth* in a row) only a next-step carry-on can follow, when
-    that turn *used_tools*, up to ``APP_MAX_CARRY_ONS``, and only on the stop check's clear YES. *last_reply* is
+    that turn *used_tools*, up to ``MAX_CARRY_ONS``, and only on the stop check's clear YES. *last_reply* is
     what the model wrote after its last tool call: how the turn ended, without the progress lines before its
     tools ("I'll paint …", F7)."""
     from row_bot.file_claims import could_claim
@@ -146,7 +146,7 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
     if status != "completed" or followup_kind == "watch":
         return  # A watch's turn says what changed and stops there.
     again = followup_kind == "carry_on"
-    if again and (not used_tools or depth >= APP_MAX_CARRY_ONS):
+    if again and (not used_tools or depth >= MAX_CARRY_ONS):
         return  # A carry-on that ran nothing didn't take; past the cap the person decides.
     ending = last_reply if last_reply.strip() else assistant_text
     next_step = stopped_on_next_step(ending)

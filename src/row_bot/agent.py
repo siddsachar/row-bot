@@ -4814,7 +4814,8 @@ def _prepare_agent_request(
 SILENT_ROUNDS = 3
 _SILENT_AGAIN = 5
 PROGRESS_NOTE = ("Row-Bot note, not from the person: you've worked through several tools without a word to the "
-                 "person. Before your next step, say in one short line what you found and what's next.")
+                 "person. Say in one short line what you found and what's next, in the same reply as your next "
+                 "tool call.")
 
 
 def _silent_rounds(messages: list) -> int:

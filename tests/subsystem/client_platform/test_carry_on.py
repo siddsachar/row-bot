@@ -134,16 +134,15 @@ def test_a_reply_that_stops_on_its_next_step_carries_on_once(chat):
     assert notes(chat) == [CARRY_ON_NOTE], "the transcript says why it went on, not the prompt"
 
 
-def test_a_carry_on_that_used_tools_and_stops_again_carries_on_again_up_to_three_times(chat):
-    from row_bot.application.conversation_followups import APP_MAX_CARRY_ONS, CARRY_ON_NOTE, CARRY_ON_PROMPT
-    fake = Recording(replied(NEXT, "first"), worked("Next I'll check the captions are off.", "second"),
-                     worked("Next I'll export both cuts.", "third"), worked("Next I'll upload them.", "fourth"),
-                     worked("Next I'll tidy the folder.", "fifth"), replied("unused", "sixth"))
+def test_a_carry_on_that_used_tools_and_stops_again_carries_on_again_up_to_the_cap(chat):
+    from row_bot.application.conversation_followups import CARRY_ON_NOTE, CARRY_ON_PROMPT, MAX_CARRY_ONS
+    steps = [worked(f"Next I'll render part {n} of the film.", f"step-{n}") for n in range(MAX_CARRY_ONS + 1)]
+    fake = Recording(replied(NEXT, "first"), *steps, replied("unused", "last"))
     send(chat, fake, "Make the launch film in both shapes", "film")
-    settle(chat, fake, 1 + APP_MAX_CARRY_ONS)
-    assert len(fake.calls) == 1 + APP_MAX_CARRY_ONS, "past the cap the reply waits for the person"
-    assert fake.prompts[1:] == [CARRY_ON_PROMPT] * APP_MAX_CARRY_ONS
-    assert notes(chat) == [CARRY_ON_NOTE] * APP_MAX_CARRY_ONS
+    settle(chat, fake, 1 + MAX_CARRY_ONS)
+    assert len(fake.calls) == 1 + MAX_CARRY_ONS, "past the cap the reply waits for the person"
+    assert fake.prompts[1:] == [CARRY_ON_PROMPT] * MAX_CARRY_ONS
+    assert notes(chat) == [CARRY_ON_NOTE] * MAX_CARRY_ONS
 
 
 def test_a_repeat_carry_on_needs_a_clear_yes_from_the_stop_check(chat, stop_check):

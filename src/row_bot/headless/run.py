@@ -50,10 +50,6 @@ RUN_ENDPOINT_ID = "row-bot-run"
 FOLDER_IN_USE = "Quit Row-Bot (or stop its server) before a run uses this data folder."
 #: Answers to waiting approvals and questions one turn may need before the run gives up on it.
 MAX_ANSWERS = 50
-#: Carry-on turns a run may take after replies that stop on their next step ("Next I'll …"): nobody is there to
-#: say carry on, so the run goes on while the stop check says the work isn't done. The turn's round ceiling and
-#: --timeout still apply (lane E's DeepSWE traces, 26 Nov: runs that stopped a second time mid-work left no patch).
-MAX_CARRY_ONS = 10
 _EXIT_BY_STATUS = {"done": EXIT_DONE, "refused": EXIT_REFUSED, "budget": EXIT_BUDGET,
                    "provider_error": EXIT_PROVIDER, "usage_error": EXIT_USAGE, "error": EXIT_ERROR}
 
@@ -262,7 +258,7 @@ def drive(thread_id: str, model_ref: str, options: RunOptions, result: RunResult
     YES (``MAX_CARRY_ONS`` in all); a file check stays once."""
 
     import row_bot.agent as agent
-    from row_bot.application.conversation_followups import followup_after, stopped_on_next_step
+    from row_bot.application.conversation_followups import MAX_CARRY_ONS, followup_after, stopped_on_next_step
     from row_bot.tools import registry
     from row_bot.tools.approval_gate import nobody_to_ask
 
