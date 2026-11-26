@@ -90,9 +90,8 @@ def _load_dataframe(
     suffix: str,
     sheet: str,
 ) -> tuple[pd.DataFrame, str]:
-    import pandas as pd
-
     """Load data into a DataFrame. Returns (df, extra_info_string)."""
+    import pandas as pd
 
     extra = ""
 
