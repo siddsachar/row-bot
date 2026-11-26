@@ -195,6 +195,15 @@ def test_a_reply_that_stops_on_its_next_step_gets_the_headless_carry_on(monkeypa
     assert app is not None and app.prompt == conversation_followups.CARRY_ON_PROMPT
 
 
+def test_a_run_carries_on_each_time_a_reply_stops_on_its_next_step(monkeypatch, tmp_path):
+    result, _, _ = _run(monkeypatch, tmp_path, says("Next, I'll delete old.txt."),
+                        says("Next, I'll check the folder is empty."), says("Done."))
+
+    carry_on = conversation_followups.HEADLESS_CARRY_ON_PROMPT
+    assert result.prompts == ["Delete old.txt", carry_on, carry_on]
+    assert result.status == "done" and result.answer == "Done."
+
+
 def test_the_conversation_is_a_valid_atif_trajectory_that_names_its_harness_text(monkeypatch, tmp_path):
     result, _, turns = _run(monkeypatch, tmp_path, asks(call("delete_file", "d1", path="old.txt")),
                             says("I couldn't delete old.txt."))
