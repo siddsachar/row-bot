@@ -368,10 +368,13 @@ ENTITIES — Only extract what passes the key test:
 
 Write descriptions as if they will appear in a knowledge base article — be \
 descriptive and include context, not just telegraphic labels.
-Keep the specifics that were said: the names, items, numbers, reasons and \
-feelings, in the words used ("bought a blue road bike to cycle to work", \
-"felt relieved and proud"), not a summary of them ("got a bike", "was \
-happy"). When several things are listed, keep each one.
+Keep the specifics that were said: names, items, numbers, reasons, and the \
+feelings the person tied to an event, in their own words ("bought a blue \
+road bike to cycle to work", "felt relieved and proud after the exam"), not \
+a summary of them ("got a bike", "was happy"). When the person lists several \
+things, keep each one. This is how a fact that passes the key test is \
+written: it never makes anything under DO NOT EXTRACT worth saving, and \
+dates still follow DATES.
 
 THE "User" ENTITY:
 - The user of this system is ALWAYS represented by the entity with subject "User".
