@@ -131,6 +131,39 @@ def test_a_keyword_finds_its_other_word_forms(chats) -> None:
     assert search("hikers mountains").startswith("No message holds every keyword")
 
 
+@pytest.mark.parametrize(("query", "found"), [
+    ("movies", True),  # finds "movie"
+    ("notes", False),  # never "not sure"
+    ("string", False),  # never "strong"
+    ("james", False),  # never "jam"
+    ("news", False),  # never "new"
+    ("it's", False),  # a contraction stays whole: never "it" alone
+])
+def test_word_forms_match_whole_words_only(chats, query, found) -> None:
+    threads, search, _current, _tool = chats
+    _chat(threads, "mixed", ["My favourite movie is about a strong man, I'm not sure who.",
+                             "The new jam with it is good."])
+
+    assert (_matches(search(query)) == ["mixed"]) is found
+
+
+def test_what_the_typed_word_found_before_it_still_finds(chats) -> None:
+    threads, search, _current, _tool = chats
+    _chat(threads, "inside", ["The cookery class was great.", "Glad to hear it."])
+
+    assert _matches(search("cook")) == ["inside"]  # the typed word still matches inside a longer word
+
+
+def test_a_next_message_that_matches_on_its_own_is_not_shown_twice(chats) -> None:
+    threads, search, _current, _tool = chats
+    _chat(threads, "twice", ["Patagonia jackets are warm.", "Patagonia also repairs them.", "Nice."])
+
+    result = search("patagonia")
+
+    assert result.count("Patagonia also repairs them.") == 1
+    assert "Next, User: Nice." in result
+
+
 def test_with_no_message_holding_every_keyword_the_closest_messages_come_back_marked(chats) -> None:
     threads, search, _current, _tool = chats
     _chat(threads, "party", ["The date of my birthday is 3 May.", "Happy early birthday!"])
