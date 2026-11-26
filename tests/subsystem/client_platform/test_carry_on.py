@@ -245,6 +245,9 @@ def test_the_persons_message_replaces_a_pending_carry_on(chat):
     "Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
     "I found four more reservations; I've checked two and will review the remaining two before totaling them.",
     "One booking is basic economy. I still need to verify the flight statuses before deciding what can change.",
+    # Stops from the DeepSWE traces (26 Nov): work announced with no "I'll".
+    "The parser is in. I'm now finishing the schema exports before type-checking and writing tests.",
+    "Struct methods work. Next I'm wiring interface method dispatch and running the full test suite.",
 ])
 def test_a_reply_that_stops_mid_work_in_other_words_carries_on_when_the_model_agrees(chat, stop_check, reply):
     """S1 (18 Nov): the owner's real stops, which the narrower rule never caught; the chat's own model is asked

@@ -84,7 +84,10 @@ _NEXT_STEP = re.compile(
     # two …", "I still need to verify …").
     r"|\bI(?:'|’)m\s+(?:now\s+)?(?:checking|reviewing|verifying|looking into|working on|processing)\b"
     r"|\b(?:I|and)\s+will\s+(?:now\s+)?(?:check|review|verify|finish|continue|go through|look)\b"
-    r"|\bI still (?:need|have) to\b",
+    r"|\bI still (?:need|have) to\b"
+    # Work announced with no "I'll" (lane E's DeepSWE traces, 26 Nov: "I'm now finishing the exports before ...",
+    # "Next I'm wiring interface dispatch ..." ended runs with nothing committed).
+    r"|\bI(?:'|’)m\s+now\s+[a-z]+ing\b|\bnext,?\s+I(?:'|’)m\s+[a-z]+ing\b",
     re.IGNORECASE)
 # The narrower R1 rule: what carries on when the check can't be asked (no model, a provider error), as before.
 _SURE_NEXT_STEP = re.compile(
@@ -95,7 +98,8 @@ _SURE_NEXT_STEP = re.compile(
 _STOP_CHECK = (
     "You check one reply from an assistant that works with tools. Its turn has ended, so it does nothing more "
     "unless it is woken. Answer YES if the reply says it will do more of the work now, or that the work isn't "
-    "finished, and it needs nothing from the person. Answer NO if the work is done, or the reply asks the "
+    "finished, and it needs nothing from the person. Work it would run itself next (tests, a build, a commit) "
+    "is not waiting: that is YES. Answer NO if the work is done, or the reply asks the "
     "person something, waits for them or for something else (a sign-in, an approval, a set time), or only "
     "offers more. Answer with one word: YES or NO.")
 # The reply hands over to the person: their answer, OK or choice is what comes next.
