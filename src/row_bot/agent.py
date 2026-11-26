@@ -9405,7 +9405,7 @@ def _append_step_words(parts: list[str], text: str, new_step: bool) -> None:
 
     The transcript shows each step as its own row; the joined reply (``row-bot run``, workflow results) read
     "...in my memories.Based on..." without the break. Only the joined text gets it: live tokens stay exact."""
-    if new_step and "".join(parts)[-1:] not in ("", "\n", " ", "\t"):
+    if new_step and "".join(parts)[-1:] not in ("", "\n", " ", "\t") and text[:1] not in ("\n", " ", "\t"):
         parts.append("\n\n")
     parts.append(text)
 
