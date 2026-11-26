@@ -250,7 +250,8 @@ def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecke
         answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
         said = str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper()
         if not said.startswith(("YES", "NO")):
-            _LOG.info("The stop check for %s answered neither YES nor NO: %r", conversation_id, said[:40])
+            first = said.split(maxsplit=1)[0][:12] if said else ""
+            _LOG.info("The stop check for %s answered neither YES nor NO (it began %r)", conversation_id, first)
         return said.startswith("YES") if strict else not said.startswith("NO")
     except Exception as exc:
         _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
