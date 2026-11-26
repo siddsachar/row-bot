@@ -62,6 +62,9 @@ FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
 CARRY_ON_NOTE = "Carrying on with the next step"
+#: Carry-ons in a row in the app: a repeat comes only after a carry-on turn that used tools, on the stop check's
+#: clear YES; past this the reply waits for the person, as before (lane E's DeepSWE traces, 26 Nov).
+APP_MAX_CARRY_ONS = 3
 CARRY_ON_PROMPT = (
     "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
     "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
@@ -132,16 +135,23 @@ def file_check_prompt(names: list[str]) -> str:
 
 
 def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followup_kind: str,
-              last_reply: str = "") -> None:
-    """Schedule one carry-on turn after a reply that stopped on its next step, or that names files it says it
-    saved and that aren't there; never after another carry-on. *last_reply* is what the model wrote after its
-    last tool call: how the turn ended, without the progress lines before its tools ("I'll paint …", F7)."""
+              last_reply: str = "", depth: int = 0, used_tools: bool = False) -> None:
+    """Schedule a carry-on turn after a reply that stopped on its next step, or that names files it says it
+    saved and that aren't there. After a carry-on (*depth* in a row) only a next-step carry-on can follow, when
+    that turn *used_tools*, up to ``APP_MAX_CARRY_ONS``, and only on the stop check's clear YES. *last_reply* is
+    what the model wrote after its last tool call: how the turn ended, without the progress lines before its
+    tools ("I'll paint …", F7)."""
     from row_bot.file_claims import could_claim
 
-    if status != "completed" or followup_kind in ("carry_on", "watch"):
+    if status != "completed" or followup_kind == "watch":
         return  # A watch's turn says what changed and stops there.
+    again = followup_kind == "carry_on"
+    if again and (not used_tools or depth >= APP_MAX_CARRY_ONS):
+        return  # A carry-on that ran nothing didn't take; past the cap the person decides.
     ending = last_reply if last_reply.strip() else assistant_text
     next_step = stopped_on_next_step(ending)
+    if again and not next_step:
+        return  # The file check comes once.
     if not next_step and not could_claim(assistant_text):
         return
     from row_bot import tasks, waits
@@ -153,7 +163,8 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
     if next_step:
         reply = str(ending or "").strip()
         followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE, check_reply=reply[-1500:],
-                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])))
+                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])),
+                            depth=depth + 1, strict=again)
     else:
         missing = _missing_files(conversation_id, assistant_text)
         if not missing:
@@ -231,6 +242,9 @@ class Followup:
     check_reply: str = ""
     # Whether it carries on when the check can't be asked: only on the narrower rule's words, as before S1.
     unchecked: bool = False
+    # Which carry-on in a row this is (1 for the first). A repeat needs the check's clear YES (``strict``).
+    depth: int = 0
+    strict: bool = False
 
 
 def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool,
@@ -401,7 +415,8 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
 def _carry_on_if_still_working(service: Any, handle: Any, followup: Followup) -> None:
     """Start the carry-on turn the word rule found, if the chat's model agrees the reply stopped mid-work."""
     conversation_id = handle.conversation_id
-    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked):
+    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked,
+                          strict=followup.strict):
         return  # Done, or handing over to the person: nothing to carry on.
     from row_bot.application.client_platform import _COMMAND_LOCK
 
@@ -438,7 +453,7 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
                         error_text: str = "", followup_kind: str = "", service: Any = None,
-                        last_reply: str = "") -> None:
+                        last_reply: str = "", followup_depth: int = 0, used_tools: bool = False) -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -468,7 +483,7 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
                 _LOG.exception("Counting the goal's last turn failed for %s", conversation_id)
         else:
             _carry_on(conversation_id, status=status, assistant_text=assistant_text, followup_kind=followup_kind,
-                      last_reply=last_reply)
+                      last_reply=last_reply, depth=followup_depth, used_tools=used_tools)
         return
     try:
         if status == "completed":
