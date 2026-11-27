@@ -1056,7 +1056,7 @@ def _comparison_view(item: Any) -> dict[str, Any] | None:
         "note": _text(result.get("note"), 400), "coding_left_out": bool(result.get("left_out")),
         "baseline_unavailable": bool(result.get("baseline_unavailable")),
         "main_unavailable": result.get("main_unavailable") if result.get("main_unavailable") in (
-            "no_main_model", "sign_in_unsupported", "main_failed") else None,
+            "no_main_model", "sign_in_unsupported", "main_failed", "limit") else None,
         "reviewed": bool(result.get("reviewed_at")),
     })
     return view

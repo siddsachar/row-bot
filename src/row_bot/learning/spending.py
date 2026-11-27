@@ -44,6 +44,9 @@ TRIAL_SHARE = 0.20
 LOCAL_PROVIDERS = frozenset({"ollama"})
 #: What no limit leaves a run: more tokens than a month of Learning's work uses, so the meter keeps whole numbers.
 UNLIMITED_TOKENS = 10**12
+#: About what one test run costs on a cloud model: the 5.4 real-user test measured 28-36K tokens a run (the system
+#: prompt and the tool schemas are most of it). Tests are sized by it so one fits what the month has left (FL1).
+RUN_TOKENS = 32_000
 # ``allowance``'s default: the person's saved limit (``None`` is a limit of its own, no limit).
 _SAVED: Any = object()
 
@@ -198,6 +201,11 @@ class TokenMeter:
     def exhausted(self) -> bool:
         return self.refused > 0 or self.remaining <= 0
 
+    def fits(self, runs: int) -> bool:
+        """Whether about ``runs`` cloud test runs (:data:`RUN_TOKENS` each) fit what the meter has left."""
+
+        return max(0, int(runs)) * RUN_TOKENS <= self.remaining
+
     def allows(self, estimated_tokens: int, *, local: bool = False) -> bool:
         """Whether a call of about ``estimated_tokens`` may be sent now. A refusal is remembered."""
 
@@ -222,6 +230,7 @@ __all__ = [
     "Allowance",
     "LEARNING_PURPOSES",
     "LOCAL_PROVIDERS",
+    "RUN_TOKENS",
     "TRIAL_PURPOSE",
     "TRIAL_SHARE",
     "TokenMeter",

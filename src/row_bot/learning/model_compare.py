@@ -508,10 +508,19 @@ class Comparer:
         hidden_total = evaluation.audit_size(asked_by=ASKED_BY, store=self.store, packs=packs, verifiers=verifiers,
                                              include_replay=self.plan.replay) if self.plan.hidden else 0
         order = self._order(self._local_sizes(version, state, base_key), state.runtime) if base_ref else "interleaved"
-        total = (len(chosen) * max(1, self.plan.visible_repeats)
-                 + hidden_total * max(1, self.plan.hidden_repeats)) * len(arms)
-        self._progress(version, phase="visible", done=0, total=total)
+        runs = len(chosen) * max(1, self.plan.visible_repeats) + hidden_total * max(1, self.plan.hidden_repeats)
         meter = (self._meter or evaluation.TokenMeter.for_month)()
+        if base_ref and main_ref and not self._local(main_ref) and any(arm.name == "main" for arm in arms) \
+                and not meter.fits(runs):
+            # The verdict is the new version against its starting model, both on this computer (E4); the main
+            # model joins only when its runs fit what the month has left, so the comparison finishes (FL2).
+            arms = [arm for arm in arms if arm.name != "main"]
+            described = [item for item in described if item["key"] != "main"]
+            spec["arms"] = [item for item in spec["arms"] if item["name"] != "main"]
+            worker_arms.pop("main", None)
+            main_unavailable = "limit"
+        total = runs * len(arms)
+        self._progress(version, phase="visible", done=0, total=total)
         budget = evaluation.Budget(task_tokens=self.plan.task_tokens)
         cache = evaluation.ArmCache(self._root, clock=self.clock)
         done = [0]

@@ -479,27 +479,42 @@ class Tester:
                            subject_kind="attempt", subject_id=str(meta.get("attempt_id") or "") or None),
         ]
 
-    def _visible(self, kind: str, container: bool, practice: Sequence[Any] | None = None) -> list[Any]:
+    def _visible(self, kind: str, container: bool, practice: Sequence[Any] | None = None,
+                 plan: TestPlan | None = None) -> list[Any]:
         from row_bot.learning.packs import PACKS, visible_tasks
 
+        plan = plan or self.plan
         chosen = []
         for pack in PACKS:
             if pack == "small_coding" and not container:
                 continue
-            take = self.plan.visible_own if pack == kind else self.plan.visible_other
+            take = plan.visible_own if pack == kind else plan.visible_other
             chosen.extend(visible_tasks([pack])[: max(0, take)])
-        if kind in PACKS and self.plan.harder_own:
+        if kind in PACKS and plan.harder_own:
             from row_bot.learning.packs import harder
 
             chosen.extend([task for task in harder.tasks([kind])
-                           if container or task.verifier.kind != "code_tests"][: self.plan.harder_own])
-        if self.plan.practice > 0 and kind in PACKS:
+                           if container or task.verifier.kind != "code_tests"][: plan.harder_own])
+        if plan.practice > 0 and kind in PACKS:
             from row_bot.learning import practice as practice_module
 
             made = list(practice) if practice is not None else practice_module.pool(self.store, kind)
             chosen.extend([task for task in made if container or task.verifier.kind != "code_tests"][
-                : self.plan.practice])
+                : plan.practice])
         return chosen
+
+    def _smaller(self) -> list[TestPlan]:
+        """The plan, then the smaller tests tried when it doesn't fit what the month has left (FL1): one run of
+        each hidden problem (O84's three when the limit allows), then mostly its own kind of work, four problems of it."""
+
+        one = replace(self.plan, repeats=1)
+        own = replace(one, visible_other=0, harder_own=0, own=min(one.own, 4), other=min(one.other, 1),
+                      hidden_own=min(one.hidden_own, 2), practice=min(one.practice, 2))
+        found: list[TestPlan] = []
+        for plan in (self.plan, one, own):
+            if plan not in found:
+                found.append(plan)
+        return found
 
     def test(self, change_id: str, *, should_stop: Callable[[], bool] = lambda: False) -> Result:
         """Test one drafted change now and keep the result on it (and its Attempt). Raises
@@ -543,24 +558,28 @@ class Tester:
         main_ref = self._main()
         arms = self.arms(proposal, main_ref)
         container = self._has_container()
-        visible = self._visible(kind, container, practice)
         meter = meter if meter is not None else (self._meter or evaluation.TokenMeter.for_month)()
         budget = evaluation.Budget(task_tokens=self.plan.task_tokens)
         # A trial's arms each pay for their whole test: a result one arm kept would make the next arm's cheaper
         # (equal budget, pre-registration §4).
         cache = evaluation.ArmCache(self._root, clock=self.clock) if leave_out is None else None
-        focus = evaluation.Focus(kind, own=self.plan.own, other=self.plan.other)
         packs = [kind] if kind in kinds.FAMILIES and (container or kind != "small_coding") else []
         verifiers = None if container else ["answer", "json_answer", "file", "app_state"]
-        focus = _with_pack_limit(focus, self.plan.hidden_own)
-        hidden_total = 0
-        if self.store.exists():
-            try:
-                hidden_total = evaluation.audit_size(asked_by=ASKED_BY, store=self.store, packs=packs, verifiers=verifiers,
-                                                     focus=focus, leave_out=leave_out)
-            except Exception:  # noqa: BLE001 - no vault yet: nothing hidden to run
-                hidden_total = 0
-        total = (len(visible) * self.plan.visible_repeats + hidden_total * self.plan.repeats) * len(arms)
+        cloud = 0 if _local(main_ref) else len(arms)
+        # A change's own test is sized to what the month has left, so it finishes instead of stopping half-run
+        # (FL1); a trial's arms keep the trial's size (equal budget, pre-registration §4).
+        plans = self._smaller() if leave_out is None and cloud else [self.plan]
+        for plan in plans:
+            visible = self._visible(kind, container, practice, plan)
+            focus = _with_pack_limit(evaluation.Focus(kind, own=plan.own, other=plan.other), plan.hidden_own)
+            hidden_total = self._hidden_size(packs, verifiers, focus, leave_out)
+            runs = len(visible) * plan.visible_repeats + hidden_total * plan.repeats
+            if len(plans) == 1 or meter.fits(runs * cloud):
+                break
+        else:
+            # Not even its smallest test fits: the change waits for next month's limit.
+            return Result("stopped", stopped=meter.note(), tested_at=float(self.clock()))
+        total = runs * len(arms)
         if progress:
             self._progress(change_id=str(proposal.get("id") or ""), title=str(proposal.get("title") or ""),
                            state="running", done=0, total=total, started_at=float(self.clock()))
@@ -586,7 +605,7 @@ class Tester:
         try:
             shown = evaluation.compare(arms, tasks=visible, runner=runner, cache=cache, meter=meter, store=self.store,
                                        client=client, clock=self.clock, on_case=counted, budget=budget,
-                                       repeats=self.plan.visible_repeats, kind_key=_family_key,
+                                       repeats=plan.visible_repeats, kind_key=_family_key,
                                        save=leave_out is None) if visible else None
             hidden = None
             if hidden_total and not (shown is not None and shown.stopped):
@@ -596,7 +615,7 @@ class Tester:
                 hidden = evaluation.audit_check(
                     arms, asked_by=ASKED_BY, store=self.store, client=client, runner=runner, cache=cache,
                     meter=meter, clock=self.clock, packs=packs, verifiers=verifiers, budget=budget,
-                    on_progress=hidden_progress, repeats=self.plan.repeats, combine_with=shown, kind_key=_family_key,
+                    on_progress=hidden_progress, repeats=plan.repeats, combine_with=shown, kind_key=_family_key,
                     focus=focus, leave_out=leave_out, save=leave_out is None)
         except _Stop:
             if progress:
@@ -612,6 +631,18 @@ class Tester:
         if progress:
             self._progress(state="done", done=done[0])
         return result
+
+    def _hidden_size(self, packs: Sequence[str], verifiers: Sequence[str] | None, focus: Any,
+                     leave_out: str | None) -> int:
+        from row_bot.learning import evaluation
+
+        if not self.store.exists():
+            return 0
+        try:
+            return evaluation.audit_size(asked_by=ASKED_BY, store=self.store, packs=packs, verifiers=verifiers,
+                                         focus=focus, leave_out=leave_out)
+        except Exception:  # noqa: BLE001 - no vault yet: nothing hidden to run
+            return 0
 
     def _runner(self, arms: Sequence[Any], main_ref: str) -> tuple[Any, Callable[[], None] | None]:
         """The real runtime for the packs (O56): one worker, both arms with what they carry. Without a

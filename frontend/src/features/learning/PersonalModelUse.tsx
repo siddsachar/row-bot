@@ -574,7 +574,7 @@ export function VersionReview({
   }, [open, io, version]);
   const baseline = comparison.arms.find((arm) => arm.role === 'baseline');
   const why = baseline
-    ? `Compared with ${baseline.key === 'base' ? 'the starting model it was trained from' : `${baseline.label.replace(' (in use)', '')}, the version in use`} and your main model, on tasks none of them had seen and on work of yours held back from training, at the same budget.`
+    ? `Compared with ${baseline.key === 'base' ? 'the starting model it was trained from' : `${baseline.label.replace(' (in use)', '')}, the version in use`}${comparison.arms.some((arm) => arm.role === 'main') ? ' and your main model' : ''}, on tasks none of them had seen and on work of yours held back from training, at the same budget.`
     : 'Compared with your main model on tasks it hadn’t seen and on work of yours held back from training, at the same budget.';
   const recommend = comparison.recommend;
   return (
@@ -707,7 +707,8 @@ export function VersionsSection({
     body = (
       <div className="learning-progress" role="status">
         <p className="learning-training-title">
-          Comparing v{version} with {label || 'your main model'} ·{' '}
+          Comparing v{version}
+          {label ? ` with ${label}` : ''} ·{' '}
           {comparison.total
             ? `${comparison.done.toLocaleString()} of ${comparison.total.toLocaleString()} tasks`
             : 'starting'}
