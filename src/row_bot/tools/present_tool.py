@@ -42,6 +42,13 @@ def _present(files: list[str] | None = None, caption: str = "") -> str:
         return outputs_text(conversation)
     if len(names) > MAX_FILES:
         return f"Present at most {MAX_FILES} files at once; nothing was presented."
+    # A page made in this chat already shows as its card: naming it is no error (F18).
+    pages = _pages_of(conversation, names)
+    names = [name for name in names if name not in pages]
+    if not names:
+        one = len(pages) == 1
+        return (f"{_page_note(pages)}, so there is nothing to present. Finish anything else the person asked for, "
+                f"then end with one line about the {'page' if one else 'pages'}.")
     try:
         shown = [deliveries.chat_output(conversation, source) for source in deliveries.resolve(names, conversation)]
     except SourceError as exc:
@@ -49,13 +56,29 @@ def _present(files: list[str] | None = None, caption: str = "") -> str:
     words = " ".join(str(caption or "").split())[:300]
     caches.presented.extend({**item, "caption": words if index == 0 else ""} for index, item in enumerate(shown))
     # Each output first (W4): history masking keeps a result's first line.
-    named = "\n".join(identity(item) for item in shown)
+    named = "\n".join([identity(item) for item in shown] + ([f"{_page_note(pages)}."] if pages else []))
     one = len(shown) == 1
     if all(item["was_final"] for item in shown):
         # A generated picture or video already shows in the chat: it is marked, never shown twice.
         return (f"{named}\nMarked final: {'it already shows' if one else 'they already show'} in this chat, so "
                 f"{'it isn' if one else 'they aren'}'t shown twice. {_THEN}")
     return f"{named}\nPresented in this reply, large, where the person sees {'it' if one else 'them'}. {_THEN}"
+
+
+def _pages_of(conversation: str, names: list[str]) -> dict[str, str]:
+    """The names that are this chat's pages (``page-…``), each with its title."""
+    from row_bot import pages
+
+    found = {}
+    for name in names:
+        if name.startswith("page-") and (page := pages.find(conversation, name)) is not None:
+            found[name] = page.title
+    return found
+
+
+def _page_note(pages: dict[str, str]) -> str:
+    listed = ", ".join(f"{page} (“{title}”)" for page, title in pages.items())
+    return f"{listed} already {'shows' if len(pages) == 1 else 'show'} in this chat as a page card"
 
 
 class _PresentInput(NullMeansUnset):
