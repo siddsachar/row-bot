@@ -301,7 +301,7 @@ def test_a_version_that_couldnt_start_lets_the_runner_plan_the_next_one(setup):
             return SimpleNamespace(job=job)
 
         def summary(self, compute=True):
-            return SimpleNamespace(enough=True, new_examples=0)
+            return SimpleNamespace(enough=True, varied=True, new_examples=0)
 
         def recipe(self):
             return SimpleNamespace(min_new_examples=50)
@@ -317,6 +317,23 @@ def test_a_version_that_couldnt_start_lets_the_runner_plan_the_next_one(setup):
     setup.lease.set(since_activity=900.0)
     assert runner.check().state == "training"
     assert [job.version for job in planned] == [2] and setup.supervisor.jobs.get(first.id).state == "evaluating"
+
+
+def test_examples_that_mostly_begin_the_same_way_say_so_instead_of_planning(setup):
+    # FL13: enough examples, but nearly all begin the same way: nothing is planned, and the runner says why.
+    class Planner:
+        def due(self):
+            return False
+
+        def summary(self, compute=True):
+            return SimpleNamespace(enough=True, varied=False, new_examples=97)
+
+        def recipe(self):
+            return SimpleNamespace(min_new_examples=50)
+
+    runner = LearningRunner(setup.supervisor, root=setup.root, hours=setup.runner.hours, planner=Planner())
+
+    assert (runner.status().state, runner.status().reason) == ("nothing_to_do", "narrow_data")
 
 
 def test_after_two_quiet_hours_nights_without_room_on_the_card_the_runner_says_so(setup, monkeypatch):

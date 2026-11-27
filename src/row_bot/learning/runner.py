@@ -512,6 +512,8 @@ class LearningRunner:
         summary = self.planner.summary(compute=True)
         if summary is None or not summary.enough:
             return RunnerStatus("nothing_to_do", "no_data"), None
+        if not summary.varied:
+            return RunnerStatus("nothing_to_do", "narrow_data"), None
         from row_bot.learning.training import releases
 
         if (releases.latest_state(self._root, started=True) is not None
@@ -606,6 +608,8 @@ class LearningRunner:
                 summary = planner.summary(compute=True)
                 if summary is None or not summary.enough:
                     return RunnerStatus("nothing_to_do", "no_data")
+                if not summary.varied:
+                    return RunnerStatus("nothing_to_do", "narrow_data")
                 return RunnerStatus("nothing_to_do", "planning")
         if job.state == "failed":
             return RunnerStatus("failed", job.error_code)

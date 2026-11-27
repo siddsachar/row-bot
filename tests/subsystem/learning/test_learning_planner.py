@@ -1,6 +1,6 @@
 """Planning training (L2c): a run is planned only when the engine is ready, nothing else is current,
-there are enough examples (else "Needs more examples" with the count) and, after a version, enough
-new ones; the rows are measured, written into the job's own lease folder before it starts, and the
+there are enough examples (else "Needs more examples" with the count), they cover several kinds of work
+(else "Needs more varied examples", FL13) and, after a version, enough new ones; the rows are measured, written into the job's own lease folder before it starts, and the
 job carries the recipe of this computer's tier."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 from row_bot.learning.training import jobs as jobs_module
 from row_bot.learning.training import planner as planner_module
 from row_bot.learning.training import recipes
-from tests.fixtures.learning import CapturedWork, FakeClock, FakeEngine
+from tests.fixtures.learning import CapturedWork, FakeClock, FakeEngine, varied_turns
 
 pytestmark = [pytest.mark.subsystem]
 
@@ -41,8 +41,7 @@ def setup(learning_on, chats, clock):
 
 
 def _turns(work, count: int, start: int = 0) -> None:
-    for index in range(start, start + count):
-        work.turn(f"chat-{index}", f"Question {index}", f"Answer {index}.")
+    varied_turns(work, count, start)
 
 
 def test_enough_examples_plan_a_run_with_its_rows_already_leased(work, setup, monkeypatch):
@@ -65,6 +64,35 @@ def test_enough_examples_plan_a_run_with_its_rows_already_leased(work, setup, mo
     assert len(rows) == 4 and json.loads((run / "lease.json").read_text(encoding="utf-8"))["examples"] == 4
     assert measured == [4]  # every row measured with the engine before planning
     assert outcome.summary.examples == 4 and outcome.summary.enough
+
+
+def test_examples_that_all_begin_the_same_way_wait_for_more_kinds_of_work(work, setup, monkeypatch):
+    # FL13: a 9B trained on examples that nearly all began by reading a file reached for that tool on every
+    # task. Training waits until the examples cover several kinds of work, and says how many begin alike.
+    from row_bot.learning import evaluation
+
+    monkeypatch.setattr(evaluation, "refresh_audit", lambda **_kwargs: {"added": 0})
+    planner, jobs, *_ = setup
+    for index in range(5):
+        work.turn(f"chat-{index}", f"Question {index}", f"Answer {index}.")  # each begins with the calculator
+
+    waiting = planner.plan(force=True)
+
+    assert waiting.job is None and waiting.reason == "narrow_data"
+    assert (waiting.summary.examples, waiting.summary.same_start) == (4, 4) and not waiting.summary.varied
+    assert jobs.all() == []
+
+    work.turn("chat-5", "Find my note on ferns", "Ferns like shade.", tool_name="search_notes")
+    work.turn("chat-6", "Say hello", "Hello.", tool=False)
+    planner.forget()
+    assert planner.plan(force=True).reason == "narrow_data"  # the newest validates: 5 of the 6 that train
+
+    for index in range(7, 11):
+        work.turn(f"chat-{index}", f"Find note {index}", f"Note {index}.", tool_name="search_notes")
+    planner.forget()
+    planned = planner.plan(force=True)
+    assert planned.job is not None and planned.summary.varied
+    assert (planned.summary.examples, planned.summary.same_start) == (10, 5)
 
 
 def test_too_few_examples_say_how_many_there_are(work, setup):

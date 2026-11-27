@@ -438,3 +438,31 @@ it('says past chats count once one chat here uses a tool, and never readies a st
     screen.getByText('Getting your examples ready to train…', SHOWN),
   ).toBeInTheDocument();
 });
+
+it('says training waits for more kinds of work when most examples start the same way (FL13)', () => {
+  withModel(
+    trainingRun({ runner: { state: 'nothing_to_do', reason: 'narrow_data' } }),
+    {
+      examples: {
+        examples: 97,
+        needed: 90,
+        new_examples: 97,
+        left_out: 0,
+        same_start: 93,
+      },
+    },
+  );
+  expect(
+    screen.getByText(
+      'Needs more varied examples · 93 of 97 start the same way',
+      SHOWN,
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      /Training starts once your examples cover more kinds of work/,
+      SHOWN,
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Train now' })).toBeNull();
+});

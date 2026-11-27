@@ -17,6 +17,7 @@ import {
   overnight,
   personalModel,
   runningRun,
+  trainingRun,
 } from './test-data';
 
 function show(io: LearningIO, view: LearningView = 'overview') {
@@ -710,4 +711,34 @@ it('Personal model: this computer says why it recommends a smaller model and wha
       /^Larger models need about 41 GB of RAM and virtual memory to train, and this computer has 36 GB\. Raise Windows’ virtual memory/,
     ),
   ).toBeVisible();
+});
+
+it('Personal model: examples that mostly start the same way say training waits for more kinds of work (FL13)', () => {
+  show(
+    fakeIO(
+      on({
+        personal_model: installedModel({
+          examples: {
+            examples: 97,
+            needed: 90,
+            new_examples: 97,
+            left_out: 0,
+            same_start: 93,
+          },
+        }),
+        training: trainingRun({
+          runner: { state: 'nothing_to_do', reason: 'narrow_data' },
+        }),
+      }),
+    ),
+    'model',
+  );
+  expect(
+    screen.getByText(
+      'Needs more varied examples · 93 of 97 start the same way',
+    ),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('heading', { name: 'No personal model yet' }),
+  ).toBeNull();
 });

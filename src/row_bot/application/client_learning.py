@@ -89,7 +89,7 @@ _RUNNER_REASONS = frozenset({
     "train_off", "hugging_face", "no_engine", "no_data", "quiet_hours", "after_dream", "now", "in_use", "chat",
     "workflow", "indexing", "dream", "you", "app_closed", "worker_stopped", "out_of_gpu_memory", "out_of_disk",
     "cannot_resume", "data_unreadable", "engine_error", "learning_off", "learning_paused", "extraction",
-    "planned", "planning", "up_to_date", "gpu_busy", "memory_busy", "comparing",
+    "planned", "planning", "up_to_date", "gpu_busy", "memory_busy", "comparing", "narrow_data",
     # C1: training on Hugging Face.
     "hf_signed_out", "hf_no_model", "hf_unknown", "hf_first_run", "hf_over_cap", "hf_no_credit", "hf_network",
     "hf_busy", "hf_not_confirmed",
@@ -956,7 +956,8 @@ def _examples(settings: learning.LearningSettings, engine_installed: bool) -> di
         return None
     return {"examples": max(0, summary.examples), "needed": max(1, summary.needed),
             "new_examples": max(0, summary.new_examples), "left_out": max(0, summary.left_out),
-            "waiting_for_tools": max(0, int(summary.by_reason.get("past_chat_waiting", 0)))}
+            "waiting_for_tools": max(0, int(summary.by_reason.get("past_chat_waiting", 0))),
+            "same_start": max(0, summary.same_start)}
 
 
 def _iso(at: float | None) -> str | None:

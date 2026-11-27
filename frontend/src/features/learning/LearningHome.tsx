@@ -504,7 +504,7 @@ function PersonalModel({
   const showTraining =
     training.state !== 'none' ||
     (downloaded &&
-      ['no_data', 'planning', 'up_to_date'].includes(
+      ['no_data', 'narrow_data', 'planning', 'up_to_date'].includes(
         training.runner.reason ?? '',
       ));
   let state: ReactNode;

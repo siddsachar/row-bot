@@ -58,6 +58,7 @@ Your personal model trains in quiet hours once Row-Bot has enough examples of yo
 The **Training** section says where it stands:
 
 - "Needs more examples · 46 of 100 so far": keep using Row-Bot. **Teach** on a reply that went wrong helps too.
+- "Needs more varied examples · 93 of 97 start the same way": most of your examples are one kind of work, such as reading files. A personal model trained on them learns to do everything that way, so training waits until your examples cover more kinds of work. Keep using Row-Bot for different things.
 - "Training v1 runs tonight in quiet hours (1:00 AM–5:00 AM) · uses 412 examples", with **Train now**.
 - "Training v1 · step 340 of 1,000 · about 40 min left · pauses when you use Row-Bot", with **Stop**. The same row shows in Home › Monitor.
 - "Pausing after this step…" until it really has paused. If a chat needs the graphics card, training stops at once and continues from its last saved step.
@@ -174,6 +175,6 @@ The training engine, the starting models and your versions are on this computer,
 ## Troubleshooting
 
 - **The view says the card can't train**: see [What It Needs](#what-it-needs). Training on Hugging Face may still be offered.
-- **Training never starts**: it needs enough examples, quiet hours with Row-Bot running, and a free graphics card. Close apps that use the card, or a local model that's still loaded, before quiet hours.
+- **Training never starts**: it needs enough examples of more than one kind of work, quiet hours with Row-Bot running, and a free graphics card. Close apps that use the card, or a local model that's still loaded, before quiet hours.
 - **A version couldn't start**: choose **Try again**, **Try Ollama** or **Change where it runs**. Your main model stays in use.
 - **Training on answers from OpenAI, Anthropic or Google models** may be limited by their terms. Check your provider's terms.
