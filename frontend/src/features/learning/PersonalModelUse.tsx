@@ -456,7 +456,7 @@ export function ExperimentDetails({
           {plural(data.examples, 'example')} of your work from{' '}
           {plural(data.conversations, 'conversation')}
           {data.validation
-            ? `; ${plural(data.validation, 'newer example')} held back to check it`
+            ? `; ${plural(data.validation, 'example')} held back to check it`
             : ''}
           .
         </p>
