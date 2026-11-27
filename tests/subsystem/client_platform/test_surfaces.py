@@ -223,6 +223,25 @@ def test_what_a_local_model_writes_wrong_heals_too():
         surfaces.read_surface(unclosed.replace('"components":[', '"components":[,'))
 
 
+def test_one_broken_line_in_an_untagged_interface_leaves_the_rest_drawn():
+    # As qwen3.8:27b wrote it in the real app (27 Nov): a ```json fence, one component per line, the
+    # last one missing its "text" key.
+    body = "\n".join([
+        '{"title": "Pack list", "surfaceId": "pack", "components": [',
+        '{"id": "root", "component": "Column", "children": ["tent", "note"]},',
+        '{"id": "tent", "component": "CheckBox", "label": "Tent", "value": false},',
+        '{"id": "note", "component": "Text": "Check the fire ban first."}',
+        '], "dataModel": {}}'])
+
+    (block,) = _project(f"Here it is.\n\n```json\n{body}\n```")[1:]
+    surface = json.loads(block["surface_json"])
+    assert [component["id"] for component in surface["components"]] == ["root", "tent"]
+    assert surface["dataModel"] == {"tent": False}
+    # A code sample that isn't an interface stays a code block.
+    (kept,) = _project('```json\n{"components": [\n{"name": oops}\n]}\n```')
+    assert kept["type"] == "markdown"  # its fence kept as written
+
+
 def test_a_send_button_that_names_no_input_sends_what_the_person_entered():
     surface = surfaces.read_surface(json.dumps({
         "title": "Dentist", "surfaceId": "dentist",

@@ -493,11 +493,13 @@ def infer_component(source: str) -> tuple[str, dict[str, Any]] | None:
     text = source.strip()
     if not (text.startswith("{") and text.endswith("}")) or len(text) > MAX_COMPONENT_CHARS:
         return None
+    from row_bot.application.surfaces import looks_like, parse
+
     try:
         raw = _load(text)
     except (ValueError, RecursionError):
-        return None
-    from row_bot.application.surfaces import looks_like, parse
+        # A2UI with a slip in its JSON: the surface reader heals what it can, or it stays as written.
+        return parse(text) if '"components"' in text else None
 
     if looks_like(raw):
         # A2UI written without its rowbot-ui tag: an envelope, or a createSurface body with components.

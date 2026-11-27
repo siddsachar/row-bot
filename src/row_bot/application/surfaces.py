@@ -124,21 +124,44 @@ def _reject_constant(value: str) -> Any:
     raise ValueError(f"{value} is not JSON")
 
 
+def _closed_component(text: str, error: json.JSONDecodeError) -> str | None:
+    """Healed: a component left unclosed before the next one starts (`..."/fun"}}}},{"id": ...`, one
+    "}" short), as local models write it. The object the next one landed in is closed."""
+
+    comma = text.rfind(",", 0, error.pos)
+    if not (error.msg.startswith("Expecting property name") and text.startswith("{", error.pos)
+            and comma >= 0 and not text[comma + 1:error.pos].strip()):
+        return None
+    return f"{text[:comma]}}}{text[comma:]}"
+
+
+def _without_broken_line(text: str, error: json.JSONDecodeError) -> str | None:
+    """Healed: in a body written one component per line, a line that isn't JSON
+    (`{"id": "i4", "component": "Text": "..."}`) is left out, so the rest of the interface draws."""
+
+    start = text.rfind("\n", 0, error.pos) + 1
+    end = text.find("\n", error.pos)
+    end = len(text) if end < 0 else end
+    if start == 0 or not text[start:end].strip().startswith('{"id"'):
+        return None
+    before, after = text[:start].rstrip(), text[end:].lstrip()
+    if before.endswith(",") and after.startswith("]"):
+        before = before[:-1]  # it was the list's last item
+    return f"{before}\n{after}"
+
+
 def _load(source: str) -> list[Any]:
     """The JSON values a body holds: one value, or one per line (JSON lines)."""
 
     text = source.strip()
-    for _attempt in range(4):
+    for _attempt in range(6):
         try:
             return [json.loads(text, parse_constant=_reject_constant)]
         except json.JSONDecodeError as error:
-            # Healed: a component left unclosed before the next one starts (`..."/fun"}}}},{"id": ...`,
-            # one "}" short), as local models write it. Close the object the next one landed in.
-            comma = text.rfind(",", 0, error.pos)
-            if not (error.msg.startswith("Expecting property name") and text.startswith("{", error.pos)
-                    and comma >= 0 and not text[comma + 1:error.pos].strip()):
+            healed = _closed_component(text, error) or _without_broken_line(text, error)
+            if healed is None:
                 break
-            text = f"{text[:comma]}}}{text[comma:]}"
+            text = healed
         except (ValueError, RecursionError):
             break
     text = source.strip()
