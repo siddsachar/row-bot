@@ -113,6 +113,10 @@ function SurfaceChart({ component, context, scope }: Props) {
             values: series[0]?.values ?? [],
             hole: 0.45,
             sort: false,
+            // Whole percentages inside the slices; one too small to read shows on hover only.
+            texttemplate: '%{percent:.0%}',
+            textposition: 'inside',
+            insidetextorientation: 'horizontal',
           },
         ]
       : series.map((item) => ({
@@ -138,6 +142,13 @@ function SurfaceChart({ component, context, scope }: Props) {
     layout: {
       ...(title ? { title: { text: title } } : {}),
       showlegend: kind === 'pie' || series.length > 1,
+      // A pie's legend sits under it, so a narrow screen keeps the pie full width.
+      ...(kind === 'pie'
+        ? {
+            uniformtext: { minsize: 11, mode: 'hide' },
+            legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.05 },
+          }
+        : {}),
       ...(kind === 'bar'
         ? { barmode: component.stacked === true ? 'stack' : 'group' }
         : {}),
