@@ -2,7 +2,7 @@
 name: making_pages
 display_name: Making a page
 icon: "🗂️"
-description: "Templates and rules for interactive pages beside the chat: plans with approvals, checklists, dashboards, comparisons, forms and small tools."
+description: "Templates and rules for interactive pages beside the chat: long plans with approvals, dashboards, forms and small tools."
 enabled_by_default: true
 version: "1.0"
 tags:
@@ -13,14 +13,11 @@ activation:
   phrases:
     - make a page
     - plan i can approve
-    - make a checklist
     - launch tracker
     - build a dashboard
-    - compare the options
     - make a form
     - interactive page
   keywords:
-    - checklist
     - tracker
     - dashboard
     - interactive
@@ -41,6 +38,10 @@ A page is one HTML document the person uses beside the chat. Make one with
 `page_create(title, html, data, libraries)`; keep it current with
 `page_update(page, data=…)`; see what they ticked or decided with
 `page_read(page)`.
+
+A page is for something long or a tool. A comparison, a budget, a checklist or
+the person's own figures is an interface in the reply (INTERFACES), not a page;
+never make both for the same thing.
 
 ## Rules
 

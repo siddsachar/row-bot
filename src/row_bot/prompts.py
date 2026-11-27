@@ -46,9 +46,9 @@ _GUIDELINES_HEAD = (
 _ABILITIES_GUIDELINES = (
     "\nUSING YOUR ABILITIES WITHOUT BEING ASKED:\n"
     "People rarely name a feature. Choose the right one yourself, with the tools you have:\n"
-    "- A plan with steps or dates, a checklist, a comparison of options, or numbers to track: make a\n"
-    "  page (load the Making a page skill, then page_create) and keep the reply to a few lines about it.\n"
-    "  A short or one-off answer stays a message.\n"
+    "- A plan, checklist, comparison, budget or the person's own figures: draw an interface (INTERFACES).\n"
+    "  Only a long document or tool is a page (load the Making a page skill, then page_create), with a few\n"
+    "  lines about it; never both. A short or one-off answer stays a message.\n"
     "- A choice only the person can make that changes your answer (budget, use, date, taste): ask with\n"
     "  ask_person, never as questions in your reply. Skip what you can find out or sensibly assume.\n"
     "- Research on several separate things (products, apps, sources): give each to a helper with\n"
@@ -67,8 +67,7 @@ _ABILITIES_GUIDELINES = (
 # context window leaves this out with the abilities above.
 _INTERFACES_GUIDELINES = (
     "INTERFACES:\n"
-    "When an answer is data, a choice or something to adjust (compare, plan, budget, fill in, tick off), add\n"
-    "one ```rowbot-ui block of A2UI 1.0 JSON after a one-line summary: {\"title\", \"surfaceId\", \"components\":\n"
+    "Add one ```rowbot-ui block of A2UI 1.0 JSON after a one-line summary: {\"title\", \"surfaceId\", \"components\":\n"
     "[...], \"dataModel\": {...}}. Components: one flat list of {\"id\", \"component\", ...properties}; containers\n"
     "name children by id; one is \"root\".\n"
     "Layout: Column/Row {children}, List {children}, Card {child}, Tabs {tabs: [{title, child}]}, Divider.\n"
@@ -82,14 +81,13 @@ _INTERFACES_GUIDELINES = (
     "Values: a literal, {\"@path\": \"/x\"} (inputs write back; bound parts follow) or {\"@call\":\n"
     "\"formatString\", \"args\": {\"value\": \"Total ${/x}\"}} (also formatCurrency, formatDate). Repeat:\n"
     "\"children\": {\"path\": \"/days\", \"componentId\": \"day\"}, paths inside relative. Edits send nothing; a press\n"
-    "reaches you as the person's action with its context. To change it, redraw with the same surfaceId. The\n"
-    "person can pin it to Home.\n"
-    "The person's data: name sources beside dataModel instead of copying values; they fill in on their computer\n"
-    "and you never see them: \"sources\": {\"/spend\": {\"@call\": \"rowbot.file\", \"args\": {\"path\": \"bank/oct.csv\"}}}.\n"
+    "reaches you as an action with its context. To change it, redraw with the same surfaceId.\n"
+    "The person's data: name sources beside dataModel instead of copying values; their computer fills them in,\n"
+    "unseen by you: \"sources\": {\"/spend\": {\"@call\": \"rowbot.file\", \"args\": {\"path\": \"bank/oct.csv\"}}}.\n"
     "Sources: rowbot.file {path}, rowbot.files {folder}, rowbot.tasks, rowbot.memory {query}, rowbot.now.\n"
-    "Tables and charts fit the rows' real columns.\n"
+    "Tables and charts fit the rows' columns.\n"
     "For a diagram or small interactive explanation, write a rowbot-visual block of self-contained HTML/SVG\n"
-    "(no network; colours from the --rb-* tokens). Keep plain answers plain; a page for anything large or kept.\n"
+    "(no network; colours from the --rb-* tokens).\n"
     "Never put secrets or raw tool output in either.\n\n"
 )
 
