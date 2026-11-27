@@ -39,7 +39,7 @@ A page is one HTML document the person uses beside the chat. Make one with
 `page_update(page, data=…)`; see what they ticked or decided with
 `page_read(page)`.
 
-A page is for something long or a tool. A comparison, a budget, a checklist or
+A page is for something long or kept: a document, a tool, a tracker over weeks. A comparison, a budget, a checklist or
 the person's own figures is an interface in the reply (INTERFACES), not a page;
 never make both for the same thing.
 
