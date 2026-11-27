@@ -411,6 +411,10 @@ def _action(value: Any) -> dict[str, Any]:
     if isinstance(context, list):  # Healed: 0.8's [{"key": k, "value": v}].
         context = {str(item.get("key")): item.get("value") for item in context
                    if isinstance(item, dict) and item.get("key")}
+    if isinstance(context, dict) and ("@call" in context or "@path" in context):
+        # Healed: the context written as one value (a formatString over the ticks, a path), not named
+        # values: it is sent as "summary", worked out when pressed.
+        context = {"summary": context}
     if context is not None:
         if not isinstance(context, dict):
             raise SurfaceError("an action's context is not an object")

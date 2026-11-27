@@ -223,6 +223,23 @@ def test_what_a_local_model_writes_wrong_heals_too():
         surfaces.read_surface(unclosed.replace('"components":[', '"components":[,'))
 
 
+def test_a_context_written_as_one_value_is_sent_as_that_value_worked_out():
+    # As qwen3.8:27b wrote it in the real app (27 Nov): the button's context is itself a formatString.
+    surface = surfaces.read_surface(json.dumps({
+        "title": "Water today", "surfaceId": "water",
+        "components": [
+            {"id": "root", "component": "Column", "children": ["one", "report"]},
+            {"id": "one", "component": "CheckBox", "label": "Glass 1", "value": {"@path": "/one"}},
+            {"id": "report", "component": "Button", "child": "label", "action": {"event": {
+                "name": "report", "context": {"@call": "formatString", "args": {"value": "Glass 1: ${/one}"}}}}},
+            {"id": "label", "component": "Text", "text": "How did I do?"}],
+        "dataModel": {"one": False}}))
+
+    assert surfaces.declared_actions(surface)["report"]["context"] == {"summary"}
+    _model, shown = surfaces.action_message(surface, "report", {"summary": "Glass 1: true"}, "report", "now")
+    assert shown.splitlines() == ["How did I do? · Water today", "Summary: Glass 1: true"]
+
+
 def test_one_broken_line_in_an_untagged_interface_leaves_the_rest_drawn():
     # As qwen3.8:27b wrote it in the real app (27 Nov): a ```json fence, one component per line, the
     # last one missing its "text" key.
