@@ -157,7 +157,7 @@ it('reviews v1 in the shared review sheet: use it for one kind of work, with Exp
   for (const part of ['Data', 'Method', 'Versions', 'Every run', 'Files'])
     expect(within(details).getByRole('region', { name: part })).toBeVisible();
   expect(details).toHaveTextContent(
-    '154 examples of your work from 41 conversations; 17 newer examples held back to check it.',
+    '154 examples of your work from 41 conversations; 17 examples held back to check it.',
   );
   expect(details).toHaveTextContent(
     'Training on answers from OpenAI, Anthropic or Google models may be limited by their terms.',
