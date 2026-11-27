@@ -614,13 +614,16 @@ def _settle(components: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return reachable
 
 
-_INPUTS = frozenset({"TextField", "CheckBox", "ChoicePicker", "Slider", "DateTimeInput"})
+# What the person changes in each editable component.
+_EDITABLE = {"TextField": "value", "CheckBox": "value", "ChoicePicker": "value", "Slider": "value",
+             "DateTimeInput": "value", "Breakdown": "items"}
 
 
 def _bound_inputs(components: dict[str, dict[str, Any]], data: Any) -> tuple[dict[str, dict[str, Any]], Any]:
-    """Healed: an input written with a plain value ("value": false) gets its own place in the data model,
-    starting at that value, so the person can tick, type or pick in it. One inside a repeated item binds
-    relative to its item. Without a path the input would only show the value, never take a change."""
+    """Healed: an input written with a plain value ("value": false, a Breakdown's list of items) gets its
+    own place in the data model, starting at that value, so the person can tick, type, pick or slide in
+    it. One inside a repeated item binds relative to its item. Without a path it would only show the
+    value, never take a change."""
 
     if not isinstance(data, dict):
         return components, data
@@ -635,15 +638,18 @@ def _bound_inputs(components: dict[str, dict[str, Any]], data: Any) -> tuple[dic
         pending.extend(_references(components[key]))
     healed, data = dict(components), dict(data)
     for key, component in components.items():
-        if component["component"] not in _INPUTS:
+        prop = _EDITABLE.get(component["component"])
+        if prop is None or prop not in component:
             continue
-        value = component.get("value")
+        value = component[prop]
         if isinstance(value, dict) and ("@path" in value or "@call" in value):
             continue
         if key in templated:
-            healed[key] = {**component, "value": {"@path": key}}
+            # Each item starts empty there, so only an empty plain value (unticked, blank) can move.
+            if value in (False, "", None) or value == []:
+                healed[key] = {**component, prop: {"@path": key}}
         elif key not in data:
-            healed[key] = {**component, "value": {"@path": f"/{key}"}}
+            healed[key] = {**component, prop: {"@path": f"/{key}"}}
             data[key] = value
     return healed, data
 

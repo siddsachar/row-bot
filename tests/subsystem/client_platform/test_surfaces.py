@@ -259,11 +259,12 @@ def test_an_input_written_with_a_plain_value_takes_the_persons_change():
     surface = surfaces.read_surface(json.dumps({
         "title": "Packing", "surfaceId": "packing",
         "components": [
-            {"id": "root", "component": "Column", "children": ["tent", "notes", "kit"]},
+            {"id": "root", "component": "Column", "children": ["tent", "notes", "kit", "split"]},
             {"id": "tent", "component": "CheckBox", "label": "Tent", "value": False},
             {"id": "notes", "component": "TextField", "label": "Notes", "value": {"@path": "/notes"}},
             {"id": "kit", "component": "List", "children": {"path": "/kit", "componentId": "item"}},
             {"id": "item", "component": "CheckBox", "label": {"@path": "name"}, "value": False},
+            {"id": "split", "component": "Breakdown", "items": [{"label": "Rent", "amount": 1500}]},
         ],
         "dataModel": {"notes": "", "kit": [{"name": "Stove"}]},
     }))
@@ -273,3 +274,5 @@ def test_an_input_written_with_a_plain_value_takes_the_persons_change():
     assert by_id["notes"]["value"] == {"@path": "/notes"}  # already bound: left as drawn
     assert by_id["item"]["value"] == {"@path": "item"}  # inside a repeated item: its own item's place
     assert "item" not in surface["dataModel"]
+    assert by_id["split"]["items"] == {"@path": "/split"}
+    assert surface["dataModel"]["split"] == [{"label": "Rent", "amount": 1500}]
