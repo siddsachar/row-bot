@@ -54,12 +54,15 @@ AUTO_RECALL_RELATIVE_CUTOFF = 0.20  # Below the best memory by more than this, a
 # A request for a suggestion, recommendation, advice or a likely reason is answered from the person's own tastes and situation, so
 # their memories come in at a lower bar and a few more are shown (LongMemEval-S, 27 Nov: saved preferences were
 # held back as below the bar, or sixth of five, and the answers came out generic).
-AUTO_RECALL_OPEN_MIN_SCORE = 0.33
-AUTO_RECALL_OPEN_MAX_MEMORIES = 8
+# Request forms only: "the suggested time" or "a good idea" in a correction isn't one (Learning's replay over seeded
+# people, 27 Nov: vague requests pulled weak records in at 0.33, useful memories scored 0.36-0.44).
+AUTO_RECALL_OPEN_MIN_SCORE = 0.35
+AUTO_RECALL_OPEN_MAX_MEMORIES = 6
 AUTO_RECALL_OPEN_TOP_K = 20
 _OPEN_REQUEST = re.compile(
-    r"\b(?:recommend\w*|suggest\w*|ideas?|tips?|advice|advise|ways? to|should i|what (?:can|could|should) i"
-    r"|help me (?:choose|pick|decide|plan|find)|do you think|(?:could|might) (?:there|it|that) be)\b",
+    r"\b(?:recommend(?:s|ations?)?|suggest(?:s|ions?)?|ideas|tips|advice|advise|ways to|(?:best|good|easiest) way to"
+    r"|should i|what (?:can|could|should) i|help me (?:choose|pick|decide|plan|find)|do you think"
+    r"|(?:could|might) (?:there|it|that) be)\b",
     re.IGNORECASE)
 FOLLOW_UP_TERMS = 3  # A latest message with fewer words than this is read with the one before it.
 RUNTIME_REQUEST_MAX_TERMS = 6

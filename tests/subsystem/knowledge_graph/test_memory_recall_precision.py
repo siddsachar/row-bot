@@ -174,7 +174,17 @@ def test_a_request_for_a_suggestion_brings_in_the_persons_own_taste(tmp_path, mo
     assert [m["id"] for m in asked.selected] == [podcasts["id"]]
 
 
-def test_a_request_for_a_suggestion_shows_up_to_eight_memories(tmp_path, monkeypatch, reload_for_data_dir):
+
+def test_a_word_like_suggested_in_a_correction_is_not_a_request(tmp_path, monkeypatch, reload_for_data_dir):
+    kg, policy = _modules(tmp_path, monkeypatch, reload_for_data_dir)
+    podcasts = kg.save_entity("preference", "Podcast taste", "Likes true crime; wants to try history and science.")
+    _meaning(kg, monkeypatch, {podcasts["id"]: 0.56}, mean=0.40)
+
+    corrected = _recall(policy, "the suggested time for something to listen to on the drive to work was wrong")
+
+    assert corrected.selected == [] and corrected.trace.get("open_request") is not True
+
+def test_a_request_for_a_suggestion_shows_a_few_more_memories(tmp_path, monkeypatch, reload_for_data_dir):
     kg, policy = _modules(tmp_path, monkeypatch, reload_for_data_dir)
     notes = [kg.save_entity("preference", f"Trip note {n}", f"Something the person likes on trips, number {n}.")
              for n in range(10)]
