@@ -20,7 +20,8 @@ const l3a = (page: Page, action: string) =>
   fixture(page, `/__l3a_fixture/learning/${action}`);
 
 test.beforeEach(async ({ page }) => {
-  // The night's window starts an hour or two from now, so "Next look tonight at …" holds at any hour.
+  // The window starts an hour or two from now, so the next look is within a day at any hour: "tonight at …"
+  // at night, "today at …" or "tomorrow at …" in the day.
   await l3a(page, 'ahead');
   await page.addInitScript(() => {
     if (window !== window.top) return;
@@ -101,7 +102,9 @@ test('the night’s look: next look, Overnight, what Row-Bot is learning, and th
   await turnOn(page);
   await open(page);
   await expect(
-    page.getByText(/^Next look tonight at .+ tokens this month$/),
+    page.getByText(
+      /^Next look (tonight|today|tomorrow) at .+ tokens this month$/,
+    ),
   ).toBeVisible();
   await expect(page.getByText('Nothing learned yet.')).toBeVisible();
   await shoot(page, info, 'overview-next-look');

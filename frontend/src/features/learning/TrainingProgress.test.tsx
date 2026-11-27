@@ -409,3 +409,32 @@ it('says plainly while Hugging Face waits for a free card, and that cancelling t
   ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
 });
+
+it('says past chats count once one chat here uses a tool, and never readies a stale 0 (FL7)', () => {
+  withModel(
+    trainingRun({ runner: { state: 'nothing_to_do', reason: 'no_data' } }),
+    {
+      examples: {
+        examples: 0,
+        needed: 90,
+        new_examples: 0,
+        left_out: 193,
+        waiting_for_tools: 193,
+      },
+    },
+  );
+  expect(
+    screen.getByText(
+      '193 replies from your past chats count once you have one chat here that uses a tool, such as a search or a calculation.',
+      SHOWN,
+    ),
+  ).toBeInTheDocument();
+  cleanup();
+  withModel(
+    trainingRun({ runner: { state: 'nothing_to_do', reason: 'planning' } }),
+    { examples: { examples: 0, needed: 90, new_examples: 0, left_out: 0 } },
+  );
+  expect(
+    screen.getByText('Getting your examples ready to train…', SHOWN),
+  ).toBeInTheDocument();
+});

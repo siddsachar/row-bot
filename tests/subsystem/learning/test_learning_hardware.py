@@ -299,3 +299,15 @@ def test_training_waits_for_the_recipes_measured_need_not_a_share_of_the_card():
         assert hardware.gpu_free_for_training(memory=lambda: (700, 15_616), clock=lambda: 300.0) is False
     finally:
         hardware.forget()
+
+
+def test_the_engines_size_counts_the_model_server_that_downloads_with_it(monkeypatch):
+    # FL10: the download ask said 2.3 GB while Settings and the download's total counted 2.9 GB.
+    from types import SimpleNamespace
+
+    from row_bot.learning.training import lockfile, server_files
+
+    monkeypatch.setattr(lockfile, "cached_plan", lambda variant: SimpleNamespace(download_bytes=lambda: 2_300_000_000))
+    monkeypatch.setattr(server_files, "download_bytes", lambda variant: 600_000_000)
+
+    assert hardware.engine_download_bytes("cu130") == 2_900_000_000

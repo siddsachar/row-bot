@@ -2766,6 +2766,11 @@ export default function Conversation({
       onManageConversation={manageConversation}
       onManageBrowser={manageBrowser}
       onDeleteConversation={() => deleteConversation()}
+      learningMenu={learningMenuItem({
+        id,
+        title: state.conversation?.id === id ? state.conversation.title : '',
+        incognito,
+      })}
       onOpenSuggestion={(suggestion) => {
         onPanel(suggestion.descriptor);
         controller.dismissSuggestion(suggestion);

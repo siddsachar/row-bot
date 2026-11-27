@@ -86,3 +86,24 @@ it('shows nothing once closed, while Learning is off, or before Learning loads',
   show(null);
   expect(screen.queryByRole('region')).toBeNull();
 });
+
+it('with a default model on this computer it names no token cap (FL10)', () => {
+  show(
+    fakeIO(
+      introduced({
+        spending: {
+          ...learningSnapshot().spending,
+          model_name: 'qwen3.8:27b',
+          model_local: true,
+        },
+      }),
+    ),
+  );
+  expect(
+    screen.getByRole('region', {
+      name: 'Row-Bot learns from your corrections',
+    }),
+  ).toHaveTextContent(
+    'What it records stays on this computer. Finding and testing fixes uses qwen3.8:27b (your default model), on this computer.',
+  );
+});

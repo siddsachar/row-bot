@@ -254,8 +254,11 @@ it('Changes has its four filters, each with a real empty state', () => {
 });
 
 it('the header says when Learning next looks for things to improve', () => {
-  const tonight = new Date(Date.now() + 3 * 3_600_000);
-  tonight.setMinutes(0, 0, 0);
+  // The next 1 AM, the window's start: within a day, and at night.
+  const tonight = new Date();
+  tonight.setHours(1, 0, 0, 0);
+  if (tonight.getTime() <= Date.now() + 120_000)
+    tonight.setDate(tonight.getDate() + 1);
   show(
     fakeIO(
       on({

@@ -384,7 +384,8 @@ export function timesWords(count: number): string {
 
 /**
  * "Next look tonight at 1:00 AM" within the next day, else "Next look Fri 1:00 AM"
- * (designs/learning-ux.md §3). Never a time already past: then it looks once Row-Bot is free.
+ * (designs/learning-ux.md §3); quiet hours in the day say "today" or "tomorrow" (FL10).
+ * Never a time already past: then it looks once Row-Bot is free.
  */
 export function nextLookWords(iso: string, now: Date = new Date()): string {
   const when = new Date(iso);
@@ -395,8 +396,12 @@ export function nextLookWords(iso: string, now: Date = new Date()): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(when);
-  if (when.getTime() - now.getTime() <= 24 * 3_600_000)
-    return `Next look tonight at ${time}`;
+  if (when.getTime() - now.getTime() <= 24 * 3_600_000) {
+    const hour = when.getHours();
+    if (hour >= 18 || hour < 6) return `Next look tonight at ${time}`;
+    const today = when.toDateString() === now.toDateString();
+    return `Next look ${today ? 'today' : 'tomorrow'} at ${time}`;
+  }
   const day = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(
     when,
   );
