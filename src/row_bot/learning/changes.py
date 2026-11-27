@@ -412,6 +412,7 @@ class Tester:
         self.check_model = check_model
         # ``learning_meta`` for a strategy trial's own tests (they count toward the trials' share, E13).
         self.purpose = purpose
+        self._told_at = 0.0
 
     @property
     def store(self) -> Any:
@@ -452,6 +453,11 @@ class Tester:
             atomic.write_text(path, json.dumps(current, sort_keys=True))
         except OSError:
             logger.debug("Learning couldn't save its test's progress", exc_info=True)
+        now = float(self.clock())
+        if "state" in values or now - self._told_at >= gate.PROGRESS_SECONDS:
+            # Started, moved on or ended (done, stopped, failed): the screens read it again (O127, FL5).
+            self._told_at = now
+            gate.changed()
 
     # ── One change ─────────────────────────────────────────────────────
 

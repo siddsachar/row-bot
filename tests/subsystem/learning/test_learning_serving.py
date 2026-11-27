@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from row_bot.learning.training import serving
+from row_bot.learning.training import hardware, server_files, serving
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]  # processes, paths and the model settings file
 
@@ -446,3 +446,14 @@ def test_the_check_turns_time_limit_reaches_a_request_stuck_in_the_runtime(monke
     result = serving.agent_tool_turn("model:x", timeout=0.1)
 
     assert closed.is_set() and result["timed_out"] and result["ok"] is False
+
+
+@pytest.mark.skipif(not server_files.plan("cu130"), reason="Row-Bot's own server has no build for this platform")
+def test_runs_in_offers_row_bots_own_runner_before_anything_else_asked_about_the_card(monkeypatch):
+    # FL4: right after a start nothing has checked the card yet; a computer with an NVIDIA card still has one.
+    hardware.forget()
+    monkeypatch.setattr(hardware, "detect",
+                        lambda: hardware.classify([hardware.Gpu("NVIDIA RTX 5090", 32607, "610")]))
+
+    assert serving.ROW_BOT in serving.available_runtimes()
+    assert serving.effective_runtime(None) == serving.ROW_BOT

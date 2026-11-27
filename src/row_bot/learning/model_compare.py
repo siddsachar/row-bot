@@ -278,6 +278,7 @@ class Comparer:
         self._server_hold = server_hold
         self._card_mib = card_mib
         self._server_slots = server_slots
+        self._told_at = 0.0
 
     @property
     def root(self) -> Path:
@@ -366,8 +367,11 @@ class Comparer:
             _write_json(progress_path(version, self._root), current)
         except OSError:
             logger.debug("Learning couldn't save the comparison's progress", exc_info=True)
-        if "state" in values or "phase" in values:
-            # Started, a new phase, or ended (done, paused, stopped, failed): the screens read it again (O127).
+        now = float(self.clock())
+        if "state" in values or "phase" in values or now - self._told_at >= gate.PROGRESS_SECONDS:
+            # Started, moved on, a new phase, or ended (done, paused, stopped, failed): the screens read it
+            # again (O127, FL5).
+            self._told_at = now
             gate.changed()
 
     def run(self, version: int, *, stop: threading.Event | None = None) -> dict[str, Any]:

@@ -300,6 +300,11 @@ def invalidate() -> None:
     _cache = None
 
 
+#: How often a running test or comparison tells the screens its count (its start and end always do): the pace of
+#: the client's idle polls, so a long comparison doesn't flood the live stream (B407).
+PROGRESS_SECONDS = 15.0
+
+
 def changed() -> None:
     """Learning's state changed: every open client reads its Learning screens again at once (O127).
 

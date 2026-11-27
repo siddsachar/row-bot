@@ -1,7 +1,8 @@
 """The Learning screens refresh live (O127): when Learning's state changes, the ``learning`` live topic moves,
 so every open window reads Learning again at once (B407's stream). A setting saved, a command, a job planned,
-running or ended, a version's phase, a comparison's phase, the vault taking new work and a personal model's use
-move it; capture's records, a job's progress and a comparison's per-case count don't."""
+running or ended, a version's phase, a comparison's or a change test's start and end, the vault taking new work, a
+personal model's use, a deleted chat that fed something and the quiet hours move it; capture's records and a job's
+progress don't, and a comparison's or a test's count moves it at most every ``PROGRESS_SECONDS`` (FL5)."""
 
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from row_bot.learning import evaluation, model_compare, use
 from row_bot.learning.contracts import Job
 from row_bot.learning.store import LearningStore
 from row_bot.learning.training import releases
-from tests.fixtures.learning import START, CapturedWork
+from tests.fixtures.learning import START, CapturedWork, episode, release
 from tests.subsystem.learning.test_learning_compare import FakeWorker, _comparer, ready
 from tests.subsystem.learning.test_learning_surfaces_api import _command, _ok, _turn_on, api, no_channels
 
@@ -109,3 +110,44 @@ def test_a_learning_command_publishes_for_every_other_window(api, no_channels, l
 
     assert receipt["snapshot"]["state"] == "paused" and _moved(live, before) == {"learning"}
     assert learning.read_settings().paused is True
+
+
+def test_a_comparisons_count_moves_the_screens_at_a_slow_pace(ready, live):
+    # FL5: the count ("70 of 489 tasks") reaches open screens too, at most every PROGRESS_SECONDS.
+    frozen = _comparer(ready)
+    frozen.clock = lambda: 1.0
+    before = live.frame()["topics"]["learning"]
+    frozen.run(1)
+    still = live.frame()["topics"]["learning"] - before
+    model_compare.comparison_path(1, ready).unlink()
+
+    now = [0.0]
+
+    def clock() -> float:
+        now[0] += 1.0  # each read of the clock is a second later
+        return now[0]
+
+    moving = _comparer(ready)
+    moving.clock = clock
+    before = live.frame()["topics"]["learning"]
+    moving.run(1)
+    moved = live.frame()["topics"]["learning"] - before
+
+    assert moved > still  # the count went out as it moved on
+    assert moved - still <= now[0] / learning.PROGRESS_SECONDS + 1  # never more often than the pace
+
+
+def test_a_deleted_chat_that_fed_a_version_moves_the_screens(learning_on, live):
+    # FL6: Needs you can then offer "Retrain without it" at once.
+    store = LearningStore(learning_on)
+    store.put_many([episode("chat-1"), release(source_thread_ids=("chat-1",))])
+
+    assert _learning_moves(live, lambda: store.purge_thread("chat-1"))
+    assert not _learning_moves(live, lambda: store.purge_thread("chat-2"))  # it fed nothing
+
+
+def test_moving_the_quiet_hours_moves_the_screens(learning_on, live):
+    # FL5: Learning's next look is in the same quiet hours as Dream Cycle.
+    from row_bot.application.settings_commands import apply_settings_change
+
+    assert _learning_moves(live, lambda: apply_settings_change("preferences", "dream_cycle.window_start", 11))

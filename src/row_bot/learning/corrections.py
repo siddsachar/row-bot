@@ -185,6 +185,8 @@ _TAPPED_KEY = "tapped_choice"  # F3: the person tapped one of a reply's answer b
 # a storyboard asks for, never a correction of the reply before it.
 _VIDEO_PANEL_KEY = "video_panel"
 _VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
+# Retry sent the person's last message again as a new one (``threads.RETRIED_KEY``): a retry signal, never new words.
+_RETRIED_KEY = "retried"
 _VOICE_FRONT_KEY = "voice_front"  # V4: a line Live voice's speech model said itself, saved after its run
 _REPLIES = frozenset({"ai", "AIMessageChunk"})
 
@@ -275,7 +277,7 @@ def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool, bo
         text = _content_text(data.get("content") if isinstance(data, Mapping) else None)
         if text:
             panel = kwargs.get(_VIDEO_PANEL_KEY)
-            tapped = isinstance(kwargs.get(_TAPPED_KEY), Mapping) or (
+            tapped = isinstance(kwargs.get(_TAPPED_KEY), Mapping) or bool(kwargs.get(_RETRIED_KEY)) or (
                 isinstance(panel, Mapping) and panel.get("action") in _VIDEO_PANEL_ACTIONS)
             found.append((index, text, bool(kwargs.get(_MID_TURN_KEY)), tapped))
     return found
