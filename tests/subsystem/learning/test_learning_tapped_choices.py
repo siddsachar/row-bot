@@ -69,6 +69,24 @@ def test_a_tapped_answer_is_never_a_correction_but_the_same_words_typed_are(writ
         == {replies["typed"]}
 
 
+def test_words_retry_sent_again_are_never_a_correction_but_the_same_words_typed_are(writer, chats, learning_on, clock):
+    """FL9: Retry of a turn whose step already ran sends the person's words again as a new message, marked
+    ``retried``; it is a retry signal of its own, never new words for the next-message rule."""
+
+    replies = {}
+    for thread_id, extra in (("retried", {"retried": True}), ("typed", {})):
+        replies[thread_id], kept = _turn(writer, chats, clock, thread_id, _typed(thread_id, ASK, 0), OFFER)
+        message = HumanMessage(content=ANSWER, id=f"h-{thread_id}-1", additional_kwargs=extra)
+        _turn(writer, chats, clock, thread_id, message, "Done: the old summary stays.", history=kept)
+    store = LearningStore(learning_on, clock=clock)
+    clock.advance(HOUR)
+
+    report = corrections.confirm(store)
+
+    assert report.confirmed == (replies["typed"],)
+    assert report.by_verdict.get("tapped") == 1
+
+
 STORYBOARD = "Storyboard, nothing made yet: 4 scenes. Approve it, change it or comment on a card."
 COMMENT = 'Scene 2 [s2] of the video "Launch" (vid-1): that is wrong, use the blue logo'
 

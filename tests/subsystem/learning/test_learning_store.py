@@ -344,3 +344,18 @@ def test_delete_all_while_the_file_is_open_elsewhere_deletes_nothing(learning_on
             store.delete_all()
     assert error.value.code == "learning_data_busy"
     assert store.find("episode") == [episode("chat-1")]
+
+
+def test_delete_all_takes_a_change_tests_progress_and_the_arms_kept_results_too(learning_on, clock):
+    # FL8: the folder's own files are learning data too; a test's progress names the lesson it tested.
+    from row_bot.learning import changes, evaluation
+
+    store = LearningStore(clock=clock)
+    store.put(episode("chat-1"))
+    folder = learning_on / "learning"
+    folder.mkdir(exist_ok=True)
+    (folder / changes.PROGRESS_FILE).write_text('{"title": "Use UK-grown produce"}', encoding="utf-8")
+    (folder / evaluation.CACHE_FILE).write_text('{"entries": {}}', encoding="utf-8")
+
+    assert store.delete_all().deleted is True
+    assert learning_files(learning_on) == ["learning_config.json"]

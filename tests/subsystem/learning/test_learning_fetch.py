@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -173,3 +174,28 @@ def test_reviewed_hosts_include_the_cdn_subdomains_only():
     assert safe._reviewed("huggingface.co", frozenset(fetch.HOSTS))  # noqa: SLF001
     assert not safe._reviewed("evilhf.co", frozenset(fetch.HOSTS))  # noqa: SLF001
     assert not safe._reviewed("huggingface.co.example.net", frozenset(fetch.HOSTS))  # noqa: SLF001
+
+
+def test_a_folder_windows_holds_past_thirty_seconds_is_moved_once_it_lets_go(tmp_path, monkeypatch):
+    # FL3: an antivirus scan of the new training engine's 2 GB held its folder past the old 30 seconds.
+    class Held(PermissionError):
+        winerror = 5
+
+    source, target = tmp_path / "staging", tmp_path / "final"
+    source.mkdir()
+    now = [0.0]
+
+    def replace(src, dst):
+        if now[0] < 60.0:
+            raise Held(13, "Access is denied")
+        src.rename(dst)
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds
+
+    monkeypatch.setattr(fetch, "os", SimpleNamespace(replace=replace))
+    monkeypatch.setattr(fetch, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=sleep))
+
+    fetch.rename(source, target)
+
+    assert target.is_dir() and not source.exists()

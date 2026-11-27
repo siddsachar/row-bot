@@ -2508,6 +2508,13 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_
         if retried is not None:
             replaced = existing[retried:]
             existing = existing[:retried]
+        elif retry_text:
+            # A retry sent as a new message (a step of the turn already ran) is still a retry: Learning hears it
+            # on the reply it was pressed on, and the words sent again are never judged as new ones (FL9).
+            replaced = _after_last_person_message(existing)
+            messages = [message.model_copy(update={"additional_kwargs": {
+                **(getattr(message, "additional_kwargs", None) or {}), RETRIED_KEY: True}})
+                if getattr(message, "type", "") == "human" else message for message in messages]
         by_id = {str(message.id): message for message in existing if getattr(message, "id", None)}
         accepted = []
         for message in messages:
@@ -2545,7 +2552,7 @@ def _append_checkpoint_messages_locked(thread_id: str, messages: list, *, retry_
             {"messages": next_version},
         )
         logger.debug("Appended %d checkpoint message(s) for thread %s", len(messages), str(thread_id)[:8])
-        if retried is not None:
+        if replaced:
             # Learning (preview): Retry is an implicit signal on the reply it replaced (off: one check).
             from row_bot import learning
 
@@ -2665,6 +2672,18 @@ def _message_text(message) -> str:
             if not isinstance(item, dict) or item.get("type", "text") == "text"
         )
     return str(content or "").strip()
+
+
+#: A person's message sent again by Retry as a new message (a step of the turn had already run): their words
+#: were judged when they first sent them (FL9).
+RETRIED_KEY = "retried"
+
+
+def _after_last_person_message(existing: list) -> list:
+    from row_bot.turn_context import is_person_message
+
+    human = next((index for index in range(len(existing) - 1, -1, -1) if is_person_message(existing[index])), None)
+    return existing[human + 1:] if human is not None else []
 
 
 def _retried_turn(existing: list, text: str) -> int | None:

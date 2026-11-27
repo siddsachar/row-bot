@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from row_bot.learning import model_compare
+from row_bot.learning import model_compare, spending
 from row_bot.learning.spending import TokenMeter
 from row_bot.learning.store import LearningStore
 from row_bot.learning.training import releases
@@ -221,7 +221,21 @@ def test_the_main_models_results_are_kept_so_a_comparison_doesnt_spend_tokens_ag
     assert next(row for row in again["rows"] if row["kind"] == "document_lookups")["passed"]["main"] == 10
 
 
-def test_the_comparison_stops_cleanly_at_the_monthly_limit(ready):
+def test_a_main_model_whose_runs_dont_fit_the_month_is_left_out_and_the_comparison_finishes(ready):
+    # FL2: the verdict is the new version against its starting model, both on this computer, so it still runs.
+    result = _comparer(ready, limit=5_000).run(1)
+
+    assert [arm["key"] for arm in result["arms"]] == ["base", "v1"] and result["main_unavailable"] == "limit"
+    assert not result["stopped"] and result["hidden"]
+    # While it ran, its progress named only the models in it, so its line never said the main model.
+    assert [arm["key"] for arm in model_compare.read_progress(1, ready)["arms"]] == ["base", "v1"]
+    assert [task for task, arm, _ in FakeWorker.instances[-1].asked if arm == "main"] == []
+    assert result["overall"]["verdict"] in ("better", "mixed")
+
+
+def test_the_comparison_stops_cleanly_at_the_monthly_limit(ready, monkeypatch):
+    # Runs that cost more than the estimate: the main model starts, and the limit stops it.
+    monkeypatch.setattr(spending, "RUN_TOKENS", 1)
     result = _comparer(ready, limit=5_000).run(1)
 
     assert "Stopped: Learning reached this month’s token limit" in result["note"] or \

@@ -394,13 +394,13 @@ _lock = threading.Lock()
 _cached: HardwareCheck | None = None
 
 
-def check(*, refresh: bool = False, detector: Callable[[], HardwareCheck] = detect) -> HardwareCheck:
+def check(*, refresh: bool = False, detector: Callable[[], HardwareCheck] | None = None) -> HardwareCheck:
     """This computer's check, kept for the life of the process (``refresh`` asks again)."""
 
     global _cached
     with _lock:
         if _cached is None or refresh:
-            _cached = detector()
+            _cached = (detector or detect)()
         return _cached
 
 

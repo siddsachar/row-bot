@@ -1258,6 +1258,10 @@ class LearningStore:
             vault = self._forget_in_vault([clean])
         if vault:
             removed["audit_task"] = vault
+        if derived:
+            # What the chat fed is marked (a version trained on it, a change drafted from it): the screens read
+            # again, so Needs you can offer Retrain without it (FL6).
+            gate.changed()
         return PurgeReport(clean, tuple(sorted(removed.items())), freed, tuple(derived))
 
     def purge_missing_threads(self, existing: Iterable[str], *, older_than: float) -> int:
@@ -1321,6 +1325,10 @@ class LearningStore:
             vault = self._forget_in_vault([clean])
         if vault:
             removed["audit_task"] = vault
+        if derived:
+            # What the chat fed is marked (a version trained on it, a change drafted from it): the screens read
+            # again, so Needs you can offer Retrain without it (FL6).
+            gate.changed()
         return PurgeReport(clean, tuple(sorted(removed.items())), freed, tuple(derived))
 
     def is_chat_opted_out(self, thread_id: str) -> bool:
@@ -1537,6 +1545,14 @@ class LearningStore:
                 except OSError:
                     pass
             shutil.rmtree(resolved)
+        for path in folder.glob("*.json") if folder.is_dir() else ():
+            # The folder's own files (a change test's progress, the arms' kept results) are learning data too (FL8).
+            try:
+                if path.is_file() and not path.is_symlink():
+                    freed += path.stat().st_size
+                    path.unlink()
+            except OSError:
+                logger.debug("Learning couldn't remove %s", path.name, exc_info=True)
         try:
             folder.rmdir()  # only when nothing else lives there
         except OSError:

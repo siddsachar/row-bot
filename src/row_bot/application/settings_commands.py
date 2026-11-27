@@ -695,6 +695,9 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
     if page == "learning":
         # Turning Learning on creates its store; turning it off keeps the data.
         learning.settings_saved(field, value)
+    elif page == "preferences" and field in ("dream_cycle.window_start", "dream_cycle.window_end"):
+        # Learning works in the same quiet hours: its next look moves with them (FL5).
+        learning.changed()
 
 
 def write_learning_settings(values: Mapping[str, Any]) -> None:

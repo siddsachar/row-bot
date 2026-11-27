@@ -10,7 +10,7 @@ import json
 import pytest
 
 from row_bot import evolution
-from row_bot.learning import behaviour, changes, diagnosis
+from row_bot.learning import behaviour, changes, diagnosis, spending
 from row_bot.learning.contracts import Attempt, LessonRecord
 from row_bot.learning.packs import visible_tasks
 from row_bot.learning.spending import TokenMeter
@@ -142,14 +142,40 @@ def test_with_too_little_of_its_kind_to_test_a_draft_keeps_waiting(store):
     assert result.verdict == "too_few" and changes.view_state(changes.get(change)) == "waiting_to_test"
 
 
-def test_the_monthly_limit_stops_a_test_and_the_draft_waits(store):
+def test_the_monthly_limit_stops_a_test_and_the_draft_waits(store, monkeypatch):
+    # Runs that cost more than the estimate: the test starts, and the limit stops it before a call that would pass it.
+    monkeypatch.setattr(spending, "RUN_TOKENS", 1)
     change = _draft()
-    tester = changes.Tester(store=store, client=ScriptedClient(_helps_on({"document_lookups"}), tokens=(2_000, 100)),
-                            plan=PLAN, meter=lambda: TokenMeter(5_000), main_ref=lambda: "", container=lambda: False)
+    client = ScriptedClient(_helps_on({"document_lookups"}), tokens=(2_000, 100))
+    tester = changes.Tester(store=store, client=client, plan=PLAN, meter=lambda: TokenMeter(5_000),
+                            main_ref=lambda: "", container=lambda: False)
 
     result = tester.test(change)
 
-    assert result.verdict == "stopped" and "limit" in result.stopped.lower()
+    assert client.calls and result.verdict == "stopped" and "limit" in result.stopped.lower()
+    assert changes.view_state(changes.get(change)) == "waiting_to_test"
+
+
+def test_a_test_that_doesnt_fit_what_the_month_has_left_runs_smaller_and_finishes(store):
+    # FL1: five tasks a side don't fit 250K at about 32K a run, the change's own three do.
+    change = _draft()
+
+    result = changes.Tester(store=store, client=ScriptedClient(_helps_on({"document_lookups"}), tokens=(2_000, 100)),
+                            plan=PLAN, meter=lambda: TokenMeter(250_000), main_ref=lambda: "",
+                            container=lambda: False).test(change)
+
+    assert result.verdict != "stopped"
+    assert [row["label"] for row in result.rows] == ["Document lookups it hadn’t seen"]  # its own kind only
+
+
+def test_when_not_even_the_smallest_test_fits_the_change_waits_and_nothing_is_asked(store):
+    change = _draft()
+    client = ScriptedClient(_helps_on({"document_lookups"}), tokens=(2_000, 100))
+
+    result = changes.Tester(store=store, client=client, plan=PLAN, meter=lambda: TokenMeter(100_000),
+                            main_ref=lambda: "", container=lambda: False).test(change)
+
+    assert result.verdict == "stopped" and "limit" in result.stopped.lower() and client.calls == []
     assert changes.view_state(changes.get(change)) == "waiting_to_test"
 
 

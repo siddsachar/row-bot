@@ -108,16 +108,21 @@ export function spendingWords(
 }
 
 /**
- * "About 20 tests of a change" (a change's test takes about 100K tokens). With experimental
- * learning on, a fifth is kept for comparing methods (O178, O195).
+ * "About 2 tests of a change": a change's test takes about 1M tokens (about 32 runs at
+ * 32K, `spending.RUN_TOKENS`; a test sizes itself to what the month has left, FL1). With
+ * experimental learning on, a fifth is kept for comparing methods (O178, O195).
  */
 export function limitMeaning(limit: number | null, comparing = false): string {
   if (limit === null)
     return `No monthly cap: nothing limits Learning's spending${comparing ? ', comparing methods included' : ''}. What it spends still shows each month. Local models don't count.`;
   if (limit <= 0)
     return 'Learning makes no model calls. Local models still work.';
-  const tests = Math.max(1, Math.round(limit / 100_000));
-  return `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change.${comparing ? ' A fifth of it is kept for comparing methods.' : ''} Local models don't count.`;
+  const tests = Math.floor((comparing ? limit * 0.8 : limit) / 1_000_000);
+  const buys =
+    tests < 1
+      ? 'Enough for a small test of a change.'
+      : `About ${tests} ${tests === 1 ? 'test' : 'tests'} of a change.`;
+  return `${buys}${comparing ? ' A fifth of it is kept for comparing methods.' : ''} Local models don't count.`;
 }
 
 /**
@@ -336,6 +341,8 @@ export const MAIN_UNAVAILABLE: Record<string, string> = {
     'Your main model wasn’t compared: Row-Bot can’t use its sign-in for tests yet.',
   main_failed:
     'Your main model wasn’t compared: it couldn’t run the test tasks here. Check it works in a chat, then Compare again.',
+  limit:
+    'Your main model wasn’t compared: what is left of this month’s Learning limit couldn’t cover its runs. The new version was compared with its starting model, on this computer.',
 };
 
 /** Why the personal model's download stopped (designs/learning-ux.md §9). */

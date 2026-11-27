@@ -278,6 +278,7 @@ class Comparer:
         self._server_hold = server_hold
         self._card_mib = card_mib
         self._server_slots = server_slots
+        self._told_at = 0.0
 
     @property
     def root(self) -> Path:
@@ -366,8 +367,11 @@ class Comparer:
             _write_json(progress_path(version, self._root), current)
         except OSError:
             logger.debug("Learning couldn't save the comparison's progress", exc_info=True)
-        if "state" in values or "phase" in values:
-            # Started, a new phase, or ended (done, paused, stopped, failed): the screens read it again (O127).
+        now = float(self.clock())
+        if "state" in values or "phase" in values or now - self._told_at >= gate.PROGRESS_SECONDS:
+            # Started, moved on, a new phase, or ended (done, paused, stopped, failed): the screens read it
+            # again (O127, FL5).
+            self._told_at = now
             gate.changed()
 
     def run(self, version: int, *, stop: threading.Event | None = None) -> dict[str, Any]:
@@ -461,7 +465,7 @@ class Comparer:
 
         started = float(self.clock())
         self._progress(version, state="running", phase="starting", done=0, total=0, started_at=started,
-                       reason=None)
+                       reason=None, arms=[])
         main_ref = self._main()
         base_key, base_label, base_ref, base_release, base_reason = self._baseline(version, state.runtime)
         container = self._has_container()
@@ -508,10 +512,21 @@ class Comparer:
         hidden_total = evaluation.audit_size(asked_by=ASKED_BY, store=self.store, packs=packs, verifiers=verifiers,
                                              include_replay=self.plan.replay) if self.plan.hidden else 0
         order = self._order(self._local_sizes(version, state, base_key), state.runtime) if base_ref else "interleaved"
-        total = (len(chosen) * max(1, self.plan.visible_repeats)
-                 + hidden_total * max(1, self.plan.hidden_repeats)) * len(arms)
-        self._progress(version, phase="visible", done=0, total=total)
+        runs = len(chosen) * max(1, self.plan.visible_repeats) + hidden_total * max(1, self.plan.hidden_repeats)
         meter = (self._meter or evaluation.TokenMeter.for_month)()
+        if base_ref and main_ref and not self._local(main_ref) and any(arm.name == "main" for arm in arms) \
+                and not meter.fits(runs):
+            # The verdict is the new version against its starting model, both on this computer (E4); the main
+            # model joins only when its runs fit what the month has left, so the comparison finishes (FL2).
+            arms = [arm for arm in arms if arm.name != "main"]
+            described = [item for item in described if item["key"] != "main"]
+            spec["arms"] = [item for item in spec["arms"] if item["name"] != "main"]
+            worker_arms.pop("main", None)
+            main_unavailable = "limit"
+        total = runs * len(arms)
+        # The models in it, so its running line names them (the main model may have been left out above).
+        self._progress(version, phase="visible", done=0, total=total,
+                       arms=[{"key": item["key"], "label": item["label"], "role": item["role"]} for item in described])
         budget = evaluation.Budget(task_tokens=self.plan.task_tokens)
         cache = evaluation.ArmCache(self._root, clock=self.clock)
         done = [0]

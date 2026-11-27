@@ -229,6 +229,28 @@ def test_retry_in_place_is_a_signal_on_the_reply_it_replaced(learning_dir, monke
     assert (signal.kind, signal.episode_id, signal.decision_id) == ("retry", reply.episode_id, reply.id)
 
 
+def test_a_retry_after_a_step_ran_is_sent_as_a_new_message_and_is_still_a_retry(learning_dir, monkeypatch):
+    def list_apps(query: str) -> str:
+        """List the person's apps."""
+        return "Mail, Calendar"
+
+    model = ScriptedModel(responses=[asks(call("list_apps", "a1", query="apps")), says("You have Mail and Calendar.")],
+                          seen=[])
+    turns = AgentTurns(monkeypatch, model, [list_apps])
+    turns.send("Check my apps")
+    store = _written(learning_dir)
+    reply = _decisions(store, subkind="model_call")[-1]
+
+    # The step already ran, so the platform keeps it and sends the person's words again as a new message (FL9).
+    assert threads.append_checkpoint_messages(
+        turns.thread_id, [HumanMessage(content="Check my apps", id=f"retry-{uuid.uuid4().hex[:6]}")],
+        retry_text="Check my apps")
+
+    store = _written(learning_dir)
+    [signal] = store.find("signal")
+    assert (signal.kind, signal.episode_id, signal.decision_id) == ("retry", reply.episode_id, reply.id)
+
+
 def test_a_delegated_agents_turn_belongs_to_the_conversation_that_started_it(learning_dir, monkeypatch):
     parent_model = ScriptedModel(responses=[says("I asked a helper to look.")], seen=[])
     parent = AgentTurns(monkeypatch, parent_model, [])
