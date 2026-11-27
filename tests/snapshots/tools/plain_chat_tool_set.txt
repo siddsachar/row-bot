@@ -32,7 +32,7 @@ save_memory: 646
 search_conversations: 768
 search_memory: 506
 skill_load: 538
-skill_search: 2272
+skill_search: 2252
 start_process: 901
 stop_process: 306
 suggest_apps: 691
@@ -52,5 +52,5 @@ workspace_find: 423
 workspace_move_file: 397
 workspace_read_file: 626
 workspace_write_file: 556
-TOTAL (54 tools): 37137
+TOTAL (54 tools): 37117
 ON DEMAND (63 tools): agent_message, agent_profile_save, agent_profiles, agent_promote, agent_retry, agent_stop, arxiv, board_show, browser_download, browser_record, browser_select, browser_upload, browser_viewport, clone_repository, conversation_links, conversation_send, conversation_start, create_chart, custom_tool_builder, edit_video, explore_connections, export_to_pdf, get_current_weather, get_system_info, get_weather_forecast, goal_status, goal_update, link_memories, list_conversations, list_memories, make_music, media_bring, media_find, media_tag, read_terminal, row_bot_apply_proposal, row_bot_check_for_updates, row_bot_create_skill, row_bot_fix, row_bot_install_update, row_bot_patch_skill, row_bot_reject_proposal, row_bot_review_skill_library, row_bot_send_feedback, row_bot_update_setting, row_bot_verify_proposal, sandbox, send_file, speak, task_delete, task_run_now, tracker_delete, tracker_log, tracker_query, transcribe, video, wiki_export_conversation, wiki_read, wiki_rebuild, wiki_stats, wikipedia, youtube_search, youtube_transcript
