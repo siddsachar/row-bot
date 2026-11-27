@@ -289,7 +289,7 @@ def model_card(release: Release, dataset: Mapping[str, Any], state: VersionState
     if historical:
         lines.append(f"- {historical:,} of them are replies from past chats.")
     if dataset.get("validation"):
-        lines.append(f"- {int(dataset['validation']):,} newer examples were held back to check it.")
+        lines.append(f"- {int(dataset['validation']):,} examples were held back to check it.")
     left = {key: value for key, value in (dataset.get("left_out") or {}).items() if value}
     if left:
         words = ", ".join(f"{count:,} {_REASONS.get(key, key.replace('_', ' '))}" for key, count in sorted(left.items()))

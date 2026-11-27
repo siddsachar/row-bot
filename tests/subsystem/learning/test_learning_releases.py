@@ -159,7 +159,7 @@ def test_the_model_card_says_what_it_was_trained_on_in_plain_words(maker_for):
     card = (releases.version_dir(1, maker_for.root) / releases.MODEL_CARD_FILE).read_text(encoding="utf-8")
     assert card.startswith("# Personal model v1\n")
     assert "120 examples of your own work with Row-Bot, from 2 conversations" in card
-    assert "12 newer examples were held back to check it." in card
+    assert "12 examples were held back to check it." in card
     assert "Left out: 3 kept back as hidden tests, 2 a tool failed." in card
     assert "Answers from: Ollama (on this computer), OpenAI." in card
     assert "may be limited by their terms" in card  # D7

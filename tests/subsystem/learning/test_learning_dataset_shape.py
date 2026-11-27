@@ -731,3 +731,18 @@ def test_the_browser_or_computer_picture_is_left_out_of_a_served_row_as_the_pers
     assert example.derived and served.rendering["pictures_removed"] == 1
     captured = _compile(learning_on, chats, recipe, shape="captured", envelope=None)
     assert captured.train == () and captured.left_out == {"unsupported_content": 1}
+
+
+def test_past_chats_are_held_back_before_the_persons_chats_here(work, learning_on, clock, chats, recipe):
+    # FL12: the newest conversations validate, but right after setup those are the person's chats here, the only
+    # ones with this computer's own tools. Held back, the model trained only on rewritten past chats lost plain
+    # tool answering and couldn't start. Past chats are held back first, and the chats here train.
+    work.turn("chat-live", "Read my notes", [("workspace_read_file", {"path": "notes.txt"}, "plants")], "Plants.")
+    _import(learning_on, clock, chats, *[
+        (f"chat-past-{index}", [("workspace_read_file", {"path": f"note-{index}.txt"}, "ferns")], f"Ferns {index}.",
+         f"Read note {index}") for index in range(9)])
+
+    compiled = _compile(learning_on, chats, recipe)
+
+    assert compiled.validation and all(item.historical for item in compiled.validation)
+    assert "chat-live" in {item.conversation_id for item in compiled.train}

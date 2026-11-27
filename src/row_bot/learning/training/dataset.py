@@ -908,14 +908,19 @@ def _practice_share(requested: float | None) -> float:
 
 
 def _split(examples: list[Example], share: float) -> tuple[list[Example], list[Example]]:
-    """Grouped by conversation, chronological: the newest conversations validate."""
+    """Grouped by conversation, chronological: the newest conversations validate. Past chats are held back
+    before the person's chats here, which always train while there are enough past chats (FL12): right after
+    setup those are the newest, and the only ones with this computer's own tools, and a model trained only on
+    rewritten past chats lost plain tool answering and couldn't start."""
 
     by_conversation: dict[str, list[Example]] = defaultdict(list)
     for item in examples:
         by_conversation[item.conversation_id].append(item)
     if len(by_conversation) < MIN_VALIDATION_CONVERSATIONS or share <= 0:
         return examples, []
-    order = sorted(by_conversation, key=lambda key: (max(item.started_at for item in by_conversation[key]), key))
+    past = [key for key, items in by_conversation.items() if all(item.historical for item in items)]
+    pool = past if len(past) >= MIN_VALIDATION_CONVERSATIONS else list(by_conversation)
+    order = sorted(pool, key=lambda key: (max(item.started_at for item in by_conversation[key]), key))
     wanted = max(1, math.floor(len(examples) * share))
     held: set[str] = set()
     count = 0
