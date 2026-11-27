@@ -61,8 +61,8 @@ AUTO_RECALL_OPEN_MAX_MEMORIES = 6
 AUTO_RECALL_OPEN_TOP_K = 20
 _OPEN_REQUEST = re.compile(
     r"\b(?:recommend(?:s|ations?)?|suggest(?:s|ions?)?|ideas|tips|advice|advise|ways to|(?:best|good|easiest) way to"
-    r"|should i|what (?:can|could|should) i|help me (?:choose|pick|decide|plan|find)|do you think"
-    r"|(?:could|might) (?:there|it|that) be)\b",
+    r"|should i|what (?:can|could|should) i|help me (?:choose|pick|decide|plan|find)|do you think (?:i|we) should"
+    r"|do you think (?:it|that) (?:might|could) be|(?:could|might) there be a reason)\b",
     re.IGNORECASE)
 FOLLOW_UP_TERMS = 3  # A latest message with fewer words than this is read with the one before it.
 RUNTIME_REQUEST_MAX_TERMS = 6
