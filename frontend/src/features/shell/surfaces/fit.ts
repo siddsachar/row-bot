@@ -106,3 +106,17 @@ export function chartOverRows(
     })),
   };
 }
+
+/** How many decimals a column's numbers show: the most any of them has (up
+ * to 4), so 61.9 sits as 61.90 beside 487.23, as the file wrote it. */
+export function columnDecimals(rows: unknown, key: string): number {
+  let most = 0;
+  for (const row of objects(rows)) {
+    const value = row[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    const fraction = String(value).split('.')[1] ?? '';
+    if (/e/i.test(fraction)) continue;
+    most = Math.max(most, Math.min(4, fraction.length));
+  }
+  return most;
+}

@@ -12,7 +12,7 @@ import {
   type SurfaceComponent,
 } from './a2ui';
 import { text, weighted, type Context } from './context';
-import { chartOverRows, fitColumns, type Column } from './fit';
+import { chartOverRows, columnDecimals, fitColumns, type Column } from './fit';
 
 /**
  * Row-Bot's own surface components (G2), beyond A2UI's basic catalog:
@@ -145,6 +145,14 @@ function SurfaceChart({ component, context, scope }: Props) {
       yaxis: axis,
     },
   });
+  // Without a title the chart is headed by what it shows, never by its first point.
+  const heading =
+    title ||
+    series
+      .map((item) => item.name)
+      .filter(Boolean)
+      .join(', ') ||
+    'Chart';
   const words = x
     .map(
       (point, index) =>
@@ -155,13 +163,18 @@ function SurfaceChart({ component, context, scope }: Props) {
     .join('\n');
   return (
     <div className="genui-chart" style={weighted(component)}>
-      <Chart figure={figure} label={title ? `${title}\n${words}` : words} />
+      <Chart figure={figure} label={`${heading}\n${words}`} />
     </div>
   );
 }
 
-function cell(value: unknown, type: string): string {
+function cell(value: unknown, type: string, decimals = 0): string {
   if (value === null || value === undefined) return '';
+  if (typeof value === 'number' && decimals > 0 && type !== 'percent')
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
   if (type === 'percent' && typeof value === 'number')
     return `${asText(value)}%`;
   if (type === 'date' && typeof value === 'string') {
@@ -175,12 +188,17 @@ function SurfaceTable({ component, context, scope }: Props) {
   const title = text(component.title, context, scope);
   const all = list(evaluate(component.rows, context.model, scope));
   const columns = fitColumns((component.columns as Column[]) ?? [], all);
+  const decimals = columns.map((column) => columnDecimals(all, column.key));
   const rows = all
     .slice(0, 200)
     .map((row) =>
-      columns.map((column) =>
+      columns.map((column, index) =>
         row && typeof row === 'object'
-          ? cell((row as Record<string, unknown>)[column.key], column.type)
+          ? cell(
+              (row as Record<string, unknown>)[column.key],
+              column.type,
+              decimals[index],
+            )
           : '',
       ),
     );

@@ -262,6 +262,14 @@
 .genui-checkbox {
   flex-wrap: wrap;
 }
+/* A long label wraps beside its box; only a check's message takes its own line. */
+.genui-checkbox > span {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.genui-checkbox > .genui-check-message {
+  flex-basis: 100%;
+}
 .genui-checkbox input,
 .genui-choice input {
   flex: none;

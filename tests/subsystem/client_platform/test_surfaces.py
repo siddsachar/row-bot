@@ -253,3 +253,23 @@ def test_paths_into_a_source_written_as_text_read_that_source():
         {"@path": "/rows"}, "date", "amount")
     assert by_id["table"]["rows"] == {"@path": "/rows"}
     assert by_id["note"]["text"] == "/rows is read on this computer"  # other text stays as written
+
+
+def test_an_input_written_with_a_plain_value_takes_the_persons_change():
+    surface = surfaces.read_surface(json.dumps({
+        "title": "Packing", "surfaceId": "packing",
+        "components": [
+            {"id": "root", "component": "Column", "children": ["tent", "notes", "kit"]},
+            {"id": "tent", "component": "CheckBox", "label": "Tent", "value": False},
+            {"id": "notes", "component": "TextField", "label": "Notes", "value": {"@path": "/notes"}},
+            {"id": "kit", "component": "List", "children": {"path": "/kit", "componentId": "item"}},
+            {"id": "item", "component": "CheckBox", "label": {"@path": "name"}, "value": False},
+        ],
+        "dataModel": {"notes": "", "kit": [{"name": "Stove"}]},
+    }))
+    by_id = {component["id"]: component for component in surface["components"]}
+    assert by_id["tent"]["value"] == {"@path": "/tent"}
+    assert surface["dataModel"]["tent"] is False
+    assert by_id["notes"]["value"] == {"@path": "/notes"}  # already bound: left as drawn
+    assert by_id["item"]["value"] == {"@path": "item"}  # inside a repeated item: its own item's place
+    assert "item" not in surface["dataModel"]

@@ -614,6 +614,40 @@ def _settle(components: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return reachable
 
 
+_INPUTS = frozenset({"TextField", "CheckBox", "ChoicePicker", "Slider", "DateTimeInput"})
+
+
+def _bound_inputs(components: dict[str, dict[str, Any]], data: Any) -> tuple[dict[str, dict[str, Any]], Any]:
+    """Healed: an input written with a plain value ("value": false) gets its own place in the data model,
+    starting at that value, so the person can tick, type or pick in it. One inside a repeated item binds
+    relative to its item. Without a path the input would only show the value, never take a change."""
+
+    if not isinstance(data, dict):
+        return components, data
+    templated: set[str] = set()
+    pending = [component["children"]["componentId"] for component in components.values()
+               if isinstance(component.get("children"), dict)]
+    while pending:
+        key = pending.pop()
+        if key in templated or key not in components:
+            continue
+        templated.add(key)
+        pending.extend(_references(components[key]))
+    healed, data = dict(components), dict(data)
+    for key, component in components.items():
+        if component["component"] not in _INPUTS:
+            continue
+        value = component.get("value")
+        if isinstance(value, dict) and ("@path" in value or "@call" in value):
+            continue
+        if key in templated:
+            healed[key] = {**component, "value": {"@path": key}}
+        elif key not in data:
+            healed[key] = {**component, "value": {"@path": f"/{key}"}}
+            data[key] = value
+    return healed, data
+
+
 MAX_SOURCES = 8
 
 
@@ -761,7 +795,7 @@ def read_surface(source: str) -> dict[str, Any]:
     data = _value(data, "any") if data else {}
     if len(json.dumps(data, ensure_ascii=False)) > MAX_DATA_CHARS:
         raise SurfaceError("the data model is too large")
-    reachable = _settle(components)
+    reachable, data = _bound_inputs(_settle(components), data)
     surface = {
         "surfaceId": surface_id,
         "catalogId": CATALOG_ID,

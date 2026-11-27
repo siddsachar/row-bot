@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../../api/types';
 import { registerPromptSender, setPromptReady } from '../composer-bridge';
+import { OverlayProvider } from '../../../ui/overlays';
 import { TranscriptBlocks } from '../TranscriptBlocks';
 import { evaluate, formatDate, writePath } from './a2ui';
 import { onSurfaceRequest } from './open-surface';
@@ -378,4 +379,50 @@ it('opens bigger beside the chat, and an edit there shows in the chat at once', 
   expect(inChat).toHaveValue('2600');
   expect(screen.getAllByText('Total 2,600 for Alfama')).toHaveLength(2);
   stop();
+});
+
+it('shows a column of amounts as the file wrote them, and heads an untitled chart by what it shows', () => {
+  render(
+    <OverlayProvider>
+      <TranscriptBlocks
+        blocks={[
+          surface({
+            components: [
+              { id: 'root', component: 'Column', children: ['chart', 'spend'] },
+              {
+                id: 'chart',
+                component: 'Chart',
+                kind: 'bar',
+                x: ['Rent', 'Utilities'],
+                series: [{ name: 'Recorded spending', values: [1200, 487.23] }],
+              },
+              {
+                id: 'spend',
+                component: 'Table',
+                title: 'October',
+                columns: [
+                  { key: 'merchant', label: 'Merchant', type: 'text' },
+                  { key: 'amount', label: 'Amount', type: 'number' },
+                ],
+                rows: { '@path': '/rows' },
+              },
+            ],
+            dataModel: {
+              rows: [
+                { merchant: 'Fresh Market', amount: 61.9 },
+                { merchant: 'City Power', amount: 487.23 },
+              ],
+            },
+          }),
+        ]}
+        conversationId="conversation-s"
+        messageId="reply-1"
+      />
+    </OverlayProvider>,
+  );
+  const table = screen.getByRole('region', { name: 'October' });
+  expect(within(table).getByText('61.90')).toBeVisible();
+  expect(within(table).getByText('487.23')).toBeVisible();
+  expect(screen.getAllByText('Recorded spending')[0]).toBeVisible();
+  expect(screen.queryByText(/^Rent: /)).toBeNull();
 });
