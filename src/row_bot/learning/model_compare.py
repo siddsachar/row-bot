@@ -461,7 +461,7 @@ class Comparer:
 
         started = float(self.clock())
         self._progress(version, state="running", phase="starting", done=0, total=0, started_at=started,
-                       reason=None)
+                       reason=None, arms=[])
         main_ref = self._main()
         base_key, base_label, base_ref, base_release, base_reason = self._baseline(version, state.runtime)
         container = self._has_container()
@@ -520,7 +520,9 @@ class Comparer:
             worker_arms.pop("main", None)
             main_unavailable = "limit"
         total = runs * len(arms)
-        self._progress(version, phase="visible", done=0, total=total)
+        # The models in it, so its running line names them (the main model may have been left out above).
+        self._progress(version, phase="visible", done=0, total=total,
+                       arms=[{"key": item["key"], "label": item["label"], "role": item["role"]} for item in described])
         budget = evaluation.Budget(task_tokens=self.plan.task_tokens)
         cache = evaluation.ArmCache(self._root, clock=self.clock)
         done = [0]

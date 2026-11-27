@@ -227,6 +227,8 @@ def test_a_main_model_whose_runs_dont_fit_the_month_is_left_out_and_the_comparis
 
     assert [arm["key"] for arm in result["arms"]] == ["base", "v1"] and result["main_unavailable"] == "limit"
     assert not result["stopped"] and result["hidden"]
+    # While it ran, its progress named only the models in it, so its line never said the main model.
+    assert [arm["key"] for arm in model_compare.read_progress(1, ready)["arms"]] == ["base", "v1"]
     assert [task for task, arm, _ in FakeWorker.instances[-1].asked if arm == "main"] == []
     assert result["overall"]["verdict"] in ("better", "mixed")
 

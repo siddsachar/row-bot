@@ -1001,6 +1001,21 @@ def _comparing_now(version: int) -> bool:
         return False
 
 
+def _comparison_arms(items: Any) -> list[dict[str, Any]]:
+    arms = []
+    for arm in items if isinstance(items, list) else ():
+        if not isinstance(arm, dict) or arm.get("role") not in ("new", "baseline", "main"):
+            continue
+        arms.append({
+            "key": _text(arm.get("key"), 32), "label": _text(arm.get("label"), 128), "role": arm["role"],
+            "ran": max(0, int(arm.get("ran") or 0)), "cached": max(0, int(arm.get("cached") or 0)),
+            "seconds_per_task": float(arm["seconds_per_task"]) if arm.get("seconds_per_task") is not None else None,
+            "cloud_tokens_per_task": int(arm["cloud_tokens_per_task"]) if arm.get("cloud_tokens_per_task") is not None
+            else None,
+        })
+    return arms[:8]
+
+
 def _comparison_view(item: Any) -> dict[str, Any] | None:
     """A ready version's comparison: waiting, running (with its real denominator), paused, or its result."""
 
@@ -1023,18 +1038,10 @@ def _comparison_view(item: Any) -> dict[str, Any] | None:
         "coding_left_out": False, "baseline_unavailable": False, "main_unavailable": None, "reviewed": False,
     }
     if result is None:
+        # While it runs: the models in it, so its line names only those (FL2).
+        view["arms"] = _comparison_arms(progress.get("arms"))
         return view
-    arms = []
-    for arm in result.get("arms") or ():
-        if arm.get("role") not in ("new", "baseline", "main"):
-            continue
-        arms.append({
-            "key": _text(arm.get("key"), 32), "label": _text(arm.get("label"), 128), "role": arm["role"],
-            "ran": max(0, int(arm.get("ran") or 0)), "cached": max(0, int(arm.get("cached") or 0)),
-            "seconds_per_task": float(arm["seconds_per_task"]) if arm.get("seconds_per_task") is not None else None,
-            "cloud_tokens_per_task": int(arm["cloud_tokens_per_task"]) if arm.get("cloud_tokens_per_task") is not None
-            else None,
-        })
+    arms = _comparison_arms(result.get("arms"))
     keys = {arm["key"] for arm in arms}
     rows = []
     for row in result.get("rows") or ():
