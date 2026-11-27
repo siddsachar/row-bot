@@ -77,3 +77,71 @@ export function useLatestSurface(surfaceId: string) {
   if (!controller || !blockId) return null;
   return latestSurface(loadedRows(controller.getSnapshot()), surfaceId);
 }
+
+/** The drawing of this surface just before the given one in the loaded rows: what a redraw replaces. */
+export function previousSurface(
+  rows: readonly TranscriptRow[],
+  surfaceId: string,
+  blockId: string,
+): SurfaceBlock | null {
+  let previous: SurfaceBlock | null = null;
+  for (const row of rows)
+    for (const block of row.blocks) {
+      if (block.type !== 'surface' || block.surface_id !== surfaceId) continue;
+      if (block.id === blockId) return previous;
+      previous = block;
+    }
+  return null;
+}
+
+/** The earlier drawing a redraw replaces in the open chat, or null. */
+export function usePreviousSurface(
+  surfaceId: string,
+  blockId: string,
+): SurfaceBlock | null {
+  const controller = useOptionalRuntime()?.controller;
+  const id = useSyncExternalStore(
+    controller?.subscribe ?? (() => () => {}),
+    () =>
+      controller && surfaceId
+        ? (previousSurface(
+            loadedRows(controller.getSnapshot()),
+            surfaceId,
+            blockId,
+          )?.id ?? '')
+        : '',
+  );
+  if (!controller || !id) return null;
+  return previousSurface(
+    loadedRows(controller.getSnapshot()),
+    surfaceId,
+    blockId,
+  );
+}
+
+/**
+ * A redraw starts from what the person entered on the drawing it replaces, for every
+ * value Row-Bot left as it was: adding a button keeps the ticks, while a value
+ * Row-Bot changed on purpose shows its new one.
+ */
+export function carriedEdits(
+  next: DataModel,
+  before: DataModel,
+  entered: DataModel | null | undefined,
+): DataModel {
+  if (!entered) return next;
+  const carried: DataModel = { ...next };
+  let changed = false;
+  for (const [key, value] of Object.entries(entered)) {
+    const same = JSON.stringify(next[key]) === JSON.stringify(before[key]);
+    if (
+      key in next &&
+      same &&
+      JSON.stringify(value) !== JSON.stringify(next[key])
+    ) {
+      carried[key] = value;
+      changed = true;
+    }
+  }
+  return changed ? carried : next;
+}

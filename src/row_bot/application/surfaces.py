@@ -846,10 +846,15 @@ def _shown(value: Any) -> str:
         return f"{int(value):,}"
     if isinstance(value, (int, float)):
         return f"{value:,}"
+    items = list(value.values()) if isinstance(value, dict) else value
+    if isinstance(items, list) and items and all(isinstance(item, bool) for item in items):
+        return f"{sum(items)} of {len(items)} ticked"  # A checklist's ticks, not their JSON.
     if isinstance(value, list) and all(not isinstance(item, (list, dict)) for item in value):
         return ", ".join(_shown(item) for item in value)
+    if isinstance(value, dict) and all(not isinstance(item, (list, dict)) for item in value.values()):
+        return ", ".join(f"{_key_words(str(key))}: {_shown(item)}" for key, item in value.items())
     if isinstance(value, (list, dict)):
-        return json.dumps(value, ensure_ascii=False)
+        return f"{len(value)} items" if isinstance(value, list) else json.dumps(value, ensure_ascii=False)
     return " ".join(str(value).split())
 
 

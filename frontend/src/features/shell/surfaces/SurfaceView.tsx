@@ -112,8 +112,10 @@ import {
   type SourceState,
 } from './sources';
 import {
+  carriedEdits,
   setSurfaceModel,
   useLatestSurfaceBlock,
+  usePreviousSurface,
   useSurfaceModel,
 } from './surface-store';
 import { accessible, text, weighted, type Context } from './context';
@@ -936,6 +938,47 @@ export function SurfaceView({
   const saved = answers.surfaces?.[stateKey] as DataModel | undefined;
   const live = useSurfaceModel(stateKey);
   const latestBlock = useLatestSurfaceBlock(spec?.surfaceId ?? '');
+  // A redraw (same surface id, a later reply) starts from what was entered on the drawing it replaces.
+  const previous = usePreviousSurface(spec?.surfaceId ?? '', blockId);
+  const previousLive = useSurfaceModel(previous?.state_key ?? '');
+  const previousSpec = useMemo(
+    () => (previous ? readSurface(previous.surface_json) : null),
+    [previous],
+  );
+  const previousEntered =
+    previousLive ??
+    (previous
+      ? (answers.surfaces?.[previous.state_key] as DataModel | undefined)
+      : undefined);
+  const start = useMemo(
+    () =>
+      spec
+        ? carriedEdits(
+            spec.dataModel,
+            previousSpec?.dataModel ?? {},
+            previousEntered,
+          )
+        : null,
+    [spec, previousSpec, previousEntered],
+  );
+  // Kept beside the chat once, so a pinned copy of the redraw shows them too.
+  const carried = !!spec && !!start && start !== spec.dataModel;
+  useEffect(() => {
+    if (!carried || live || saved || !spec || !start) return;
+    void changeAnswerState(controller, target.conversationId, {
+      block_id: stateKey,
+      surface_data: withoutSources(start, spec),
+    });
+  }, [
+    carried,
+    live,
+    saved,
+    spec,
+    start,
+    controller,
+    target.conversationId,
+    stateKey,
+  ]);
   const sources = useSurfaceSources(
     target.conversationId,
     target.messageId,
@@ -960,7 +1003,7 @@ export function SurfaceView({
   if (!spec) return <SurfaceUnreadable />;
   // What Row-Bot filled in on this computer wins over any older copy of it.
   const current = withSources(
-    live ?? saved ?? spec.dataModel,
+    live ?? saved ?? start ?? spec.dataModel,
     sources?.values ?? {},
   );
   const save = (next: DataModel) => {

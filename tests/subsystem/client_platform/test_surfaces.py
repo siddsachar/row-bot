@@ -276,3 +276,20 @@ def test_an_input_written_with_a_plain_value_takes_the_persons_change():
     assert "item" not in surface["dataModel"]
     assert by_id["split"]["items"] == {"@path": "/split"}
     assert surface["dataModel"]["split"] == [{"label": "Rent", "amount": 1500}]
+
+
+def test_a_press_shows_a_checklists_ticks_in_words_never_their_json():
+    surface = surfaces.read_surface(json.dumps({
+        "title": "Water", "surfaceId": "water",
+        "components": [
+            {"id": "root", "component": "Column", "children": ["one", "review"]},
+            {"id": "one", "component": "CheckBox", "label": "Glass 1", "value": {"@path": "/glasses/1"}},
+            {"id": "label", "component": "Text", "text": "How did I do?"},
+            {"id": "review", "component": "Button", "child": "label", "action": {"event": {
+                "name": "review", "context": {"glasses": {"@path": "/glasses"}, "goal": 8}}}},
+        ],
+        "dataModel": {"glasses": {"1": True, "2": True, "3": False}},
+    }))
+    _, shown = surfaces.action_message(surface, "review", {"glasses": {"1": True, "2": True, "3": False}, "goal": 8},
+                                       "review", "2026-11-27T09:42:00Z")
+    assert shown.splitlines() == ["How did I do? · Water", "Glasses: 2 of 3 ticked", "Goal: 8"]
