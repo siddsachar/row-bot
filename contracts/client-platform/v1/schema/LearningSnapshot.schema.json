@@ -738,7 +738,8 @@
               "enum": [
                 "no_main_model",
                 "sign_in_unsupported",
-                "main_failed"
+                "main_failed",
+                "limit"
               ],
               "type": "string"
             },

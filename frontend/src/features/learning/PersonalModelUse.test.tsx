@@ -185,6 +185,39 @@ it('reviews v1 in the shared review sheet: use it for one kind of work, with Exp
   expect(closed).toHaveBeenCalledWith(false);
 });
 
+it('a comparison that left the main model out for the month’s limit says so and names only what ran', async () => {
+  const base = comparisonState();
+  const comparison = comparisonState({
+    arms: base.arms.filter((arm) => arm.role !== 'main'),
+    rows: base.rows.map((row) => ({
+      ...row,
+      cells: row.cells.filter((cell) => cell.key !== 'main'),
+    })),
+    note: 'Testing used 0 tokens (and 1.1M on this computer).',
+    main_unavailable: 'limit',
+  });
+  wrap(
+    <VersionReview
+      open
+      onOpenChange={vi.fn()}
+      io={onSnapshot()}
+      model={comparedModel()}
+      comparison={comparison}
+    />,
+  );
+  const sheet = await screen.findByRole('dialog', {
+    name: 'Personal model v1',
+  });
+  const why = within(sheet).getByRole('region', { name: 'Why' });
+  expect(why).toHaveTextContent(
+    'Compared with the starting model it was trained from, on tasks none of them had seen',
+  );
+  expect(why).not.toHaveTextContent('your main model');
+  expect(sheet).toHaveTextContent(
+    'Your main model wasn’t compared: what is left of this month’s Learning limit couldn’t cover its runs.',
+  );
+});
+
 it('says plainly when v1 is no better, and offers nothing to use', async () => {
   const user = userEvent.setup();
   const io = onSnapshot();

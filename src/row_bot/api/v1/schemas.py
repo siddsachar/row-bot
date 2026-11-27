@@ -5248,7 +5248,7 @@ class LearningComparison(WireModel):
     note: str = Field(max_length=400)
     coding_left_out: bool
     baseline_unavailable: bool
-    main_unavailable: Literal["no_main_model", "sign_in_unsupported", "main_failed"] | None = None
+    main_unavailable: Literal["no_main_model", "sign_in_unsupported", "main_failed", "limit"] | None = None
     reviewed: bool
 
 

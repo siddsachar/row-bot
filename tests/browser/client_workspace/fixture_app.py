@@ -8859,7 +8859,10 @@ class _FixtureComparisons:
 
     def start(self, version: int) -> bool:
         self.version = int(version)
-        self._progress(self.version, state="running", phase="visible", done=0, total=96)
+        self._progress(self.version, state="running", phase="visible", done=0, total=96, arms=[
+            {"key": "base", "label": "the starting model", "role": "baseline"},
+            {"key": "v1", "label": "v1 (new)", "role": "new"},
+            {"key": "main", "label": _l2c2_main(), "role": "main"}])
         return True
 
     def stop(self, timeout: float = 15.0) -> None:

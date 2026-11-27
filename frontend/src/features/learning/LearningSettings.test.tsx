@@ -283,7 +283,7 @@ it('Experimental is its own switch, off, and says what it adds and costs (O195)'
   // Nothing is kept back for comparing methods while they are off.
   expect(
     screen.getByRole('combobox', { name: 'Monthly limit' }),
-  ).toHaveAccessibleDescription(/About 20 tests of a change\. Local models/);
+  ).toHaveAccessibleDescription(/About 2 tests of a change\. Local models/);
 
   fireEvent.click(toggle);
   expect(
@@ -319,7 +319,7 @@ it('with experimental learning on, the limit says a fifth is kept for comparing 
   expect(
     screen.getByRole('combobox', { name: 'Monthly limit' }),
   ).toHaveAccessibleDescription(
-    /About 20 tests of a change\. A fifth of it is kept for comparing methods\./,
+    /About 1 test of a change\. A fifth of it is kept for comparing methods\./,
   );
 });
 it('the setup sheet turns Learning on with no monthly limit and says what that means', async () => {
