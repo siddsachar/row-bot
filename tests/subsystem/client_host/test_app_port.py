@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import logging
@@ -124,9 +125,13 @@ def test_launcher_native_window_helper_uses_explicit_loopback(monkeypatch):
         def poll(self):
             return None
 
+        def wait(self):
+            return 0
+
     def _fake_popen(args, **kwargs):
         captured["args"] = args
         captured.update(kwargs)
+        Path(kwargs["env"]["ROW_BOT_WINDOW_READY_FILE"]).write_text("ready", encoding="utf-8")
         return _FakePopen()
 
     monkeypatch.setattr(launcher, "_has_display_server", lambda: True)

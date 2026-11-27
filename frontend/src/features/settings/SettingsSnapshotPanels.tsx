@@ -6601,7 +6601,7 @@ function PreferencesPage({
           mutation={mutation}
           field="window_mode"
           label="Open in"
-          hint="Its own app window, your default browser, or ask each launch."
+          hint="Its own app window, or your default browser. If the window can't open, the browser opens instead."
           value={snapshot.window_mode}
           savedMessage={() => 'Row-Bot opens there from the next launch'}
           options={[
@@ -6615,7 +6615,6 @@ function PreferencesPage({
               label: 'Browser',
               icon: <Globe2 size={14} aria-hidden />,
             },
-            { value: 'ask', label: 'Ask each time' },
           ]}
         />
       </SettingsGroup>

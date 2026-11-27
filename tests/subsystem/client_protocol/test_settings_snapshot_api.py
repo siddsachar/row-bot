@@ -823,7 +823,7 @@ def test_stale_or_unallowlisted_changes_are_rejected_without_writes(api):
         "value": "browser",
     }
     review = _review(client, headers, request)
-    _write(data / "app_config.json", {"window_mode": "ask", "concurrent": True})
+    _write(data / "app_config.json", {"window_mode": "browser", "concurrent": True})
     retained = (data / "app_config.json").read_bytes()
     response = _execute(client, headers, request, review)
     assert response.status_code == 409

@@ -379,7 +379,7 @@ const snapshot = {
       personality_max_length: 200,
       self_improvement_enabled: false,
     },
-    window_mode: 'ask',
+    window_mode: 'native',
     dream_cycle: {
       enabled: false,
       window_start: 1,
@@ -1990,12 +1990,15 @@ it('renders editable document, tool, and preference owners', async () => {
   // "Learn new skills" lives in Settings › Learning (D29).
   expect(screen.queryByLabelText('Learn new skills')).toBeNull();
   const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
+  // Two choices: the app window (the browser opens when it can't) or the browser.
   expect(
-    within(openIn).getByRole('radio', { name: 'Ask each time' }),
-  ).toHaveAttribute('aria-checked', 'true');
+    within(openIn)
+      .getAllByRole('radio')
+      .map((radio) => radio.textContent?.trim()),
+  ).toEqual(['App window', 'Browser']);
   expect(
     within(openIn).getByRole('radio', { name: 'App window' }),
-  ).toBeVisible();
+  ).toHaveAttribute('aria-checked', 'true');
   // Dream Cycle's hours are one row of two times.
   expect(screen.getByLabelText('Start hour')).toHaveValue('1');
   expect(screen.getByLabelText('End hour')).toHaveValue('5');
@@ -2413,13 +2416,13 @@ it('saves Open in and the Dream Cycle hours at once, confirmed by the floating n
     </MemoryRouter>,
   );
   const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
-  fireEvent.click(within(openIn).getByRole('radio', { name: 'App window' }));
+  fireEvent.click(within(openIn).getByRole('radio', { name: 'Browser' }));
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
       expect.objectContaining({
         page: 'preferences',
         field: 'window_mode',
-        value: 'native',
+        value: 'browser',
       }),
       expect.any(AbortSignal),
     ),

@@ -57,9 +57,16 @@ def test_the_window_the_launcher_opens_is_tied_to_it_too(tmp_path, monkeypatch) 
         def poll(self):
             return None
 
+        def wait(self):
+            return 0
+
+    def loaded(*_args, **kwargs):
+        Path(kwargs["env"]["ROW_BOT_WINDOW_READY_FILE"]).write_text("ready", encoding="utf-8")
+        return window
+
     window = FakeWindow()
     monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
-    monkeypatch.setattr(launcher.subprocess, "Popen", lambda *_args, **_kwargs: window)
+    monkeypatch.setattr(launcher.subprocess, "Popen", loaded)
     monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(launcher, "_end_with_this_launcher", lambda proc: tied.append(proc) or True)
 
