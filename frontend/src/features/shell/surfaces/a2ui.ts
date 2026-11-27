@@ -485,3 +485,31 @@ export function openableUrl(url: string): URL | null {
     return null;
   }
 }
+
+/**
+ * Whether a button's context value would carry something Row-Bot fills in on
+ * this computer (a source). Deliberately wide, the same rule as the server's
+ * `surfaces.reads_source`: any mention of a source's path, and inside a list
+ * repeated over a source, any binding or template at all. A press leaves such
+ * values out, so they never reach the model.
+ */
+export function readsSource(
+  value: unknown,
+  sources: readonly string[],
+  scope: Scope,
+): boolean {
+  const text = JSON.stringify(value) ?? '';
+  for (const key of sources) {
+    let at = text.indexOf(key);
+    while (at >= 0) {
+      if (!/[\w-]/.test(text[at + key.length] ?? '')) return true;
+      at = text.indexOf(key, at + 1);
+    }
+  }
+  const inSource =
+    !!scope &&
+    sources.some(
+      (key) => scope.base === key || scope.base.startsWith(`${key}/`),
+    );
+  return inSource && (text.includes('"@path"') || text.includes('${'));
+}

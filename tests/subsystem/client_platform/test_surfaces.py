@@ -293,3 +293,50 @@ def test_a_press_shows_a_checklists_ticks_in_words_never_their_json():
     _, shown = surfaces.action_message(surface, "review", {"glasses": {"1": True, "2": True, "3": False}, "goal": 8},
                                        "review", "2026-11-27T09:42:00Z")
     assert shown.splitlines() == ["How did I do? · Water", "Glasses: 2 of 3 ticked", "Goal: 8"]
+
+
+def _spending_with(buttons: list[dict], extra: list[dict] | None = None) -> dict:
+    return surfaces.read_surface(json.dumps({
+        "title": "Spending", "surfaceId": "spend",
+        "components": [
+            {"id": "root", "component": "Column", "children": [*(b["id"] for b in buttons), "rows"]},
+            {"id": "word", "component": "Text", "text": "Go"},
+            {"id": "rows", "component": "List", "children": {"path": "/spend", "componentId": "item"}},
+            *buttons, *(extra or []),
+        ],
+        "dataModel": {"month": "October"},
+        "sources": {"/spend": {"@call": "rowbot.file", "args": {"path": "bank/oct.csv"}}},
+    }))
+
+
+@pytest.mark.parametrize("context", [
+    {"total": {"@path": "/spend/total"}},
+    {"total": {"@call": "formatString", "args": {"value": "Total ${/spend/total}"}}},
+])
+def test_a_press_never_carries_what_this_computer_filled_in(context):
+    surface = _spending_with([{"id": "send", "component": "Button", "child": "word",
+                               "action": {"event": {"name": "send", "context": {**context, "month": {"@path": "/month"}}}}}])
+    assert surfaces.declared_actions(surface)["send"]["context"] == {"month"}
+    with pytest.raises(surfaces.SurfaceError):
+        surfaces.action_message(surface, "send", {"total": "1,945.18", "month": "October"}, "send", "t")
+    model, shown = surfaces.action_message(surface, "send", {"month": "October"}, "send", "t")
+    assert "1,945.18" not in model and "October" in model and "Month: October" in shown
+
+
+def test_a_button_repeated_over_a_source_sends_none_of_its_items_values():
+    surface = _spending_with([], [
+        {"id": "label", "component": "Text", "text": "Check"},
+        {"id": "item", "component": "Button", "child": "label", "action": {"event": {
+            "name": "check", "context": {"amount": {"@path": "amount"}, "kind": "row"}}}},
+    ])
+    assert surfaces.declared_actions(surface)["check"]["context"] == {"kind"}
+
+
+def test_a_key_private_on_one_button_stays_out_for_every_button_of_that_name():
+    surface = _spending_with([
+        {"id": "a", "component": "Button", "child": "word",
+         "action": {"event": {"name": "go", "context": {"value": {"@path": "/month"}}}}},
+        {"id": "b", "component": "Button", "child": "word",
+         "action": {"event": {"name": "go", "context": {"value": {"@path": "/spend/total"}}}}},
+    ])
+    assert surfaces.declared_actions(surface)["go"]["context"] == set()

@@ -95,6 +95,7 @@ import {
   failedCheck,
   openableUrl,
   readPath,
+  readsSource,
   readSurface,
   writePath,
   type DataModel,
@@ -609,7 +610,9 @@ function SurfaceButton({
     if (event) {
       const values: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(event.context ?? {}))
-        values[key] = evaluate(value, context.model, scope);
+        // What Row-Bot filled in on this computer stays here: never part of a press.
+        if (!readsSource(value, context.sources, scope))
+          values[key] = evaluate(value, context.model, scope);
       context.press({
         name: event.name,
         componentId: component.id,
@@ -1060,6 +1063,7 @@ export function SurfaceView({
     ready: place === 'board' || ready,
     pressed,
     uid,
+    sources: Object.keys(spec.sources ?? {}),
     title: spec.title,
   };
   // A later reply drew this interface again: this copy is its history.

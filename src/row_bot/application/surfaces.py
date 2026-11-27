@@ -1035,21 +1035,74 @@ def _label(button: dict[str, Any], by_id: dict[str, dict[str, Any]], data: Any, 
     return ""
 
 
+def _under(path: str, keys: tuple[str, ...]) -> bool:
+    return any(path == key or path.startswith(key + "/") for key in keys)
+
+
+def _source_repeats(surface: dict[str, Any]) -> set[str]:
+    """The components drawn inside a list repeated over one of the surface's sources."""
+
+    by_id = {component["id"]: component for component in surface["components"]}
+    keys = tuple(surface.get("sources") or {})
+    inside: set[str] = set()
+
+    def walk(key: str, base: str, private: bool, depth: int) -> None:
+        component = by_id.get(key)
+        if component is None or depth > MAX_DEPTH:
+            return
+        if private:
+            inside.add(key)
+        children = component.get("children")
+        if isinstance(children, dict):
+            path = children["path"]
+            item_base = path if path.startswith("/") else f"{base.rstrip('/')}/{path}"
+            walk(children["componentId"], item_base, private or _under(item_base, keys), depth + 1)
+        for child in _references(component):
+            if not (isinstance(children, dict) and child == children["componentId"]):
+                walk(child, base, private, depth + 1)
+
+    walk("root", "", False, 0)
+    return inside
+
+
+def reads_source(value: Any, keys: tuple[str, ...], in_source_repeat: bool) -> bool:
+    """Whether a button's context value would carry something Row-Bot fills in on this computer.
+
+    Deliberately wide (a privacy guard, same rule as the client's ``readsSource``): any mention of a
+    source's path, in a binding, a function's arguments or a ``${...}``; and inside a list repeated
+    over a source, any binding or ``${...}`` at all."""
+
+    text = json.dumps(value, ensure_ascii=False)
+    if any(re.search(re.escape(key) + r"(?![\w-])", text) for key in keys):
+        return True
+    return in_source_repeat and ("@path" in text or "${" in text)
+
+
 def declared_actions(surface: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Each action name a surface's buttons send, its words and the context keys it may carry."""
+    """Each action name a surface's buttons send, its words and the context keys it may carry.
+
+    A key whose value reads one of the surface's sources is never one: those values stay on this
+    computer, so a press can't take them to the model."""
 
     by_id = {component["id"]: component for component in surface["components"]}
     data = surface.get("dataModel") or {}
+    keys = tuple(surface.get("sources") or {})
+    repeated = _source_repeats(surface) if keys else set()
     found: dict[str, dict[str, Any]] = {}
+    blocked: dict[str, set[str]] = {}
     for component in surface["components"]:
         event = component.get("action", {}).get("event") if component["component"] == "Button" else None
         if not event:
             continue
         entry = found.setdefault(event["name"], {"label": "", "context": set()})
         entry["label"] = entry["label"] or _label(component, by_id, data, None)
-        entry["context"] |= set((event.get("context") or {}).keys())
+        for name, value in (event.get("context") or {}).items():
+            private = reads_source(value, keys, component["id"] in repeated)
+            (blocked.setdefault(event["name"], set()) if private else entry["context"]).add(name)
         if len(found) >= MAX_ACTIONS:
             break
+    for name, entry in found.items():
+        entry["context"] -= blocked.get(name, set())  # Private on any button with this name: never sent.
     return found
 
 
@@ -1068,10 +1121,6 @@ def chat_app_buttons(surface: dict[str, Any], limit: int = 8) -> list[dict[str, 
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    def bound_to_private(value: Any) -> bool:
-        path = value.get("@path") if isinstance(value, dict) else None
-        return isinstance(path, str) and any(path == key or path.startswith(key + "/") for key in private)
-
     def walk(key: str, scope: Any, depth: int) -> None:
         component = by_id.get(key)
         if component is None or depth > MAX_DEPTH or len(found) >= limit:
@@ -1080,7 +1129,7 @@ def chat_app_buttons(surface: dict[str, Any], limit: int = 8) -> list[dict[str, 
         event = component.get("action", {}).get("event") if kind == "Button" else None
         if event and not component.get("@checks"):
             context = {name: _resolve(value, data, scope) for name, value in (event.get("context") or {}).items()
-                       if not bound_to_private(value)}
+                       if not reads_source(value, private, False)}
             context = {name: value for name, value in context.items() if value is not None}
             label = _label(component, by_id, data, scope) or event["name"]
             fingerprint = json.dumps([event["name"], context], ensure_ascii=False, sort_keys=True, default=str)

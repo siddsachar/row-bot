@@ -26,6 +26,8 @@ export type Context = {
   pressed: string | null;
   uid: string;
   title: string;
+  /** The surface's sources: values filled in on this computer, never sent with a press. */
+  sources: readonly string[];
 };
 
 /** A value of the surface, in words. */

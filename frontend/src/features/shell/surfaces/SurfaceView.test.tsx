@@ -426,3 +426,41 @@ it('shows a column of amounts as the file wrote them, and heads an untitled char
   expect(screen.getAllByText('Recorded spending')[0]).toBeVisible();
   expect(screen.queryByText(/^Rent: /)).toBeNull();
 });
+
+it('leaves what this computer filled in out of a press', () => {
+  const sent = composer();
+  show(
+    surface({
+      components: [
+        { id: 'root', component: 'Column', children: ['send'] },
+        { id: 'word', component: 'Text', text: 'Send it' },
+        {
+          id: 'send',
+          component: 'Button',
+          child: 'word',
+          action: {
+            event: {
+              name: 'send',
+              context: {
+                month: { '@path': '/month' },
+                total: { '@path': '/spend/total' },
+                said: {
+                  '@call': 'formatString',
+                  args: { value: 'Total ${/spend/total}' },
+                },
+              },
+            },
+          },
+        },
+      ],
+      dataModel: { month: 'October', spend: { total: 1945.18 } },
+      sources: {
+        '/spend': { '@call': 'rowbot.file', args: { path: 'bank/oct.csv' } },
+      },
+    }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send it' }));
+  expect(sent).toHaveBeenCalledWith('Send it', {
+    surface: expect.objectContaining({ context: { month: 'October' } }),
+  });
+});
