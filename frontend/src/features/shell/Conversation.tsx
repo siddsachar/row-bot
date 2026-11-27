@@ -324,6 +324,7 @@ export default function Conversation({
   onResourceOpened,
   onResourceRemoved,
   onNewChat = () => undefined,
+  newChatOpening = false,
   focusConversationId,
   onComposerFocused,
   firstPrompt,
@@ -342,6 +343,8 @@ export default function Conversation({
   /** A resource is being removed (Undo on its card): close its panels. */
   onResourceRemoved?: (resourceRef: string) => void;
   onNewChat?: () => void;
+  /** New chat is on its way: Enter here waits, and the text moves to it (F17). */
+  newChatOpening?: boolean;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
   firstPrompt?: { conversationId: string; text: string } | null;
@@ -1780,6 +1783,8 @@ export default function Conversation({
     tapped?: TappedChoice,
   ) {
     const outgoing = example ? { text: example, attachments } : draft;
+    // New chat is opening: what was typed goes with it, not into this chat (F17).
+    if (!example && newChatOpening) return;
     // A message typed while Row-Bot's turn waits on one question answers it,
     // in the person's own words ("done, signed in"), and the turn goes on.
     const waiting = example || questionChecked ? null : waitingApproval(state);

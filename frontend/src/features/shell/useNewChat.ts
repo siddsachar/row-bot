@@ -103,6 +103,10 @@ export default function useNewChat() {
     if (voice === 'talk') primeVoicePlayback();
     setFirstPrompt(null);
     setCreatingChat(true);
+    // Typed in the open chat while this one is on its way: it moves to the new
+    // chat's composer, and the open chat keeps the draft it had (F17).
+    const from = controller.getSnapshot().selectedConversationId;
+    const before = from ? controller.getDraft(from) : null;
     const selection = controller.getSelectionVersion();
     const instance = state.handshake?.instance_id;
     const session = state.handshake?.client_session_id;
@@ -128,6 +132,17 @@ export default function useNewChat() {
         !controller.getDraft(conversationId).text.trim()
       )
         controller.setDraft(conversationId, { text: typed, attachments: [] });
+      if (from && before && from !== conversationId && !firstMessage.trim()) {
+        const now = controller.getDraft(from);
+        if (
+          now.text !== before.text &&
+          now.text.trim() &&
+          !controller.getDraft(conversationId).text.trim()
+        ) {
+          controller.setDraft(conversationId, now);
+          controller.setDraft(from, before);
+        }
+      }
       if (firstMessage.trim() && !send) {
         controller.setDraft(conversationId, {
           text: firstMessage,

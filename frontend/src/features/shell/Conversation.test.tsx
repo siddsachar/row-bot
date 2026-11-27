@@ -304,6 +304,7 @@ function Conversation(props: Parameters<typeof ConversationView>[0]) {
       )}
       <ConversationView
         {...props}
+        newChatOpening={owner.creatingChat}
         focusConversationId={owner.focusConversationId}
         onComposerFocused={owner.onComposerFocused}
         firstPrompt={owner.firstPrompt}
@@ -2234,6 +2235,39 @@ it('creates a conversation and submits a Home example through one user action', 
     write_targets: [],
   });
   expect(mock.drafts.get('first-chat')?.text).toBe('');
+});
+
+it('keeps what was typed while New chat is on its way out of the open chat and moves it to the new one (F17)', async () => {
+  idleConversation();
+  mock.drafts.set('conversation-a', { text: 'Old draft', attachments: [] });
+  let finish!: () => void;
+  mock.intent.mockImplementation(
+    (_target, type, _payload, _revision, commandId) =>
+      type === 'conversation.create'
+        ? new Promise((resolve) => {
+            finish = () =>
+              resolve({
+                command_id: commandId,
+                conversation_id: 'made-1',
+                status: 'completed',
+              });
+          })
+        : Promise.resolve({ command_id: commandId, status: 'accepted' }),
+  );
+  await act(async () => conversation());
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' })),
+  );
+  const box = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(box, { target: { value: 'Book the dentist' } });
+  await act(async () => fireEvent.keyDown(box, { key: 'Enter' }));
+  // Nothing is sent into the chat that was open.
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.create');
+  await act(async () => finish());
+  expect(mock.navigate).toHaveBeenLastCalledWith('/conversations/made-1');
+  expect(mock.drafts.get('made-1')?.text).toBe('Book the dentist');
+  expect(mock.drafts.get('conversation-a')?.text).toBe('Old draft');
 });
 
 it('opens the chat New chat made and nobody used instead of making another', async () => {
