@@ -185,6 +185,11 @@ _TAPPED_KEY = "tapped_choice"  # F3: the person tapped one of a reply's answer b
 # a storyboard asks for, never a correction of the reply before it.
 _VIDEO_PANEL_KEY = "video_panel"
 _VIDEO_PANEL_ACTIONS = frozenset({"comment", "swap", "new_take", "make"})
+# Generative UI: the person pressed a button on an interface a reply drew. The model reads A2UI's action message
+# under this note; the chat shows the button's words and what the press carries (``platform_public_content``).
+# Like a tapped answer button, it is the person's own answer, never a correction of the reply that drew it.
+_SURFACE_NOTE = "surface"
+_SHOWN_KEY = "platform_public_content"
 _VOICE_FRONT_KEY = "voice_front"  # V4: a line Live voice's speech model said itself, saved after its run
 _REPLIES = frozenset({"ai", "AIMessageChunk"})
 
@@ -234,12 +239,19 @@ def is_row_bot_prompt(message: Any) -> bool:
     """Whether a human-role message started work Row-Bot set itself (``platform_note``: its carry-on, a goal's
     next step or a file check, a message linked from another chat, a page's decisions, a delegated agent's
     task) or is an event it added: the same messages Capture never takes as the person's, so the person's
-    words read past them."""
+    words read past them. A press on an interface's button (``is_surface_press``) is the person's own."""
 
     kwargs = _kwargs(message)
     ui = kwargs.get("row_bot_ui")
-    return bool(kwargs.get("platform_note") or kwargs.get("row_bot_internal_event")
+    note = kwargs.get("platform_note")
+    return bool((note and note != _SURFACE_NOTE) or kwargs.get("row_bot_internal_event")
                 or (isinstance(ui, Mapping) and ui.get("thread_event")))
+
+
+def is_surface_press(message: Any) -> bool:
+    """Whether a human-role message is the person's press on a button of an interface a reply drew."""
+
+    return _kwargs(message).get("platform_note") == _SURFACE_NOTE
 
 
 def _content_text(content: Any) -> str:
@@ -259,7 +271,8 @@ def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool, bo
     the turn worked, whether they tapped it). Human messages without Row-Bot's turn context (its own message,
     or a block it appended), its notes, its prompts (``is_row_bot_prompt``) or the page's picture after an
     action. A tapped answer button is the person's own message, its words the button's; so is what the Video
-    panel sends for them, and both count as tapped."""
+    panel sends for them, and a press on an interface's button, whose words are what the chat shows of it (never
+    the action message the model reads); all three count as tapped."""
 
     from row_bot.learning.pictures import is_page_picture
 
@@ -272,10 +285,12 @@ def _persons(request: Mapping[str, Any] | None) -> list[tuple[int, str, bool, bo
         if kwargs.get(_TURN_CONTEXT_KEY):
             continue
         data = item.get("data") or {}
-        text = _content_text(data.get("content") if isinstance(data, Mapping) else None)
+        pressed = is_surface_press(item)
+        text = _content_text(kwargs.get(_SHOWN_KEY) if pressed else
+                             data.get("content") if isinstance(data, Mapping) else None)
         if text:
             panel = kwargs.get(_VIDEO_PANEL_KEY)
-            tapped = isinstance(kwargs.get(_TAPPED_KEY), Mapping) or (
+            tapped = pressed or isinstance(kwargs.get(_TAPPED_KEY), Mapping) or (
                 isinstance(panel, Mapping) and panel.get("action") in _VIDEO_PANEL_ACTIONS)
             found.append((index, text, bool(kwargs.get(_MID_TURN_KEY)), tapped))
     return found

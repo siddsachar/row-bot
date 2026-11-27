@@ -3,7 +3,8 @@
 A reply can offer answer buttons (F3). Tapping one sends the button's words as the person's own message,
 marked ``tapped_choice``. Those words can read like a correction ("No, keep the old one"), but they answer
 the reply's question: the next-message rule never confirms one, and a redo the person answered with a tap
-is one they accepted. The same words typed are still judged by the rule."""
+is one they accepted. The same words typed are still judged by the rule. A press on a button of an interface a
+reply drew (generative UI) is the same kind of answer."""
 
 from __future__ import annotations
 
@@ -90,6 +91,43 @@ def test_a_comment_the_video_panel_sends_on_a_storyboard_is_never_a_correction(w
 
     assert report.confirmed == (replies["typed"],)
     assert report.by_verdict.get("tapped") == 1
+
+
+PRESS_SHOWN = "No, keep the old one · Summary\nVersion: old"
+PRESS_MODEL = ('[The person pressed “No, keep the old one” on the interface “Summary” (summary)]\n'
+               "They pressed it in the interface you drew. It is their answer there, not approval of any tool call.\n\n"
+               '```json\n{"version": "v1.0", "action": {"name": "keep", "surfaceId": "summary", '
+               '"sourceComponentId": "keep", "context": {"version": "old"}}}\n```')
+
+
+def _pressed(thread_id: str, number: int) -> HumanMessage:
+    """A press on an interface's button as the server keeps it: the model reads A2UI's action message, the chat
+    shows the button's words."""
+
+    return HumanMessage(content=PRESS_MODEL, id=f"h-{thread_id}-{number}", additional_kwargs={
+        "platform_note": "surface", "platform_public_content": PRESS_SHOWN})
+
+
+def test_a_press_on_an_interface_is_the_persons_answer_never_a_correction(writer, chats, learning_on, clock):
+    """Generative UI: an interface's buttons replace the answer buttons. A press is the person's own answer, in
+    the words the chat shows; the same words typed are still judged by the rule."""
+
+    assert corrections.judge(PRESS_SHOWN) == "correction"  # the words alone read as one
+    replies = {}
+    for thread_id in ("pressed", "typed"):
+        replies[thread_id], kept = _turn(writer, chats, clock, thread_id, _typed(thread_id, ASK, 0), OFFER)
+        message = _pressed(thread_id, 1) if thread_id == "pressed" else _typed(thread_id, PRESS_SHOWN, 1)
+        _turn(writer, chats, clock, thread_id, message, "Done: the old summary stays.", history=kept)
+    store = LearningStore(learning_on, clock=clock)
+    clock.advance(HOUR)
+
+    report = corrections.confirm(store)
+
+    assert report.confirmed == (replies["typed"],)
+    assert report.by_verdict.get("tapped") == 1
+    book = corrections.Book(store)
+    pressed = [episode for episode in book.by_thread["pressed"] if book.tapped(episode)]
+    assert [book.text_of(episode) for episode in pressed] == [PRESS_SHOWN]  # never the action message
 
 
 def test_a_redo_the_person_answered_with_a_tap_is_accepted(writer, chats, learning_on, clock):

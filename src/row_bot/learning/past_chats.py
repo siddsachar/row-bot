@@ -59,7 +59,7 @@ from row_bot.learning.capture import (
     _Sink,
 )
 from row_bot.learning.contracts import Decision, Episode, Job
-from row_bot.learning.corrections import is_voice_front
+from row_bot.learning.corrections import is_row_bot_prompt, is_voice_front
 from row_bot.learning.store import LearningStore, LearningStoreError
 
 logger = logging.getLogger(__name__)
@@ -229,13 +229,10 @@ def _derived_id(prefix: str, *parts: object) -> str:
 
 
 def _person_started(message: Any) -> bool:
-    """A turn the person started (not a goal step's prompt or an event Row-Bot added)."""
+    """A turn the person started (not a goal step's prompt or an event Row-Bot added; a press on an interface's
+    button is theirs)."""
 
-    extra = getattr(message, "additional_kwargs", None)
-    extra = extra if isinstance(extra, dict) else {}
-    ui = extra.get("row_bot_ui")
-    return not (extra.get("platform_note") or extra.get("row_bot_internal_event")
-                or (isinstance(ui, dict) and ui.get("thread_event")))
+    return not is_row_bot_prompt(message)
 
 
 def _turns(messages: Sequence[Any]) -> list[tuple[int, int]]:
