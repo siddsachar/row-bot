@@ -355,10 +355,11 @@ class CapturedWork:
     def turn(self, thread_id: str, question: str, answer: str, *, model_ref: str = "gpt-5.6-sol",
              provider_id: str = "openai", end: str = "completed", tool_status: str = "ok",
              args: dict | None = None, tool: bool = True, raw_answer: str | None = None,
-             person_message: bool = False, stop: str | None = None) -> list[str]:
+             person_message: bool = False, stop: str | None = None, tool_name: str = "calculate") -> list[str]:
         """One turn; returns its model calls' decision ids (the tool step's, then the answer's).
         ``person_message``: the person sent it (capture marks the reply it followed). ``stop``: the
-        answer's stop reason as its provider reports it (``finish_reason``)."""
+        answer's stop reason as its provider reports it (``finish_reason``). ``tool_name``: another tool than
+        the calculator, offered for this turn."""
 
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -371,19 +372,24 @@ class CapturedWork:
         sent = [SystemMessage(content=self.SYSTEM, id="sys"), *self.history[thread_id], asked]
         ids: list[str] = []
         added: list = [asked]
+        tools = self.TOOLS if tool_name == "calculate" else [*self.TOOLS, {"type": "function", "function": {
+            "name": tool_name, "description": "Search the person's notes.",
+            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}]
         if tool:
-            call = {"id": f"call_{number}", "name": "calculate", "args": args or {"expression": "6 * 7"}}
+            calculator = tool_name == "calculate"
+            call = {"id": f"call_{number}", "name": tool_name,
+                    "args": args or ({"expression": "6 * 7"} if calculator else {"query": question})}
             step = AIMessage(content="", id=f"a{number}", tool_calls=[call])
-            ids.append(self.writer.model_call(turn, messages=sent, response=step, tools=self.TOOLS, model_ref=model_ref,
+            ids.append(self.writer.model_call(turn, messages=sent, response=step, tools=tools, model_ref=model_ref,
                                               provider_id=provider_id))
-            result = ToolMessage(content="6 * 7 = 42", tool_call_id=call["id"], id=f"t{number}",
-                                 status="error" if tool_status != "ok" else "success")
+            result = ToolMessage(content="6 * 7 = 42" if calculator else "One note matches.", tool_call_id=call["id"],
+                                 id=f"t{number}", status="error" if tool_status != "ok" else "success")
             self.writer.tool_call(turn, call=call, result=result, status=tool_status)
             sent = [*sent, step, result]
             added += [step, result]
         reply = AIMessage(content=raw_answer if raw_answer is not None else answer, id=f"r{number}",
                           response_metadata={"finish_reason": stop} if stop else {})
-        ids.append(self.writer.model_call(turn, messages=sent, response=reply, tools=self.TOOLS, model_ref=model_ref,
+        ids.append(self.writer.model_call(turn, messages=sent, response=reply, tools=tools, model_ref=model_ref,
                                           provider_id=provider_id))
         added.append(AIMessage(content=answer, id=f"r{number}-kept"))
         self.writer.end_turn(turn, end)
@@ -391,6 +397,16 @@ class CapturedWork:
         self.history[thread_id] += added
         self.clock.advance(60)
         return ids
+
+
+def varied_turns(work: CapturedWork, count: int, start: int = 0) -> None:
+    """Turns in their own chats whose replies begin three ways (the calculator, a notes search, a plain answer), as
+    training needs before it plans (FL13)."""
+
+    for index in range(start, start + count):
+        way = index % 3
+        work.turn(f"chat-{index}", f"Question {index}", f"Answer {index}.", tool=way < 2,
+                  tool_name="calculate" if way == 0 else "search_notes")
 
 
 BROWSER_TOOLS = [{"type": "function", "function": {

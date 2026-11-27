@@ -136,6 +136,7 @@
                 "gpu_busy",
                 "memory_busy",
                 "comparing",
+                "narrow_data",
                 "hf_signed_out",
                 "hf_no_model",
                 "hf_unknown",

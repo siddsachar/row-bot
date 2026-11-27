@@ -186,7 +186,7 @@ def test_retrain_without_plans_even_without_new_examples(learning_on):
     calls = []
     planner = Planner(learning_on, jobs=TrainingJobs(learning_on), engine=FakeEngine(),
                       trained_ids=lambda: {"ex_1"})
-    summary = SimpleNamespace(enough=True, new_examples=0, examples=200)
+    summary = SimpleNamespace(enough=True, varied=True, new_examples=0, examples=200)
     planner.summary = lambda compute=True: summary  # type: ignore[method-assign]
     import row_bot.learning.training.dataset as dataset_module
 

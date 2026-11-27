@@ -32,6 +32,13 @@ engine is installed (``measure``), estimated otherwise.
 the rows) are the validation slice, the rest trains; with fewer than five conversations everything
 trains. Below the recipe's minimum the Personal model says "Needs more examples".
 
+**Variety** (FL13): training waits until the examples cover several kinds of work: at least
+:data:`MIN_KINDS` ways of beginning (the first tool a reply calls, or answering without one) each begin
+at least :data:`KIND_SHARE` of the examples, and none begins more than :data:`MAX_SAME_START`. Until then
+the Personal model says "Needs more varied examples". A 9B trained on examples that nearly all began by
+reading a file (93 of 97) reached for that tool on every task, after one pass as after two, and failed its
+comparison; a varied set (at most a fifth beginning one way) gained on the person's own work (O122).
+
 **Shape** (O71): rows are trained in the shape the personal model serves in. Each row is
 re-rendered into the serving envelope of the recipe's ``serve_context`` (``shape.render``: the
 small-context profile's prompt and tool exposure at 32K, a call to a tool now behind the bridge
@@ -82,6 +89,13 @@ VALIDATION_FILE = "validation.jsonl"
 MANIFEST_FILE = "dataset.json"
 # Validation only once there are enough conversations to hold some back.
 MIN_VALIDATION_CONVERSATIONS = 5
+# Variety (FL13): this many ways of beginning a reply, each beginning at least this share of the examples, and
+# none beginning more than that share.
+MIN_KINDS = 3
+KIND_SHARE = 0.1
+MAX_SAME_START = 0.5
+# Finding a tool isn't a way of beginning: the tool found is.
+_DISCOVERY_TOOLS = frozenset({"tool_search"})
 # About how many characters a token of Row-Bot's envelope is (L0d: 41.4K characters of system prompt,
 # tool schemas and messages were 10,752 Qwen3.5 tokens); a little low, so an estimate errs long.
 CHARS_PER_TOKEN = 3.5
@@ -1128,20 +1142,69 @@ class DatasetSummary:
     at: float
     dataset_id: str | None = None
     by_reason: Mapping[str, int] = field(default_factory=dict)
+    # How many examples that train begin each way (:func:`first_step`; "" answers without a tool).
+    starts: Mapping[str, int] = field(default_factory=dict)
 
     @property
     def enough(self) -> bool:
         return self.examples >= self.needed
 
+    @property
+    def same_start(self) -> int:
+        """How many examples begin the way most of them do."""
+
+        return max(self.starts.values(), default=0)
+
+    @property
+    def varied(self) -> bool:
+        """The examples cover several kinds of work (FL13), so training on them won't teach one way for all."""
+
+        total = sum(self.starts.values())
+        if total <= 0:
+            return False
+        kinds = sum(1 for count in self.starts.values() if count >= KIND_SHARE * total)
+        return kinds >= MIN_KINDS and self.same_start <= MAX_SAME_START * total
+
+    @property
+    def ready(self) -> bool:
+        """Enough examples, and varied enough to train on."""
+
+        return self.enough and self.varied
+
+
+def first_step(row: Mapping[str, Any]) -> str:
+    """How a training row's reply begins: the first tool its targets call (a tool reached through the bridge by its
+    own name; finding one doesn't count), or "" when it answers without one."""
+
+    for message in row.get("messages") or ():
+        if message.get("role") != "assistant" or not message.get("weight"):
+            continue
+        for call in message.get("tool_calls") or ():
+            function = call.get("function") if isinstance(call, Mapping) else None
+            name = str((function or {}).get("name") or "")
+            if not name or name in _DISCOVERY_TOOLS:
+                continue
+            if name == "tool_invoke":
+                try:
+                    args = json.loads((function or {}).get("arguments") or "{}")
+                except (TypeError, ValueError):
+                    args = {}
+                name = str(args.get("name") or name) if isinstance(args, Mapping) else name
+            return name
+        if not message.get("tool_calls"):
+            return ""
+    return ""
+
 
 def summarize(dataset: CompiledDataset, recipe: Any, *, trained_ids: Iterable[str] = (), at: float = 0.0) -> DatasetSummary:
     known = set(trained_ids)
+    every = (*dataset.train, *dataset.validation)
     return DatasetSummary(
         examples=dataset.examples, needed=int(recipe.min_examples),
         # New work, wherever the split puts it (the newest conversations validate first).
-        new_examples=sum(1 for item in (*dataset.train, *dataset.validation) if item.id not in known),
+        new_examples=sum(1 for item in every if item.id not in known),
         left_out=sum(dataset.left_out.values()), at=at, dataset_id=dataset.id,
-        by_reason=dict(dataset.left_out),
+        by_reason=dict(dataset.left_out), starts=dict(Counter(first_step(item.row) for item in dataset.train)),
     )
 
 

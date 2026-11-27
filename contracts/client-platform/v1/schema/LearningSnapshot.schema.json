@@ -1186,6 +1186,12 @@
           "title": "New Examples",
           "type": "integer"
         },
+        "same_start": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Same Start",
+          "type": "integer"
+        },
         "waiting_for_tools": {
           "default": 0,
           "minimum": 0,
@@ -2952,6 +2958,7 @@
                 "gpu_busy",
                 "memory_busy",
                 "comparing",
+                "narrow_data",
                 "hf_signed_out",
                 "hf_no_model",
                 "hf_unknown",

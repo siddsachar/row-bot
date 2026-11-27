@@ -5,6 +5,8 @@ The quiet-hours runner asks the planner, once a while, whether a run should be p
 - the computer can train (the engine and the starting model are installed);
 - the dataset (``dataset.py``) holds at least the recipe's minimum of examples, or the Personal
   model says "Needs more examples" (with the count so far);
+- they cover several kinds of work (``DatasetSummary.varied``, FL13), or the Personal model says
+  "Needs more varied examples";
 - since the newest version, enough new examples arrived (the recipe's ``min_new_examples``), or
   the version is up to date.
 
@@ -40,7 +42,8 @@ MEASURE_SECONDS = 900.0
 
 @dataclass(frozen=True)
 class PlanOutcome:
-    """What planning did: a job, or why not (``no_data``, ``up_to_date``, ``no_engine``, ``failed``)."""
+    """What planning did: a job, or why not (``no_data``, ``narrow_data``, ``up_to_date``, ``no_engine``,
+    ``failed``)."""
 
     job: Any = None
     reason: str | None = None
@@ -234,6 +237,8 @@ class Planner:
         recipe = self.recipe()
         if not summary.enough:
             return PlanOutcome(reason="no_data", summary=summary)
+        if not summary.varied:
+            return PlanOutcome(reason="narrow_data", summary=summary)
         trained = self.trained_ids()
         if trained and summary.new_examples < recipe.min_new_examples and not retrain:
             return PlanOutcome(reason="up_to_date", summary=summary)
@@ -249,6 +254,8 @@ class Planner:
             summary = self._summary
         if compiled.examples < recipe.min_examples:
             return PlanOutcome(reason="no_data", summary=summary)
+        if not summary.varied:
+            return PlanOutcome(reason="narrow_data", summary=summary)
         if trained and summary.new_examples < recipe.min_new_examples and not retrain:
             return PlanOutcome(reason="up_to_date", summary=summary)
         steps = recipe.steps_for(compiled.examples)

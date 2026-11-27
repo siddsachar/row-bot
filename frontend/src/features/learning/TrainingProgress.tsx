@@ -423,6 +423,17 @@ export function trainingView(
           actions: [],
           announce: '',
         };
+      // FL13: trained mostly on one kind of work, a personal model does everything that way.
+      if (reason === 'narrow_data')
+        return {
+          title: examples?.same_start
+            ? `Needs more varied examples · ${examples.same_start.toLocaleString()} of ${examples.examples.toLocaleString()} start the same way`
+            : 'Needs more varied examples',
+          detail:
+            'Trained mostly on one kind of work, a personal model learns to do everything that way. Training starts once your examples cover more kinds of work, so keep using Row-Bot for different things.',
+          actions: [],
+          announce: '',
+        };
       if (reason === 'planning')
         return {
           title: examples?.examples

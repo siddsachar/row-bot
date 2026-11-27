@@ -5156,6 +5156,8 @@ class LearningExamples(WireModel):
     left_out: int = Field(ge=0)
     # Replies from past chats that count once one chat here has used a tool (O113): their rows are framed like it.
     waiting_for_tools: int = Field(default=0, ge=0)
+    # Examples that begin the way most of them do: training waits until they cover several kinds of work (FL13).
+    same_start: int = Field(default=0, ge=0)
 
 
 class LearningVersion(WireModel):
@@ -5786,7 +5788,7 @@ class LearningRunnerStatus(WireModel):
         "train_off", "hugging_face", "no_engine", "no_data", "quiet_hours", "after_dream", "now", "in_use", "chat",
         "workflow", "indexing", "dream", "you", "app_closed", "worker_stopped", "out_of_gpu_memory", "out_of_disk",
         "cannot_resume", "data_unreadable", "engine_error", "learning_off", "learning_paused", "extraction",
-        "planned", "planning", "up_to_date", "gpu_busy", "memory_busy", "comparing",
+        "planned", "planning", "up_to_date", "gpu_busy", "memory_busy", "comparing", "narrow_data",
         "hf_signed_out", "hf_no_model", "hf_unknown", "hf_first_run", "hf_over_cap", "hf_no_credit", "hf_network",
         "hf_busy", "hf_not_confirmed",
     ] | None = None
