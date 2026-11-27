@@ -128,10 +128,20 @@ def _load(source: str) -> list[Any]:
     """The JSON values a body holds: one value, or one per line (JSON lines)."""
 
     text = source.strip()
-    try:
-        return [json.loads(text, parse_constant=_reject_constant)]
-    except (ValueError, RecursionError):
-        pass
+    for _attempt in range(4):
+        try:
+            return [json.loads(text, parse_constant=_reject_constant)]
+        except json.JSONDecodeError as error:
+            # Healed: a component left unclosed before the next one starts (`..."/fun"}}}},{"id": ...`,
+            # one "}" short), as local models write it. Close the object the next one landed in.
+            comma = text.rfind(",", 0, error.pos)
+            if not (error.msg.startswith("Expecting property name") and text.startswith("{", error.pos)
+                    and comma >= 0 and not text[comma + 1:error.pos].strip()):
+                break
+            text = f"{text[:comma]}}}{text[comma:]}"
+        except (ValueError, RecursionError):
+            break
+    text = source.strip()
     values = []
     for line in text.splitlines():
         if line.strip():
@@ -512,6 +522,8 @@ def _component(raw: Any) -> dict[str, Any] | None:
         return None
     if component == "Text" and "text" not in raw and "value" in raw:
         raw = {**raw, "text": raw["value"]}  # Healed: a Text's words written as its "value".
+    if component in _EMPTY_INPUT and "value" not in raw:
+        raw = {**raw, "value": _EMPTY_INPUT[component]}  # Healed: an input written without its value.
     properties, required, checkable = CATALOG[component]
     checked: dict[str, Any] = {"id": raw.get("id"), "component": component}
     for key, value in raw.items():
@@ -614,9 +626,53 @@ def _settle(components: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return reachable
 
 
+# An input written without its value starts empty (and _bound_inputs gives it its place).
+_EMPTY_INPUT: dict[str, Any] = {"TextField": "", "DateTimeInput": "", "CheckBox": False, "ChoicePicker": []}
+
 # What the person changes in each editable component.
 _EDITABLE = {"TextField": "value", "CheckBox": "value", "ChoicePicker": "value", "Slider": "value",
              "DateTimeInput": "value", "Breakdown": "items"}
+
+
+def _templated(components: dict[str, dict[str, Any]]) -> set[str]:
+    """The components drawn once per item of a list (a template and everything under it)."""
+
+    templated: set[str] = set()
+    pending = [component["children"]["componentId"] for component in components.values()
+               if isinstance(component.get("children"), dict)]
+    while pending:
+        key = pending.pop()
+        if key in templated or key not in components:
+            continue
+        templated.add(key)
+        pending.extend(_references(components[key]))
+    return templated
+
+
+def _sending_inputs(components: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Healed: a button that sends nothing the person entered (a form's Send with only
+    ``"context": {"purpose": "booking"}``) sends the interface's inputs too, each under its id. Without
+    them the press reaches Row-Bot empty. A button drawn per item keeps its item's context; a value
+    Row-Bot fills in on this computer still never goes (``declared_actions``)."""
+
+    templated = _templated(components)
+    inputs = {key: component[_EDITABLE[component["component"]]] for key, component in components.items()
+              if component["component"] in _EDITABLE and key not in templated
+              and isinstance(component.get(_EDITABLE[component["component"]]), dict)
+              and str(component[_EDITABLE[component["component"]]].get("@path", "")).startswith("/")}
+    if not inputs:
+        return components
+    healed = dict(components)
+    for key, component in components.items():
+        event = component.get("action", {}).get("event") if component["component"] == "Button" else None
+        if not event or key in templated:
+            continue
+        context = event.get("context") or {}
+        if any('"@path"' in json.dumps(value) or "${" in json.dumps(value) for value in context.values()):
+            continue
+        sent = {**dict(list(inputs.items())[:12]), **context}
+        healed[key] = {**component, "action": {**component["action"], "event": {**event, "context": sent}}}
+    return healed
 
 
 def _bound_inputs(components: dict[str, dict[str, Any]], data: Any) -> tuple[dict[str, dict[str, Any]], Any]:
@@ -627,15 +683,7 @@ def _bound_inputs(components: dict[str, dict[str, Any]], data: Any) -> tuple[dic
 
     if not isinstance(data, dict):
         return components, data
-    templated: set[str] = set()
-    pending = [component["children"]["componentId"] for component in components.values()
-               if isinstance(component.get("children"), dict)]
-    while pending:
-        key = pending.pop()
-        if key in templated or key not in components:
-            continue
-        templated.add(key)
-        pending.extend(_references(components[key]))
+    templated = _templated(components)
     healed, data = dict(components), dict(data)
     for key, component in components.items():
         prop = _EDITABLE.get(component["component"])
@@ -687,7 +735,8 @@ def _sources(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _healed_data(data: Any) -> tuple[Any, dict[str, Any]]:
     """Healed: data keys written as paths ({"/budget": {...}} is "budget"), and Row-Bot's sources written
-    into the data model ({"tasks": {"@call": "rowbot.tasks"}}), which become the surface's sources."""
+    into the data model ({"tasks": {"@call": "rowbot.tasks"}}, or {"sources": {"/tasks": ...}}), which
+    become the surface's sources."""
 
     if not isinstance(data, dict):
         return data, {}
@@ -695,7 +744,11 @@ def _healed_data(data: Any) -> tuple[Any, dict[str, Any]]:
     moved: dict[str, Any] = {}
     for key, value in data.items():
         path = key if key.startswith("/") else f"/{key}"
-        if isinstance(value, dict) and str(value.get("@call") or "").startswith("rowbot."):
+        if key == "sources" and isinstance(value, dict) and value and all(
+                isinstance(call, dict) and str(call.get("@call") or "").startswith("rowbot.")
+                for call in value.values()):
+            moved.update(value)
+        elif isinstance(value, dict) and str(value.get("@call") or "").startswith("rowbot."):
             moved[path] = value
         elif key.startswith("/") and key != "/" and _PATH.match(key):
             healed = _set(healed, key, value)
@@ -802,6 +855,7 @@ def read_surface(source: str) -> dict[str, Any]:
     if len(json.dumps(data, ensure_ascii=False)) > MAX_DATA_CHARS:
         raise SurfaceError("the data model is too large")
     reachable, data = _bound_inputs(_settle(components), data)
+    reachable = _sending_inputs(reachable)
     surface = {
         "surfaceId": surface_id,
         "catalogId": CATALOG_ID,

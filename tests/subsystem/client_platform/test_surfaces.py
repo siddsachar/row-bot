@@ -195,6 +195,59 @@ def test_what_models_get_wrong_heals_into_what_they_meant():
     assert surfaces.surface_text(surface).startswith("Open tasks")
 
 
+def test_what_a_local_model_writes_wrong_heals_too():
+    # As qwen3.8:27b wrote them (27 Nov): the apply button one "}" short before the next component,
+    # a date picker without its value, and the sources as an object inside the data model.
+    body = json.dumps({
+        "title": "Booking", "surfaceId": "booking",
+        "components": [
+            {"id": "root", "component": "Column", "children": ["when", "list", "send"]},
+            {"id": "when", "component": "DateTimeInput", "label": "Preferred date"},
+            {"id": "list", "component": "Table", "rows": {"@path": "/tasks"}},
+            {"id": "send", "component": "Button", "child": "label",
+             "action": {"event": {"name": "send", "context": {"when": {"@path": "/when"}}}}},
+            {"id": "label", "component": "Text", "text": "Send"}],
+        "dataModel": {"sources": {"/tasks": {"@call": "rowbot.tasks"}}}}, separators=(",", ":"))
+    unclosed = body.replace('"/when"}}}}},', '"/when"}}}},')
+    assert unclosed != body
+
+    surface = surfaces.read_surface(unclosed)
+    by_id = {component["id"]: component for component in surface["components"]}
+
+    assert list(by_id) == ["root", "when", "list", "send", "label"]
+    assert by_id["when"]["value"] == {"@path": "/when"}
+    assert surface["sources"] == {"/tasks": {"@call": "rowbot.tasks", "args": {}}}
+    assert surface["dataModel"] == {"when": ""}
+    # A body that is broken some other way is still not a surface.
+    with pytest.raises(surfaces.SurfaceError):
+        surfaces.read_surface(unclosed.replace('"components":[', '"components":[,'))
+
+
+def test_a_send_button_that_names_no_input_sends_what_the_person_entered():
+    surface = surfaces.read_surface(json.dumps({
+        "title": "Dentist", "surfaceId": "dentist",
+        "sources": {"/tasks": {"@call": "rowbot.tasks"}},
+        "components": [
+            {"id": "root", "component": "Column", "children": ["name", "when", "send", "open", "list"]},
+            {"id": "name", "component": "TextField", "label": "Full name", "value": ""},
+            {"id": "when", "component": "DateTimeInput", "label": "Preferred date"},
+            {"id": "send", "component": "Button", "child": "send_label",
+             "action": {"event": {"name": "book", "context": {"purpose": "dentist"}}}},
+            {"id": "send_label", "component": "Text", "text": "Send"},
+            {"id": "open", "component": "Button", "child": "open_label",
+             "action": {"event": {"name": "open", "context": {"name": {"@path": "/name"}}}}},
+            {"id": "open_label", "component": "Text", "text": "Open"},
+            {"id": "list", "component": "List", "children": {"path": "/tasks", "componentId": "done"}},
+            {"id": "done", "component": "Button", "child": "done_label",
+             "action": {"event": {"name": "done", "context": {"task": "this one"}}}},
+            {"id": "done_label", "component": "Text", "text": "Done"}]}))
+
+    actions = surfaces.declared_actions(surface)
+    assert actions["book"]["context"] == {"name", "when", "purpose"}
+    assert actions["open"]["context"] == {"name"}  # it names what it sends: left as drawn
+    assert actions["done"]["context"] == {"task"}  # drawn per item: keeps its item's context
+
+
 def test_a_table_and_a_chart_fit_the_rows_real_columns():
     rows = [{"date": "2026-10-02", "what": "Groceries", "amount": 61.9},
             {"date": "2026-10-11", "what": "Train", "amount": 487.23}]
