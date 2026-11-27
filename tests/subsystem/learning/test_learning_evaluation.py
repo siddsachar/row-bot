@@ -180,6 +180,9 @@ def test_with_no_limit_nothing_is_refused_and_every_token_still_counts(learning_
 
 def test_the_meter_counts_this_months_learning_calls_from_the_ledger(learning_on, monkeypatch):
     from row_bot.learning import spending
+    from tests.fixtures.learning import save_learning_settings
+
+    save_learning_settings(learning_on, experimental=True)  # comparing methods is experimental (O195)
     from row_bot.prompt_cache import ModelUsage
     from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
 
@@ -198,6 +201,22 @@ def test_the_meter_counts_this_months_learning_calls_from_the_ledger(learning_on
     assert TokenMeter(1_000_000, 0, share=0.2).remaining == 200_000  # the recursive layer's share (E13)
 
 
+def test_nothing_is_kept_for_comparing_methods_while_experimental_learning_is_off(learning_on):
+    # O195: the strategy trials run only with Learning's experimental parts on, so their share isn't held back.
+    from row_bot.learning import spending
+    from row_bot.prompt_cache import ModelUsage
+    from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
+    from tests.fixtures.learning import save_learning_settings
+
+    save_learning_settings(learning_on, monthly_token_limit=1_000_000)
+    assert record_model_usage(UsageRecord(purpose="learning_test", provider="openai", model="m",
+                                          created_at=spending.month_start() + 1,
+                                          usage=ModelUsage(input_tokens=790_000, output_tokens=0)))
+    meter = TokenMeter.for_month()
+    assert (meter.kept_back, meter.remaining) == (0, 210_000)
+    assert spending.kept_for_trials(1_000_000) == 0
+
+
 def test_comparing_methods_keeps_its_share_of_the_limit_from_the_rest_of_learnings_work(learning_on):
     from row_bot.learning import spending
     from row_bot.learning.improver import meta
@@ -205,7 +224,7 @@ def test_comparing_methods_keeps_its_share_of_the_limit_from_the_rest_of_learnin
     from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
     from tests.fixtures.learning import save_learning_settings
 
-    save_learning_settings(learning_on, monthly_token_limit=1_000_000)
+    save_learning_settings(learning_on, monthly_token_limit=1_000_000, experimental=True)
 
     def used(purpose: str, tokens: int) -> None:
         assert record_model_usage(UsageRecord(purpose=purpose, provider="openai", model="m",
@@ -357,11 +376,11 @@ def test_evaluation_never_touches_the_persons_conversations_memory_or_settings(l
     assert all(not path.exists() and root not in path.parents for path in sandboxes)
 
 
-def test_with_learning_off_a_test_writes_nothing(data_dir):
+def test_with_learning_off_a_test_writes_nothing(data_dir, learning_off):
     tasks = _docs(2)
     result = compare([Arm("a")], tasks=tasks, client=ScriptedClient(oracle(tasks)), meter=TokenMeter(10**9))
     assert result.arms[0].passed == 2 and result.arms[0].run.results_blob is None
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == ["learning_config.json"]  # only the person's "off"
 
 
 def test_sample_statistics_follow_the_fixed_definitions() -> None:

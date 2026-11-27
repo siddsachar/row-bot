@@ -403,6 +403,7 @@ const snapshot = {
     sources: { my_chats: true, workflows_and_goals: true, past_chats: true },
     apply_mode: 'ask_first',
     monthly_token_limit: 2_000_000,
+    experimental: false,
     train_in_quiet_hours: true,
     train_where: 'this_computer',
     has_data: false,

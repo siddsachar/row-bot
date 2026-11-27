@@ -58,6 +58,20 @@ Public documentation index for Row-Bot.
   Route: /docs/knowledge/wiki-vault. Keep a local Markdown vault of Row-Bot's memories, with readable file names, and sync your edits back.
 - [Knowledge Provenance And Repair](/docs/knowledge/provenance-repair)
   Route: /docs/knowledge/provenance-repair. Trace where knowledge came from, correct records, repair relations, and rebuild derived outputs safely.
+- [Learning](/docs/learning/)
+  Route: /docs/learning/. Learning lets Row-Bot improve from your own work on this computer: it is on from the start, tests each idea before offering it, asks first, and can train a personal model that runs here if you choose.
+- [Learning: Overview](/docs/learning/overview)
+  Route: /docs/learning/overview. The Learning tab's Overview: what needs you, what Learning did overnight, what Row-Bot is learning, and how it learns.
+- [Learning: Changes](/docs/learning/changes)
+  Route: /docs/learning/changes. Review the lessons, ways of working and skills Learning drafted: why, what changes and how its test went, then use, undo or turn them down.
+- [Learning: Lessons](/docs/learning/lessons)
+  Route: /docs/learning/lessons. See the lessons Row-Bot uses and the ones it saved for itself, search them, test them, turn them off or delete them.
+- [Learning: Personal Model](/docs/learning/personal-model)
+  Route: /docs/learning/personal-model. Train an open model on your own work, on your graphics card or on Hugging Face, compare each version with your main model, and choose which kinds of work it answers.
+- [Learning: Training On Hugging Face](/docs/learning/hugging-face)
+  Route: /docs/learning/hugging-face. Train your personal model in your own Hugging Face account, priced before each run and within a monthly cap you choose; the trained model runs on your computer.
+- [Learning: How Row-Bot Learns](/docs/learning/how-row-bot-learns)
+  Route: /docs/learning/how-row-bot-learns. Learning's method: how Row-Bot finds and drafts improvements, how a new method is compared with the current one, its track record and history, and what it can never change.
 - [Computer Use](/docs/computer-use/)
   Route: /docs/computer-use/. Let Row-Bot work in apps on your Windows or macOS computer with your mouse and keyboard while you watch.
 - [Monitor](/docs/monitor/)
@@ -81,15 +95,17 @@ Public documentation index for Row-Bot.
 - [Settings](/docs/settings/)
   Route: /docs/settings/. Find every Row-Bot settings page: six groups from General to System, with search for any setting.
 - [Settings: Preferences](/docs/settings/preferences)
-  Route: /docs/settings/preferences. Set the assistant's name and personality, learning new skills, how Row-Bot opens, the overnight Dream Cycle, and this device's appearance.
+  Route: /docs/settings/preferences. Set the assistant's name and personality, how Row-Bot opens, the overnight Dream Cycle, and this device's appearance.
 - [Settings: Buddy](/docs/settings/buddy)
   Route: /docs/settings/buddy. Use Buddy in the sidebar or as a desktop pet, message the selected thread from its bubble, handle approvals, make new looks, and configure how it moves.
+- [Settings: Learning](/docs/settings/learning)
+  Route: /docs/settings/learning. Turn Learning off or on, choose what it learns from, how changes are used, its monthly token limit, experimental learning, the personal model and its training, and delete learning data in Settings Learning.
 - [Settings: Providers](/docs/settings/providers)
   Route: /docs/settings/providers. Connect local, hosted, subscription, and custom model providers.
 - [Settings: Models](/docs/settings/models)
-  Route: /docs/settings/models. Choose the main model and the models for Vision, Image and Video, keep your models starred, connect providers, and set the reading limit and limits for long work.
+  Route: /docs/settings/models. Choose the main model and the models for Vision, Image and Video, keep your models starred, connect providers, set each local model's own settings, the Cloud reading limit and limits for long work.
 - [Settings: Voice](/docs/settings/voice)
-  Route: /docs/settings/voice. Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics.
+  Route: /docs/settings/voice. Configure Talk, dictation, Read aloud, the speech models, and the voice Row-Bot speaks with.
 - [Settings: Memory](/docs/settings/knowledge)
   Route: /docs/settings/knowledge. Turn remembering on or off, check graph health, configure the wiki vault, and delete all knowledge in Settings Memory.
 - [Settings: Documents](/docs/settings/documents)
@@ -117,7 +133,7 @@ Public documentation index for Row-Bot.
 - [Hosted And Local Apps (MCP)](/docs/integrations/mcp)
   Route: /docs/integrations/mcp. How apps that are hosted or run on this computer connect, which of their actions ask first, Windows connectors, the Composio broker, and turning apps off or removing them.
 - [Voice And Buddy](/docs/voice-and-buddy/)
-  Route: /docs/voice-and-buddy/. Configure Dictate, Talk, local voice, realtime voice, read-aloud, devices, and Buddy.
+  Route: /docs/voice-and-buddy/. Use Dictate, Talk, Read aloud and Live voice, choose local or cloud speech, and set up Buddy.
 - [Catalog Source Adapters](/docs/extending/source-adapters)
   Route: /docs/extending/source-adapters. For developers: the source adapter interface in src/row_bot/integrations/sources.py, how a new catalog source is added as one adapter plus data, and the passive-read rules every source follows.
 - [Contribute To The App Catalog](/docs/extending/app-catalog)
@@ -138,6 +154,8 @@ Public documentation index for Row-Bot.
   Route: /docs/operations/docker. Run one persistent Row-Bot server with Docker Compose, private host access, or an operator-managed HTTPS edge.
 - [Hosting Row-Bot](/docs/operations/hosting)
   Route: /docs/operations/hosting. Run the published Row-Bot image as one container, as a hosting service does: tags, release notes for hosts, settings, the secret-store key, the volume, sizes, memory and updates.
+- [Headless Runs (row-bot run)](/docs/operations/headless-run)
+  Route: /docs/operations/headless-run. Run one task with Row-Bot from the command line, with no window or server, for scripts, CI and benchmark harnesses.
 - [Privacy And Safety](/docs/privacy-safety/)
   Route: /docs/privacy-safety/. Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing.
 - [How Row-Bot Keeps An Agent In Bounds](/docs/privacy-safety/agent-in-bounds)
@@ -199,7 +217,7 @@ Public documentation index for Row-Bot.
 - [Home: Developer](/docs/home/developer)
   Route: /docs/home/developer. Home no longer has a Developer tab; code folders open in a conversation's Developer panel.
 - [Home](/docs/home/)
-  Route: /docs/home/. Home's five tabs: Overview, Workflows, Knowledge, Monitor and Insights.
+  Route: /docs/home/. Home's tabs: Overview, Workflows, Knowledge, Monitor and Insights, and Learning while it's on.
 - [Home: Knowledge](/docs/home/knowledge)
   Route: /docs/home/knowledge. Use Home Knowledge to explore the memory graph, search and review memories, and run Dream Cycle.
 - [Home: Monitor](/docs/home/monitor)

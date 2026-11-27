@@ -304,14 +304,22 @@ for (const phone of PHONES)
 test.describe('desktop', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('keeps its Home: the five tabs, the Ask box and quick starts in the greeting, Review on an approval', async ({
+  test('keeps its Home: its tabs, the Ask box and quick starts in the greeting, Review on an approval', async ({
     page,
   }, info) => {
     await waitingCommit(page, 'Desktop release notes');
     await openHome(page);
+    // Learning's tab while Learning is on, which it is from the start (O195).
     await expect(
       page.getByRole('tablist', { name: 'Home capabilities' }).getByRole('tab'),
-    ).toHaveText(['Overview', 'Workflows', 'Knowledge', 'Monitor', 'Insights']);
+    ).toHaveText([
+      'Overview',
+      'Workflows',
+      'Knowledge',
+      'Monitor',
+      'Insights',
+      'Learning',
+    ]);
     await expect(
       page.getByRole('group', { name: 'Quick starts' }),
     ).toBeVisible();

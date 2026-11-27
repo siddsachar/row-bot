@@ -286,6 +286,15 @@ def media_prompt(name: Any, prompt: Any) -> str:
     return " ".join(_clean_text(prompt, MAX_MEDIA_PROMPT_CHARS).split())
 
 
+def media_words(args: Any) -> Any:
+    """What names a media tool's output: the short ``title`` its call gave (F8), else its ``prompt``."""
+
+    if not isinstance(args, dict):
+        return None
+    title = args.get("title")
+    return title if isinstance(title, str) and title.strip() else args.get("prompt")
+
+
 def safe_tool_input(args: Any) -> str:
     """Serialize reviewed tool arguments deterministically under the wire bound."""
 

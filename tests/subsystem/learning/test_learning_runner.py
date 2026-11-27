@@ -39,6 +39,7 @@ class Clock:
 
 @pytest.fixture
 def setup(learning_on, clock):
+    save_learning_settings(learning_on, train_in_quiet_hours=True)  # off by default (O195)
     LearningStore(learning_on).create()
     when = Clock(NIGHT)
     lease = FakeLease()
@@ -411,6 +412,23 @@ def test_a_paused_learning_runs_no_look(setup, monkeypatch):
     setup.runner.check()
 
     assert runs == []
+
+
+def test_with_experimental_learning_off_the_night_runs_no_strategy_trial_and_still_finishes(setup, monkeypatch):
+    # O195: comparing methods (L4a), like practice and the quick question, waits for the person's Experimental switch.
+    from row_bot.learning.improver import meta
+
+    trials = []
+    monkeypatch.setattr(meta, "run_trial", lambda *args, **kwargs: trials.append(kwargs.get("night")))
+    runs = _look(setup, monkeypatch)
+    _journal(setup.root, datetime(2026, 10, 16, 1, 10))
+    setup.lease.set(since_activity=600.0)
+
+    setup.runner.check()
+
+    assert len(runs) == 1 and trials == [] and setup.runner.look.done_tonight()
+    save_learning_settings(setup.root, experimental=True)
+    assert not setup.runner.look.done_tonight()  # turned on: tonight's practice and trial are still to run
 
 
 # ── L3b: tonight's drafts are tested after the look and before training; a morning summary ──

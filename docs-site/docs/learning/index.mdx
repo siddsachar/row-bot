@@ -1,0 +1,172 @@
+---
+title: "Learning"
+description: "Learning lets Row-Bot improve from your own work on this computer: it is on from the start, tests each idea before offering it, asks first, and can train a personal model that runs here if you choose."
+---
+
+# Learning
+
+Learning lets Row-Bot get better at the work you do with it. It keeps a private record of how Row-Bot handled your requests, on this computer. During quiet hours it looks for things to do better, tests each idea on work it hasn't seen, and offers only the ideas that pass. It can also train a **personal model**: an open model trained on your work that runs on this computer.
+
+Learning is on from the start, for learning from your corrections. Reading your past chats, experimental learning and a personal model wait until you turn them on. You can turn Learning off in **Settings › Learning**.
+
+## What Learning Does
+
+- **Keeps a private record** of how Row-Bot handled your requests: what it saw, which tools it used and what happened. Only your own chats, workflows and goals, and only the sources you choose. See [What It Records](#what-it-records).
+- **Looks for things to improve** during quiet hours, from what went wrong: you corrected Row-Bot, stopped it, asked it to try again or turned down an action it asked to take, a step failed, or you used **Teach** on a reply.
+- **Drafts changes** to fix what it found. A change is one of these:
+  - a **lesson**: a short "do it this way" that Row-Bot recalls when it's relevant;
+  - a **way of working**: a standing instruction about how Row-Bot approaches the work, how it uses its tools, or when it hands work to a helper;
+  - a **skill**: a new skill, or an edit to one you have.
+- **Tests every change** before offering it: the same tasks with and without the change, at the same budget, on work it hasn't seen. A change that isn't better is not used.
+- **Asks you first.** You see why the change was drafted, what it changes and how its test went, then choose **Use this change** or not. **Undo** takes a change back out at once.
+- **Can train a personal model**, if you turn it on, on your graphics card or in your own Hugging Face account. Row-Bot compares each new version with your main model, and you decide which kinds of work it answers. See [Personal Model](/docs/learning/personal-model).
+- **Experimental learning**, if you turn it on: it practises on tasks it makes up from its own mistakes, may ask you a quick question when it can't tell what to change, and tries new ways of finding and drafting changes against the current one, keeping a new way only if it does better. See [How Row-Bot Learns](/docs/learning/how-row-bot-learns).
+
+## What Learning Doesn't Do
+
+- It never changes how Row-Bot works without a test. With the default **Ask me first**, it never changes anything without you.
+- It can't change approvals, tools, permissions, spending or who can reach Row-Bot, whatever you choose. A change may never add addresses, links, passwords or permissions.
+- **Teach** changes nothing right away. What you teach is evidence for Learning's next look.
+- It never records chats with other people, incognito chats, or work Row-Bot does on its own, such as briefs and drafts.
+- It sends nothing where you didn't choose. Its own model calls go to your default model's provider, the same one your chats use. Downloads ask first. It trains on this computer, or on Hugging Face only if you choose that. See [Privacy And Safety](/docs/privacy-safety/#learning).
+- It shows no score and no "getting smarter" meter. Results are counts out of a total, such as "21 of 24 passed", and "nothing new" is a normal result.
+- A new personal-model version always asks before it's used, whatever you choose for changes.
+
+## On From The Start
+
+Learning is on from the start. Home says so once, "Row-Bot learns from your corrections", with what it records and what it costs; **Got it** closes the note on every device, and the settings button opens Settings › Learning.
+
+| On from the start | Off until you turn it on |
+| --- | --- |
+| Recording your own chats, workflows and goals, on this computer | **Also learn from the last 30 days of chats** |
+| **Teach**, and noticing when you correct, stop or retry a reply | **Try experimental learning**: practice tasks, the quick question and comparing ways of learning |
+| Each night, finding what to improve, drafting changes, testing them and asking you first | **Train during quiet hours**: a personal model, which asks before it downloads anything |
+| **Create skills while chatting** | |
+
+Learning's own model calls use your default model, up to the **Monthly limit** (2M tokens unless you change it), and only on nights with something to fix. Local models don't count. To stop all of it, switch off **Learning** in Settings › Learning.
+
+### Turn It On Again
+
+1. Open **Settings › Learning** (in the **General** group, or search for it with **Find a setting**) and choose **Turn on Learning**.
+2. The **Turn on Learning** sheet starts from your saved choices. Change any you like:
+   - **What Row-Bot will keep** says what the record holds and that it stays on this computer.
+   - **Learn from**: **My chats**, **Workflows and goals**, and **Also learn from the last 30 days of chats**.
+   - **Using changes**: **Ask me first** (the default) or **Use changes that pass their tests**. New personal-model versions always ask.
+   - **Spending**: Learning uses your default model to find and test improvements. **Monthly limit** caps how many of its tokens Learning uses each month; it's 2M tokens unless you change it. Local models don't count.
+   - **When**: quiet hours, shared with Dream Cycle. **Change** opens their hours in Settings › Preferences.
+3. Choose **Turn on Learning**. Nothing downloads: a personal model is set up on its own, in [Personal Model](/docs/learning/personal-model#get-it-started).
+4. A notice says "Learning is on." with **Open Learning**, and a **Learning** tab appears in Home.
+
+**Cancel** closes the sheet and leaves Learning off.
+
+## Where It Lives
+
+| Place | What it holds |
+| --- | --- |
+| **Home › Learning** | The Learning tab, while Learning is on or paused: [Overview](/docs/learning/overview), [Changes](/docs/learning/changes), [Lessons](/docs/learning/lessons) and [Personal model](/docs/learning/personal-model). |
+| **Home › Overview** | Once, a note that Learning is on, until you choose **Got it**. |
+| **Settings › Learning** | Turning Learning on and off, and all its settings. See [Settings: Learning](/docs/settings/learning). |
+| A reply's toolbar | **Teach Row-Bot**, while Learning uses that chat. |
+| A failed step in a reply's activity | **Teach Row-Bot** about that step. |
+| The chat's **⋯** menu | **Don't learn from this chat**. |
+| Under a reply | "Used a lesson" or "Answered by your personal model". |
+| The model picker | Each ready version as "Personal model v1", tagged **Personal**. |
+| **Home › Monitor** | A row while the personal model trains or downloads, with **Stop** (**Cancel** for a run on Hugging Face). |
+| A notification | At most once a morning: what Learning did overnight that you may want to see. |
+
+## In A Chat
+
+Chats look the same with Learning on. A few things are added.
+
+### Teach Row-Bot
+
+**Teach Row-Bot** sits in a reply's toolbar, with Copy and Retry. On a step that failed, it sits in the reply's activity and teaches about that step. It opens a small sheet (a bottom sheet on a phone):
+
+- **What went wrong?** (optional): **Wrong answer**, **Wrong tool or step**, **Ignored my instructions** or **Other**.
+- **What should it have done?** (optional, for a reply).
+- **What should it do next time?**
+
+Choose **Send**. The notice says "Thanks. Row-Bot will learn from this." with **Undo**. Nothing changes right away: Row-Bot learns from it later. Teach shows only while Learning is on and uses that chat.
+
+### What Else It Learns From
+
+You don't have to Teach. Learning also notices when you correct Row-Bot in your next message, stop a reply, press Retry, or turn down an action it asked to take, and when a step fails.
+
+### Quiet Lines Under A Reply
+
+- **Used a lesson**: the reply recalled a lesson in use.
+- **Answered by your personal model**: your personal model answered.
+- "Your personal model got stuck; *your main model* finished this.": the main model took over a request your personal model couldn't finish.
+
+## What It Records
+
+Learning keeps a record of how Row-Bot handled your own work, from the sources you choose in **Learn from**:
+
+- **My chats**: your chats in Row-Bot, on any device you signed in, and your own direct chats with Row-Bot on Telegram, Slack and other apps. A channel's chats count once your own user ID is set in that app's settings; Learning says so if it isn't.
+- **Workflows and goals**: the work your workflows and goals do.
+- **Also learn from the last 30 days of chats** (off unless you tick it): Row-Bot reads your chats from the last 30 days in the background. Overview shows "Reading 214 past chats · 61 done", and it waits while you chat. From a chat older than that, only its last 30 days are read.
+
+It never records:
+
+- **chats with other people**: group chats, channel threads, and direct chats with someone you paired who isn't you;
+- **incognito chats**: a chat that is incognito, or ever was. What Learning recorded before a chat turned incognito stays; to delete it, delete the chat, or turn incognito off and choose **Don't learn from this chat**;
+- **work Row-Bot does on its own**, such as briefs and drafts it prepares;
+- **secrets**: keys, tokens, passwords and the secrets saved in Row-Bot are removed before anything is stored, and credentials passed to a tool are dropped;
+- **a chat you switched off** with **Don't learn from this chat**.
+
+Learning also keeps pictures from browser and computer use, up to 10 GB; the oldest go first.
+
+### Leave A Chat Out
+
+Choose **Don't learn from this chat** in the chat's **⋯** menu (in the sidebar, or in the chat's header on a phone). A confirm says that Row-Bot won't record anything more from this chat, and that this also deletes what Learning recorded from it. The item is ticked while the chat is switched off; choose it again to switch the chat back on. Incognito chats don't show it: Learning never records them.
+
+## When It Works
+
+Learning does its work in **quiet hours**, the hours Dream Cycle uses, while Row-Bot is running and you aren't using it. If you come back to Row-Bot, it stops and carries on when you're away. Tests, and training on this computer, pause while you use Row-Bot.
+
+- **Its model.** Learning uses your default model (Settings › Models) to look for things to improve and to test changes. It can't use a Claude plan for this; choose another default model if Overview asks you to.
+- **Its spending.** Its tokens count against the **Monthly limit**. Local models, such as Ollama on this computer, don't count. When the limit is reached, testing waits for next month and local training continues. See [Settings: Learning](/docs/settings/learning#monthly-limit).
+- **The next morning**, Overview's **Overnight** says what it did, and a notification says when changes are ready to review or went into use by themselves.
+
+## Kinds Of Work
+
+Learning sorts your requests into kinds of work, for its tests and for the personal model:
+
+- **Document lookups**: finding something in your documents and files.
+- **Structured transforms**: turning data from one shape into another, such as CSV, JSON, tables and lists.
+- **Small coding tasks**: writing or fixing a small piece of code.
+- **Tool workflows**: doing something in an app, such as your calendar, mail or an issue tracker.
+
+Anything else, or anything Row-Bot isn't sure about, is **Your work** (Other). A personal model never answers that kind: your main model does.
+
+## Where Everything Stays
+
+Everything Learning keeps is on this computer, in Row-Bot's data folder: its record (`learning.db` and the `learning` folder), the personal model's versions, and the training engine in a folder of its own, never inside Row-Bot itself. **Settings › Learning › Learning data** shows how much space it takes.
+
+Changes you use live where Row-Bot keeps them anyway: a lesson in use is a memory of how to work in Home › Knowledge, a skill is in your skills, and ways of working are a small file beside Learning's settings. So changes and models in use stay in use while Learning is paused or off, and after you delete learning data.
+
+## Pause, Turn Off Or Delete
+
+- **Pause**: in the Learning tab's **⋯** menu, choose **Pause** (or **Pause Learning** in Settings › Learning's page menu). "Pausing…" shows until it's done. While paused, nothing new is recorded, tested or trained; changes and models in use stay in use. **Resume** carries on.
+- **Turn off**: switch off **Learning** in Settings › Learning. "Turn off Learning?" says that Row-Bot stops recording, testing and training, that changes and models in use stay in use (undo them in Learning), and that your learning data is kept until you delete it. Choose **Turn off**, or **Keep it on**. The Learning tab and Teach go away.
+- **Delete learning data…**: in the Learning tab's **⋯** menu, or under **Learning data** in Settings › Learning. The confirm lists what goes: everything Learning recorded from your chats, workflows and goals, what you taught Row-Bot, and its test results and the tasks it tests with. It can't be undone. Learning's settings are kept, chats you switched off stay switched off, and changes in use and your personal-model versions stay. To delete a version, use its **Versions** menu on the [Personal model](/docs/learning/personal-model#the-versions-menu) view.
+- **Delete a chat**: Learning deletes what it recorded from it. A personal model already trained on that chat keeps what it learned until it's retrained: Overview offers **Retrain without it**.
+
+## On A Phone Or Another Device
+
+A signed-in phone or browser can do everything in the Learning tab and Settings › Learning: review, use, undo, pause and change settings. Tests and training run on the computer Row-Bot runs on. A Hugging Face run shows its price on the device where you start it. Messaging channels have no Learning controls.
+
+## On A Mac Or In Docker
+
+A personal model needs an NVIDIA graphics card. On a Mac, on a computer without one, and in Row-Bot's Docker image, Learning still improves Row-Bot with lessons, ways of working and skills.
+
+## Troubleshooting
+
+- **No Learning tab**: Learning is off. Turn it on in Settings › Learning.
+- **No Teach on a reply**: Learning doesn't use that chat. It may be with other people, incognito or switched off, its source may be off in **Learn from**, or the app's user ID isn't set.
+- **"Choose a default model in Settings › Models so Learning can look for things to improve."**: Learning needs a default model.
+- **"Learning's improvement work needs a model other than your Claude plan."**: choose another default model in Settings › Models.
+- **"Monthly limit reached."**: choose **Raise limit**, or wait for the date shown.
+- **"Learning's saved settings can't be read, so Learning stays off."**: Learning's settings file is damaged. Learning stays off rather than guess.
+
+Continue with [Overview](/docs/learning/overview), [Changes](/docs/learning/changes), [Lessons](/docs/learning/lessons), [Personal Model](/docs/learning/personal-model) and [How Row-Bot Learns](/docs/learning/how-row-bot-learns).

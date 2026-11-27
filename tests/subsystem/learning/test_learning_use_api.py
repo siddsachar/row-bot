@@ -16,7 +16,7 @@ from row_bot.api.v1.schemas import LearningReceipt, LearningSnapshot, LearningVe
 from row_bot.learning import model_compare, use
 from row_bot.learning import runner as runner_module
 from row_bot.learning.training import releases, serving
-from tests.fixtures.learning import FakeDataset, FakeEngine, FakeLease
+from tests.fixtures.learning import FakeDataset, FakeEngine, FakeLease, save_learning_settings
 from tests.subsystem.client_protocol.test_settings_snapshot_api import api
 
 # ruff: noqa: F401, F811 -- the imported pytest fixture is requested by name.
@@ -26,8 +26,7 @@ pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 LEARNING = "/api/v1/learning"
 SETUP = {
     "sources": {"my_chats": True, "workflows_and_goals": True, "past_chats": False},
-    "apply_mode": "automatic", "monthly_token_limit": 2_000_000, "train_in_quiet_hours": True,
-    "train_where": "this_computer",
+    "apply_mode": "automatic", "monthly_token_limit": 2_000_000,
 }
 PERSONAL = "model:ollama:row-bot-personal-v1:abcd1234"
 
@@ -65,6 +64,8 @@ def on(api, monkeypatch):
     client, headers, data, _ = api
     monkeypatch.setattr(serving.OllamaRuntime, "executable", lambda self: None)
     monkeypatch.setattr(sys, "platform", "win32")
+    # On by default (O195): turning it on starts from off, with training on as Settings saves it.
+    save_learning_settings(data, enabled=False, train_in_quiet_hours=True)
     assert _ok(_command(client, headers, "turn_on", setup=SETUP))
     runner_module.configure(engine=FakeEngine(), dataset=FakeDataset(), lease=FakeLease(since_activity=3600.0))
     return client, headers, data

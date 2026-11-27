@@ -138,6 +138,25 @@ def test_a_reply_that_hands_over_or_is_done_does_not_carry_on(chat, reply):
     assert notes(chat) == []
 
 
+def test_a_progress_line_before_a_tool_is_not_how_the_turn_ended(chat, stop_check):
+    """F7: "I'll paint …" came before the picture tool, then the finished caption; the turn didn't carry on."""
+    caption = "**Red Lighthouse at Sunset**: a watercolour of a rocky coast, with lavender skies."
+    native_id = fixture_id("picture:assistant")
+    fake = Recording((
+        ("token", "I'll paint the red lighthouse against a soft sunset wash."),
+        ("tool_call", {"id": "call-1", "name": "generate_image", "args": {}}),
+        ("tool_done", {"tool_call_id": "call-1", "message_id": "tool-1", "name": "generate_image"}),
+        ("token", caption),
+        CheckpointCommit((AIMessage(content=caption, id=native_id),), native_id),
+        ("done", "I'll paint the red lighthouse against a soft sunset wash." + caption),
+    ), replied("unused", "extra"))
+    send(chat, fake, "Make a picture of a red lighthouse", "picture")
+    settle(chat, fake, 1)
+    assert len(fake.calls) == 1
+    assert notes(chat) == []
+    assert stop_check.asked == [], "the caption alone never looked unfinished"
+
+
 def test_a_wait_already_brings_it_back(chat):
     from row_bot import waits
     waits.create(CONVERSATION, "time", "The render finishes", spec={"then": "Check the render"},

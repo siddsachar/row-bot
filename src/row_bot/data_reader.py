@@ -12,8 +12,10 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 def _preview_rows() -> int:
@@ -30,6 +32,16 @@ _DATA_EXTENSIONS = {".csv", ".xlsx", ".xls", ".json", ".jsonl", ".tsv"}
 def is_data_file(name_or_path: str) -> bool:
     """Return True if the file extension is a supported structured data format."""
     return Path(name_or_path).suffix.lower() in _DATA_EXTENSIONS
+
+
+def can_read_data_files() -> bool:
+    """Whether pandas is installed (the ``designer``, ``media`` and ``all`` extras): without it, a data file is
+    read as plain text, as on a headless install with no extras."""
+    try:
+        import pandas  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def read_data_file(
@@ -79,6 +91,7 @@ def _load_dataframe(
     sheet: str,
 ) -> tuple[pd.DataFrame, str]:
     """Load data into a DataFrame. Returns (df, extra_info_string)."""
+    import pandas as pd
 
     extra = ""
 
@@ -209,6 +222,8 @@ def _format_dataframe(
 
 def _fmt(val) -> str:
     """Format a numeric value for display."""
+    import pandas as pd
+
     if pd.isna(val):
         return "N/A"
     if isinstance(val, float):

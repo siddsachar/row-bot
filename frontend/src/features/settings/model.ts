@@ -800,6 +800,12 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'learning',
+    anchor: 'learning-experimental',
+    label: 'Experimental learning',
+    keywords: 'practice quick question compare methods trials',
+  },
+  {
+    leaf: 'learning',
     anchor: 'personal-model',
     label: 'Personal model',
     keywords: 'train training gpu hugging face download qwen',

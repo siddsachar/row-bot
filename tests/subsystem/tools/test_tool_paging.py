@@ -105,6 +105,36 @@ def test_workspace_read_file_summarises_csv_at_the_start_and_pages_its_raw_lines
     assert "End of text." in tail
 
 
+def test_the_data_reader_loads_without_pandas(monkeypatch):
+    """A headless install has no extras (no pandas); the reader's module still loads, so file reads keep working."""
+    import importlib.util
+    import sys
+
+    import row_bot.data_reader as installed
+
+    monkeypatch.setitem(sys.modules, "pandas", None)  # import pandas now raises ImportError
+    spec = importlib.util.spec_from_file_location("data_reader_without_pandas", installed.__file__)
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)
+
+    assert fresh.is_data_file("items.csv") and not fresh.can_read_data_files()
+
+
+def test_workspace_read_file_reads_a_data_file_as_text_without_pandas(workspace_tools, monkeypatch):
+    import sys
+
+    workspace, tools = workspace_tools
+    (workspace / "items.csv").write_bytes(b"id,name\n1,first\n2,second\n")
+    (workspace / "settings.json").write_bytes(b'{"mode": "fast"}\n')
+    monkeypatch.setitem(sys.modules, "pandas", None)
+
+    table = tools["workspace_read_file"].invoke({"file_path": "items.csv"})
+    settings = tools["workspace_read_file"].invoke({"file_path": "settings.json"})
+
+    assert "1,first" in table and "2,second" in table
+    assert '"mode": "fast"' in settings
+
+
 # ── developer tools ─────────────────────────────────────────────────────────
 
 @pytest.fixture

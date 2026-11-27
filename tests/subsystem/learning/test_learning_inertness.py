@@ -1,7 +1,8 @@
-"""Learning off (the default) is inert: no learning.db, no learning/ folder and
-no other Learning file; no Learning module beyond the switch; no thread. Shown
-through public behaviour: the switch itself, a Settings read, start-up sweeps,
-a conversation deletion and a memory delete."""
+"""Learning turned off is inert: no learning.db, no learning/ folder and no
+other Learning file beyond its saved setting; no Learning module beyond the
+switch; no thread. Learning is on by default (O195), so each test here starts
+with the person's own "off". Shown through public behaviour: the switch itself,
+a Settings read, start-up sweeps, a conversation deletion and a memory delete."""
 
 from __future__ import annotations
 
@@ -35,6 +36,18 @@ def no_learning_modules(monkeypatch):
     assert _learning_modules() in ([], ["row_bot.learning"])
 
 
+# What a data folder holds once the person turned Learning off: their saved choice, nothing else.
+OFF_FILES = ["learning_config.json"]
+
+
+@pytest.fixture
+def data_dir(data_dir):
+    """The data folder with Learning turned off (it is on by default, O195)."""
+
+    save_learning_settings(data_dir, enabled=False)
+    return data_dir
+
+
 def test_importing_the_switch_loads_nothing_else_and_starts_nothing(data_dir, monkeypatch):
     for name in _learning_modules():
         monkeypatch.delitem(sys.modules, name)
@@ -47,7 +60,7 @@ def test_importing_the_switch_loads_nothing_else_and_starts_nothing(data_dir, mo
 
     assert _learning_modules() == ["row_bot.learning"]
     assert set(threading.enumerate()) <= before
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == OFF_FILES
 
 
 def test_reading_settings_with_learning_off_creates_no_learning_files(data_dir, no_learning_modules):
@@ -56,13 +69,14 @@ def test_reading_settings_with_learning_off_creates_no_learning_files(data_dir, 
     snapshot = read_settings_snapshot()
 
     assert snapshot["learning"]["enabled"] is False and snapshot["learning"]["has_data"] is False
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == OFF_FILES
     assert _learning_modules() == ["row_bot.learning"]
 
 
 def test_start_up_sweeps_with_learning_off_leave_no_learning_files(tmp_path, reload_for_data_dir, no_learning_modules):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+    save_learning_settings(data_dir, enabled=False)
     fresh_threads, cleanup = reload_for_data_dir(
         data_dir,
         "row_bot.tasks",
@@ -82,7 +96,7 @@ def test_start_up_sweeps_with_learning_off_leave_no_learning_files(tmp_path, rel
     stats = cleanup.sweep_orphaned_thread_artifacts(now=datetime.now())
 
     assert stats["learning_threads"] == 0
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == OFF_FILES
     assert _learning_modules() in ([], ["row_bot.learning"])
 
 
@@ -98,7 +112,7 @@ def test_model_lists_and_local_models_load_nothing_of_learning(data_dir, no_lear
     assert models.local_model_settings("qwen3:8b") == {}
     assert _local_reasoning_default("qwen3:8b") == {}
 
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == OFF_FILES
     assert _learning_modules() in ([], ["row_bot.learning"])
 
 
@@ -117,7 +131,7 @@ def test_routing_a_turn_and_listing_personal_models_load_nothing_while_none_is_i
     assert learning.offered_personal_models() == {}
     client_status.picker_choices("chat")
 
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == OFF_FILES
     assert _learning_modules() in ([], ["row_bot.learning"])
     assert set(threading.enumerate()) <= before
 
@@ -129,7 +143,7 @@ def test_deleting_a_conversation_with_learning_off_touches_nothing_of_learning(d
 
     assert result.deleted is True
     assert "Some Learning data could not be removed." not in result.warnings
-    assert learning_files(data_dir) == []
+    assert learning_files(data_dir) == OFF_FILES
     assert learning_files(threads.DATA_DIR) == session_files
     assert _learning_modules() == ["row_bot.learning"]
 
@@ -138,22 +152,23 @@ def test_deleting_a_memory_with_learning_off_touches_nothing_of_learning(
     tmp_path, monkeypatch, reload_for_data_dir, no_learning_modules
 ):
     stack = fresh_memory_stack(tmp_path, monkeypatch, reload_for_data_dir)
+    save_learning_settings(tmp_path / "row-bot-data", enabled=False)
     memory = stack["memory"]
     lesson = memory.save_memory("self_knowledge", "Browser: login page detection", "Wait for the form.")
 
     assert memory.delete_memory(lesson["id"]) is True
     stack["kg"].delete_all_entities()
 
-    assert learning_files(tmp_path / "row-bot-data") == []
+    assert learning_files(tmp_path / "row-bot-data") == OFF_FILES
     assert _learning_modules() in ([], ["row_bot.learning"])
 
 
-@pytest.mark.parametrize("state", ["off", "saved_off", "paused"])
+@pytest.mark.parametrize("state", ["saved_off", "paused"])
 def test_full_turns_with_learning_off_capture_nothing_load_nothing_and_start_nothing(
     state, data_dir, no_learning_modules, monkeypatch
 ):
     """Model calls, tool calls, an approval, a Stop and a Retry pass every capture seam: with
-    Learning off (never set up, or set up and never turned on) or paused, each costs one check
+    Learning off (turned off) or paused, each costs one check
     and nothing else happens."""
     from langchain_core.messages import HumanMessage
 
@@ -161,7 +176,7 @@ def test_full_turns_with_learning_off_capture_nothing_load_nothing_and_start_not
         save_learning_settings(data_dir, enabled=True, paused=True)
     elif state == "saved_off":
         save_learning_settings(data_dir, enabled=False)
-    settings_file = [] if state == "off" else ["learning_config.json"]
+    settings_file = OFF_FILES
     from langchain_core.tools import tool
 
     from tests.helpers.learning_turns import AgentTurns, ScriptedModel, asks, call, says
@@ -210,11 +225,11 @@ def test_full_turns_with_learning_off_capture_nothing_load_nothing_and_start_not
     assert not [name for name in started if name.startswith("learning-")]
 
 
-@pytest.mark.parametrize("state", ["off", "saved_off", "paused"])
+@pytest.mark.parametrize("state", ["saved_off", "paused"])
 def test_training_starts_nothing_and_loads_nothing_while_learning_is_off(state, data_dir, no_learning_modules,
                                                                          monkeypatch):
     """Start-up's runner, a settings save, Buddy's check of what's running and Dream's check of
-    the lease (L2a): with Learning off (never set up, or set up and never turned on) or paused,
+    the lease (L2a): with Learning off (turned off) or paused,
     none of them loads Learning's training, starts a thread or writes a file."""
     import row_bot.agent_orchestrator as orchestrator
     import row_bot.buddy.brain as brain_mod
@@ -226,7 +241,7 @@ def test_training_starts_nothing_and_loads_nothing_while_learning_is_off(state, 
         save_learning_settings(data_dir, enabled=True, paused=True)
     elif state == "saved_off":
         save_learning_settings(data_dir, enabled=False)
-    settings_file = [] if state == "off" else ["learning_config.json"]
+    settings_file = OFF_FILES
     monkeypatch.setattr(tasks, "get_pending_approvals", lambda: [])
     monkeypatch.setattr(tasks, "get_running_tasks", lambda: {})
     monkeypatch.setattr(orchestrator, "get_thread_orchestration_activity", lambda: {})
@@ -247,11 +262,11 @@ def test_training_starts_nothing_and_loads_nothing_while_learning_is_off(state, 
     assert learning_files(data_dir) == settings_file
 
 
-@pytest.mark.parametrize("state", ["off", "saved_off", "paused"])
+@pytest.mark.parametrize("state", ["saved_off", "paused"])
 def test_memory_extraction_and_settings_saves_load_no_engine_and_download_nothing_while_off(
         state, data_dir, no_learning_modules, monkeypatch):
     """Memory extraction's check of the lease (O41) and a settings save (L2b's download stop):
-    with Learning off (never set up, or set up and never turned on) or paused, neither loads the
+    with Learning off (turned off) or paused, neither loads the
     training engine, its download or the lease, and nothing appears under the data folder's
     runtimes."""
     import row_bot.memory_extraction as extraction

@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   listConversations,
   getConversation,
+  getConversationLinks,
   getAnswerState,
   getApproval,
   getBuddy,
@@ -521,6 +522,49 @@ it('loads a new approval card at once while the reads a reply sets off wait', as
   );
   const approval = await getApproval('', proof, 'approval-b');
   expect(approval.id).toBe('approval-b');
+  expect(fetcher).toHaveBeenCalledTimes(21);
+  abort.abort();
+  await vi.runAllTimersAsync();
+  await queries;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('reads a proposed conversation’s card at once while the reads a reply sets off wait (5.3.1 C)', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.endsWith('/links')
+        ? {
+            schema_version: 1,
+            items: [
+              {
+                link_id: 'a'.repeat(32),
+                title: 'Make the demo video',
+                conversation_id: null,
+                state: 'proposed',
+                proposed: true,
+                mode: 'fresh',
+              },
+            ],
+          }
+        : { items: [], has_more: false, next_cursor: null },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const abort = new AbortController();
+  // The query budget is spent: a 25-page library read waits for tokens.
+  const queries = Promise.allSettled(
+    Array.from({ length: 25 }, () =>
+      listConversations('', proof, 50, undefined, abort.signal),
+    ),
+  );
+  // The card offers Start and Not now only once it has its state: that read never waits.
+  const page = await getConversationLinks('', proof, 'conversation-a');
+  expect(page.items[0].state).toBe('proposed');
   expect(fetcher).toHaveBeenCalledTimes(21);
   abort.abort();
   await vi.runAllTimersAsync();

@@ -46,9 +46,10 @@ SECRET_ENTRIES = frozenset({
 # ``learning_models`` holds re-downloadable or re-trainable bulk (starting-model weights,
 # training checkpoints, exported model files); ``learning.db``, its blobs and the audit
 # vault are the person's data and stay in backups (O39). ``local_models`` holds the model
-# files Run on this computer downloaded (E1: gigabytes that download again).
+# files Run on this computer downloaded (E1: gigabytes that download again); ``ffmpeg`` the
+# managed ffmpeg, which downloads again; ``catalogs`` the Apps & Skills catalogs, fetched again.
 LOCAL_ENTRIES = frozenset({
-    "cache", "font_cache", "vector_store", "memory_vectors", "document_index", "node",
+    "cache", "font_cache", "vector_store", "memory_vectors", "document_index", "node", "ffmpeg", "catalogs",
     "runtimes", "learning_models", "local_models", "piper", "kokoro", "logs", "plugin_logs", "crashes", "feedback_reports",
     "recovery", "evolution_backups", "migration-backups", "migration_reports", "backups",
     "doc_staging", "stale_plugins", "document_ingestion", ".checkpoint-locks", PENDING_DIR, UPLOADS_DIR,

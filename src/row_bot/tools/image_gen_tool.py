@@ -1154,7 +1154,7 @@ def _cannot_edit(selection: str) -> bool:
 
 
 def _generate_image_tool(prompt: str, size: str = "auto", quality: str = "auto", references: list[str] | None = None,
-                        character: str = "", style: str = "") -> str:
+                        character: str = "", style: str = "", title: str = "") -> str:
     try:
         pictures = resolve_references(references, character, style)
     except ValueError as e:
@@ -1165,7 +1165,8 @@ def _generate_image_tool(prompt: str, size: str = "auto", quality: str = "auto",
 
 
 def _edit_image_tool(prompt: str, image_source: str = "last", size: str = "auto", quality: str = "auto",
-                     references: list[str] | None = None, character: str = "", style: str = "") -> str:
+                     references: list[str] | None = None, character: str = "", style: str = "",
+                     title: str = "") -> str:
     from row_bot.providers.media import bills_per_call
 
     selection, line = _selection(), ""
@@ -1190,6 +1191,9 @@ _REFERENCES = ("Up to 3 pictures to hold to (a character, a product, a style): n
                "files, 'last' or files in the workspace.")
 _CHARACTER = "A character saved in Library › Media (pictures tagged 'character: <name>'), by name."
 _STYLE = "A style saved in Library › Media (a still tagged 'style: <name>'), by name."
+# A title only names the saved picture (agent._media_label): the tools take it and leave it.
+_TITLE = ("A short name for the picture, as your reply calls it (e.g. {example}): its file's name and its title in "
+          "the chat. Empty: named from the prompt.")
 
 
 class _GenerateImageInput(BaseModel):
@@ -1215,6 +1219,7 @@ class _GenerateImageInput(BaseModel):
     references: list[str] = Field(default_factory=list, description=_REFERENCES)
     character: str = Field(default="", description=_CHARACTER)
     style: str = Field(default="", description=_STYLE)
+    title: str = Field(default="", description=_TITLE.format(example="'Red Lighthouse at Sunset'"))
 
 
 class _EditImageInput(BaseModel):
@@ -1247,6 +1252,7 @@ class _EditImageInput(BaseModel):
     references: list[str] = Field(default_factory=list, description=_REFERENCES)
     character: str = Field(default="", description=_CHARACTER)
     style: str = Field(default="", description=_STYLE)
+    title: str = Field(default="", description=_TITLE.format(example="'Red Lighthouse at Night'"))
 
 
 # ── Tool registration ───────────────────────────────────────────────────

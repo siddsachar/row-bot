@@ -65,3 +65,16 @@ def test_moving_a_reminder_changes_its_time_without_deleting_it(tool):
 
     assert f"Fires at: {later.isoformat(timespec='minutes')}" in reply
     assert [task["id"] for task in tasks.list_tasks()] == [task_id]
+
+
+def test_a_workflow_with_no_schedule_says_it_has_not_run(tool):
+    """F12: a reply said a new workflow was running when it had only been saved to run by hand."""
+    tasks, task_tool = tool
+
+    reply = task_tool._task_create(name="Paper boat video", prompts=["Make a 10-second video of a paper boat."])
+
+    task = tasks.get_task(_created_id(reply))
+    assert (task.get("schedule"), task.get("at")) == (None, None)
+    assert "hasn't run yet" in reply
+    scheduled = task_tool._task_create(name="Daily", prompts=["Say hi."], schedule="daily:09:00")
+    assert "Task created successfully." in scheduled and "hasn't run" not in scheduled

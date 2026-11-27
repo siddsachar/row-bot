@@ -148,6 +148,26 @@ it('a link with ?provider= opens that provider’s sheet at once', async () => {
   ).toBeVisible();
 });
 
+it('opens a sheet for a link followed while the page shows, and says when it closes (F11)', async () => {
+  const onSheetClosed = vi.fn();
+  const props = {
+    load: async () => snapshot,
+    refresh: vi.fn(),
+    refreshState: vi.fn(),
+    onSheetClosed,
+  };
+  const { rerender } = render(<ProviderStatus {...props} />);
+  await screen.findByRole('button', { name: /^OpenAI API/ });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  rerender(<ProviderStatus {...props} openProvider="openai" />);
+  const sheet = await screen.findByRole('dialog', { name: 'OpenAI API' });
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Close OpenAI API' }),
+  );
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(onSheetClosed).toHaveBeenCalledOnce();
+});
+
 it('refreshes one provider’s model list from its sheet and says how it went', async () => {
   const load = vi.fn(async () => snapshot);
   const refresh = vi.fn(async () => ({ running: true, started: true }));

@@ -1,0 +1,71 @@
+---
+title: "Learning: How Row-Bot Learns"
+description: "Learning's method: how Row-Bot finds and drafts improvements, how a new method is compared with the current one, its track record and history, and what it can never change."
+---
+
+# Learning: How Row-Bot Learns
+
+Learning follows a **learning method**: how it chooses which problems to work on, what kind of change to try, which examples to use, how to split its budget, and its own instructions for finding and drafting fixes. Methods have versions: method v1, v2 and so on. With experimental learning on, Row-Bot tries new methods against the one in use and keeps a new one only if it does better.
+
+Comparing methods is part of experimental learning, off until you turn on **Try experimental learning** in [Settings › Learning](/docs/settings/learning#experimental). Until then the page says "Comparing ways of learning is experimental and off.", with **Turn it on in Settings**.
+
+## Where To Find It
+
+Choose **Home › Learning**. Overview's **How Row-Bot learns** section shows the method in use, "Method v1 · since 1 Nov", and this month's record, "Kept 2 of 9 ideas this month · 1.1M tokens". **Details** opens **How Row-Bot learns**.
+
+## Current Method
+
+The method in use, since when, and what it does, in plain words.
+
+## How A New Method Is Compared
+
+- **When**: in quiet hours, after the night's look and tests, once enough new problems have built up since the last comparison. Until then it says "Not compared with another method yet. A comparison runs once 30 new problems have built up (12 so far)."
+- **How**: the method in use and a new one each run the whole improvement work their own way, from the same starting point, with the same evidence, the same tools and the **same budget**. A new method's drafts are never shown to you or used.
+- **Judged on new problems**: each method's changes are tested on fresh problems neither has seen, each problem run 3 times, by the same rule every change is kept by.
+- **Kept only if better**: the method with more better changes per million tokens wins. A tie keeps the method in use.
+
+## Track Record
+
+The newest comparison, as a table:
+
+| Column | What it shows |
+| --- | --- |
+| **Method** | Each method, such as "v1 (in use)" and "v2 (tried)", or "v1 (before)" and "v2 (now)" after a switch. |
+| **Ideas kept, per 1M tokens** | Better changes for each million tokens the method spent. |
+| **Better on new problems** | How many of its ideas were better on the new problems, out of those it accepted, and the tokens it used. |
+
+A line under it says how many new problems it was compared on, the budget each method had, and the date. It adds "Small test, so expect some variation."
+
+Comparing methods uses at most a fifth of the **Monthly limit**, kept for it while experimental learning is on. When that share is used up, it says "Not compared with another method yet: this month's share for comparing methods is used up." When the whole month's limit is used up, it says "Not compared with another method yet: this month's Learning limit is used up. Comparisons can run again from 1 Dec." With **No limit**, each method in a comparison still gets the same budget.
+
+## When The Method Changes
+
+A new method that does better **switches in by itself**. It's still yours to undo:
+
+- Overview's **Overnight** says "Changed how it learns (method v2): …", with **Undo**.
+- The morning notification mentions it, with "Undo in Learning".
+- **Undo** goes back to the method before: "Back to learning method v1."
+
+A new method that wasn't better is dropped: "Tried a new way of learning; it wasn't better. Kept method v1."
+
+## History
+
+Every method, newest first: "v1: the first method", "v2 tried and dropped: no better than v1", "Undone: back to v1", with **Undo** on the switch you can still undo. Before any switch: "It still uses the first method. A new one is tried against it on new problems at the same budget, and kept only if it does better."
+
+## What It Can Never Change
+
+The screen lists what no learning method can change:
+
+- your goals and limits;
+- approvals, tools and permissions;
+- the hidden tests that judge it;
+- the rules for keeping a change.
+
+## What Is Saved
+
+Every method, kept or not, stays in Learning's record on this computer with its results. Only **Delete learning data** removes them. Comparisons see only counts from the hidden tests, never the tests themselves.
+
+## Troubleshooting
+
+- **"Not compared with another method yet"**: comparisons wait for enough new problems, and for room in the month's limit.
+- **You don't want a switch**: choose **Undo** on the Overnight line or in History.

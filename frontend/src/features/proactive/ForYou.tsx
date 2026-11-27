@@ -140,6 +140,7 @@ export default function ForYou({
   today = [],
   ahead = [],
   footer,
+  introWaits = false,
 }: {
   io?: ProactiveIO | null;
   now?: Date;
@@ -151,6 +152,8 @@ export default function ForYou({
   ahead?: { at: Date; row: ReactNode }[];
   /** One quiet line under the closing line ("12 memories saved this week"). */
   footer?: string;
+  /** Another first-run note is on Home: the introduction waits until it is closed. */
+  introWaits?: boolean;
 }) {
   const { store, view } = useProactive(io);
   const now = useMinute(fixedNow);
@@ -220,7 +223,8 @@ export default function ForYou({
     );
   const settings = view.settings;
   // Once per person: the server keeps whether it was answered (any device).
-  const intro = !dismissedIntro && !settings.introduced && !introduced();
+  const intro =
+    !introWaits && !dismissedIntro && !settings.introduced && !introduced();
   if (settings.level === 'off' && !intro) return <>{actions.sheets}</>;
   const brief = currentBrief(view.moments, now);
   const groups = groupMoments(view.moments, now).map((group) => ({

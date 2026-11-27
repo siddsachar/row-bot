@@ -52,6 +52,7 @@ import LearningHome, {
   type LearningView,
 } from '../learning/LearningHome';
 import { learningIsOn, useLearning } from '../learning/learning-state';
+import { LearningIntro } from '../learning/LearningIntro';
 
 const homeTabs = [
   'overview',
@@ -110,6 +111,10 @@ export default function Home({
   // Learning's tab shows only while Learning is on (D23).
   const learning = useLearning();
   const learningTab = learningIsOn(learning);
+  // One first-run note at a time: Learning's, then Proactive's once it is closed.
+  const learningIntroOpen = learning?.snapshot
+    ? learning.snapshot.introduce
+    : Boolean(learning && !learning.error);
   const tabs = learningTab
     ? homeTabs
     : homeTabs.filter((item) => item !== 'learning');
@@ -651,8 +656,14 @@ export default function Home({
                 }
                 processes={identity ? processes : undefined}
                 voice={voice}
+                learningIntro={<LearningIntro io={learning} />}
                 forYou={({ rows, ahead, footer }) => (
-                  <ForYou today={rows} ahead={ahead} footer={footer} />
+                  <ForYou
+                    today={rows}
+                    ahead={ahead}
+                    footer={footer}
+                    introWaits={learningIntroOpen}
+                  />
                 )}
                 onAsk={onAsk}
                 asking={asking}

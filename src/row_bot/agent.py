@@ -1222,17 +1222,18 @@ def _refused_by_caller(exc: BaseException) -> bool:
 
 
 def _provider_refusal(exc: BaseException) -> list[tuple] | None:
-    """The events for a provider that said why it can't answer (signed out, a plan's limit), possibly
+    """The events for a provider that said why it can't answer (signed out, a plan's limit, a busy free model), possibly
     wrapped: ``provider_refusal`` with a code the chat shows instead of "interrupted", then the error."""
     from row_bot.providers.claude_subscription import ClaudePlanUnavailable
     from row_bot.providers.runtime import ProviderSignInRequired
+    from row_bot.providers.transports.openrouter_errors import FreeModelBusy
     current: BaseException | None = exc
     for _ in range(8):
         if current is None:
             return None
         if isinstance(current, ProviderSignInRequired):
             refusal = {"code": "sign_in_required", "provider": current.label}
-        elif isinstance(current, ClaudePlanUnavailable):
+        elif isinstance(current, (ClaudePlanUnavailable, FreeModelBusy)):
             refusal = {"code": "provider_unavailable", "message": str(current)[:400]}
         else:
             current = current.__cause__ or current.__context__
@@ -8099,19 +8100,27 @@ def _platform_tool_call(request: Any, execute: Any, learning_turn: Any) -> Any:
 
 
 def _media_label(call: dict[str, Any]) -> str:
-    """A made file's name from its prompt: "waves-on-a-beach-at-dusk" (R2); "" when there's none."""
+    """A made file's name: the short title its call gave, as written ("Red Lighthouse at Sunset", F8), else its
+    prompt's first words ("waves-on-a-beach-at-dusk", R2); "" when there's neither."""
     import re
 
     args = call.get("args") if isinstance(call.get("args"), dict) else {}
     if str(call.get("name") or "") == "tool_invoke" and isinstance(args.get("arguments"), dict):
         args = args["arguments"]
+    title = args.get("title")
+    if isinstance(title, str) and title.strip():
+        from row_bot.tools.video_editing_tool import output_name
+
+        # Only what no file name takes goes ("Q3: plan" is "Q3- plan"); 48 characters, as a prompt's words.
+        if named := output_name(" ".join(title.split())[:48], default="", suffix=""):
+            return named
     # Letters of any language, digits and currency signs: "£480" and "café" stay as written (W4).
     words = re.findall(r"[^\W_]+(?:[£€$¥][^\W_]*)*|[£€$¥][^\W_]+", str(args.get("prompt") or "").lower())[:6]
     return "-".join(words)[:48].strip("-")
 
 
 def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
-    from row_bot.application.conversation_traces import media_prompt
+    from row_bot.application.conversation_traces import media_prompt, media_words
 
     raw_name = str(tc.get("name") or "")
     args = tc.get("args")
@@ -8122,8 +8131,9 @@ def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
         args=_safe_tool_call_args(args),
         call_id=str(tc.get("id") or raw_name),
         runtime_name=effective_name,
-        # A picture's or video's prompt names it in the chat's Outputs (5.3.3); no other argument rides along.
-        media_prompt=media_prompt(effective_name, args.get("prompt") if isinstance(args, dict) else None),
+        # A picture's or video's title, else its prompt, names it in the chat's Outputs (5.3.3, F8); no other
+        # argument rides along.
+        media_prompt=media_prompt(effective_name, media_words(args)),
     )
 
 

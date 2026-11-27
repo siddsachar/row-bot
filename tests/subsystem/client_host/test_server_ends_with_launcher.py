@@ -44,6 +44,28 @@ def test_every_server_the_launcher_starts_is_tied_to_it(tmp_path, monkeypatch) -
     assert tied == started and len(started) == 2
 
 
+
+def test_the_window_the_launcher_opens_is_tied_to_it_too(tmp_path, monkeypatch) -> None:
+    # A window left after its launcher ended showed a dead app (F16).
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    tied = []
+
+    class FakeWindow:
+        pid = 4343
+        stdin = SimpleNamespace(write=lambda _text: None, close=lambda: None)
+
+        def poll(self):
+            return None
+
+    window = FakeWindow()
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda *_args, **_kwargs: window)
+    monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(launcher, "_end_with_this_launcher", lambda proc: tied.append(proc) or True)
+
+    assert launcher._open_window(port=8417, control_port=18417) is window
+    assert tied == [window]
+
 _STAND_IN = textwrap.dedent(
     """
     import subprocess, sys, time

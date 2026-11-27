@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import re
+import time
 from contextlib import nullcontext
 from typing import Any, Iterator, Sequence
 
@@ -33,6 +34,11 @@ OPENAI_COMPATIBLE_CONNECT_TIMEOUT = 10.0
 OPENAI_COMPATIBLE_WRITE_TIMEOUT = 120.0
 OPENAI_COMPATIBLE_POOL_TIMEOUT = 10.0
 OPENAI_COMPATIBLE_STREAM_ATTEMPTS = 2
+#: An endpoint that says it is busy (rate-limited or overloaded) is asked again after these waits, before anything
+#: reached the caller: "temporarily rate-limited upstream, retry shortly" passes in seconds, and a headless run has
+#: nobody to press Try again. The OpenRouter transport backs off the same way.
+BUSY_STATUSES = frozenset({429, 502, 503, 504, 529})
+BUSY_WAITS_S = (2.0, 5.0, 15.0, 30.0)
 # llama-server's own default is no limit, so a local model caught in a loop can write until its window
 # is full (one wrote 49K tokens and the server ran out of memory). Qwen's guidance for its thinking
 # models is 32,768 output tokens for most work; a caller's or the endpoint's own max_tokens wins.
@@ -71,6 +77,26 @@ def _local_runtime_unavailable() -> str:
     if reason == "not_installed":
         return "This model isn't on this computer any more. Download it again in Settings › Models."
     return "Row-Bot couldn't start the model on this computer. Repair it in Settings › Models › This computer."
+
+
+class EndpointBusyError(RuntimeError):
+    """The endpoint answered that it is busy (``BUSY_STATUSES``): worth asking again after a wait."""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _wait_unless_cancelled(seconds: float, scope: Any) -> bool:
+    """Sleep *seconds*, waking early (False) if the turn is stopped meanwhile."""
+    deadline = time.monotonic() + seconds
+    while True:
+        if scope is not None and scope.is_cancelled():
+            return False
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return True
+        time.sleep(min(0.25, left))
 
 
 class ChatOpenAICompatible(BaseChatModel):
@@ -499,12 +525,29 @@ class ChatOpenAICompatible(BaseChatModel):
 
     def _post(self, body: dict[str, Any]) -> Any:
         try:
-            return self._post_once(body)
+            return self._post_when_free(body)
         except RuntimeError as exc:
             retry = self._cache_retry_body(body, exc)
             if retry is None:
                 raise
-        return self._post_once(retry)
+        return self._post_when_free(retry)
+
+    def _post_when_free(self, body: dict[str, Any]) -> Any:
+        scope = current_cancellation_scope()
+        for wait in (*BUSY_WAITS_S, None):
+            try:
+                return self._post_once(body)
+            except EndpointBusyError as exc:
+                if wait is None or not self._wait_for_busy(exc, wait, scope):
+                    raise
+        raise AssertionError("unreachable")
+
+    def _wait_for_busy(self, exc: EndpointBusyError, wait: float, scope: Any) -> bool:
+        logger.warning(
+            "custom_openai: endpoint busy (HTTP %d); asking again in %.0fs provider=%s model=%s",
+            exc.status_code, wait, self.endpoint.get("provider_id") or "custom", self.model_name,
+        )
+        return _wait_unless_cancelled(wait, scope)
 
     def _post_once(self, body: dict[str, Any]) -> Any:
         import httpx
@@ -549,7 +592,10 @@ class ChatOpenAICompatible(BaseChatModel):
         import httpx
 
         scope = current_cancellation_scope()
-        for attempt in range(1, OPENAI_COMPATIBLE_STREAM_ATTEMPTS + 1):
+        busy_waits = list(BUSY_WAITS_S)
+        attempt = 0
+        while attempt < OPENAI_COMPATIBLE_STREAM_ATTEMPTS:
+            attempt += 1
             if scope is not None and scope.is_cancelled():
                 return
             produced = 0
@@ -558,6 +604,11 @@ class ChatOpenAICompatible(BaseChatModel):
                     produced += 1
                     yield payload
                 return
+            except EndpointBusyError as exc:
+                # Refused before anything was sent on: ask again after a wait (not one of the transport retries).
+                if produced or not busy_waits or not self._wait_for_busy(exc, busy_waits.pop(0), scope):
+                    raise
+                attempt -= 1
             except (httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
                 if scope is not None and scope.is_cancelled():
                     return
@@ -1502,6 +1553,8 @@ def _raise_for_status(response: Any, endpoint: dict[str, Any]) -> None:
             f"{name} rejected the chat request (HTTP 400). The endpoint profile or selected model "
             f"may not accept this message/tool payload.{suffix}"
         )
+    if status_code in BUSY_STATUSES:
+        raise EndpointBusyError(f"{name} request failed with HTTP {status_code}.{suffix}", status_code)
     raise RuntimeError(f"{name} request failed with HTTP {status_code}.{suffix}")
 
 

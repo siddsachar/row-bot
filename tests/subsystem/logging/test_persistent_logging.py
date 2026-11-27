@@ -81,6 +81,50 @@ def test_setup_is_idempotent_and_recent_log_stats_are_structured(reload_for_data
         _detach_file_handler(logging_config)
 
 
+def _file_entries(logging_config) -> list[dict]:
+    logging_config._file_handler.flush()
+    return logging_config.read_recent_logs(50)
+
+
+@pytest.mark.parametrize(
+    ("saved", "debug_kept"),
+    [(None, False), ("DEBUG", True), ("WARNING", False)],
+    ids=["new-profile", "everything", "warnings"],
+)
+def test_the_chosen_log_detail_is_what_the_file_keeps(reload_for_data_dir, tmp_path, saved, debug_kept) -> None:
+    """A new profile keeps Normal detail; Everything (debug) really writes debug lines, and only to the file."""
+    if saved:
+        (tmp_path / "user_config.json").write_text(json.dumps({"file_log_level": saved}), encoding="utf-8")
+    logging_config = _reload_logging_config(reload_for_data_dir, tmp_path)
+    root = logging.getLogger()
+    console_stream = []
+
+    class _Console(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            console_stream.append(record.levelname)
+
+    console = _Console()
+    kept_level = root.level
+    kept_handler_levels = {handler: handler.level for handler in root.handlers}
+    root.setLevel(logging.INFO)
+    root.addHandler(console)
+    try:
+        logging_config.setup_file_logging()
+        logger = logging.getLogger("row_bot.test.log_detail")
+        logger.debug("a debug line")
+        logger.info("an info line")
+        messages = {entry.get("msg") for entry in _file_entries(logging_config)}
+        assert ("a debug line" in messages) is debug_kept
+        assert ("an info line" in messages) is (saved != "WARNING")
+        assert "DEBUG" not in console_stream
+    finally:
+        _detach_file_handler(logging_config)
+        root.removeHandler(console)
+        root.setLevel(kept_level)
+        for handler, level in kept_handler_levels.items():
+            handler.setLevel(level)
+
+
 def test_logging_health_check_is_registered() -> None:
     from row_bot.status_checks import ALL_CHECKS, check_logging
 

@@ -81,18 +81,14 @@ async function onTheSmallModel(page: Page) {
   await l2x(page, 'two-models');
   await l2x(page, 'card', '5090');
   await page.goto('/app-v2/settings/learning');
-  await page.getByRole('button', { name: 'Turn on Learning' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Turn on Learning' });
-  // The card's check has answered (setup then offers its download).
-  await expect(
-    sheet.getByText('NVIDIA GeForce RTX 5090 (32 GB)'),
-  ).toBeVisible();
-  await sheet.getByRole('button', { name: 'Turn on Learning' }).click();
+  // Learning is on by default (O195): training a personal model is the person's own
+  // step, and turning it on asks to download.
+  await page.getByRole('switch', { name: 'Train during quiet hours' }).click();
   await page
-    .getByRole('dialog', { name: /^Download the training engine and / })
+    .getByRole('dialog', { name: /^Download the training engine/ })
     .getByRole('button', { name: 'Not now', exact: true })
     .click();
-  await expect(notice(page, 'Learning is on.')).toBeVisible();
+  await expect(notice(page, 'Not downloading for now.')).toBeVisible();
   await l2x(page, 'starting-model', 'test-small');
 }
 

@@ -259,6 +259,7 @@ export default function ProviderStatus({
   hideLocal = false,
   models,
   openProvider = '',
+  onSheetClosed,
   onAddServer,
 }: {
   load: (signal?: AbortSignal) => Promise<ProviderLiveSnapshot>;
@@ -283,6 +284,8 @@ export default function ProviderStatus({
   models?: (card: ProviderLiveCard) => ReactNode;
   /** The provider whose sheet opens first (`?provider=` in a link). */
   openProvider?: string;
+  /** The sheet closed, so the link that opened it can open it again. */
+  onSheetClosed?: () => void;
   /**
    * Add a provider › Your server, or a model server on this computer (LM Studio,
    * vLLM, llama.cpp): the custom endpoint dialog, set up for that server type.
@@ -292,6 +295,16 @@ export default function ProviderStatus({
   const place = usePlace();
   const [snapshot, setSnapshot] = useState<ProviderLiveSnapshot | null>(null);
   const [open, setOpen] = useState(openProvider);
+  // A link followed while this page shows (Local's Manage) opens its sheet too.
+  const [asked, setAsked] = useState(openProvider);
+  if (asked !== openProvider) {
+    setAsked(openProvider);
+    if (openProvider) setOpen(openProvider);
+  }
+  const closeSheet = () => {
+    setOpen('');
+    onSheetClosed?.();
+  };
   const [adding, setAdding] = useState(false);
   const [tab, setTab] = useState('');
   const [find, setFind] = useState('');
@@ -417,7 +430,7 @@ export default function ProviderStatus({
   const current = cards.find((card) => card.provider_id === open);
   /** A subscription's sign-in steps open their own dialog, so the sheet closes first. */
   const handOff = (run: () => void) => () => {
-    setOpen('');
+    closeSheet();
     run();
   };
   const sheetActions = (card: ProviderLiveCard): SheetAction[] => {
@@ -582,7 +595,7 @@ export default function ProviderStatus({
           description={sheetSummary(current, place)}
           className="settings-provider-sheet"
           onOpenChange={(value) => {
-            if (!value) setOpen('');
+            if (!value) closeSheet();
           }}
           actions={
             hasModels(current) ? (
@@ -625,7 +638,7 @@ export default function ProviderStatus({
                   owner={owner}
                   providerId={current.provider_id}
                   onSaved={() => void refreshProvider(current)}
-                  onCancel={() => setOpen('')}
+                  onCancel={closeSheet}
                 />
               </Disclosure>
             )}
@@ -637,7 +650,7 @@ export default function ProviderStatus({
                 plan={current.claude_plan}
                 checking={loading}
                 onCheck={() => setReload((value) => value + 1)}
-                onDone={() => setOpen('')}
+                onDone={closeSheet}
               />
             )}
             {sheetActions(current).length > 0 && (

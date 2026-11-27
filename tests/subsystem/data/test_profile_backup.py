@@ -358,6 +358,34 @@ def test_a_backup_leaves_out_upload_staging_and_live_reply_files_but_keeps_attac
     assert result["skipped"] == []
 
 
+def test_a_backup_leaves_out_what_downloads_or_renders_again_but_keeps_the_videos_and_projects(tmp_path):
+    """F13: a few hours of video made an 858 MB backup, mostly working renders, the managed ffmpeg and catalogs."""
+    data = tmp_path / "profile"
+    files = {
+        "video-projects/conversation-1/vid-1.json": b'{"scenes": []}',
+        "video-projects/conversation-1/vid-1-words/scene-1.json": b'{"words": []}',
+        "video-projects/conversation-1/vid-1-scenes/1920x1080-abc.mkv": b"drawn clip",
+        "video-projects/conversation-1/vid-1-scenes/score-abc.wav": b"music",
+        "media/conversation-1/the-first-snow.mp4": b"finished video",
+        "ffmpeg/bin/ffmpeg.exe": b"tool",
+        "catalogs/registry.json": b"{}",
+    }
+    for name, content in files.items():
+        (data / name).parent.mkdir(parents=True, exist_ok=True)
+        (data / name).write_bytes(content)
+
+    result = backup.create_backup(data, tmp_path / "out", now=datetime(2026, 11, 25, 9, 0))
+
+    with zipfile.ZipFile(result["path"]) as archive:
+        names = set(archive.namelist()) - {backup.MANIFEST}
+    assert names == {
+        "video-projects/conversation-1/vid-1.json",
+        "video-projects/conversation-1/vid-1-words/scene-1.json",
+        "media/conversation-1/the-first-snow.mp4",
+    }
+    assert result["skipped"] == []
+
+
 def test_a_file_that_cant_be_read_is_named_instead_of_failing_the_backup(tmp_path, monkeypatch):
     data = tmp_path / "profile"
     (data / "media" / "c").mkdir(parents=True)

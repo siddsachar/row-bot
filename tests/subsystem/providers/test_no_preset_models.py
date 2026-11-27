@@ -115,7 +115,7 @@ def test_media_generation_refuses_without_a_chosen_model(monkeypatch):
     monkeypatch.setattr(registry, "get_tool_config", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(registry, "get_tool", lambda _name: None)
     assert "Choose an image model" in image_gen_tool._generate_image("a lighthouse at dusk")
-    assert "Choose a video model" in video_gen_tool._generate_video("waves on rocks")
+    assert "choose a video model in Settings › Models" in video_gen_tool._generate_video("waves on rocks")
 
 
 def _write(path, value):

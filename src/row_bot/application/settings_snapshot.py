@@ -617,9 +617,9 @@ def _system(
 
     cua_state = readiness(enabled=bool(_enabled("computer_use", tools, registered)))
     cua_platform = platform.system().casefold()
-    log_level = _text(user.get("file_log_level") or "DEBUG", 16).upper()
+    log_level = _text(user.get("file_log_level") or "INFO", 16).upper()
     if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        log_level = "DEBUG"
+        log_level = "INFO"
     workspace = _text(filesystem.get("workspace_root"), 4096)
     selected_ops = _strings(
         filesystem.get("selected_operations"), allowed=_FILESYSTEM_OPERATIONS
@@ -1774,6 +1774,7 @@ def _learning(root: Path) -> dict[str, Any]:
         },
         "apply_mode": settings.apply_mode,
         "monthly_token_limit": settings.monthly_token_limit,
+        "experimental": settings.experimental,
         "train_in_quiet_hours": settings.train_in_quiet_hours,
         "train_where": settings.train_where,
         "has_data": learning.store_exists(root),
@@ -1846,7 +1847,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
     "system": {
         "remote_access.listen_mode": "local_only",
         "tunnel.provider": "ngrok",
-        "logging.level": "DEBUG",
+        "logging.level": "INFO",
     },
     "documents": {
         "processing_model": "",
@@ -1870,16 +1871,17 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "dream_cycle.window_end": 5,
         "updates.channel": "stable",
     },
-    # The Learning setup sheet's defaults, with Learning itself off.
+    # Learning on, for learning from corrections; its experimental parts and the personal model off (O195).
     "learning": {
-        "enabled": False,
+        "enabled": True,
         "paused": False,
         "sources.my_chats": True,
         "sources.workflows_and_goals": True,
-        "sources.past_chats": True,
+        "sources.past_chats": False,
         "apply_mode": "ask_first",
         "monthly_token_limit": 2_000_000,
-        "train_in_quiet_hours": True,
+        "experimental": False,
+        "train_in_quiet_hours": False,
         "train_where": "this_computer",
     },
 }

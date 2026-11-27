@@ -912,7 +912,7 @@
     },
     "LearningSettingsSnapshot": {
       "additionalProperties": false,
-      "description": "Learning (preview): saved settings only; nothing acts on most of them yet.",
+      "description": "Learning's saved settings (Settings \u203a Learning).",
       "properties": {
         "apply_mode": {
           "enum": [
@@ -932,6 +932,10 @@
         },
         "enabled": {
           "title": "Enabled",
+          "type": "boolean"
+        },
+        "experimental": {
+          "title": "Experimental",
           "type": "boolean"
         },
         "has_data": {
@@ -978,6 +982,7 @@
         "sources",
         "apply_mode",
         "monthly_token_limit",
+        "experimental",
         "train_in_quiet_hours",
         "train_where",
         "has_data"

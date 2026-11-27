@@ -2,7 +2,7 @@
 name: video_editing_guide
 display_name: Video Editing Guide
 icon: "🎬"
-description: Making videos (video first, edit_video for edits); present the finished video with present; frames and review sheets are working files.
+description: Making, planning or storyboarding videos (video first, edit_video for edits); present the finished one with present; frames and review sheets are working files.
 tools:
   - video_editing
 tags: []
@@ -21,16 +21,21 @@ tags: []
   it. Show the storyboard; once the person approves, or at once when they
   said to make the video, make the planned footage, change those scenes with
   their sources, then video action make. A request to plan, draft or
-  storyboard a video, or to work on one together, gets the storyboard.
+  storyboard a video, or to work on one together, gets this storyboard,
+  not a page or a design.
   A comment on a card comes to you as their message: change that scene.
   Quick edits and a video of one scene are made at once.
 - For footage not made yet its words are enough; make a frame with
   generate_image only when the person asked for pictures in the storyboard.
-- Render the final through the video tool whenever it can do the job. Only
-  when a look needs more than it offers, a script of your own (ffmpeg,
-  Pillow) is the fallback: check still frames of each scene first, render
-  the whole film once they're right, hold it to the same checks, and
-  present the result once it passes them.
+- Render the final through the video tool whenever it can do the job. An
+  illustrated video, or any video when no video model is chosen, is
+  pictures: make each scene's picture with generate_image, then change
+  those scenes with it as their source; to remake a scene, make its picture
+  again. Never write a renderer or draw frames with a script for it. Only
+  when the person asks for a look the video tool doesn't offer, a script of
+  your own (ffmpeg, Pillow) is the fallback: check still frames of each
+  scene first, render the whole film once they're right, hold it to the
+  same checks, and present the result once it passes them.
 - A demo of a site or app in Row-Bot's browser: write the story first, 3-8
   steps with one spoken line each. Start browser_record, then before each
   step mark a beat with its note (a short title) and its line, do the step,

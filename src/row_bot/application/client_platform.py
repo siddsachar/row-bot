@@ -1883,6 +1883,7 @@ class ClientPlatformService:
             from row_bot.application.conversation_followups import after_platform_turn, live_goal
             status = "interrupted"
             final_text = ""
+            last_reply = ""  # What the model wrote after its last tool call.
             error_text = ""  # A provider limit here makes a goal wait (B244).
             started_goal = None
             _buddy(conversation_id, "generation.started", "Thinking")
@@ -1976,6 +1977,10 @@ class ClientPlatformService:
                             client_queue.acknowledge_consumed(handle)
                         self.observe_event(conversation_id, event, handle)
                         _buddy_follows(conversation_id, event, handle)
+                        if event[0] == "token":
+                            last_reply += str(event[1] or "") if len(event) > 1 else ""
+                        elif event[0] in {"tool_call", "tool_done"}:
+                            last_reply = ""  # A progress line before a tool isn't how the turn ended (F7).
                         if event[0] == "done":
                             status = "completed"
                             final_text = str(event[1] or "") if len(event) > 1 else ""
@@ -2015,7 +2020,7 @@ class ClientPlatformService:
                         _LOG.warning("Monitor could not recheck the model after a failed turn", exc_info=True)
                 with _turn_end_step(conversation_id, "the goal's step"):
                     after_platform_turn(conversation_id, generation_id=generation_id, status=status,
-                                        assistant_text=final_text, model_ref=model_ref,
+                                        assistant_text=final_text, last_reply=last_reply, model_ref=model_ref,
                                         goal_id=str((started_goal or {}).get("id") or ""),
                                         error_text=error_text,
                                         followup_kind=followup.kind if followup is not None else "",

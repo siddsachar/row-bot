@@ -464,8 +464,9 @@ def _make_pdf_aware_read_tool(root_dir: str):
                 return f"Error reading image '{file_path}': {exc}"
 
         # ── Structured data files (CSV, Excel, JSON) ────────────────────
-        from row_bot.data_reader import is_data_file, read_data_file
-        if is_data_file(resolved.name) and (offset <= 0 or resolved.suffix.lower() in {".xlsx", ".xls"}):
+        from row_bot.data_reader import can_read_data_files, is_data_file, read_data_file
+        if is_data_file(resolved.name) and can_read_data_files() and (
+                offset <= 0 or resolved.suffix.lower() in {".xlsx", ".xls"}):
             return read_data_file(resolved, sheet=sheet_name, max_chars=PAGE_CHARS)
 
         if resolved.suffix.lower() == ".pdf":

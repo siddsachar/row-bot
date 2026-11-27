@@ -287,12 +287,34 @@ export default function LearningSettings({
   const snapshot = io.snapshot;
   // The download's progress stays fresh while Settings › Learning is open.
   useDownloadWatch(io);
+  // Turning on training is where its download is asked, never turning on Learning (O195).
+  const askAfterTraining = (next: SettingsSnapshot) => {
+    const model = snapshot?.personal_model;
+    if (learning.train_in_quiet_hours || !next.learning.train_in_quiet_hours)
+      return;
+    if (next.learning.train_where !== 'this_computer' || !model) return;
+    if (
+      model.download_state.state === 'downloading' ||
+      (model.engine === 'installed' &&
+        model.starting_model_state === 'downloaded')
+    )
+      return;
+    io.hardware().then(
+      (found) => {
+        if (found.state !== 'gpu') return;
+        setAskHardware(found);
+        setAskOpen(true);
+      },
+      () => undefined,
+    );
+  };
   // A saved Learning setting also changes Learning's own state.
   const mutation: SettingsMutationIO = {
     ...learningMutation,
     onSnapshot: (next) => {
       learningMutation.onSnapshot(next);
       void io.reload();
+      askAfterTraining(next);
     },
   };
 
@@ -605,7 +627,7 @@ export default function LearningSettings({
           field="monthly_token_limit"
           label="Monthly limit"
           value={learning.monthly_token_limit}
-          hint={`Learning uses ${spending.model_name ? `${spending.model_name} (your default model)` : 'your default model'} to find and test improvements. ${limitMeaning(learning.monthly_token_limit)}`}
+          hint={`Learning uses ${spending.model_name ? `${spending.model_name} (your default model)` : 'your default model'} to find and test improvements. ${limitMeaning(learning.monthly_token_limit, learning.experimental)}`}
           row={{
             status: (
               <StatusLine tone={spending.limit_reached ? 'warning' : undefined}>
@@ -648,6 +670,15 @@ export default function LearningSettings({
           }
           bind={false}
           trailing={<Link to="/settings/preferences#dream-cycle">Change</Link>}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Experimental" anchor="learning-experimental">
+        <SwitchSetting
+          mutation={mutation}
+          field="experimental"
+          label="Try experimental learning"
+          hint="Practice on tasks Row-Bot makes up from its own mistakes, a quick question when it can’t tell what to change, and trials that compare ways of learning. They use more of the monthly limit."
+          value={learning.experimental}
         />
       </SettingsGroup>
       <SettingsGroup title="Personal model" anchor="personal-model">

@@ -405,3 +405,19 @@ def test_monitor_shows_row_bot_voice_timing_once_it_has_spoken(tmp_path, monkeyp
         log.record({"voice_to_voice": total - 40, "voice_to_ear": total})
     snapshot = client_monitor.read_monitor_snapshot(include_logs=False)
     assert snapshot["voice"] == {"turns": 3, "first_audio_p50_ms": 900, "first_audio_p90_ms": 1500}
+
+
+def test_read_aloud_health_is_never_an_alarm_on_a_new_profile(tmp_path, monkeypatch):
+    """Kokoro not yet downloaded is a note in Health, not a Home alarm; once installed it names the voice."""
+    from row_bot import status_checks, tts
+
+    monkeypatch.setattr(tts, "_MODEL_PATH", tmp_path / "kokoro.onnx")
+    monkeypatch.setattr(tts, "_VOICES_PATH", tmp_path / "voices.bin")
+    missing = status_checks.check_tts()
+    assert (missing.status, missing.detail) == ("warn", "Model not installed")
+
+    (tmp_path / "kokoro.onnx").write_bytes(b"model")
+    (tmp_path / "voices.bin").write_bytes(b"voices")
+    installed = status_checks.check_tts()
+    assert installed.status == "ok"
+    assert installed.detail == f"Kokoro · {tts.TTSService().voice}"

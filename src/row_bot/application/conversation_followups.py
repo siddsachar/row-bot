@@ -127,14 +127,17 @@ def file_check_prompt(names: list[str]) -> str:
             "aren't there. Make them now, or correct your reply in a line.")
 
 
-def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followup_kind: str) -> None:
+def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followup_kind: str,
+              last_reply: str = "") -> None:
     """Schedule one carry-on turn after a reply that stopped on its next step, or that names files it says it
-    saved and that aren't there; never after another carry-on."""
+    saved and that aren't there; never after another carry-on. *last_reply* is what the model wrote after its
+    last tool call: how the turn ended, without the progress lines before its tools ("I'll paint …", F7)."""
     from row_bot.file_claims import could_claim
 
     if status != "completed" or followup_kind in ("carry_on", "watch"):
         return  # A watch's turn says what changed and stops there.
-    next_step = stopped_on_next_step(assistant_text)
+    ending = last_reply if last_reply.strip() else assistant_text
+    next_step = stopped_on_next_step(ending)
     if not next_step and not could_claim(assistant_text):
         return
     from row_bot import tasks, waits
@@ -144,7 +147,7 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
             record["kind"] != "watch" for record in waits.waiting(conversation_id)):
         return
     if next_step:
-        reply = str(assistant_text or "").strip()
+        reply = str(ending or "").strip()
         followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE, check_reply=reply[-1500:],
                             unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])))
     else:
@@ -422,7 +425,8 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
-                        error_text: str = "", followup_kind: str = "", service: Any = None) -> None:
+                        error_text: str = "", followup_kind: str = "", service: Any = None,
+                        last_reply: str = "") -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -451,7 +455,8 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
             except Exception:
                 _LOG.exception("Counting the goal's last turn failed for %s", conversation_id)
         else:
-            _carry_on(conversation_id, status=status, assistant_text=assistant_text, followup_kind=followup_kind)
+            _carry_on(conversation_id, status=status, assistant_text=assistant_text, followup_kind=followup_kind,
+                      last_reply=last_reply)
         return
     try:
         if status == "completed":

@@ -180,7 +180,9 @@ def test_the_past_goes_through_the_past_chat_import_as_partial_history(learning_
     from row_bot.learning.contracts import Decision, Episode
     from row_bot.learning.store import LearningStore
     from tests.e2e.learning.seeded.live import _past_messages, _thread_id
+    from tests.fixtures.learning import save_learning_settings
 
+    save_learning_settings(learning_on, sources={"past_chats": True})  # the release check ticks it (O195: off)
     history = generator.generate("wren", seed=SEED, days=1)
     past = [item for item in history.past if item.day >= -4]  # a few days of it: the same shapes as all 30
     assert any(request.mistake for item in history.past for request in item.requests)

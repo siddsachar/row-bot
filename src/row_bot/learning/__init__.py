@@ -6,11 +6,15 @@ model call, so it is a cached read of the saved setting that is re-read only
 when the settings file changes (or :func:`invalidate` is called), and it says
 ``False`` whenever the setting can't be read.
 
-Learning is off by default. While it is off nothing under ``row_bot.learning``
-is imported, and the data folder holds no Learning file until Learning is first
-turned on: ``learning.db`` and ``learning/blobs/`` are created by the first
-enable or by the first write while it is on (``store.py``). Turning it off keeps
-the data until the person deletes it.
+Learning is on by default (O195): a profile that never saved the switch learns
+from the person's own corrections. Its experimental parts (practice, the quick
+question and the strategy trials) wait for the person's ``experimental`` switch,
+and a personal model trains only once they turn on training and agree to its
+download. Saved settings that can't be read keep Learning off. While it is off
+nothing under ``row_bot.learning`` is imported, and the data folder holds no
+Learning file until Learning is on: ``learning.db`` and ``learning/blobs/`` are
+created by turning it on or by the first write while it is on (``store.py``).
+Turning it off keeps the data until the person deletes it.
 
 The capture seams (``agent``, the approval gate, Retry, the Slack and Discord
 handlers) call :func:`is_enabled` first and import ``capture`` only when it is on;
@@ -19,12 +23,16 @@ seams outside the Agent.
 
 Settings live in ``learning_config.json`` in the data folder::
 
-    {"enabled": false, "paused": false,
-     "sources": {"my_chats": true, "workflows_and_goals": true, "past_chats": true},
+    {"enabled": true, "paused": false,
+     "sources": {"my_chats": true, "workflows_and_goals": true, "past_chats": false},
      "apply_mode": "ask_first", "monthly_token_limit": 2000000,
-     "train_in_quiet_hours": true, "train_where": "this_computer",
+     "experimental": false, "introduced": false,
+     "train_in_quiet_hours": false, "train_where": "this_computer",
      "starting_model": "qwen3.5-9b", "model_download": "not_asked",
      "hugging_face": {"model": "", "monthly_cap_usd": 0, "runs_confirmed": false}}
+
+Every key is optional: a missing one reads as its default. ``introduced`` is whether the
+person has seen Home's note that Learning is on (or turned it on themselves).
 
 **The monthly token limit** (``spending.py``) is a whole number of tokens up to
 :data:`MAX_MONTHLY_TOKEN_LIMIT` (0: no Learning model calls), or ``null`` for no limit, which only
@@ -37,7 +45,7 @@ person chose with the first run's quote (0: not chosen yet, so nothing runs on i
 whether the person has started a first run (until then every run asks, O132).
 
 **Every build has Learning (O34).** The preview flag that once hid it is gone:
-Learning exists in every build and stays off until the person turns it on in
+Learning exists in every build, and the person turns it off, or on again, in
 Settings › Learning.
 
 **Pause.** A paused Learning stays on (its settings, changes and models in use are
@@ -88,16 +96,20 @@ _MAX_SETTINGS_BYTES = 64 * 1024
 
 @dataclass(frozen=True)
 class LearningSettings:
-    """The saved Learning settings, normalised. Defaults match the setup sheet."""
+    """The saved Learning settings, normalised: what a profile that saved nothing gets (O195)."""
 
-    enabled: bool = False
+    enabled: bool = True
     my_chats: bool = True
     workflows_and_goals: bool = True
-    past_chats: bool = True
+    past_chats: bool = False
     apply_mode: str = "ask_first"
     # Tokens a month for Learning's own model calls; None: no limit (its spending still counts and shows).
     monthly_token_limit: int | None = DEFAULT_MONTHLY_TOKEN_LIMIT
-    train_in_quiet_hours: bool = True
+    # Practice, the quick question and the strategy trials (L4a, L4b): the person's choice (O195).
+    experimental: bool = False
+    # Home's note that Learning is on was seen, or the person turned Learning on themselves.
+    introduced: bool = False
+    train_in_quiet_hours: bool = False
     train_where: str = "this_computer"
     paused: bool = False
     starting_model: str = STARTING_MODELS[0]
@@ -113,22 +125,15 @@ class LearningSettings:
     readable: bool = True
 
 
-# L4b's switches, one per part, both off unless this build is started with them: practice changes the training
-# mix and the tests, so whether it reaches someone's build is decided apart from the code.
-PRACTICE_ENV = "ROW_BOT_LEARNING_PRACTICE"
-QUICK_QUESTION_ENV = "ROW_BOT_LEARNING_QUICK_QUESTION"
+def experimental_enabled(root: Path | None = None) -> bool:
+    """Whether the person turned on Learning's experimental parts (O195): practice tasks made up from its
+    mistakes (L4b, used in tests, trials and training data), the quick question (L4b) and the strategy trials
+    (L4a). One cached read, as :func:`is_enabled`."""
 
-
-def practice_enabled() -> bool:
-    """Whether this build makes practice tasks and uses them in tests, trials and training data (L4b)."""
-
-    return os.environ.get(PRACTICE_ENV, "").strip() == "1"
-
-
-def quick_question_enabled() -> bool:
-    """Whether this build may ask the person a quick question (L4b)."""
-
-    return os.environ.get(QUICK_QUESTION_ENV, "").strip() == "1"
+    try:
+        return read_settings(root).experimental
+    except Exception:
+        return False
 
 
 # L4c: whether the personal model may take over Learning's own jobs (who does a job changes the improver: a paper
@@ -143,6 +148,8 @@ def jobs_enabled() -> bool:
 
 
 DEFAULTS = LearningSettings()
+# Saved settings that can't be read: Learning stays off until they're fixed or saved again.
+_UNREADABLE = replace(DEFAULTS, enabled=False, readable=False)
 
 # (settings path, mtime_ns, size, inode) -> settings; one entry, swapped whole.
 _cache: tuple[tuple[str, int, int, int], LearningSettings] | None = None
@@ -190,7 +197,7 @@ def _bool(document: dict[str, Any], key: str, default: bool) -> bool:
 
 def _normalise(document: Any) -> LearningSettings:
     if not isinstance(document, dict):
-        return replace(DEFAULTS, readable=False)
+        return _UNREADABLE
     sources = document.get("sources")
     sources = sources if isinstance(sources, dict) else {}
     apply_mode = document.get("apply_mode")
@@ -211,13 +218,15 @@ def _normalise(document: Any) -> LearningSettings:
     cap = hugging.get("monthly_cap_usd")
     cap = cap if type(cap) is int and 0 <= cap <= MAX_HUGGING_FACE_CAP_USD else 0
     return LearningSettings(
-        # Only an explicit true turns Learning on.
-        enabled=document.get("enabled") is True,
+        # On unless the person turned it off (a value that isn't true or false reads as off).
+        enabled=_bool(document, "enabled", DEFAULTS.enabled),
         my_chats=_bool(sources, "my_chats", DEFAULTS.my_chats),
         workflows_and_goals=_bool(sources, "workflows_and_goals", DEFAULTS.workflows_and_goals),
         past_chats=_bool(sources, "past_chats", DEFAULTS.past_chats),
         apply_mode=apply_mode if apply_mode in APPLY_MODES else DEFAULTS.apply_mode,
         monthly_token_limit=limit,
+        experimental=_bool(document, "experimental", DEFAULTS.experimental),
+        introduced=_bool(document, "introduced", DEFAULTS.introduced),
         train_in_quiet_hours=_bool(document, "train_in_quiet_hours", DEFAULTS.train_in_quiet_hours),
         train_where=train_where if train_where in TRAIN_PLACES else DEFAULTS.train_where,
         # A pause that can't be read keeps Learning paused (nothing is recorded).
@@ -244,7 +253,7 @@ def _checked_model(value: Any) -> bool:
 def read_settings(root: Path | None = None) -> LearningSettings:
     """The saved settings, cached until the file changes. Never raises.
 
-    A missing file reads as the defaults (Learning off). A file that exists but
+    A missing file reads as the defaults (Learning on, O195). A file that exists but
     can't be read or parsed reads as off and ``readable=False``.
     """
 
@@ -260,7 +269,7 @@ def read_settings(root: Path | None = None) -> LearningSettings:
         if cached is not None and cached[0] == key:
             return cached[1]
         if stat.st_size > _MAX_SETTINGS_BYTES:
-            settings = replace(DEFAULTS, readable=False)
+            settings = _UNREADABLE
         else:
             with open(path, encoding="utf-8") as handle:
                 settings = _normalise(json.load(handle))
@@ -268,7 +277,7 @@ def read_settings(root: Path | None = None) -> LearningSettings:
         return settings
     except Exception:
         logger.debug("Learning settings could not be read; Learning stays off", exc_info=True)
-        return replace(DEFAULTS, readable=False)
+        return _UNREADABLE
 
 
 def is_enabled(root: Path | None = None) -> bool:
@@ -359,6 +368,20 @@ def settings_saved(field: str, value: Any) -> None:
             runner.place_changed(str(value))
         except Exception:
             logger.warning("Learning could not set aside a run planned for the other place", exc_info=True)
+
+
+def ensure_store() -> None:
+    """While Learning is on its store exists, as turning it on makes it: start-up calls this for a profile that
+    has Learning on without ever turning it on (on by default, O195). Off, or already there: one check."""
+
+    if not is_enabled() or store_exists():
+        return
+    try:
+        from row_bot.learning.store import LearningStore
+
+        LearningStore().create()
+    except Exception:
+        logger.warning("Learning is on but its store could not be created yet", exc_info=True)
 
 
 def start_past_chat_import() -> None:
@@ -552,8 +575,6 @@ __all__ = [
     "MAX_MONTHLY_TOKEN_LIMIT",
     "MODELS_FOLDER",
     "MODEL_DOWNLOADS",
-    "PRACTICE_ENV",
-    "QUICK_QUESTION_ENV",
     "SERVE_RUNTIMES",
     "SETTINGS_FILE",
     "STARTING_MODELS",
@@ -562,6 +583,8 @@ __all__ = [
     "WAYS_OF_WORKING_FILE",
     "changed",
     "data_dir",
+    "ensure_store",
+    "experimental_enabled",
     "folder_path",
     "invalidate",
     "is_enabled",
@@ -569,8 +592,6 @@ __all__ = [
     "note_channel_sender",
     "note_retry",
     "offered_personal_models",
-    "practice_enabled",
-    "quick_question_enabled",
     "read_settings",
     "route_turn",
     "settings_path",

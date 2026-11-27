@@ -39,8 +39,6 @@ SETUP = {
     "sources": {"my_chats": True, "workflows_and_goals": True, "past_chats": False},
     "apply_mode": "ask_first",
     "monthly_token_limit": 2_000_000,
-    "train_in_quiet_hours": True,
-    "train_where": "this_computer",
 }
 
 
@@ -91,31 +89,39 @@ def _ok(response) -> dict:
 
 
 def _turn_on(client, headers, **choices) -> dict:
+    """Turn on with the setup sheet. Learning is on by default (O195), so this starts from off, with the
+    personal model's training on as Settings saves it."""
+
+    save_learning_settings(learning.data_dir(), enabled=False, train_in_quiet_hours=True)
     return _ok(_command(client, headers, "turn_on", setup={**SETUP, **choices}))
 
 
-# ── Learning off, in every build (O34) ───────────────────────────────────────
+# ── On by default, in every build (O34, O195) ────────────────────────────────
 
 
-def test_the_app_offers_learning_off_with_the_setup_defaults(api, no_channels):
+def test_a_new_profile_has_learning_on_with_past_chats_experimental_parts_and_training_off(api, no_channels):
     client, headers, data, _ = api
     snapshot = _snapshot(client, headers)
 
-    assert snapshot["state"] == "off"
-    assert snapshot["sources"] == {"my_chats": True, "workflows_and_goals": True, "past_chats": True}
+    assert snapshot["state"] == "on"
+    assert snapshot["sources"] == {"my_chats": True, "workflows_and_goals": True, "past_chats": False}
     assert snapshot["apply_mode"] == "ask_first"
     assert snapshot["spending"]["limit_tokens"] == 2_000_000 and snapshot["spending"]["used_tokens"] == 0
-    assert snapshot["spending"]["limit_reached"] is False
-    # Settings › Learning is there, off; quiet hours are Dream Cycle's hours (nothing runs in them yet).
+    # Nothing is kept back for comparing methods while they are off.
+    assert snapshot["spending"]["kept_for_comparing"] == 0 and snapshot["spending"]["limit_reached"] is False
+    # Settings › Learning shows it on; quiet hours are Dream Cycle's hours.
     settings = client.get(BASE, headers=headers).json()
-    assert settings["learning"]["availability"] == "available" and settings["learning"]["enabled"] is False
+    assert settings["learning"]["availability"] == "available" and settings["learning"]["enabled"] is True
+    assert settings["learning"]["experimental"] is False
     dream = settings["preferences"]["dream_cycle"]
-    assert snapshot["quiet_hours"] == {"window_start": dream["window_start"], "window_end": dream["window_end"],
-                                       "next_look_at": None}
+    assert (snapshot["quiet_hours"]["window_start"], snapshot["quiet_hours"]["window_end"]) == (
+        dream["window_start"], dream["window_end"])
     assert snapshot["past_chats"] == {"state": "none", "total": 0, "done": 0}
     model = snapshot["personal_model"]
-    assert model["starting_model"]["name"] == "Qwen3.5 9B" and model["download"] == "not_asked"
-    assert model["engine"] == "not_downloaded"
+    assert model["train_in_quiet_hours"] is False and model["download"] == "not_asked"
+    assert model["starting_model"]["name"] == "Qwen3.5 9B" and model["engine"] == "not_downloaded"
+    # Home's one-time note says Learning is on, until the person closes it.
+    assert snapshot["introduce"] is True
     assert snapshot["data"] == {"exists": False, "bytes": 0, "picture_bytes": 0, "picture_cap_bytes": 10_000_000_000}
     # Reading Learning creates nothing.
     assert learning_files(data) == []
@@ -124,29 +130,47 @@ def test_the_app_offers_learning_off_with_the_setup_defaults(api, no_channels):
 # ── Turning on, pause, resume, off ───────────────────────────────────────────
 
 
+def test_home_s_note_closes_once_for_every_device_and_never_shows_after_turning_on(api, no_channels):
+    client, headers, data, _ = api
+    assert _snapshot(client, headers)["introduce"] is True
+
+    receipt = _ok(_command(client, headers, "close_intro"))
+
+    assert receipt["snapshot"]["introduce"] is False and receipt["snapshot"]["state"] == "on"
+    assert _snapshot(client, headers)["introduce"] is False  # every other window reads the same
+    saved = json.loads((data / learning.SETTINGS_FILE).read_text(encoding="utf-8"))
+    assert saved == {"introduced": True}  # Learning itself stays on by default, unsaved
+
+    # Someone who turns Learning on themselves never sees it.
+    save_learning_settings(data, enabled=False, introduced=False)
+    assert _snapshot(client, headers)["introduce"] is False  # off: nothing to say
+    assert _turn_on(client, headers)["snapshot"]["introduce"] is False
+
+
 def test_turning_on_saves_every_setup_choice_creates_the_store_and_is_admitted_once(api, no_channels):
     client, headers, data, _ = api
+    save_learning_settings(data, enabled=False)  # on by default (O195): the person turned it off
     before = _snapshot(client, headers)
     command_id = str(uuid4())
 
     receipt = _ok(_command(client, headers, "turn_on", revision=before["revision"], command_id=command_id,
-                           setup={**SETUP, "apply_mode": "automatic", "monthly_token_limit": 500_000,
-                                  "train_where": "hugging_face"}))
+                           setup={**SETUP, "apply_mode": "automatic", "monthly_token_limit": 500_000}))
 
     assert receipt["summary"] == "Learning is on."
     snapshot = receipt["snapshot"]
     assert snapshot["state"] == "on" and snapshot["revision"] != before["revision"]
     assert snapshot["apply_mode"] == "automatic" and snapshot["spending"]["limit_tokens"] == 500_000
     assert snapshot["sources"]["past_chats"] is False
-    assert snapshot["personal_model"]["train_where"] == "hugging_face"
+    # Turning on leaves the personal model as it was: off, nothing to download (O195).
+    assert snapshot["personal_model"]["train_in_quiet_hours"] is False
+    assert snapshot["personal_model"]["download"] == "not_asked"
     assert snapshot["data"]["exists"] is True
     saved = json.loads((data / learning.SETTINGS_FILE).read_text(encoding="utf-8"))
     assert saved["enabled"] is True and saved["paused"] is False
     assert learning.is_enabled() is True
     # The same command again answers the same receipt and changes nothing.
     again = _command(client, headers, "turn_on", revision=before["revision"], command_id=command_id,
-                     setup={**SETUP, "apply_mode": "automatic", "monthly_token_limit": 500_000,
-                            "train_where": "hugging_face"})
+                     setup={**SETUP, "apply_mode": "automatic", "monthly_token_limit": 500_000})
     assert again.json()["summary"] == receipt["summary"]
     receipt_read = client.get(f"{LEARNING}/commands/{command_id}", headers=headers)
     assert receipt_read.status_code == 200 and receipt_read.json()["summary"] == "Learning is on."
@@ -176,8 +200,9 @@ def test_the_limit_is_reached_for_learnings_other_work_when_only_comparing_metho
     from row_bot.prompt_cache import ModelUsage
     from row_bot.providers.usage_ledger import UsageRecord, record_model_usage
 
-    client, headers, _, _ = api
+    client, headers, data, _ = api
     _turn_on(client, headers)
+    save_learning_settings(data, experimental=True)  # comparing methods is experimental (O195)
 
     def used(tokens: int) -> None:
         assert record_model_usage(UsageRecord(purpose="learning_test", provider="openai", model="m",
@@ -358,6 +383,7 @@ def test_the_conversation_read_tells_a_chat_whether_to_offer_teach(api, chats, m
         LearningConversation.model_validate_json(response.text)
         return response.json()
 
+    save_learning_settings(_data, enabled=False)
     assert state("chat-a") == {"conversation_id": "chat-a", "state": "off", "reason": ""}
     _turn_on(client, headers)
     assert state("chat-a")["state"] == "learning"
@@ -532,6 +558,7 @@ def test_the_snapshot_says_when_learning_looks_next_and_what_last_night_drafted(
     from row_bot.learning import diagnosis
 
     client, headers, data, _ = api
+    save_learning_settings(data, enabled=False)
     off = _snapshot(client, headers)
     assert off["quiet_hours"]["next_look_at"] is None and off["changes"] == [] and off["overnight"] is None
     _turn_on(client, headers)
@@ -610,6 +637,8 @@ def test_how_row_bot_learns_shows_the_method_its_trials_and_history_and_undoes_a
 
     client, headers, data, _ = api
     _turn_on(client, headers)
+    assert _snapshot(client, headers)["method"]["next_trial"]["state"] == "off"  # experimental (O195)
+    save_learning_settings(data, experimental=True)
     store = LearningStore(data)
     assert _snapshot(client, headers)["method"]["version"] == 1  # the first method, before anything is kept
     first = archive.ensure_first(store)
@@ -666,9 +695,9 @@ def test_the_quick_question_shows_on_every_device_and_one_answer_settles_it(api,
                "question": "When two rota policies share a name, which should I use?",
                "answers": ["The newest", "Ask me"], "asked_at": START}
     store.set_meta_values({question.OPEN_KEY: json.dumps(waiting)})
-    assert _snapshot(client, headers)["quick_question"] is None  # a build without the quick question shows none
+    assert _snapshot(client, headers)["quick_question"] is None  # with experimental learning off, none shows
 
-    monkeypatch.setenv(learning.QUICK_QUESTION_ENV, "1")
+    save_learning_settings(data, experimental=True)
     assert _snapshot(client, headers)["quick_question"] == {
         "id": "qq_1", "question": waiting["question"], "answers": ["The newest", "Ask me"], "kind": "document_lookups"}
     answered = _ok(_command(client, headers, "answer_question", item_id="qq_1", answer="The newest"))

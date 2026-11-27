@@ -45,6 +45,7 @@
     },
     "LearningSetupChoices": {
       "additionalProperties": false,
+      "description": "Turn on Learning's choices. The personal model is set up in Personal model, never here (O195).",
       "properties": {
         "apply_mode": {
           "enum": [
@@ -69,32 +70,12 @@
         },
         "sources": {
           "$ref": "#/$defs/LearningSourcesSnapshot"
-        },
-        "starting_model": {
-          "const": "qwen3.5-9b",
-          "default": "qwen3.5-9b",
-          "title": "Starting Model",
-          "type": "string"
-        },
-        "train_in_quiet_hours": {
-          "title": "Train In Quiet Hours",
-          "type": "boolean"
-        },
-        "train_where": {
-          "enum": [
-            "this_computer",
-            "hugging_face"
-          ],
-          "title": "Train Where",
-          "type": "string"
         }
       },
       "required": [
         "sources",
         "apply_mode",
-        "monthly_token_limit",
-        "train_in_quiet_hours",
-        "train_where"
+        "monthly_token_limit"
       ],
       "title": "LearningSetupChoices",
       "type": "object"
@@ -176,6 +157,7 @@
         "undo_method",
         "answer_question",
         "dismiss_question",
+        "close_intro",
         "hf_sign_in",
         "hf_cancel_sign_in",
         "hf_sign_out",

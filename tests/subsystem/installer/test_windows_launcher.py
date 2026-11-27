@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -238,3 +239,32 @@ def test_without_state_the_newest_installed_version_starts(install):
     assert install.run().returncode == 0
     assert [launch["version"] for launch in install.launches()] == ["5.2.10"]
     assert layout.read_state(install.root) == layout.InstallState(active="5.2.10")
+
+
+def test_ending_row_bot_exe_ends_the_launcher_it_started(install):
+    psutil = pytest.importorskip("psutil")
+    folder = install.version("5.2.0")
+    pid_file = install.root.parent / "launcher.pid"
+    (folder / "app" / "launcher.py").write_text(
+        f"import os, time\nopen({str(pid_file)!r}, 'w').write(str(os.getpid()))\ntime.sleep(120)\n",
+        encoding="utf-8",
+    )
+    layout.write_state(install.root, layout.InstallState(active="5.2.0"))
+    env = {**os.environ, "FAKE_RUNS": str(install.runs), "ROW_BOT_DATA_DIR": str(install.data)}
+    exe = subprocess.Popen([str(install.root / "Row-Bot.exe")], env=env)
+    launched = None
+    try:
+        deadline = time.monotonic() + 30
+        while not (pid_file.exists() and pid_file.read_text()) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        launched = psutil.Process(int(pid_file.read_text()))
+        exe.kill()  # as Task Manager ends it: no clean-up runs
+        exe.wait(timeout=10)
+        launched.wait(timeout=10)
+    finally:
+        if exe.poll() is None:
+            exe.kill()
+        if launched is not None and launched.is_running():
+            launched.kill()
+            pytest.fail("launcher.py outlived Row-Bot.exe")
+

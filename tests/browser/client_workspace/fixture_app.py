@@ -7704,6 +7704,7 @@ def l1a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
         from row_bot.application import client_learning
         client_learning.read_learning_hardware = _l1a_saved["hardware_read"]
         learning.invalidate()
+        learning.ensure_store()  # what start-up does for a profile with Learning on by default (O195)
     else:
         raise HTTPException(404, "Unknown Learning fixture action")
     return {"action": action}
@@ -7763,11 +7764,15 @@ def l3a_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     predecessor._authorize(x_fixture_token)
     from datetime import date, datetime, timedelta
 
-    from row_bot import dream_cycle
+    from row_bot import dream_cycle, learning
     from row_bot.learning import diagnosis
     from row_bot.learning.store import LearningStore
 
     night = date.today().isoformat()
+    if action in {"night", "claude_plan", "stopped", "nothing", "unavailable"}:
+        # A running Row-Bot with Learning on by default has its store: start-up makes it (O195), and this
+        # fixture never runs start-up. Without this, the spec passed only after another spec's restore.
+        learning.ensure_store()
     if action == "ahead":
         # The night's window starts one to two hours from now, whatever the hour, so the Overview says "Next look
         # tonight at …". Inside the window (01:00 to 05:00 by default) it rightly says it looks once Row-Bot is free.
@@ -8062,14 +8067,11 @@ def _l4b_question() -> None:
 
 
 def _l4b_restore() -> None:
-    import os as _os
-
-    from row_bot import learning
+    from row_bot.application.settings_commands import write_learning_settings
     from row_bot.learning import practice, question
     from row_bot.learning.store import LearningStore
 
-    _os.environ.pop(learning.PRACTICE_ENV, None)
-    _os.environ.pop(learning.QUICK_QUESTION_ENV, None)
+    write_learning_settings({"experimental": False})
     store = LearningStore()
     if store.exists():
         store.set_meta_values({practice.NIGHT_KEY: "", question.OPEN_KEY: "", question.ANSWERS_KEY: "",
@@ -8078,16 +8080,14 @@ def _l4b_restore() -> None:
 
 @app.post("/__l4b_fixture/learning/{action}")
 def l4b_learning(action: str, x_fixture_token: str = Header(default="")) -> dict:
-    """Learning (preview) for the L4b spec: a build with practice and the quick question on, a night that practised,
-    and a quick question waiting. Nothing reaches a model: the night and the question are written directly."""
-    import os as _os
-
-    from row_bot import learning
+    """Learning for the L4b spec: experimental learning on (practice and the quick question, O195), a night that
+    practised, and a quick question waiting. Nothing reaches a model: the night and the question are written
+    directly."""
+    from row_bot.application.settings_commands import write_learning_settings
 
     predecessor._authorize(x_fixture_token)
     if action == "on":
-        _os.environ[learning.PRACTICE_ENV] = "1"
-        _os.environ[learning.QUICK_QUESTION_ENV] = "1"
+        write_learning_settings({"experimental": True})
     elif action == "practised":
         _l4b_night()
     elif action == "question":
@@ -8130,13 +8130,15 @@ def l4c_learning(action: str, x_fixture_token: str = Header(default="")) -> dict
     from row_bot import learning
 
     predecessor._authorize(x_fixture_token)
+    from row_bot.application.settings_commands import write_learning_settings
+
     if action == "jobs":
         _os.environ[learning.JOBS_ENV] = "1"
-        _os.environ[learning.PRACTICE_ENV] = "1"
+        write_learning_settings({"experimental": True})  # practice is experimental learning (O195)
         _l4c_jobs()
     elif action == "restore":
         _os.environ.pop(learning.JOBS_ENV, None)
-        _os.environ.pop(learning.PRACTICE_ENV, None)
+        write_learning_settings({"experimental": False})
         from row_bot.learning.improver import jobs
         from row_bot.learning.store import LearningStore
 
@@ -8709,7 +8711,9 @@ class _FixturePlanner:
     def recipe(self):
         from row_bot.learning.training import recipes
 
-        return recipes.load("8gb")
+        # The smallest certified tier (8 GB was retired). With Learning on by default (O195) the fixture's
+        # quiet-hours runner asks for it on every check.
+        return recipes.load("16gb")
 
     def forget(self) -> None:
         return None

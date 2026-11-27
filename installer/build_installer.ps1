@@ -336,7 +336,7 @@ if (!(Test-Path $LockFile)) {
 }
 Write-Host "      Installing locked Python packages from requirements.txt..." -ForegroundColor Yellow
 Write-Host "      (this may take several minutes)" -ForegroundColor Yellow
-& $PythonExe -m pip install --no-warn-script-location --no-compile -r $RequirementsFile 2>&1 | ForEach-Object {
+& $PythonExe -m pip install --no-warn-script-location --no-compile --no-deps -r $RequirementsFile 2>&1 | ForEach-Object {
     $line = $_.ToString()
     if ($line -match 'Successfully installed|Installing collected') {
         Write-Host "      $line" -ForegroundColor Green

@@ -10,6 +10,9 @@ resolution-markers = [
     "python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
 ]
 
+[manifest]
+overrides = [{ name = "docopt", marker = "sys_platform == 'never'" }]
+
 [[package]]
 name = "aiofiles"
 version = "25.1.0"
@@ -2446,7 +2449,7 @@ name = "num2words"
 version = "0.5.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "docopt" },
+    { name = "docopt", marker = "sys_platform == 'never'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f6/58/ad645bd38b4b648eb2fc2ba1b909398e54eb0cbb6a7dbd2b4953e38c9621/num2words-0.5.14.tar.gz", hash = "sha256:b066ec18e56b6616a3b38086b5747daafbaa8868b226a36127e0451c0cf379c6", size = 218213, upload-time = "2024-12-17T20:17:10.191Z" }
 wheels = [

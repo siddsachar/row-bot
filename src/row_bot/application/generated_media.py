@@ -112,7 +112,7 @@ def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCac
 
     The ToolNode wrapper adds native issuing message/tool-call identities to each
     outcome. A failed output cannot discard another successfully captured output.
-    Each saved file's record (name, role, version) goes into *names*; *label* (from the prompt) names
+    Each saved file's record (name, role, version) goes into *names*; *label* (its call's title or prompt) names
     a file its tool didn't name. Each outcome says the file's role; files the call
     presented (already chat files) follow as finals, with their names.
     """
@@ -128,7 +128,8 @@ def capture_generated_media(conversation_id: str, caches: AttachmentExecutionCac
             if caches.conversation_id != conversation_id:
                 raise AttachmentError("action_denied")
             _conversation(conversation_id)
-            result = (_image(conversation_id, value, name or label, role) if kind == "image"
+            # A label is a whole name ("Row-Bot 5.4 launch"): its type comes from the picture's bytes.
+            result = (_image(conversation_id, value, name or (label and f"{label}.png"), role) if kind == "image"
                       else _video(conversation_id, value, label))
             if names is not None:
                 names.append(result)

@@ -208,7 +208,8 @@ test('Catalog star and default actions update the picker (U10)', async ({
   page,
 }, info) => {
   await seed(page);
-  const index = info.project.name.includes('phone') ? '001' : '000';
+  // Newest first: the highest-numbered examples are on the first page.
+  const index = info.project.name.includes('phone') ? '103' : '104';
   const label = `Saved example ${index}`;
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
@@ -235,13 +236,13 @@ test('Catalog star and default actions update the picker (U10)', async ({
   ).toBeVisible();
   await expect(row.getByText(/^In your models · /)).toBeVisible();
   await row
-    .getByRole('button', { name: `Set ${label} as chat default` })
+    .getByRole('button', { name: `Make ${label} the main model` })
     .click();
   // The default is a searchable picker (U12): its button names the model.
   await expect(
     models.getByRole('button', { name: 'Main model', exact: true }),
   ).toContainText(label);
-  await expect(row.getByText('Default', { exact: true })).toBeVisible();
+  await expect(row.getByText('Main model', { exact: true })).toBeVisible();
   await assertNoOverflow(page);
 });
 
