@@ -51,7 +51,7 @@ AGREEMENT_BONUS = 0.15  # Meaning and words agree.
 RECENCY_WEIGHT = 0.10
 TIER_SOURCE_WEIGHT = 0.05
 AUTO_RECALL_RELATIVE_CUTOFF = 0.20  # Below the best memory by more than this, a memory is left out.
-# A request for a suggestion, recommendation or advice is answered from the person's own tastes and situation, so
+# A request for a suggestion, recommendation, advice or a likely reason is answered from the person's own tastes and situation, so
 # their memories come in at a lower bar and a few more are shown (LongMemEval-S, 27 Nov: saved preferences were
 # held back as below the bar, or sixth of five, and the answers came out generic).
 AUTO_RECALL_OPEN_MIN_SCORE = 0.33
@@ -59,7 +59,7 @@ AUTO_RECALL_OPEN_MAX_MEMORIES = 8
 AUTO_RECALL_OPEN_TOP_K = 20
 _OPEN_REQUEST = re.compile(
     r"\b(?:recommend\w*|suggest\w*|ideas?|tips?|advice|advise|ways? to|should i|what (?:can|could|should) i"
-    r"|help me (?:choose|pick|decide|plan|find))\b",
+    r"|help me (?:choose|pick|decide|plan|find)|do you think|(?:could|might) (?:there|it|that) be)\b",
     re.IGNORECASE)
 FOLLOW_UP_TERMS = 3  # A latest message with fewer words than this is read with the one before it.
 RUNTIME_REQUEST_MAX_TERMS = 6
