@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from pathlib import Path
 
 import psutil
 import pytest
@@ -403,6 +404,22 @@ def opened_files():
     _OPENED = None
 
 
+_REAL_HOME = Path.home()  # read before any test points HOME at a fake one
+
+
+def _claude_files(opened: list[str], home: Path) -> list[str]:
+    """The opened files that are Claude Code's own: its ``.claude`` folder and ``.claude.json``, in the test's
+    fake home or the real one. A checkout that merely sits under a ``.claude`` folder is not Claude's."""
+    places = [os.path.normcase(os.path.abspath(base / name))
+              for base in (home, _REAL_HOME) for name in (".claude", ".claude.json")]
+
+    def is_claudes(path: str) -> bool:
+        path = os.path.normcase(os.path.abspath(path))
+        return any(path == place or path.startswith(place + os.sep) for place in places)
+
+    return [path for path in opened if is_claudes(path)]
+
+
 def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypatch, opened_files):
     home = tmp_path / "fake-claude-home"
     fake = install_fake_claude(tmp_path, monkeypatch, reply=text_reply("ok"))
@@ -416,9 +433,7 @@ def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypat
     claude.list_claude_subscription_model_infos(force_refresh=True)
 
     assert fake.model_runs()
-    touched = [path for path in opened_files if ".credentials.json" in path or path.endswith(".claude.json")
-               or os.sep + ".claude" + os.sep in path]
-    assert touched == []
+    assert _claude_files(opened_files, home) == []
 
 
 def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_files(
@@ -437,7 +452,7 @@ def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_file
     # The answer Row-Bot had is forgotten: the next look asks Claude Code again.
     assert claude.claude_plan_status().state == "signed_out"
     assert not credentials.exists()  # Claude Code's own doing
-    assert [path for path in opened_files if os.sep + ".claude" + os.sep in path] == []
+    assert _claude_files(opened_files, home) == []
 
 
 def test_a_sign_out_claude_code_refuses_says_so(store, tmp_path, monkeypatch):
