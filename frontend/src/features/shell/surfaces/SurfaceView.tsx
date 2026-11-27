@@ -1184,7 +1184,9 @@ function PrivateMark({
           data-loading={sources.loading ? 'true' : undefined}
         >
           <Lock size={12} aria-hidden />
-          {sources.loading ? 'Filling in…' : 'On this computer'}
+          <span className="genui-private-words">
+            {sources.loading ? 'Filling in…' : 'On this computer'}
+          </span>
         </span>
       </Hint>
       <IconButton

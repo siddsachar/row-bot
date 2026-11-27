@@ -597,8 +597,20 @@
   .genui-breakdown li {
     grid-template-columns: 10px 1fr auto;
   }
+  /* The amount stays on its label's line; the slider takes the line below. */
+  .genui-breakdown output {
+    grid-row: 1;
+    grid-column: 3;
+  }
   .genui-breakdown input[type='range'] {
     grid-column: 1 / -1;
+  }
+  /* The surface's name keeps the header's room: the private mark shows as its lock. */
+  .genui-private-words {
+    display: none;
+  }
+  .genui-private {
+    padding: 3px;
   }
 }
 
