@@ -122,11 +122,12 @@ def endpoint_id(runtime: str) -> str:
 
 def row_bot_here(check: Any = None) -> bool:
     """Whether Row-Bot's own server has a build for this computer (an NVIDIA card that can train, on
-    Windows or Linux x86-64), installed or not."""
+    Windows or Linux x86-64), installed or not. The card is checked if nothing has asked yet this run: right
+    after a start, Runs in must not say a computer with an NVIDIA card has none (FL4)."""
 
     from row_bot.learning.training import hardware, server_files
 
-    found = check if check is not None else hardware.peek()
+    found = check if check is not None else hardware.check()
     variant = found.variant if found is not None and getattr(found, "can_train", False) else None
     return bool(server_files.plan(variant))
 

@@ -137,9 +137,11 @@ def _content_range_start(value: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def rename(source: Path, target: Path, *, seconds: float = 30.0) -> None:
+def rename(source: Path, target: Path, *, seconds: float = 180.0) -> None:
     """``os.replace`` that waits out Windows holding a just-written file or folder (an antivirus
-    scan, a child process's last handle: WinError 5 or 32) for up to ``seconds``."""
+    scan, a child process's last handle: WinError 5 or 32) for up to ``seconds``. Three minutes by
+    default: the 5.4 real-user test met an antivirus scan of the new training engine's 2 GB that
+    outlasted 30 seconds (FL3)."""
 
     deadline = time.monotonic() + seconds
     wait = 0.02
