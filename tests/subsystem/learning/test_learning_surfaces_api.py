@@ -218,6 +218,19 @@ def test_the_limit_is_reached_for_learnings_other_work_when_only_comparing_metho
     assert (after["used_tokens"], after["kept_for_comparing"], after["limit_reached"]) == (1_700_000, 400_000, True)
 
 
+def test_the_snapshot_says_when_the_default_model_runs_on_this_computer(api, no_channels, monkeypatch):
+    # FL10: the intro gave a local model a token cap it never counts against.
+    from row_bot.application import client_first_run
+
+    client, headers, _, _ = api
+    _turn_on(client, headers)
+    monkeypatch.setattr(client_first_run, "saved_default_model", lambda: "model:codex:gpt-5.6-sol")
+    assert _snapshot(client, headers)["spending"]["model_local"] is False
+
+    monkeypatch.setattr(client_first_run, "saved_default_model", lambda: "model:ollama:qwen3.8:27b")
+    assert _snapshot(client, headers)["spending"]["model_local"] is True
+
+
 def test_turning_on_with_no_limit_saves_it_and_a_setup_without_a_limit_is_refused(api, no_channels):
     client, headers, data, _ = api
     without = {key: value for key, value in SETUP.items() if key != "monthly_token_limit"}

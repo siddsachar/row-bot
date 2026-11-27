@@ -1184,6 +1184,12 @@
           "minimum": 0,
           "title": "New Examples",
           "type": "integer"
+        },
+        "waiting_for_tools": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Waiting For Tools",
+          "type": "integer"
         }
       },
       "required": [
@@ -3086,6 +3092,11 @@
             }
           ],
           "title": "Limit Tokens"
+        },
+        "model_local": {
+          "default": false,
+          "title": "Model Local",
+          "type": "boolean"
         },
         "model_name": {
           "maxLength": 256,

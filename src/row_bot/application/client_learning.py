@@ -147,6 +147,22 @@ def _next_month(today: date) -> date:
     return date(today.year + (today.month == 12), today.month % 12 + 1, 1)
 
 
+def _default_model_local() -> bool:
+    """Whether the default chat model runs on this computer (Learning's calls on it count against no limit)."""
+
+    try:
+        from row_bot.application.client_first_run import saved_default_model
+        from row_bot.learning.spending import is_local_provider
+        from row_bot.providers.selection import parse_model_ref
+
+        ref = saved_default_model()
+        parsed = parse_model_ref(ref) if ref else None
+        return bool(parsed) and is_local_provider(parsed[0])
+    except Exception:
+        logger.debug("Learning could not tell where the default model runs", exc_info=True)
+        return False
+
+
 def _default_model_name() -> str:
     """The default chat model's name as the catalog knows it (Learning's calls use it), or ""."""
 
@@ -192,6 +208,7 @@ def _spending(settings: learning.LearningSettings) -> dict[str, Any]:
         "limit_tokens": limit,
         "resets_on": _next_month(date.today()).isoformat(),
         "model_name": _default_model_name(),
+        "model_local": _default_model_local(),
         # What comparing methods still has of its share: the rest of Learning's work stops before it (O178).
         "kept_for_comparing": max(0, int(kept)),
         "limit_reached": settings.enabled and limit is not None and (limit == 0 or used >= limit - kept),
@@ -938,7 +955,8 @@ def _examples(settings: learning.LearningSettings, engine_installed: bool) -> di
     if summary is None:
         return None
     return {"examples": max(0, summary.examples), "needed": max(1, summary.needed),
-            "new_examples": max(0, summary.new_examples), "left_out": max(0, summary.left_out)}
+            "new_examples": max(0, summary.new_examples), "left_out": max(0, summary.left_out),
+            "waiting_for_tools": max(0, int(summary.by_reason.get("past_chat_waiting", 0)))}
 
 
 def _iso(at: float | None) -> str | None:

@@ -221,14 +221,15 @@ class HardwareCheck:
 
 
 def engine_download_bytes(variant: str | None) -> int:
-    """About how much the training engine downloads for this computer (from its lock)."""
+    """About how much the training engine downloads for this computer (from its lock), with Row-Bot's model
+    server where it has a build: they download together, so the download ask and Settings name one size (FL10)."""
 
     if variant is None:
         return ENGINE_DOWNLOAD_BYTES
     try:
-        from row_bot.learning.training import lockfile
+        from row_bot.learning.training import lockfile, server_files
 
-        return lockfile.cached_plan(variant).download_bytes()
+        return lockfile.cached_plan(variant).download_bytes() + server_files.download_bytes(variant)
     except Exception:
         logger.debug("Learning could not read the training engine's lock", exc_info=True)
         return ENGINE_DOWNLOAD_BYTES

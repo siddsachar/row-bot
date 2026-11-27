@@ -7,8 +7,10 @@ import { tokenWords } from './words';
 import './learning.css';
 
 /** What finding and testing fixes costs, in one clause, or '' when Learning makes no model calls. */
-function costWords(model: string, limit: number | null): string {
+function costWords(model: string, limit: number | null, local = false): string {
   const uses = model ? `${model} (your default model)` : 'your default model';
+  // A model on this computer counts against no limit (D25).
+  if (local) return `${uses}, on this computer`;
   if (limit === null) return `${uses}, with no monthly limit`;
   if (limit <= 0) return '';
   return `${uses}, up to ${tokenWords(limit)} tokens a month`;
@@ -33,6 +35,7 @@ export function LearningIntro({ io }: { io: LearningIO | null }) {
   const cost = costWords(
     snapshot.spending.model_name,
     snapshot.spending.limit_tokens,
+    snapshot.spending.model_local,
   );
   return (
     <div

@@ -410,7 +410,9 @@ export function trainingView(
       if (reason === 'no_data' && examples)
         return {
           title: `Needs more examples · ${examplesWords(examples.examples, examples.needed)}`,
-          detail: `Training starts once Row-Bot has ${plural(examples.needed, 'example')} of your work it can learn from. Keep using Row-Bot; Teach on a reply that went wrong helps too.`,
+          detail: examples.waiting_for_tools
+            ? `${plural(examples.waiting_for_tools, 'reply', 'replies')} from your past chats count once you have one chat here that uses a tool, such as a search or a calculation.`
+            : `Training starts once Row-Bot has ${plural(examples.needed, 'example')} of your work it can learn from. Keep using Row-Bot; Teach on a reply that went wrong helps too.`,
           actions: [],
           announce: '',
         };
@@ -423,7 +425,7 @@ export function trainingView(
         };
       if (reason === 'planning')
         return {
-          title: examples
+          title: examples?.examples
             ? `Getting ${plural(examples.examples, 'example')} ready to train…`
             : 'Getting your examples ready to train…',
           detail:

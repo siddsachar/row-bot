@@ -19,6 +19,7 @@ import {
   Menu,
   Skeleton,
   StatusDot,
+  type MenuAction,
 } from '../../ui/primitives';
 import {
   Code2,
@@ -77,6 +78,8 @@ type Props = {
   onManageConversation: () => void;
   onManageBrowser: () => void;
   onDeleteConversation: () => void;
+  /** Learning (preview): "Don't learn from this chat", as in the sidebar item's menu (FL11). */
+  learningMenu?: MenuAction | null;
   onOpenSuggestion: (suggestion: ClientPanelSuggestion) => void;
   onDismissSuggestion: (suggestion: ClientPanelSuggestion) => void;
   /** A phone's context line, first in the details (B2). */
@@ -116,6 +119,7 @@ export default function ConversationContextRail({
   onManageConversation,
   onManageBrowser,
   onDeleteConversation,
+  learningMenu = null,
   onOpenSuggestion,
   onDismissSuggestion,
   contextLine,
@@ -303,6 +307,7 @@ export default function ConversationContextRail({
                 icon: <Globe size={16} />,
                 onSelect: onManageBrowser,
               },
+              ...(learningMenu ? [learningMenu] : []),
               {
                 label: 'Delete conversation',
                 icon: <Trash2 size={16} />,

@@ -299,3 +299,13 @@ def test_training_waits_for_the_recipes_measured_need_not_a_share_of_the_card():
         assert hardware.gpu_free_for_training(memory=lambda: (700, 15_616), clock=lambda: 300.0) is False
     finally:
         hardware.forget()
+
+
+def test_the_engines_size_counts_the_model_server_that_downloads_with_it():
+    # FL10: the download ask said 2.3 GB while Settings and the download's total counted 2.9 GB.
+    from row_bot.learning.training import lockfile, server_files
+
+    engine_only = lockfile.cached_plan("cu130").download_bytes()
+    server = server_files.download_bytes("cu130")
+
+    assert hardware.engine_download_bytes("cu130") == engine_only + server

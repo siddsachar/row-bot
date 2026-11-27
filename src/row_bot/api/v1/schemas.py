@@ -5086,6 +5086,8 @@ class LearningSpending(WireModel):
     resets_on: str = Field(max_length=16)
     # The default chat model's name; Learning's own model calls use it. "" when none is chosen.
     model_name: str = Field(max_length=256)
+    # The default chat model runs on this computer: its calls count against no limit (D25).
+    model_local: bool = False
     # Tokens of the limit kept for comparing methods (the strategy trials' unused 20% share, O178); 0 with no limit.
     kept_for_comparing: int = Field(default=0, ge=0, le=1_000_000_000)
     # Learning's other work has used all it may: the limit, less what is kept for comparing methods.
@@ -5152,6 +5154,8 @@ class LearningExamples(WireModel):
     # Examples the newest version wasn't trained on.
     new_examples: int = Field(ge=0)
     left_out: int = Field(ge=0)
+    # Replies from past chats that count once one chat here has used a tool (O113): their rows are framed like it.
+    waiting_for_tools: int = Field(default=0, ge=0)
 
 
 class LearningVersion(WireModel):

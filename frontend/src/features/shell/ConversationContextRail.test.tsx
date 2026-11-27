@@ -139,6 +139,46 @@ it('projects bounded Developer and Designer summaries from canonical owners', as
   ).toBeVisible();
 });
 
+it('offers Learning’s switch for the chat in its own menu too (FL11)', async () => {
+  const select = vi.fn();
+  render(
+    <ConversationContextRail
+      conversationId="conversation-a"
+      conversationRevision="1"
+      resources={[]}
+      suggestions={[]}
+      ready
+      connectionStatus="ready"
+      agents={<p>No delegated agents in this conversation.</p>}
+      onAddResource={vi.fn()}
+      onOpenResource={vi.fn()}
+      onUnbindResource={vi.fn()}
+      onManageConversation={vi.fn()}
+      onManageBrowser={vi.fn()}
+      onDeleteConversation={vi.fn()}
+      onOpenSuggestion={vi.fn()}
+      onDismissSuggestion={vi.fn()}
+      learningMenu={{
+        label: 'Don’t learn from this chat',
+        checked: false,
+        onSelect: select,
+      }}
+    />,
+  );
+  const rail = screen.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  await userEvent
+    .setup()
+    .click(within(rail).getByRole('button', { name: 'Conversation actions' }));
+  await userEvent.setup().click(
+    await screen.findByRole('menuitemcheckbox', {
+      name: 'Don’t learn from this chat',
+    }),
+  );
+  expect(select).toHaveBeenCalled();
+});
+
 it('keeps unavailable resources visible without querying their owners', async () => {
   runtime.inspector.mockClear();
   runtime.artifactEditing.mockClear();
