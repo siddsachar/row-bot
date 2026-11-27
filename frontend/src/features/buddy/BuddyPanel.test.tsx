@@ -304,6 +304,35 @@ describe('controller-lifetime Buddy commands', () => {
       vi.useRealTimers();
     }
   });
+  it('reads an unchanged Buddy less and less often, and soon again once the chat moves (F19)', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = transport();
+      const session = createBuddyPanelSession(api, () => {});
+      await session.load();
+      api.snapshot = vi.fn(async () => snapshot);
+      const stop = session.observe();
+      // Unchanged reads at 2, 6, 14, 30 and 46 s: the wait doubles to 16 s.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(api.snapshot).toHaveBeenCalledTimes(5);
+      session.nudge();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(api.snapshot).toHaveBeenCalledTimes(6);
+      api.snapshot = vi.fn(async () => ({
+        ...snapshot,
+        status: { ...snapshot.status, label: 'Working', event_id: 2 },
+      }));
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(session.getSnapshot().snapshot?.status.label).toBe('Working');
+      // A change keeps it reading every 2 s.
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(vi.mocked(api.snapshot).mock.calls.length).toBe(2);
+      stop();
+      session.purge();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('offers an explicit saved-view retry after a passive load failure', async () => {
     const api = transport();
     api.snapshot = vi
