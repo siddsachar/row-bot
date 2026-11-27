@@ -157,6 +157,7 @@ def test_a_repeat_carry_on_needs_a_clear_yes_from_the_stop_check(chat, stop_chec
 @pytest.mark.parametrize("reply", [
     "Next I'll render the vertical version. Do you want it with music?",
     "The film is ready. Let me know if you'd like a shorter cut.",
+    "The order allows only one change, so I'll hold off until you pick the exchange or the return.",
     "Here is the finished film, with the vertical cut beside it.",
 ])
 def test_a_reply_that_hands_over_or_is_done_does_not_carry_on(chat, reply):

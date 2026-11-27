@@ -106,7 +106,7 @@ _STOP_CHECK = (
     "offers more. Answer with one word: YES or NO.")
 # The reply hands over to the person: their answer, OK or choice is what comes next.
 _HANDS_OVER = re.compile(
-    r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
+    r"\?|\b(?:let me know|once you|when you|until you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
     r"|your call|say the word|up to you)\b",
     re.IGNORECASE)
 _TAIL_CHARS = 400  # Of the reply's end: where a "next I'll" that ends the turn is.
