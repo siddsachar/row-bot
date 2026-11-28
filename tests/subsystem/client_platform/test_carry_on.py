@@ -1,4 +1,4 @@
-"""A reply that stops on its next step carries on once by itself (R1).
+"""A reply that stops on its next step carries on by itself (R1), again after a carry-on that used tools.
 
 A model can write "Next I'll …" with no tool call, which ends its turn with the work half done, and the
 person had to ask why it stopped. Real admission, checkpoint and follow-up owners; the model is scripted,
@@ -25,6 +25,15 @@ NEXT = "The landscape cut is saved. Next I'll render the vertical version and ch
 def replied(text: str, label: str):
     native_id = fixture_id(label + ":assistant")
     return (CheckpointCommit((AIMessage(content=text, id=native_id),), native_id), ("done", text))
+
+
+def worked(text: str, label: str):
+    """A turn that ran a tool, then ended its reply with *text*."""
+    native_id = fixture_id(label + ":assistant")
+    call_id = f"call-{label}"
+    return (("tool_call", {"id": call_id, "name": "render_video", "args": {}}),
+            ("tool_done", {"tool_call_id": call_id, "message_id": f"tool-{label}", "name": "render_video"}),
+            ("token", text), CheckpointCommit((AIMessage(content=text, id=native_id),), native_id), ("done", text))
 
 
 class Recording(ScriptedAgentStream):
@@ -125,9 +134,30 @@ def test_a_reply_that_stops_on_its_next_step_carries_on_once(chat):
     assert notes(chat) == [CARRY_ON_NOTE], "the transcript says why it went on, not the prompt"
 
 
+def test_a_carry_on_that_used_tools_and_stops_again_carries_on_again_up_to_the_cap(chat):
+    from row_bot.application.conversation_followups import CARRY_ON_NOTE, CARRY_ON_PROMPT, MAX_CARRY_ONS
+    steps = [worked(f"Next I'll render part {n} of the film.", f"step-{n}") for n in range(MAX_CARRY_ONS + 1)]
+    fake = Recording(replied(NEXT, "first"), *steps, replied("unused", "last"))
+    send(chat, fake, "Make the launch film in both shapes", "film")
+    settle(chat, fake, 1 + MAX_CARRY_ONS)
+    assert len(fake.calls) == 1 + MAX_CARRY_ONS, "past the cap the reply waits for the person"
+    assert fake.prompts[1:] == [CARRY_ON_PROMPT] * MAX_CARRY_ONS
+    assert notes(chat) == [CARRY_ON_NOTE] * MAX_CARRY_ONS
+
+
+def test_a_repeat_carry_on_needs_a_clear_yes_from_the_stop_check(chat, stop_check):
+    stop_check.answer = "Okay, it looks unfinished."
+    fake = Recording(replied(NEXT, "first"), worked("Next I'll check the captions are off.", "second"),
+                     replied("unused", "third"))
+    send(chat, fake, "Make the launch film in both shapes", "film")
+    settle(chat, fake, 2)
+    assert len(fake.calls) == 2, "the first carry-on reads an unclear answer as before; a repeat needs YES"
+
+
 @pytest.mark.parametrize("reply", [
     "Next I'll render the vertical version. Do you want it with music?",
     "The film is ready. Let me know if you'd like a shorter cut.",
+    "The order allows only one change, so I'll hold off until you pick the exchange or the return.",
     "Here is the finished film, with the vertical cut beside it.",
 ])
 def test_a_reply_that_hands_over_or_is_done_does_not_carry_on(chat, reply):
@@ -245,6 +275,9 @@ def test_the_persons_message_replaces_a_pending_carry_on(chat):
     "Your reservation has travel insurance. I'm checking the flight statuses before determining the next steps.",
     "I found four more reservations; I've checked two and will review the remaining two before totaling them.",
     "One booking is basic economy. I still need to verify the flight statuses before deciding what can change.",
+    # Stops from the DeepSWE traces (26 Nov): work announced with no "I'll".
+    "The parser is in. I'm now finishing the schema exports before type-checking and writing tests.",
+    "Struct methods work. Next I'm wiring interface method dispatch and running the full test suite.",
 ])
 def test_a_reply_that_stops_mid_work_in_other_words_carries_on_when_the_model_agrees(chat, stop_check, reply):
     """S1 (18 Nov): the owner's real stops, which the narrower rule never caught; the chat's own model is asked

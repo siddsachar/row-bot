@@ -62,6 +62,9 @@ FollowupKind = Literal["goal", "resource", "workflow", "linked", "wait", "carry_
 # A reply that says what it will do next and then ends gets one turn to do it (R1, 12 Nov): a model writes
 # "Next I'll …" with no tool call, which ends its turn, and nothing was left to bring it back.
 CARRY_ON_NOTE = "Carrying on with the next step"
+#: Carry-ons in a row, in the app and in ``row-bot run``: a repeat comes only after a carry-on turn that used
+#: tools, on the stop check's clear YES; past this the reply waits for the person (lane E's DeepSWE traces, 26 Nov).
+MAX_CARRY_ONS = 10
 CARRY_ON_PROMPT = (
     "This is Row-Bot, not the person: your last reply said what you'd do next, then ended your turn, so "
     "nothing ran. Carry on with it now. If you need the person for something, ask them; if the work is "
@@ -84,7 +87,10 @@ _NEXT_STEP = re.compile(
     # two …", "I still need to verify …").
     r"|\bI(?:'|’)m\s+(?:now\s+)?(?:checking|reviewing|verifying|looking into|working on|processing)\b"
     r"|\b(?:I|and)\s+will\s+(?:now\s+)?(?:check|review|verify|finish|continue|go through|look)\b"
-    r"|\bI still (?:need|have) to\b",
+    r"|\bI still (?:need|have) to\b"
+    # Work announced with no "I'll" (lane E's DeepSWE traces, 26 Nov: "I'm now finishing the exports before ...",
+    # "Next I'm wiring interface dispatch ..." ended runs with nothing committed).
+    r"|\bI(?:'|’)m\s+now\s+[a-z]+ing\b|\bnext,?\s+I(?:'|’)m\s+[a-z]+ing\b",
     re.IGNORECASE)
 # The narrower R1 rule: what carries on when the check can't be asked (no model, a provider error), as before.
 _SURE_NEXT_STEP = re.compile(
@@ -100,7 +106,7 @@ _STOP_CHECK = (
     "offers more. Answer with one word: YES or NO.")
 # The reply hands over to the person: their answer, OK or choice is what comes next.
 _HANDS_OVER = re.compile(
-    r"\?|\b(?:let me know|once you|when you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
+    r"\?|\b(?:let me know|once you|when you|until you|if you(?:'|’)d like|if you want|want me to|shall I|should I"
     r"|your call|say the word|up to you)\b",
     re.IGNORECASE)
 _TAIL_CHARS = 400  # Of the reply's end: where a "next I'll" that ends the turn is.
@@ -128,16 +134,23 @@ def file_check_prompt(names: list[str]) -> str:
 
 
 def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followup_kind: str,
-              last_reply: str = "") -> None:
-    """Schedule one carry-on turn after a reply that stopped on its next step, or that names files it says it
-    saved and that aren't there; never after another carry-on. *last_reply* is what the model wrote after its
-    last tool call: how the turn ended, without the progress lines before its tools ("I'll paint …", F7)."""
+              last_reply: str = "", depth: int = 0, used_tools: bool = False) -> None:
+    """Schedule a carry-on turn after a reply that stopped on its next step, or that names files it says it
+    saved and that aren't there. After a carry-on (*depth* in a row) only a next-step carry-on can follow, when
+    that turn *used_tools*, up to ``MAX_CARRY_ONS``, and only on the stop check's clear YES. *last_reply* is
+    what the model wrote after its last tool call: how the turn ended, without the progress lines before its
+    tools ("I'll paint …", F7)."""
     from row_bot.file_claims import could_claim
 
-    if status != "completed" or followup_kind in ("carry_on", "watch"):
+    if status != "completed" or followup_kind == "watch":
         return  # A watch's turn says what changed and stops there.
+    again = followup_kind == "carry_on"
+    if again and (not used_tools or depth >= MAX_CARRY_ONS):
+        return  # A carry-on that ran nothing didn't take; past the cap the person decides.
     ending = last_reply if last_reply.strip() else assistant_text
     next_step = stopped_on_next_step(ending)
+    if again and not next_step:
+        return  # The file check comes once.
     if not next_step and not could_claim(assistant_text):
         return
     from row_bot import tasks, waits
@@ -149,7 +162,8 @@ def _carry_on(conversation_id: str, *, status: str, assistant_text: str, followu
     if next_step:
         reply = str(ending or "").strip()
         followup = Followup(kind="carry_on", prompt=CARRY_ON_PROMPT, note=CARRY_ON_NOTE, check_reply=reply[-1500:],
-                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])))
+                            unchecked=bool(_SURE_NEXT_STEP.search(reply[-_TAIL_CHARS:])),
+                            depth=depth + 1, strict=again)
     else:
         missing = _missing_files(conversation_id, assistant_text)
         if not missing:
@@ -227,10 +241,15 @@ class Followup:
     check_reply: str = ""
     # Whether it carries on when the check can't be asked: only on the narrower rule's words, as before S1.
     unchecked: bool = False
+    # Which carry-on in a row this is (1 for the first). A repeat needs the check's clear YES (``strict``).
+    depth: int = 0
+    strict: bool = False
 
 
-def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool) -> bool:
-    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't."""
+def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecked: bool,
+                   strict: bool = False) -> bool:
+    """The chat's own model says whether *reply* stopped with work it means to do; *unchecked* when it can't.
+    Anything but NO counts as yes, unless *strict*: then only a YES does, and a check that can't run says no."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     try:
@@ -242,20 +261,26 @@ def _still_working(conversation_id: str, reply: str, model_ref: str, *, unchecke
             get_llm_for(resolve_provider_config(model_ref, allow_legacy_local=True).selection_ref),
             "verifier", thread_id=conversation_id)
         answer = model.invoke([SystemMessage(content=_STOP_CHECK), HumanMessage(content=f"The reply:\n{reply}")])
-        return not str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper().startswith("NO")
+        said = str(getattr(answer, "text", "") or getattr(answer, "content", "")).strip().upper()
+        if not said.startswith(("YES", "NO")):
+            first = said.split(maxsplit=1)[0][:12] if said else ""
+            _LOG.info("The stop check for %s answered neither YES nor NO (it began %r)", conversation_id, first)
+        return said.startswith("YES") if strict else not said.startswith("NO")
     except Exception as exc:
         _LOG.info("The stop check for %s couldn't run (%s)", conversation_id, type(exc).__name__)
-        return unchecked
+        return False if strict else unchecked
 
 
-def followup_after(conversation_id: str, reply: str, model_ref: str, *, headless: bool = False) -> Followup | None:
+def followup_after(conversation_id: str, reply: str, model_ref: str, *, headless: bool = False,
+                   strict: bool = False) -> Followup | None:
     """The one follow-up the app would start after a completed turn that ended with *reply*, decided now (the
     stop check included), or None. For a caller that runs its own turns (``row-bot run``, *headless*: its
-    carry-on doesn't send the model to a person); never after a follow-up, as in the app."""
+    carry-on doesn't send the model to a person). The app never starts one after a follow-up; a caller that
+    does passes *strict*, so the stop check must say YES."""
     _carry_on(conversation_id, status="completed", assistant_text=reply, followup_kind="")
     followup = take(conversation_id)
     if followup is None or (followup.check_reply and not _still_working(
-            conversation_id, followup.check_reply, model_ref, unchecked=followup.unchecked)):
+            conversation_id, followup.check_reply, model_ref, unchecked=followup.unchecked, strict=strict)):
         return None
     if headless and followup.prompt == CARRY_ON_PROMPT:
         return replace(followup, prompt=HEADLESS_CARRY_ON_PROMPT)
@@ -389,7 +414,8 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
 def _carry_on_if_still_working(service: Any, handle: Any, followup: Followup) -> None:
     """Start the carry-on turn the word rule found, if the chat's model agrees the reply stopped mid-work."""
     conversation_id = handle.conversation_id
-    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked):
+    if not _still_working(conversation_id, followup.check_reply, handle.model_ref, unchecked=followup.unchecked,
+                          strict=followup.strict):
         return  # Done, or handing over to the person: nothing to carry on.
     from row_bot.application.client_platform import _COMMAND_LOCK
 
@@ -426,7 +452,7 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
                         assistant_text: str, model_ref: str, goal_id: str = "",
                         error_text: str = "", followup_kind: str = "", service: Any = None,
-                        last_reply: str = "") -> None:
+                        last_reply: str = "", followup_depth: int = 0, used_tools: bool = False) -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
@@ -456,7 +482,7 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
                 _LOG.exception("Counting the goal's last turn failed for %s", conversation_id)
         else:
             _carry_on(conversation_id, status=status, assistant_text=assistant_text, followup_kind=followup_kind,
-                      last_reply=last_reply)
+                      last_reply=last_reply, depth=followup_depth, used_tools=used_tools)
         return
     try:
         if status == "completed":
