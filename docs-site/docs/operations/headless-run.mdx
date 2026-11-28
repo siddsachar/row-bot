@@ -7,7 +7,7 @@ description: "Run one task with Row-Bot from the command line, with no window or
 
 `row-bot run` gives Row-Bot one task, runs it to the end and exits. There's no window, server or tray. It's for scripts, CI jobs and benchmark harnesses such as Harbor (Terminal-Bench, DeepSWE), which install an agent into a task container, hand it a task and read back what it did.
 
-The task runs as one conversation, with Row-Bot's normal prompts and tools. When the turn ends, Row-Bot can send one follow-up of its own, as the app does. It does this when the reply stopped on its next step, or when the reply names files it says it saved that aren't there.
+The task runs as one conversation, with Row-Bot's normal prompts and tools. When the turn ends, Row-Bot can send a follow-up of its own, as the app does. It does this when the reply stopped on its next step, or when the reply names files it says it saved that aren't there. Because nobody is there to say "carry on", a run goes further than the app: after a carry-on turn that used tools and stopped on its next step again, it carries on again when its stop check answers a clear yes, up to 10 carry-ons in all. A carry-on turn that runs no tool ends the run, and the file check comes once. When a run stops with work still announced, `summary.json` says so in its `reason`. Without `--timeout`, the worst case is 11 turns, each up to its round ceiling.
 
 ```bash
 row-bot run --task-file task.txt --workspace /app \

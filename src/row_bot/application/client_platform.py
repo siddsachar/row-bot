@@ -1847,6 +1847,7 @@ class ClientPlatformService:
             status = "interrupted"
             final_text = ""
             last_reply = ""  # What the model wrote after its last tool call.
+            used_tools = False
             error_text = ""  # A provider limit here makes a goal wait (B244).
             started_goal = None
             _buddy(conversation_id, "generation.started", "Thinking")
@@ -1944,6 +1945,7 @@ class ClientPlatformService:
                             last_reply += str(event[1] or "") if len(event) > 1 else ""
                         elif event[0] in {"tool_call", "tool_done"}:
                             last_reply = ""  # A progress line before a tool isn't how the turn ended (F7).
+                            used_tools = True
                         if event[0] == "done":
                             status = "completed"
                             final_text = str(event[1] or "") if len(event) > 1 else ""
@@ -1987,7 +1989,8 @@ class ClientPlatformService:
                                         goal_id=str((started_goal or {}).get("id") or ""),
                                         error_text=error_text,
                                         followup_kind=followup.kind if followup is not None else "",
-                                        service=self)
+                                        followup_depth=followup.depth if followup is not None else 0,
+                                        used_tools=used_tools, service=self)
                 with _turn_end_step(conversation_id, "the workflow's run"):
                     # A workflow's run moves on when its turn ends: its next message, or its outcome (F31).
                     from row_bot.workflow_turns import after_turn as after_workflow_turn

@@ -103,7 +103,9 @@ export function createBuddyPanelSession(
   let observers = 0;
   // A plain read of the saved view is running (nothing to lose on reload).
   let reading = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  // A repeating read at the current pace; a change of pace restarts it.
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let timerDelay = 0;
   let delay = POLL_FAST_MS;
   let observation: AbortController | null = null;
   const emit = (patch: Partial<State>) => {
@@ -226,11 +228,14 @@ export function createBuddyPanelSession(
     return snapshot;
   }
   function schedule() {
-    if (timer) clearTimeout(timer);
-    timer = observers > 0 ? setTimeout(poll, delay) : null;
+    if (timer && observers > 0 && timerDelay === delay) return;
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (observers === 0) return;
+    timerDelay = delay;
+    timer = setInterval(poll, delay);
   }
   function poll() {
-    timer = null;
     if (
       state.revoked ||
       !state.snapshot ||
@@ -324,7 +329,7 @@ export function createBuddyPanelSession(
         released = true;
         observers -= 1;
         if (observers === 0) {
-          if (timer) clearTimeout(timer);
+          if (timer) clearInterval(timer);
           timer = null;
           observation?.abort();
           document.removeEventListener('visibilitychange', onVisible);

@@ -195,6 +195,59 @@ def test_a_reply_that_stops_on_its_next_step_gets_the_headless_carry_on(monkeypa
     assert app is not None and app.prompt == conversation_followups.CARRY_ON_PROMPT
 
 
+def _stop_check_says(monkeypatch, answer: str) -> None:
+    """The chat model's stop check answers *answer* (it can't be reached in these tests otherwise)."""
+    from types import SimpleNamespace
+
+    from langchain_core.messages import AIMessage
+
+    from row_bot import models
+    from row_bot.providers import resolution
+
+    monkeypatch.setattr(resolution, "resolve_provider_config", lambda *a, **k: SimpleNamespace(selection_ref="m"))
+    monkeypatch.setattr(models, "get_llm_for", lambda *a, **k: SimpleNamespace(
+        invoke=lambda messages: AIMessage(content=answer)))
+
+
+def test_a_run_carries_on_again_after_a_carry_on_that_used_tools(monkeypatch, tmp_path):
+    _stop_check_says(monkeypatch, "YES")
+    result, _, _ = _run(monkeypatch, tmp_path, says("Next, I'll delete old.txt."),
+                        asks(call("delete_file", "d1", path="old.txt")), says("Next, I'll check the folder is empty."),
+                        says("Done."), approval="hands-off")
+
+    carry_on = conversation_followups.HEADLESS_CARRY_ON_PROMPT
+    assert result.prompts == ["Delete old.txt", carry_on, carry_on]
+    assert result.status == "done" and result.answer == "Done." and not result.reason
+
+
+def test_a_carry_on_that_ran_no_tool_ends_the_run_and_says_work_was_still_owed(monkeypatch, tmp_path):
+    _stop_check_says(monkeypatch, "YES")
+    result, _, _ = _run(monkeypatch, tmp_path, says("Next, I'll delete old.txt."),
+                        says("Next, I'll check the folder is empty."), says("Done."))
+
+    assert result.prompts == ["Delete old.txt", conversation_followups.HEADLESS_CARRY_ON_PROMPT]
+    assert result.status == "done" and "still says what it would do next" in result.reason
+
+
+def test_a_second_carry_on_needs_a_clear_yes_from_the_stop_check(monkeypatch, tmp_path):
+    _stop_check_says(monkeypatch, "Okay, it seems so.")
+    result, _, _ = _run(monkeypatch, tmp_path, says("Next, I'll delete old.txt."),
+                        asks(call("delete_file", "d1", path="old.txt")), says("Next, I'll check the folder is empty."),
+                        says("Done."), approval="hands-off")
+
+    assert result.prompts == ["Delete old.txt", conversation_followups.HEADLESS_CARRY_ON_PROMPT]
+
+
+def test_the_missing_file_check_comes_once_per_run(monkeypatch, tmp_path):
+    check = conversation_followups.Followup(kind="carry_on", prompt=conversation_followups.file_check_prompt(["a.txt"]),
+                                            note=conversation_followups.FILE_CHECK_NOTE)
+    monkeypatch.setattr(conversation_followups, "followup_after", lambda *args, **kwargs: check)
+    result, _, _ = _run(monkeypatch, tmp_path, says("I saved a.txt."), asks(call("delete_file", "d1", path="old.txt")),
+                        says("I saved a.txt again."), says("unused"), approval="hands-off")
+
+    assert result.prompts == ["Delete old.txt", check.prompt]
+
+
 def test_the_conversation_is_a_valid_atif_trajectory_that_names_its_harness_text(monkeypatch, tmp_path):
     result, _, turns = _run(monkeypatch, tmp_path, asks(call("delete_file", "d1", path="old.txt")),
                             says("I couldn't delete old.txt."))
