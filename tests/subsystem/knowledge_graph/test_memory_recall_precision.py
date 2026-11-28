@@ -159,3 +159,39 @@ def test_a_learning_lesson_is_recalled_on_the_turn_it_applies_to(tmp_path, monke
     decision = _recall(policy, "render the narrated launch video and check the voice-over before sending it")
 
     assert [m["id"] for m in decision.selected] == [lesson["id"]]
+
+
+def test_a_request_for_a_suggestion_brings_in_the_persons_own_taste(tmp_path, monkeypatch, reload_for_data_dir):
+    """LongMemEval-S (27 Nov): a saved preference sat just under the bar, so "suggest …" got a generic answer."""
+    kg, policy = _modules(tmp_path, monkeypatch, reload_for_data_dir)
+    podcasts = kg.save_entity("preference", "Podcast taste", "Likes true crime; wants to try history and science.")
+    _meaning(kg, monkeypatch, {podcasts["id"]: 0.56}, mean=0.40)
+
+    plain = _recall(policy, "something to listen to on the drive to work this week")
+    asked = _recall(policy, "can you suggest something to listen to on the drive to work this week")
+
+    assert plain.selected == [] and any(r["reason"] == "below_threshold" for r in plain.trace["rejected"])
+    assert [m["id"] for m in asked.selected] == [podcasts["id"]]
+
+
+
+def test_a_word_like_suggested_in_a_correction_is_not_a_request(tmp_path, monkeypatch, reload_for_data_dir):
+    kg, policy = _modules(tmp_path, monkeypatch, reload_for_data_dir)
+    podcasts = kg.save_entity("preference", "Podcast taste", "Likes true crime; wants to try history and science.")
+    _meaning(kg, monkeypatch, {podcasts["id"]: 0.56}, mean=0.40)
+
+    corrected = _recall(policy, "the suggested time for something to listen to on the drive to work was wrong")
+
+    assert corrected.selected == [] and corrected.trace.get("open_request") is not True
+
+def test_a_request_for_a_suggestion_shows_a_few_more_memories(tmp_path, monkeypatch, reload_for_data_dir):
+    kg, policy = _modules(tmp_path, monkeypatch, reload_for_data_dir)
+    notes = [kg.save_entity("preference", f"Trip note {n}", f"Something the person likes on trips, number {n}.")
+             for n in range(10)]
+    _meaning(kg, monkeypatch, {e["id"]: 0.80 for e in notes}, mean=0.40)
+
+    plain = _recall(policy, "the weekend trip to the coast with my sister")
+    asked = _recall(policy, "any ideas for the weekend trip to the coast with my sister")
+
+    assert len(plain.selected) == policy.AUTO_RECALL_MAX_MEMORIES
+    assert len(asked.selected) == policy.AUTO_RECALL_OPEN_MAX_MEMORIES
