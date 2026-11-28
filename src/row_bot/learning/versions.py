@@ -208,7 +208,8 @@ def export_version(version: int, folder: str, *, root: Path | None = None,
 
 def delete_version(version: int, *, root: Path | None = None, jobs: Any = None,
                    withdraw: Callable[..., None] | None = None, clock: Callable[[], float] = time.time) -> dict[str, Any]:
-    """Delete a version: Undo everywhere it answers, out of Ollama, its files gone. Its release record
+    """Delete a version: Undo everywhere it answers, out of Ollama or Row-Bot's own model server, its
+    files gone. Its release record
     stays (retired) for the archive; its job is settled (not used), so a version that was never ready
     isn't made again. The starting model's own copy stays while training in quiet hours is on (the next
     version is compared with it)."""
@@ -228,6 +229,12 @@ def delete_version(version: int, *, root: Path | None = None, jobs: Any = None,
             (withdraw or serving.withdraw)("ollama", int(version), root=root, catalog=serving.refresh_ollama_catalog)
         except Exception:  # noqa: BLE001 - the files still go; Ollama's copy is retried by nothing
             logger.warning("Learning couldn't remove personal model v%s from Ollama", version, exc_info=True)
+    if found.runtime == serving.ROW_BOT:  # off Row-Bot's own server list (nothing if it isn't there)
+        try:
+            (withdraw or serving.withdraw)(serving.ROW_BOT, int(version), root=root)
+        except Exception:  # noqa: BLE001 - the files still go
+            logger.warning("Learning couldn't remove personal model v%s from its model server", version,
+                           exc_info=True)
     if gate.store_exists(root):
         from row_bot.learning.store import LearningStore
 

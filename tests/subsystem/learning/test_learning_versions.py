@@ -92,6 +92,20 @@ def test_delete_version_undoes_it_everywhere_takes_it_out_of_ollama_and_frees_it
     assert store.get("release", "rel_1").status == "retired"  # kept for the archive
 
 
+def test_delete_version_takes_it_off_row_bots_own_model_server_list(learning_on):
+    from row_bot.learning.training import llama_server, serving
+
+    server = llama_server.get(learning_on)
+    for number in (1, 2):
+        folder = _version(learning_on, number, runtime=serving.ROW_BOT)
+        server.register(serving.model_name(number), folder / f"row-bot-personal-v{number}-Q8_0.gguf", 32_768)
+
+    versions.delete_version(1, root=learning_on)
+
+    assert [entry.name for entry in server.models()] == [serving.model_name(2)]  # never a model with no file
+    assert [found.version for found in versions.all_versions(learning_on)] == [2]
+
+
 def test_every_ready_version_is_offered_in_the_picker_as_personal_model(data_dir):
     _version(data_dir, 1)
     _version(data_dir, 2, phase=releases.RUNTIME_FAILED)
