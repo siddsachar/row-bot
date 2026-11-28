@@ -1718,9 +1718,8 @@ def _preferences(root: Path) -> dict[str, Any]:
     channel = _text(updates.get("channel") or "stable", 16)
     if channel not in {"stable", "beta"}:
         channel = "stable"
-    window_mode = _text(app.get("window_mode") or "ask", 16)
-    if window_mode not in {"ask", "native", "browser"}:
-        window_mode = "ask"
+    # "ask", the default before 5.4, is the app window: it opens first, else the browser.
+    window_mode = "browser" if app.get("window_mode") == "browser" else "native"
     try:
         start = max(0, min(23, int(dream.get("window_start", 1))))
         end = max(0, min(23, int(dream.get("window_end", 5))))
@@ -1864,7 +1863,7 @@ SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
         "identity.name": "Row-Bot",
         "identity.personality": "",
         "identity.self_improvement_enabled": True,
-        "window_mode": "ask",
+        "window_mode": "native",
         "desktop_notifications": True,
         "dream_cycle.enabled": True,
         "dream_cycle.window_start": 1,

@@ -35,6 +35,16 @@ export function createBuddySessions(controller: ClientController) {
     if (disposed || !authentication || identity() !== authentication)
       throw new Error('authentication_required');
   };
+  // New activity in the open chat (a tool, a reply, an approval) is when
+  // Buddy's status moves, so its saved view is read soon (F19).
+  let activity = controller.getSnapshot().activity;
+  const stopFollowing = controller.subscribe(() => {
+    const current = controller.getSnapshot();
+    if (current.activity === activity) return;
+    activity = current.activity;
+    if (current.selectedConversationId)
+      entries.get(current.selectedConversationId)?.nudge();
+  });
   return {
     get(conversation: string) {
       guard();
@@ -69,6 +79,7 @@ export function createBuddySessions(controller: ClientController) {
       [...entries.values()].some((session) => session.hasRetained()),
     dispose() {
       disposed = true;
+      stopFollowing();
       entries.forEach((session) => session.purge());
       entries.clear();
     },

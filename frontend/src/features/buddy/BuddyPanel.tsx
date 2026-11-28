@@ -59,6 +59,12 @@ type State = {
   statusError: string;
 };
 
+// The saved view is read every 2 s while it changes or a Hatch runs. An
+// unchanged read doubles the wait, up to 16 s; chat activity or the tab
+// coming back reads it soon again (F19: an idle open chat polled every 2 s).
+const POLL_FAST_MS = 2000;
+const POLL_IDLE_MS = 16000;
+
 /** Private controller/auth-lifetime buffers, never browser persistence.
  * Root owns the session across panel mounts, wires pending to beforeunload and
  * calls purge on authentication loss. The guard runs before and after I/O.
@@ -97,7 +103,8 @@ export function createBuddyPanelSession(
   let observers = 0;
   // A plain read of the saved view is running (nothing to lose on reload).
   let reading = false;
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let delay = POLL_FAST_MS;
   let observation: AbortController | null = null;
   const emit = (patch: Partial<State>) => {
     state = { ...state, ...patch };
@@ -218,93 +225,117 @@ export function createBuddyPanelSession(
     emit({ snapshot, packs, selectedPack: pack, error: '' });
     return snapshot;
   }
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    timer = observers > 0 ? setTimeout(poll, delay) : null;
+  }
+  function poll() {
+    timer = null;
+    if (
+      state.revoked ||
+      !state.snapshot ||
+      state.busy ||
+      observation ||
+      document.hidden
+    ) {
+      if (!observation) schedule();
+      return;
+    }
+    const version = viewVersion;
+    const abort = new AbortController();
+    observation = abort;
+    // A running Hatch is followed too: its progress, then the new look once
+    // it ends, without asking for a refresh (F8).
+    const hatching =
+      state.result && running(state.result)
+        ? attempts.get(state.result.command_id)
+        : undefined;
+    if (hatching) {
+      delay = POLL_FAST_MS;
+      void owned(() => transport.receipt(hatching.command.command_id))
+        .then(async (receipt) => {
+          if (abort.signal.aborted || state.busy || version !== viewVersion)
+            return;
+          accept(hatching, receipt);
+          if (receipt.hatch && !running(receipt.hatch)) await load();
+        })
+        .catch(() => {
+          if (!abort.signal.aborted && !state.revoked)
+            emit({
+              statusError:
+                'Buddy status could not be refreshed. Reload the saved view.',
+            });
+        })
+        .finally(() => {
+          if (observation === abort) observation = null;
+          schedule();
+        });
+      return;
+    }
+    void owned(() => transport.snapshot(abort.signal))
+      .then(async (snapshot) => {
+        if (abort.signal.aborted) return;
+        let pack = state.selectedPack;
+        if (pack?.id !== snapshot.preferences.pack_id)
+          pack = await owned(() =>
+            transport.pack(snapshot.preferences.pack_id),
+          );
+        if (abort.signal.aborted || state.busy || version !== viewVersion)
+          return;
+        if (pack?.id !== snapshot.preferences.pack_id)
+          throw new Error('buddy_pack_changed');
+        if (JSON.stringify(snapshot) !== JSON.stringify(state.snapshot)) {
+          delay = POLL_FAST_MS;
+          emit({ snapshot, selectedPack: pack, statusError: '' });
+        } else {
+          delay = Math.min(delay * 2, POLL_IDLE_MS);
+          if (state.statusError) emit({ statusError: '' });
+        }
+      })
+      .catch(() => {
+        if (!abort.signal.aborted && !state.revoked)
+          emit({
+            statusError:
+              'Buddy status could not be refreshed. Reload the saved view.',
+          });
+      })
+      .finally(() => {
+        if (observation === abort) observation = null;
+        schedule();
+      });
+  }
+  function onVisible() {
+    if (!document.hidden) session.nudge();
+  }
   const session = {
     preferencesEditor,
     hatchEditor,
     observe() {
       authority();
       observers += 1;
-      if (!timer)
-        timer = setInterval(() => {
-          if (
-            state.revoked ||
-            !state.snapshot ||
-            state.busy ||
-            observation ||
-            document.hidden
-          )
-            return;
-          const version = viewVersion;
-          const abort = new AbortController();
-          observation = abort;
-          // A running Hatch is followed too: its progress, then the new look once
-          // it ends, without asking for a refresh (F8).
-          const hatching =
-            state.result && running(state.result)
-              ? attempts.get(state.result.command_id)
-              : undefined;
-          if (hatching) {
-            void owned(() => transport.receipt(hatching.command.command_id))
-              .then(async (receipt) => {
-                if (
-                  abort.signal.aborted ||
-                  state.busy ||
-                  version !== viewVersion
-                )
-                  return;
-                accept(hatching, receipt);
-                if (receipt.hatch && !running(receipt.hatch)) await load();
-              })
-              .catch(() => {
-                if (!abort.signal.aborted && !state.revoked)
-                  emit({
-                    statusError:
-                      'Buddy status could not be refreshed. Reload the saved view.',
-                  });
-              })
-              .finally(() => {
-                if (observation === abort) observation = null;
-              });
-            return;
-          }
-          void owned(() => transport.snapshot(abort.signal))
-            .then(async (snapshot) => {
-              if (abort.signal.aborted) return;
-              let pack = state.selectedPack;
-              if (pack?.id !== snapshot.preferences.pack_id)
-                pack = await owned(() =>
-                  transport.pack(snapshot.preferences.pack_id),
-                );
-              if (abort.signal.aborted || state.busy || version !== viewVersion)
-                return;
-              if (pack?.id !== snapshot.preferences.pack_id)
-                throw new Error('buddy_pack_changed');
-              if (JSON.stringify(snapshot) !== JSON.stringify(state.snapshot))
-                emit({ snapshot, selectedPack: pack, statusError: '' });
-              else if (state.statusError) emit({ statusError: '' });
-            })
-            .catch(() => {
-              if (!abort.signal.aborted && !state.revoked)
-                emit({
-                  statusError:
-                    'Buddy status could not be refreshed. Reload the saved view.',
-                });
-            })
-            .finally(() => {
-              if (observation === abort) observation = null;
-            });
-        }, 2000);
+      if (observers === 1) {
+        delay = POLL_FAST_MS;
+        schedule();
+        document.addEventListener('visibilitychange', onVisible);
+      }
       let released = false;
       return () => {
         if (released) return;
         released = true;
         observers -= 1;
         if (observers === 0) {
-          if (timer) clearInterval(timer);
+          if (timer) clearTimeout(timer);
           timer = null;
           observation?.abort();
+          document.removeEventListener('visibilitychange', onVisible);
         }
       };
+    },
+    /** The chat moved on: read the saved view soon, not after an idle wait. */
+    nudge() {
+      if (observers === 0 || delay === POLL_FAST_MS) return;
+      delay = POLL_FAST_MS;
+      if (!observation) schedule();
     },
     // Reading the saved view holds nothing the person would lose: a reload
     // meanwhile never asks to leave.

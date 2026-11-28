@@ -40,7 +40,7 @@ const preferences = {
     personality_max_length: 200,
     self_improvement_enabled: true,
   },
-  window_mode: 'ask',
+  window_mode: 'native',
   dream_cycle: {
     enabled: true,
     window_start: 1,

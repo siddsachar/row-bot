@@ -36,9 +36,10 @@ def _window_command(monkeypatch) -> list[str]:
         pid = 2222
         stdin = None
 
-        def __init__(self, args, **_kwargs):
+        def __init__(self, args, **kwargs):
             started.append(args)
             self.stdin = self
+            Path(kwargs["env"]["ROW_BOT_WINDOW_READY_FILE"]).write_text("ready", encoding="utf-8")
 
         def write(self, _text):
             pass
@@ -48,6 +49,9 @@ def _window_command(monkeypatch) -> list[str]:
 
         def poll(self):
             return None
+
+        def wait(self):
+            return 0
 
     monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
     monkeypatch.setattr(launcher.subprocess, "Popen", Window)

@@ -2185,6 +2185,7 @@ export default function Workspace() {
                             )
                           }
                           onNewChat={() => void creation.newChat()}
+                          newChatOpening={creation.creatingChat}
                           onStartProfileChat={(profile) =>
                             void creation.newChat('', profile)
                           }

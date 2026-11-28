@@ -108,7 +108,7 @@ const SNAPSHOT = {
     personality_max_length: 200,
     self_improvement_enabled: true,
   },
-  window_mode: 'ask',
+  window_mode: 'native',
   desktop_notifications: true,
   dream_cycle: {
     enabled: true,
