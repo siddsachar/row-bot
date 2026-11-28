@@ -6,6 +6,7 @@ fakes, made-up benchmark files and no network.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import socket
 from datetime import datetime, timedelta
@@ -1076,6 +1077,12 @@ def test_a_benchmark_turn_reaches_only_the_pinned_tools_and_never_the_web(tmp_pa
     assert not policy.host_reason("chatgpt.com")
 
 
+def _graph_tools(groups: tuple[str, ...]) -> dict:
+    """The tools an agent built for *groups* binds, built in a copy of the context: building one sets the
+    turn's context variables, which must not reach the tests after it."""
+    return contextvars.copy_context().run(lambda: agent.get_agent_graph(list(groups)).tools.tools_by_name)
+
+
 def test_the_agent_a_benchmark_builds_keeps_b1s_deferral_but_binds_no_question_tool(monkeypatch) -> None:
     from row_bot.plugins import registry as plugin_registry
     from tests.e2e.bench.runtime import install_tool_fence, pinned_tool_names
@@ -1096,7 +1103,7 @@ def test_the_agent_a_benchmark_builds_keeps_b1s_deferral_but_binds_no_question_t
     withheld: set[str] = set()
     undo = install_tool_fence(pinned_tool_names(groups), withheld)
     try:
-        bound = agent.get_agent_graph(list(groups)).tools.tools_by_name
+        bound = _graph_tools(groups)
     finally:
         undo()
         agent.clear_agent_cache()
@@ -1129,10 +1136,10 @@ def test_with_tool_deferral_off_every_pinned_tool_is_bound_and_on_comes_back_aft
     try:
         undo = install_deferral_off()
         try:
-            off = set(agent.get_agent_graph(list(groups)).tools.tools_by_name)
+            off = set(_graph_tools(groups))
         finally:
             undo()
-        on = set(agent.get_agent_graph(list(groups)).tools.tools_by_name)
+        on = set(_graph_tools(groups))
     finally:
         fence()
         agent.clear_agent_cache()
@@ -1294,3 +1301,164 @@ def test_sessions_are_ingested_through_extraction_on_their_own_dates(tmp_path, m
     assert "Date: 2023-10-22" in hike
     with pytest.raises(adapter.StopRequested):
         adapter.ingest(runtime, task, stop=lambda: True)
+
+
+# ── LongMemEval-V2's own protocol: Row-Bot as the memory module, a fixed reader answers (C6) ────────────
+
+
+_V2_HARNESS = '''
+DOMAIN_SYSTEM_PROMPTS = {
+    "web": "You are a web colleague. Answer in \\\\boxed{}.",
+    "enterprise": "You are a ServiceNow colleague.",
+}
+'''
+
+
+def test_the_fixed_reader_gets_the_controller_turns_context_in_the_benchmarks_message_shape(tmp_path,
+                                                                                           monkeypatch) -> None:
+    from tests.e2e.bench.memory import controller
+
+    monkeypatch.setattr(controller, "count_tokens", lambda text: len(text.split()))
+
+    harness = tmp_path / "harness.py"
+    harness.write_text(_V2_HARNESS, encoding="utf-8")
+    prompts = controller.domain_prompts(harness)
+    assert set(prompts) == {"web", "enterprise"} and prompts["enterprise"] == "You are a ServiceNow colleague."
+
+    header = "Relevant long-term memory:\nbackground only.\n"
+    recalled = controller.recall_text(f"Date: today.\n{header}- [id=1] [fact] cart: holds 2 items\n- [id=2] [fact] "
+                                      "forum: no post box\n\nOther context.", header)
+    assert recalled == "- [id=1] [fact] cart: holds 2 items\n- [id=2] [fact] forum: no post box"
+    calls = [{"name": "search_conversations", "args": '{"query": "post box"}', "result": "Match 1: the home page " * 50},
+             {"name": "search_memory", "args": '{"query": "cart"}', "result": ""}]
+    items, info = controller.memory_context("## Support Analysis\nThe home page has no post box.", recalled, calls)
+    assert items[0].startswith("## Support Analysis") and items[1].startswith(controller.MEMORY_HEADER)
+    assert items[2] == controller.EVIDENCE_HEADER and items[3].startswith('### search_conversations({"query"')
+    assert len(items) == 4 and info["all_items"] == 4 and not info["truncated"]  # an empty result adds nothing
+    room = controller.count_tokens("analysis\n")
+    cut, cut_info = controller.memory_context("analysis", recalled, calls, max_tokens=room)
+    assert cut == ["analysis\n"] and cut_info["truncated"]  # the longest prefix of whole items that fits
+
+    messages = controller.reader_messages(prompts["web"], items, "True or false: there is a post box?")
+    assert messages[0] == {"role": "system", "content": prompts["web"]}
+    assert messages[1]["content"].startswith("### Memory context:\n## Support Analysis")
+    assert messages[1]["content"].endswith("\n\n### Question to answer:\nTrue or false: there is a post box?")
+    assert controller.reader_messages("s", [], "q")[1]["content"] == "### Memory context:\n(empty)\n\n### Question to answer:\nq"
+
+
+def test_the_fixed_reader_answers_each_context_once_with_the_published_settings(tmp_path, monkeypatch) -> None:
+    import httpx
+
+    from tests.e2e.bench.memory import controller
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "run.json").write_text(json.dumps({"benchmark": "longmemeval-v2", "mode": "controller"}), encoding="utf-8")
+    questions = [{"question_id": qid, "question": f"Question {qid}?", "answer": "false", "category": "static-environment",
+                  "eval_function": "mc_choice_match|require_non_empty=true"} for qid in ("q1", "q2", "q3")]
+    (run_dir / "questions.json").write_text(json.dumps(questions), encoding="utf-8")
+    contexts = [{"question_id": "q1", "task_id": "lmev2_small_web", "domain": "web", "items": ["old"], "kept_tokens": 1},
+                {"question_id": "q2", "task_id": "lmev2_small_enterprise", "domain": "enterprise",
+                 "items": ["## Support Analysis\nUse the form.\n"], "kept_tokens": 50_000}]
+    (run_dir / "contexts.jsonl").write_text("".join(json.dumps(row) + "\n" for row in contexts), encoding="utf-8")
+    (run_dir / "answers.jsonl").write_text(json.dumps({"question_id": "q1", "hypothesis": "\\boxed{A}"}) + "\n",
+                                           encoding="utf-8")
+    harness = tmp_path / "harness.py"
+    harness.write_text(_V2_HARNESS, encoding="utf-8")
+    sent: list[dict] = []
+
+    class Ollama:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def get(self, url):
+            return SimpleNamespace(json=lambda: {"models": [{"name": controller.READER, "digest": "b" * 64}]})
+
+        def post(self, url, json, timeout=None):
+            if url.endswith("/api/chat"):
+                sent.append(json)
+                return SimpleNamespace(json=lambda: {"message": {"content": "\\boxed{false}", "thinking": "hmm"},
+                                                     "prompt_eval_count": 900, "eval_count": 40})
+            return SimpleNamespace(json=lambda: {"details": {"quantization_level": "Q4_K_M"}})
+
+    monkeypatch.setattr(httpx, "Client", Ollama)
+    monkeypatch.setattr(orchestrate, "unload_local_model", lambda model: sent.append({"unloaded": model}))
+    monkeypatch.setenv(orchestrate.ENABLE_ENV, "1")
+    monkeypatch.setenv(orchestrate.BOOKING_ENV, str(tmp_path / "booking.txt"))
+    monkeypatch.setenv(booking.QUIET_ENV, "off")
+    monkeypatch.setattr(orchestrate, "usage_book_path", lambda: tmp_path / "book.json")
+
+    assert orchestrate.main(["read", "--run-dir", str(run_dir), "--harness", str(harness)]) == 0
+
+    chat, unloaded = sent
+    assert unloaded == {"unloaded": controller.READER}  # q1 was answered before; q3 has no context
+    assert chat["model"] == controller.READER and chat["think"] is True
+    assert {key: chat["options"][key] for key in ("temperature", "top_p", "top_k", "num_predict")} == {
+        "temperature": 0.6, "top_p": 0.95, "top_k": 20, "num_predict": 20_000}
+    assert chat["options"]["num_ctx"] >= 50_000 + 20_000
+    assert chat["messages"][0]["content"] == "You are a ServiceNow colleague."
+    assert chat["messages"][1]["content"].endswith("### Question to answer:\nQuestion q2?")
+    answers = [json.loads(line) for line in (run_dir / "answers.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert answers[-1]["question_id"] == "q2" and answers[-1]["hypothesis"] == "\\boxed{false}"
+    ledger = [json.loads(line) for line in (run_dir / "ledger.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(row["model"], row["billing"], row["cost_usd"], row["input_tokens"]) for row in ledger] == [
+        (controller.READER, "local", 0.0, 900)]
+    run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert run["fixed_reader"]["model"]["digest"] == "b" * 64
+    assert booking.open_bookings((tmp_path / "booking.txt").read_text(encoding="utf-8")) == []  # booked, then ended
+    assert "START" in (tmp_path / "booking.txt").read_text(encoding="utf-8")
+
+
+def test_the_fixed_reader_is_the_only_other_local_model_and_only_for_its_benchmark(capsys, monkeypatch) -> None:
+    from tests.e2e.bench.memory import controller
+    from tests.e2e.bench.runtime import ollama_identity
+
+    class Ollama:
+        def get(self, url):
+            return SimpleNamespace(json=lambda: {"models": [{"name": controller.READER, "digest": "c" * 64}]})
+
+        def post(self, url, json):
+            return SimpleNamespace(json=lambda: {"details": {}})
+
+    with pytest.raises(BenchEnvironmentError, match="stock weights"):
+        ollama_identity(controller.READER, client=Ollama())  # never Row-Bot's own model
+    assert ollama_identity(controller.READER, client=Ollama(), allowed=(controller.READER,))["digest"] == "c" * 64
+    monkeypatch.setenv(orchestrate.ENABLE_ENV, "1")
+    assert orchestrate.main(["run", "--benchmark", "locomo", "--data", "x.json", "--protocol", "p.yaml",
+                             "--model", "codex:auto", "--mode", "controller"]) == 2
+    assert "LongMemEval-V2's protocol" in capsys.readouterr().out
+
+
+def test_each_controller_turn_is_asked_as_a_retrieval_module_and_leaves_its_context(monkeypatch) -> None:
+    from tests.e2e.bench.memory import controller
+
+    monkeypatch.setattr(controller, "count_tokens", lambda text: len(text.split()))
+    from tests.e2e.bench.trajectory import Step
+
+    question = Question(question_id="q1", question="Is there a post box on the home page?", answer="false",
+                        category="static-environment")
+    task = MemoryTask(task_id="lmev2_small_web", benchmark="longmemeval-v2", person="", ask_at=datetime(2026, 5, 1),
+                      sessions=[], questions=[question])
+    asked: list[str] = []
+
+    class Runtime:
+        def new_thread(self, name, *, incognito=False):
+            assert incognito
+            return "thread-q1"
+
+        def turn(self, thread_id, prompt, *, name=""):
+            asked.append(prompt)
+            return Step(kind="turn", name=name, answer="## Support Analysis\nNo post box was seen.")
+
+    monkeypatch.setattr(controller, "turn_evidence", lambda thread_id: (
+        "- [id=7] [fact] forum: no post box", [{"name": "search_conversations", "args": "{}", "result": "home page"}]))
+    rows: list[dict] = []
+    steps = controller.ask(Runtime(), task, on_context=lambda step, row: rows.append(row))
+
+    assert asked == [controller.CONTROLLER_TEMPLATE.format(question=question.question)]
+    assert "not as the final answering model" in asked[0] and question.question in asked[0]
+    (row,) = rows
+    assert (row["question_id"], row["task_id"], row["domain"], row["status"]) == ("q1", "lmev2_small_web", "web", "done")
+    assert row["items"][0].startswith("## Support Analysis") and row["items"][-1].endswith("home page\n")
+    assert row["kept_items"] == row["all_items"] == len(row["items"]) == 4
+    assert steps[0].metrics["memory_context"]["truncated"] is False
