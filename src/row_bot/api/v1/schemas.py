@@ -1465,7 +1465,7 @@ class MigrationSettingsSnapshot(WireModel):
 class PreferenceSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     identity: IdentitySettingsSnapshot
-    window_mode: Literal["ask", "native", "browser"]
+    window_mode: Literal["native", "browser"]
     # Desktop notifications and their sounds on the computer running Row-Bot.
     desktop_notifications: bool = True
     dream_cycle: DreamCycleSettingsSnapshot

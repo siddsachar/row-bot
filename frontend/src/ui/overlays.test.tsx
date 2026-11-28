@@ -98,8 +98,12 @@ it('keeps the originating form mounted while confirmation cancels or confirms', 
 /** The platform's Back, and the history traversal it starts, landed. */
 async function pressBack() {
   await act(async () => {
+    // Wait for the traversal itself: a fixed delay missed it under load.
+    const landed = new Promise((resolve) =>
+      window.addEventListener('popstate', resolve, { once: true }),
+    );
     window.history.back();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await landed;
   });
 }
 

@@ -187,3 +187,28 @@ def test_present_refuses_what_it_cant_show_and_shows_nothing(chat, tmp_path):
         assert not result.startswith("Presented") and media == [], (files, result)
     assert _present(files=[f"f{index}.png" for index in range(MAX_FILES + 1)]).startswith("Present at most 8")
 
+
+
+def test_a_page_made_in_this_chat_already_shows_so_naming_it_is_no_error(chat):
+    """F18: right after page_create the agent named the page's id, and present answered that it couldn't find it."""
+    from row_bot import pages
+    from row_bot.tools.browser_tool import _keep_image
+    from row_bot.tools.present_tool import _present
+
+    page = pages.create(CHAT, "Weekend plan", "<h1>Weekend plan</h1>")
+
+    alone, media = chat.step("present", {}, lambda: _present(files=[page.page_id]))
+    assert alone == (f"{page.page_id} (“Weekend plan”) already shows in this chat as a page card, so there is "
+                     "nothing to present. Finish anything else the person asked for, then end with one line about "
+                     "the page.")
+    assert media == []
+
+    chat.step("browser_screenshot", {}, lambda: _keep_image(PNG, "map.png") and "Shot.")
+    both, [shown] = chat.step("present", {}, lambda: _present(files=["map.png", page.page_id]))
+    assert both.startswith('Output "map" v1 (final) · map.png\n'
+                           f"{page.page_id} (“Weekend plan”) already shows in this chat as a page card.\nPresented")
+    assert shown["payload"]["name"] == "map.png"
+    # Another chat's page is not this chat's: it stays unknown.
+    other = pages.create("conversation-b", "Their plan", "<h1>Theirs</h1>")
+    refused, _media = chat.step("present", {}, lambda: _present(files=[other.page_id]))
+    assert "Nothing was presented" in refused

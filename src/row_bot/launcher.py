@@ -114,6 +114,14 @@ _NATIVE_HOST_ENV = "ROW_BOT_NATIVE_TRAY_HOST"
 # Dock, System Settings' "Quit & Reopen"): all of Row-Bot quits, not just the window.
 _WINDOW_QUIT_EXIT_CODE = 77
 _APP_QUIT_REQUESTED = threading.Event()
+# The app window says it has loaded its page within this long, or the browser opens instead: a window
+# that dies or hangs while starting never leaves Row-Bot running with nothing on screen.
+_WINDOW_READY_TIMEOUT = 20.0
+_WINDOW_READY_ENV = "ROW_BOT_WINDOW_READY_FILE"
+# Processes this launcher ended itself: a window among them didn't fail.
+_ENDED_HERE: set[int] = set()
+# A window that fails after it opened opens the browser once, not again and again.
+_BROWSER_AFTER_WINDOW_FAILED = threading.Event()
 _LEGACY_RUNTIME_ENV_VARS = frozenset(
     {
         "THOTH_AUTO_START_OLLAMA",
@@ -1599,6 +1607,7 @@ class _RowBotProcess:
     ) -> None:
         if proc is None or proc.poll() is not None:
             return
+        _ENDED_HERE.add(proc.pid)
         try:
             proc.terminate()
             proc.wait(timeout=timeout)
@@ -1821,35 +1830,6 @@ def _start_launcher_helper(
         proc, label=f"{name} helper", timeout=1.0, kill_tree=True
     )
     return None
-
-
-def _wait_for_launcher_helper(
-    proc: subprocess.Popen,
-    *,
-    name: str,
-    timeout: float,
-    log_path: Path,
-) -> int | None:
-    try:
-        return proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "%s helper interaction timed out after %.1fs; terminating (log=%s)",
-            name,
-            timeout,
-            log_path,
-        )
-        _launch_event(
-            "helper_interaction_timeout",
-            status=name,
-            pid=proc.pid,
-            duration_ms=round(timeout * 1000.0, 1),
-            log=str(log_path),
-        )
-        _RowBotProcess._terminate_process(
-            proc, label=f"{name} helper", timeout=1.0, kill_tree=True
-        )
-        return None
 
 
 def _stop_launcher_helper(proc: subprocess.Popen | None, *, name: str) -> None:
@@ -2645,6 +2625,22 @@ def _attach_client_v2(window, instance_id, role="main"):
 # browser app instead (parity row 14).
 main_window = webview.create_window(title, url, width=w, height=h, text_select=True)
 _NAMED_WINDOWS["main"] = main_window
+_READY_FILE = os.environ.get("ROW_BOT_WINDOW_READY_FILE") or ""
+_READY_SENT = []
+
+def _report_ready(*_args):
+    # The launcher waits for this before it counts the window as open; without it the browser opens.
+    if not _READY_FILE or _READY_SENT:
+        return
+    _READY_SENT.append(True)
+    try:
+        with open(_READY_FILE, "w", encoding="utf-8") as fh:
+            fh.write(f"ready pid={os.getpid()}\n")
+    except Exception:
+        pass
+
+main_window.events.loaded += _report_ready
+
 try:
     _attach_client_v2(main_window, _native_instance_id())
     _buddy_window_log("client-v2 native bridge ready; terminal capability registered")
@@ -2679,264 +2675,19 @@ webview.start(
 
 
 def _load_window_mode() -> str:
-    """Read the preferred window mode from app_config.json.
+    """The window mode saved in app_config.json: ``'native'`` (the default) or ``'browser'``.
 
-    Returns ``'ask'`` (default / first launch), ``'native'``, or ``'browser'``.
-    """
+    ``'ask'``, the default before 5.4, reads as ``'native'``: the app window opens first, and the browser
+    opens instead when it can't (``_open_window``)."""
     config_path = _row_bot_data_dir() / "app_config.json"
     try:
         import json
 
         cfg = json.loads(config_path.read_text(encoding="utf-8-sig"))  # Notepad may add a BOM.
-        mode = cfg.get("window_mode", "ask")
-        if mode in ("ask", "native", "browser"):
-            return mode
+        if cfg.get("window_mode") == "browser":
+            return "browser"
     except Exception:
         pass
-    return "ask"
-
-
-# Tkinter chooser dialog — shown when window_mode is "ask".
-_CHOOSER_TK = r"""
-import os, sys
-
-py_dir = os.path.dirname(sys.executable)
-os.environ['PATH'] = py_dir + os.pathsep + os.environ.get('PATH', '')
-if os.name == 'nt':
-    if hasattr(os, 'add_dll_directory'):
-        os.add_dll_directory(py_dir)
-    for d in ('tcl/tcl8.6', 'tcl/tk8.6'):
-        p = os.path.join(py_dir, d)
-        if os.path.isdir(p):
-            os.environ['TCL_LIBRARY' if 'tcl8' in d else 'TK_LIBRARY'] = p
-    import ctypes
-    for dll in ('tcl86t.dll', 'tk86t.dll'):
-        p = os.path.join(py_dir, dll)
-        if os.path.exists(p):
-            try: ctypes.CDLL(p, winmode=0)
-            except OSError: pass
-import tkinter as tk
-
-GLYPH_PATH = sys.argv[1] if len(sys.argv) > 1 else ""
-ICON_PATH = sys.argv[2] if len(sys.argv) > 2 else ""
-BRAND_BLUE = sys.argv[3] if len(sys.argv) > 3 else "#4F78A4"
-RESULT_PATH = sys.argv[4] if len(sys.argv) > 4 else ""
-READY_MARKER = sys.argv[5] if len(sys.argv) > 5 else ""
-BG, GREY = "#1e1e1e", "#aaaaaa"
-choice = ["native"]
-
-def pick(mode):
-    choice[0] = mode
-    if RESULT_PATH:
-        try:
-            with open(RESULT_PATH, "w", encoding="utf-8") as fh:
-                fh.write(mode + "\n")
-        except Exception:
-            pass
-    root.destroy()
-
-root = tk.Tk()
-root.title("Row-Bot")
-root.configure(bg=BG)
-root.resizable(False, False)
-try:
-    if ICON_PATH and os.path.isfile(ICON_PATH):
-        root.iconbitmap(ICON_PATH)
-except Exception:
-    pass
-sx, sy = root.winfo_screenwidth(), root.winfo_screenheight()
-root.geometry(f"420x280+{(sx-420)//2}+{(sy-280)//2}")
-root.attributes("-topmost", True)
-
-try:
-    logo = tk.PhotoImage(file=GLYPH_PATH)
-    max_side = max(int(logo.width()), int(logo.height()), 1)
-    factor = max(1, round(max_side / 88))
-    if factor > 1:
-        logo = logo.subsample(factor, factor)
-    root._row_bot_logo = logo
-    tk.Label(root, image=logo, bg=BG).pack(pady=(20,0))
-except Exception:
-    tk.Label(root, text="RB", font=("Segoe UI", 30, "bold"), fg=BRAND_BLUE, bg=BG).pack(pady=(24,0))
-tk.Label(root, text="How would you like to open Row-Bot?",
-         font=("Segoe UI", 14), fg="#ffffff", bg=BG).pack(pady=(10,16))
-
-btn_frame = tk.Frame(root, bg=BG)
-btn_frame.pack()
-
-btn_cfg = dict(font=("Segoe UI", 12), width=18, cursor="hand2",
-               relief="flat", bd=0, pady=8)
-tk.Button(btn_frame, text="\U0001f5d4  Native Window", bg="#2a2a3e", fg="#ffffff",
-          activebackground="#3a3a5e", activeforeground="#ffffff",
-          command=lambda: pick("native"), **btn_cfg).pack(side="left", padx=8)
-tk.Button(btn_frame, text="\U0001f310  System Browser", bg="#2a2a3e", fg="#ffffff",
-          activebackground="#3a3a5e", activeforeground="#ffffff",
-          command=lambda: pick("browser"), **btn_cfg).pack(side="left", padx=8)
-
-tk.Label(root, text="To set a default, go to Settings \u2192 System.",
-         font=("Segoe UI", 10), fg=GREY, bg=BG).pack(pady=(16,0))
-
-root.protocol("WM_DELETE_WINDOW", lambda: pick("native"))
-try:
-    root.update_idletasks()
-    root.update()
-    if READY_MARKER:
-        with open(READY_MARKER, "w", encoding="utf-8") as fh:
-            fh.write(f"ready pid={os.getpid()}\n")
-except Exception:
-    pass
-root.mainloop()
-print(choice[0])
-"""
-
-# Console fallback chooser — used when tkinter is unavailable.
-_CHOOSER_CONSOLE = r"""
-import sys, os
-RESULT_PATH = sys.argv[1] if len(sys.argv) > 1 else ""
-if os.name == 'nt':
-    os.system('title Row-Bot')
-print()
-print("  Row-Bot")
-print("  " + "-" * 36)
-print()
-print("  How would you like to open Row-Bot?")
-print()
-print("  1) Native Window")
-print("  2) System Browser")
-print()
-print("  To set a default, go to")
-print("  Settings \u2192 System.")
-print()
-while True:
-    try:
-        c = input("  Enter 1 or 2: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        c = "1"
-        break
-    if c in ("1", "2"):
-        break
-    print("  Please enter 1 or 2.")
-mode = "native" if c == "1" else "browser"
-if RESULT_PATH:
-    try:
-        with open(RESULT_PATH, "w", encoding="utf-8") as fh:
-            fh.write(mode + "\n")
-    except Exception:
-        pass
-print(mode)
-"""
-
-
-def _ask_window_mode() -> str:
-    """Show the first-run window chooser, defaulting quickly if it fails."""
-    log_dir = _row_bot_data_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
-    chooser_log = log_dir / "window-mode-chooser.log"
-    ready_marker = _helper_artifact_path("window-mode-chooser", "ready")
-    result_path = _helper_artifact_path("window-mode-chooser", "result")
-    _delete_if_exists(result_path)
-
-    proc = _start_launcher_helper(
-        name="window_mode_chooser_tk",
-        source=_CHOOSER_TK,
-        args=[
-            str(_APP_GLYPH_PATH),
-            str(_APP_ICON_PATH),
-            APP_BRAND_ACCENT,
-            str(result_path),
-        ],
-        ready_marker=ready_marker,
-        log_path=chooser_log,
-        ready_timeout=3.0,
-    )
-    if proc is not None:
-        exit_code = _wait_for_launcher_helper(
-            proc,
-            name="window_mode_chooser_tk",
-            timeout=120.0,
-            log_path=chooser_log,
-        )
-        if exit_code == 0 and result_path.exists():
-            result = (
-                result_path.read_text(encoding="utf-8", errors="replace")
-                .strip()
-                .splitlines()[-1]
-            )
-            if result in ("native", "browser"):
-                logger.info("User chose window mode: %s (GUI)", result)
-                return result
-        logger.warning(
-            "Window mode GUI chooser exited without a valid result (code %s, log=%s): %s",
-            exit_code,
-            chooser_log,
-            _launcher_helper_tail(chooser_log),
-        )
-    else:
-        logger.warning(
-            "Window mode GUI chooser unavailable; defaulting to native unless console fallback is explicitly enabled"
-        )
-
-    if (
-        sys.platform == "win32"
-        and os.environ.get("ROW_BOT_WINDOW_MODE_CONSOLE_FALLBACK") != "1"
-    ):
-        logger.info(
-            "Skipping Windows console window mode fallback; defaulting to native"
-        )
-        return "native"
-
-    try:
-        _delete_if_exists(result_path)
-        flags = 0
-        if sys.platform == "win32":
-            flags = subprocess.CREATE_NEW_CONSOLE
-            console_proc = subprocess.Popen(
-                [sys.executable, "-c", _CHOOSER_CONSOLE, str(result_path)],
-                creationflags=flags,
-            )
-            _wait_for_launcher_helper(
-                console_proc,
-                name="window_mode_chooser_console",
-                timeout=120.0,
-                log_path=chooser_log,
-            )
-            result = (
-                result_path.read_text(encoding="utf-8", errors="replace")
-                .strip()
-                .splitlines()[-1]
-                if result_path.exists()
-                else ""
-            )
-        else:
-            completed = subprocess.run(
-                [sys.executable, "-c", _CHOOSER_CONSOLE, str(result_path)],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                creationflags=flags,
-            )
-            if result_path.exists():
-                result = (
-                    result_path.read_text(encoding="utf-8", errors="replace")
-                    .strip()
-                    .splitlines()[-1]
-                )
-            else:
-                result = (
-                    completed.stdout.strip().splitlines()[-1]
-                    if completed.stdout.strip()
-                    else ""
-                )
-        if result in ("native", "browser"):
-            logger.info("User chose window mode: %s (console)", result)
-            return result
-    except Exception as exc:
-        logger.warning(
-            "Window mode chooser failed: %s; defaulting to native (log=%s): %s",
-            exc,
-            chooser_log,
-            _launcher_helper_tail(chooser_log),
-        )
     return "native"
 
 
@@ -2981,6 +2732,9 @@ def _open_window(
         # interpreter has no path file for them (Windows' has), so the window
         # gets the package's folder itself.
         env = dict(os.environ)
+        ready_file = _helper_artifact_path("window", "ready")
+        _delete_if_exists(ready_file)
+        env[_WINDOW_READY_ENV] = str(ready_file)
         env["PYTHONPATH"] = os.pathsep.join(
             path
             for path in (str(Path(__file__).resolve().parents[1]), env.get("PYTHONPATH", ""))
@@ -2999,14 +2753,16 @@ def _open_window(
             raise RuntimeError("Native window script pipe is unavailable")
         proc.stdin.write(_WINDOW_SCRIPT)
         proc.stdin.close()
-        time.sleep(0.5)
-        if proc.poll() is not None:
-            logger.warning(
-                "Native window exited during startup; falling back to browser"
-            )
+        failure = _wait_for_window_ready(proc, ready_file)
+        if failure:
+            code = proc.returncode
+            _RowBotProcess._terminate_process(proc, label=f"{APP_DISPLAY_NAME} window", timeout=3, kill_tree=True)
+            logger.warning("Native window %s (code %s); opening the browser instead", failure.replace("_", " "), code)
+            _launch_event("native_window_fallback", port=port, fallback_reason=failure)
             webbrowser.open(_signed_in_client_url(port))
             return None
         logger.info("Native window opened (PID %s, port %s)", proc.pid, port)
+        _open_browser_if_window_fails(proc, port)
         return proc
     except Exception as exc:
         if proc is not None and proc.poll() is None:
@@ -3019,6 +2775,40 @@ def _open_window(
         )
         webbrowser.open(_signed_in_client_url(port))
         return None
+
+
+def _wait_for_window_ready(proc: subprocess.Popen, ready_file: Path) -> str:
+    """Wait until the window has loaded its page: ``''``, else ``exited_while_starting`` or ``did_not_load``."""
+    deadline = time.monotonic() + _WINDOW_READY_TIMEOUT
+    try:
+        while True:
+            if ready_file.exists():
+                return ""
+            if proc.poll() is not None:
+                return "exited_while_starting"
+            if time.monotonic() >= deadline:
+                return "did_not_load"
+            time.sleep(0.1)
+    finally:
+        _delete_if_exists(ready_file)
+
+
+def _open_browser_if_window_fails(window: subprocess.Popen, port: int) -> threading.Thread:
+    """A window that crashes after it opened opens the browser, once: closing or quitting it doesn't."""
+
+    def watch() -> None:
+        code = window.wait()
+        if (code in (0, _WINDOW_QUIT_EXIT_CODE) or window.pid in _ENDED_HERE or _EXIT_REQUESTED.is_set()
+                or _BROWSER_AFTER_WINDOW_FAILED.is_set()):
+            return
+        _BROWSER_AFTER_WINDOW_FAILED.set()
+        logger.warning("Native window ended unexpectedly (code %s); opening the browser", code)
+        _launch_event("native_window_fallback", port=port, fallback_reason="window_ended_unexpectedly")
+        webbrowser.open(_signed_in_client_url(port))
+
+    thread = threading.Thread(target=watch, daemon=True, name="row-bot-window-watch")
+    thread.start()
+    return thread
 
 
 def _wait_for_server(
@@ -3488,8 +3278,6 @@ class RowBotTray:
             requested_mode = self._preferred_mode or "saved"
             mode = self._preferred_mode or _load_window_mode()
             _stop_launcher_helper(splash_proc, name="splash_tk")
-            if mode == "ask":
-                mode = _ask_window_mode() if _has_display_server() else "browser"
             if mode == "browser":
                 _open_in_browser(self._port)
                 _write_launcher_state(
@@ -3845,10 +3633,6 @@ def _run_direct(args: argparse.Namespace) -> None:
             selected_mode = "browser"
         else:
             selected_mode = _load_window_mode()
-            if selected_mode == "ask":
-                selected_mode = (
-                    _ask_window_mode() if _has_display_server() else "browser"
-                )
     mode_for_state = selected_mode
     opened_mode = "server" if args.server or args.no_open else "browser"
     fallback_reason: str | None = None

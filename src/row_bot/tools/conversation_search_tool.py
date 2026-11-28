@@ -17,6 +17,7 @@ import logging
 import math
 import re
 from datetime import datetime
+from functools import lru_cache
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -107,19 +108,84 @@ def _get_thread_messages(thread_id: str, *, own: bool = False) -> list[dict]:
         return []
 
 
+_CONTRACTIONS = frozenset({"it's", "let's", "that's", "what's", "there's", "here's", "he's", "she's", "who's",
+                           "where's", "how's"})
+_WHOLE_WORDS = frozenset({"news", "series", "species", "evening", "does", "goes"})  # look inflected, aren't
+_VOWELS = frozenset("aeiouy")
+
+
+def _keyword(word: str) -> str:
+    """A query word as it is matched: lower case, and a name's possessive 's dropped ("Melanie's").
+
+    Other punctuation stays: a quoted "comments" still asks for the quotes, as a model often means it to."""
+    word = word.lower()
+    plain = word.replace("\u2019", "'")
+    if plain.endswith("'s") and plain[:-2].isalpha() and len(plain) > 3 and plain not in _CONTRACTIONS:
+        return plain[:-2]
+    return word
+
+
+def _bases(word: str) -> set[str]:
+    """The plain forms *word* may be an inflection of: hikes -> hike, classes -> class, movies -> movie and
+    movy, hiking -> hik and hike, planned -> plann, planne and plan. A word that isn't inflected is its own."""
+    if word in _WHOLE_WORDS:
+        return {word}
+    if word.endswith("ies") and len(word) >= 5:
+        return {word[:-3] + "y", word[:-3] + "ie"}
+    if word.endswith("es") and len(word) >= 5 and word[:-2].endswith(("s", "x", "z", "ch", "sh")):
+        return {word[:-2]}
+    if word.endswith("s") and len(word) >= 4 and not word.endswith(("ss", "us", "is")):
+        return {word[:-1]}
+    for suffix, shortest in (("ing", 6), ("ed", 5)):
+        stem = word[: -len(suffix)]
+        if word.endswith(suffix) and len(word) >= shortest and _VOWELS & set(stem) and not word.endswith("eed"):
+            found = {stem, stem + "e"}
+            if len(stem) >= 4 and stem[-1] == stem[-2]:
+                found.add(stem[:-1])
+            return found
+    return {word}
+
+
+def _inflections(base: str) -> set[str]:
+    forms = {base, base + "s", base + "es", base + "ed", base + "ing"}
+    if base.endswith("e"):
+        forms |= {base + "d", base[:-1] + "ing"}
+    if base.endswith("y") and len(base) >= 3 and base[-2] not in _VOWELS:
+        forms |= {base[:-1] + "ies", base[:-1] + "ied"}
+    if len(base) <= 4 and base[-1] not in "aeiouwxy" and base[-2:-1] in tuple("aeiou"):
+        forms |= {base + base[-1] + "ed", base + base[-1] + "ing"}  # plan: planned, planning
+    return forms
+
+
+@lru_cache(maxsize=512)
+def _pattern(keyword: str) -> re.Pattern[str]:
+    """*keyword* anywhere, as before, or one of its other word forms as a whole word: "hikes" finds hiking,
+    "stories" story, "movies" movie, while "notes" never finds "not" nor "string" "strong". Only a plain
+    word has other forms: one with punctuation or digits is matched as typed."""
+    derived = sorted({form for base in _bases(keyword) for form in _inflections(base)} - {keyword},
+                     key=len, reverse=True) if keyword.isalpha() else []
+    if not derived:
+        return re.compile(re.escape(keyword))
+    return re.compile(re.escape(keyword) + r"|\b(?:" + "|".join(map(re.escape, derived)) + r")\b")
+
+
+def _has(lower: str, keyword: str) -> bool:
+    return _pattern(keyword).search(lower) is not None
+
+
 def _match_span(lower: str, keywords: list[str]) -> tuple[int, int]:
     """The shortest stretch of *lower* that holds each of the *keywords* it contains."""
-    hits = sorted((m.start(), kw) for kw in set(keywords) for m in re.finditer(re.escape(kw), lower))
-    wanted = len({kw for _pos, kw in hits})
+    hits = sorted((m.start(), m.end(), kw) for kw in set(keywords) for m in _pattern(kw).finditer(lower))
+    wanted = len({kw for _pos, _end, kw in hits})
     best: tuple[int, int] | None = None
     counts: dict[str, int] = {}
     left = 0
-    for pos, kw in hits:
+    for pos, end, kw in hits:
         counts[kw] = counts.get(kw, 0) + 1
         while len(counts) == wanted:
-            first, first_kw = hits[left]
-            if best is None or pos + len(kw) - first < best[1] - best[0]:
-                best = (first, pos + len(kw))
+            first, _first_end, first_kw = hits[left]
+            if best is None or end - first < best[1] - best[0]:
+                best = (first, end)
             counts[first_kw] -= 1
             if not counts[first_kw]:
                 del counts[first_kw]
@@ -140,19 +206,31 @@ def _excerpt(text: str, keywords: list[str], limit: int) -> str:
     return before + text[begin:stop] + after
 
 
-def _matches_in(messages: list[dict], keywords: list[str]) -> tuple[list[list[dict]], list[list[dict]]]:
-    """A thread's messages holding every keyword, then neighbouring pairs that hold them between them."""
+def _with_reply(messages: list[dict], last: int, matched: set[int] = frozenset()) -> dict:
+    """The message after index *last*, which often holds what was asked for ("Any favourite recipes?" is
+    answered by the next message), as a match's ``after``; none when that message is a match of its own."""
+    nxt = last + 1
+    return {"after": messages[nxt]} if nxt < len(messages) and nxt not in matched else {}
+
+
+def _matches_in(messages: list[dict], keywords: list[str]) -> tuple[list[dict], list[dict]]:
+    """A thread's messages holding every keyword, then neighbouring pairs that hold them between them,
+    each with the message after it."""
     lowered = [msg["content"].lower() for msg in messages]
-    alone = [all(kw in text for kw in keywords) for text in lowered]
-    singles = [[msg] for msg, hit in zip(messages, alone) if hit]
-    pairs: list[list[dict]] = []
+    alone = [all(_has(text, kw) for kw in keywords) for text in lowered]
+    starts: list[int] = []
     i = 0
     while i < len(messages) - 1:
-        if not (alone[i] or alone[i + 1]) and all(kw in lowered[i] or kw in lowered[i + 1] for kw in keywords):
-            pairs.append(messages[i:i + 2])
+        if not (alone[i] or alone[i + 1]) and all(_has(lowered[i], kw) or _has(lowered[i + 1], kw)
+                                                  for kw in keywords):
+            starts.append(i)
             i += 2
         else:
             i += 1
+    matched = {i for i, hit in enumerate(alone) if hit} | {j for i in starts for j in (i, i + 1)}
+    singles = [{"messages": [msg], **_with_reply(messages, i, matched)}
+               for i, (msg, hit) in enumerate(zip(messages, alone)) if hit]
+    pairs = [{"messages": messages[i:i + 2], **_with_reply(messages, i + 1, matched)} for i in starts]
     return singles, pairs
 
 
@@ -163,14 +241,21 @@ def _closest_in(scanned: list[tuple[dict, list[dict]]], keywords: list[str], lim
     if len(distinct) < 2:
         return []
     need = max(1, math.ceil(len(distinct) * _CLOSEST_MIN_SHARE))
-    lowered = [(seen, msg, msg["content"].lower()) for seen, messages in scanned for msg in messages]
-    holding = {kw: sum(1 for _seen, _msg, text in lowered if kw in text) for kw in distinct}
-    ranked = []
-    for order, (seen, msg, text) in enumerate(lowered):
-        held = [kw for kw in distinct if kw in text]
+    lowered = [(seen, messages, i, msg["content"].lower()) for seen, messages in scanned
+               for i, msg in enumerate(messages)]
+    holding = {kw: sum(1 for *_rest, text in lowered if _has(text, kw)) for kw in distinct}
+    found = []
+    for order, (seen, messages, i, text) in enumerate(lowered):
+        held = [kw for kw in distinct if _has(text, kw)]
         if len(held) >= need:
-            rarity = sum(math.log((1 + len(lowered)) / (1 + holding[kw])) for kw in held)
-            ranked.append((-len(held), -rarity, order, {**seen, "messages": [msg], "held": held}))
+            found.append((order, seen, messages, i, held))
+    hits = {(id(messages), i) for _order, _seen, messages, i, _held in found}
+    ranked = []
+    for order, seen, messages, i, held in found:
+        rarity = sum(math.log((1 + len(lowered)) / (1 + holding[kw])) for kw in held)
+        matched = {j for j in (i + 1,) if (id(messages), j) in hits}
+        ranked.append((-len(held), -rarity, order,
+                       {**seen, "messages": [messages[i]], **_with_reply(messages, i, matched), "held": held}))
     ranked.sort(key=lambda item: item[:3])
     return [item[3] for item in ranked[:limit]]
 
@@ -183,18 +268,21 @@ def _render(number: int, match: dict, keywords: list[str], room: int, message_ca
     fenced = match["fenced"]
     if fenced:
         room -= _FENCE_ROOM
+    after = [match["after"]] if match.get("after") else []
     msgs = [{**msg, "content": _FENCE_TAG.sub("[fence tag removed]", msg["content"])} if fenced else msg
-            for msg in match["messages"]]
-    roles = " + ".join(msg["role"].title() for msg in msgs)
+            for msg in [*match["messages"], *after]]
+    matched = len(match["messages"])
+    roles = " + ".join(msg["role"].title() for msg in msgs[:matched])
     held = f" | Has: {', '.join(match['held'])}" if match.get("held") else ""
     head = f"[Match {number}] Thread: \"{match['thread']}\" | Date: {match['date']} | {roles}{held}\n"
     if len(msgs) == 1:
         text = head + _excerpt(msgs[0]["content"], keywords, min(message_cap, room - len(head)))
     else:
-        labels = [f"{msg['role'].title()}: " for msg in msgs]
-        limit = min(message_cap, (room - len(head) - sum(map(len, labels)) - 2) // 2)
+        labels = [f"{msg['role'].title()}: " for msg in msgs[:matched]]
+        labels += [f"Next, {msg['role'].title()}: " for msg in msgs[matched:]]
+        limit = min(message_cap, (room - len(head) - sum(map(len, labels)) - 2 * (len(msgs) - 1)) // len(msgs))
         text = head + "\n\n".join(
-            label + _excerpt(msg["content"], [kw for kw in keywords if kw in msg["content"].lower()], limit)
+            label + _excerpt(msg["content"], [kw for kw in keywords if _has(msg["content"].lower(), kw)], limit)
             for label, msg in zip(labels, msgs)
         )
     return wrap(_FENCE_SOURCE, text) if fenced else text
@@ -254,7 +342,7 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
         return "No saved conversations found."
 
     # Split query into individual keywords for AND matching
-    keywords = [kw.lower() for kw in query.split() if kw]
+    keywords = [kw for kw in (_keyword(word) for word in query.split()) if kw]
     if not keywords:
         return "Please provide at least one search keyword."
     max_results = max(1, int(max_results))
@@ -271,8 +359,8 @@ def _search_conversations(query: str, max_results: int = 15) -> str:
         if found_alone or found_paired:
             seen = {"thread": name, "date": (updated_at or "")[:10], "fenced": _others_may_have_written(tid),
                     "tid": tid}
-            singles += [{**seen, "messages": msgs} for msgs in found_alone]
-            pairs += [{**seen, "messages": msgs} for msgs in found_paired]
+            singles += [{**seen, **match} for match in found_alone]
+            pairs += [{**seen, **match} for match in found_paired]
         elif not singles and not pairs and messages:
             scanned.append(({"thread": name, "date": (updated_at or "")[:10], "tid": tid}, messages))
         if len(singles) >= max_results:

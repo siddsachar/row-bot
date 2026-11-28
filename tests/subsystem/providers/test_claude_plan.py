@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from pathlib import Path
 
 import psutil
 import pytest
@@ -403,6 +404,16 @@ def opened_files():
     _OPENED = None
 
 
+_CHECKOUT = str(Path(__file__).resolve().parents[3]) + os.sep
+
+
+def _claude_files(paths):
+    """Claude Code's own files among ``paths``; a checkout that itself sits in a ``.claude`` folder doesn't count."""
+    tails = [path[len(_CHECKOUT):] if path.startswith(_CHECKOUT) else path for path in paths]
+    return [tail for tail in tails if ".credentials.json" in tail or tail.endswith(".claude.json")
+            or os.sep + ".claude" + os.sep in os.sep + tail]
+
+
 def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypatch, opened_files):
     home = tmp_path / "fake-claude-home"
     fake = install_fake_claude(tmp_path, monkeypatch, reply=text_reply("ok"))
@@ -416,9 +427,7 @@ def test_row_bot_never_opens_a_claude_credential_file(store, tmp_path, monkeypat
     claude.list_claude_subscription_model_infos(force_refresh=True)
 
     assert fake.model_runs()
-    touched = [path for path in opened_files if ".credentials.json" in path or path.endswith(".claude.json")
-               or os.sep + ".claude" + os.sep in path]
-    assert touched == []
+    assert _claude_files(opened_files) == []
 
 
 def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_files(
@@ -437,7 +446,7 @@ def test_signing_out_is_claude_codes_own_logout_and_row_bot_never_opens_its_file
     # The answer Row-Bot had is forgotten: the next look asks Claude Code again.
     assert claude.claude_plan_status().state == "signed_out"
     assert not credentials.exists()  # Claude Code's own doing
-    assert [path for path in opened_files if os.sep + ".claude" + os.sep in path] == []
+    assert _claude_files(opened_files) == []
 
 
 def test_a_sign_out_claude_code_refuses_says_so(store, tmp_path, monkeypatch):

@@ -1132,7 +1132,6 @@
         },
         "window_mode": {
           "enum": [
-            "ask",
             "native",
             "browser"
           ],

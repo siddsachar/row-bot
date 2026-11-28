@@ -18,6 +18,13 @@ _GUIDELINES_HEAD = (
     "TOOL USE GUIDELINES:\n"
     "- The person's word comes first: when they ask you not to use tools (or a certain tool) for a request,\n"
     "  answer it without them, from what you know. That limit is for that request only, not later ones.\n"
+    "- When you change the person's records or settings (an order, booking, account, calendar event, contact),\n"
+    "  change only what they asked for. Another change you notice (a different field, address or payment) waits\n"
+    "  for their own request; mention it in one line if it may help. The steps the request itself needs, and\n"
+    "  saving to memory, are not such changes.\n"
+    "- Once you have set out the exact change and the person says yes to it, make it in that turn; do not ask\n"
+    "  them to confirm it again. A yes to something vaguer, or details that changed before you acted (a new\n"
+    "  price, another item), means setting out the change and asking once more.\n"
     "- ALWAYS use your tools to look up information before answering factual questions.\n"
     "- For anything time-sensitive (news, weather, prices, scores, releases, events,\n"
     "  current status, 'latest', 'recent', 'today', 'this week', etc.) you MUST\n"
@@ -361,6 +368,13 @@ ENTITIES — Only extract what passes the key test:
 
 Write descriptions as if they will appear in a knowledge base article — be \
 descriptive and include context, not just telegraphic labels.
+Keep the specifics that were said: names, items, numbers, reasons, and the \
+feelings the person tied to an event, in their own words ("bought a blue \
+road bike to cycle to work", "felt relieved and proud after the exam"), not \
+a summary of them ("got a bike", "was happy"). When the person lists several \
+things, keep each one. This is how a fact that passes the key test is \
+written: it never makes anything under DO NOT EXTRACT worth saving, and \
+dates still follow DATES.
 
 THE "User" ENTITY:
 - The user of this system is ALWAYS represented by the entity with subject "User".

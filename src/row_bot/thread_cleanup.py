@@ -1087,8 +1087,8 @@ def _remove_stale_temp_files(
 
 
 _DATA_DIR_LEFTOVERS = (
-    # The launcher's splash and window-mode helper markers, one per launch.
-    (re.compile(r"launcher-([0-9a-f]{32})-(?:splash\.ready|window-mode-chooser\.(?:ready|result))"),
+    # The launcher's splash and window markers, one per launch (and the window-mode chooser's, before 5.4).
+    (re.compile(r"launcher-([0-9a-f]{32})-(?:splash\.ready|window\.ready|window-mode-chooser\.(?:ready|result))"),
      timedelta(minutes=10)),
     # Smart Skills activation writes through a temp file that a failed
     # replace used to leave behind.

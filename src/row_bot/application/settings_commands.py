@@ -123,7 +123,7 @@ _ENUMS = {
     },
     ("tools", "external_loading_mode"): {"auto", "eager"},
     ("tools", "compression_mode"): {"off", "deep"},
-    ("preferences", "window_mode"): {"ask", "native", "browser"},
+    ("preferences", "window_mode"): {"native", "browser"},
     ("preferences", "updates.channel"): {"stable", "beta"},
     ("learning", "apply_mode"): set(learning.APPLY_MODES),
     ("learning", "train_where"): set(learning.TRAIN_PLACES),

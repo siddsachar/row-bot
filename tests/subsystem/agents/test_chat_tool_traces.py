@@ -239,3 +239,31 @@ def test_waiting_for_a_long_job_in_the_browser_is_not_being_stuck():
     config = {"configurable": {"thread_id": "conversation-a"}}
     assert not stopped(list(agent._stream_graph(_browser_steps(12, "browser_wait_for"), {}, config)))
     assert stopped(list(agent._stream_graph(_browser_steps(12, "browser_snapshot"), {}, config)))
+
+
+def test_the_joined_reply_starts_each_model_step_on_a_new_paragraph():
+    # The transcript shows each step as its own row; the joined reply read "...for it.It was..." (lane M, 26 Nov).
+    import row_bot.agent as agent
+    from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+
+    meta = {"langgraph_node": "agent"}
+
+    class FakeGraph:
+        def stream(self, *_args, **_kwargs):
+            yield "messages", (AIMessageChunk(content="Let me look for it."), meta)
+            yield "updates", {"agent": {"messages": [AIMessage(content="Let me look for it.", tool_calls=[{
+                "id": "call-1", "name": "search_memory", "args": {"query": "support group"}, "type": "tool_call",
+            }])]}}
+            yield "updates", {"tools": {"messages": [ToolMessage(
+                content="Caroline went on 7 May 2023.", name="search_memory", tool_call_id="call-1")]}}
+            yield "messages", (AIMessageChunk(content="She went on "), meta)
+            yield "messages", (AIMessageChunk(content="7 May 2023."), meta)
+
+        def get_state(self, _config):
+            return SimpleNamespace(next=(), values={"messages": []}, tasks=())
+
+    events = list(agent._stream_graph(FakeGraph(), {}, {"configurable": {}}))
+
+    assert [p for e, p in events if e == "done"] == ["Let me look for it.\n\nShe went on 7 May 2023."]
+    # The live words stay exactly as the model wrote them, step by step.
+    assert "".join(p for e, p in events if e == "token") == "Let me look for it.She went on 7 May 2023."

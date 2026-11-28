@@ -24,7 +24,7 @@ def test_computer_static_guidance_is_tool_bound_deduplicated_and_within_budget()
         if "Interaction preference order" in line
     )
     assert len(description.split()) <= 120
-    assert len(_AGENT_GUIDELINES.split()) <= 2_100
+    assert len(_AGENT_GUIDELINES.split()) <= 2_150
     assert len((routing_line + " " + description + " " + guide.instructions).split()) <= 550
     assert description not in guide.instructions
     assert routing_line not in guide.instructions

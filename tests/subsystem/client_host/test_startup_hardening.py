@@ -297,9 +297,13 @@ def test_native_window_process_finds_row_bot_without_an_installed_package(monkey
         def poll(self):
             return None
 
+        def wait(self):
+            return 0
+
     def fake_popen(args, **kwargs):
         started["args"] = args
         started["env"] = kwargs.get("env")
+        Path(kwargs["env"]["ROW_BOT_WINDOW_READY_FILE"]).write_text("ready", encoding="utf-8")
         return FakeWindow()
 
     monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
@@ -312,25 +316,6 @@ def test_native_window_process_finds_row_bot_without_an_installed_package(monkey
     assert (Path(paths[0]) / "row_bot" / "launcher.py").is_file()
     assert paths[1:] == ["elsewhere"]
 
-def test_window_mode_picker_windows_defaults_without_console(tmp_path, monkeypatch):
-    monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(launcher.sys, "platform", "win32")
-    monkeypatch.delenv("ROW_BOT_WINDOW_MODE_CONSOLE_FALLBACK", raising=False)
-    monkeypatch.setattr(launcher, "_start_launcher_helper", lambda **kwargs: None)
-    monkeypatch.setattr(
-        launcher.subprocess,
-        "Popen",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("console fallback should not start")),
-    )
-    monkeypatch.setattr(
-        launcher.subprocess,
-        "run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("console fallback should not run")),
-    )
-
-    assert launcher._ask_window_mode() == "native"
-
-
 def test_a_saved_window_mode_is_read_even_with_a_bom(tmp_path, monkeypatch):
     """Notepad can save app_config.json with a BOM; it then asked the window question again (T2)."""
     monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
@@ -339,25 +324,118 @@ def test_a_saved_window_mode_is_read_even_with_a_bom(tmp_path, monkeypatch):
     assert launcher._load_window_mode() == "native"
 
 
-def test_window_mode_picker_uses_gui_result(tmp_path, monkeypatch):
-    class FakeProc:
-        pid = 202
-
-        def wait(self, timeout=None):  # noqa: ARG002
-            return 0
-
-        def poll(self):
-            return None
-
-    def fake_start_helper(**kwargs):
-        Path(kwargs["args"][3]).write_text("browser\n", encoding="utf-8")
-        Path(kwargs["ready_marker"]).write_text("ready\n", encoding="utf-8")
-        return FakeProc()
-
+@pytest.mark.parametrize(("saved", "mode"), [
+    (None, "native"), ({"window_mode": "ask"}, "native"), ({"window_mode": "native"}, "native"),
+    ({"window_mode": "browser"}, "browser"),
+])
+def test_row_bot_opens_its_window_unless_the_browser_was_chosen(tmp_path, monkeypatch, saved, mode):
+    """No question at start: "ask", the default before 5.4, opens the app window like no choice at all."""
     monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(launcher, "_start_launcher_helper", fake_start_helper)
+    if saved is not None:
+        (tmp_path / "app_config.json").write_text(json.dumps(saved), encoding="utf-8")
 
-    assert launcher._ask_window_mode() == "browser"
+    assert launcher._load_window_mode() == mode
+
+
+class _Window:
+    """A stand-in window process: it loads its page after ``loads_after`` looks, or dies after ``dies_after``."""
+
+    def __init__(self, ready_file, *, loads_after=None, dies_after=None, code=1, pid=5150):
+        self.ready_file, self.loads_after, self.dies_after = Path(ready_file), loads_after, dies_after
+        self.code, self.pid, self.looks, self.returncode, self.ended = code, pid, 0, None, threading.Event()
+        self.stdin = SimpleNamespace(write=lambda _text: None, close=lambda: None)
+
+    def poll(self):
+        self.looks += 1
+        if self.loads_after is not None and self.looks >= self.loads_after:
+            self.ready_file.write_text("ready\n", encoding="utf-8")
+        if self.dies_after is not None and self.looks >= self.dies_after:
+            self.returncode = self.code
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = 1
+        self.ended.set()
+
+    def wait(self, timeout=None):
+        self.ended.wait(timeout)
+        return self.returncode
+
+
+@pytest.fixture
+def window_start(tmp_path, monkeypatch):
+    """Starts ``_open_window`` with a stand-in window; returns what it returned and the pages the browser opened."""
+    monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(launcher, "_end_with_this_launcher", lambda _proc: False)
+    monkeypatch.setattr(launcher, "_launch_event", lambda *_args, **_fields: None)
+    monkeypatch.setattr(launcher, "_BROWSER_AFTER_WINDOW_FAILED", threading.Event())
+    monkeypatch.setattr(launcher, "_ENDED_HERE", set())
+    monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
+    browser, made, watchers = [], [], []
+    monkeypatch.setattr(launcher.webbrowser, "open", browser.append)
+    watch = launcher._open_browser_if_window_fails
+    monkeypatch.setattr(launcher, "_open_browser_if_window_fails",
+                        lambda window, port: watchers.append(watch(window, port)) or watchers[-1])
+
+    def start(**behaviour):
+
+        def popen(_args, **kwargs):
+            made.append(_Window(kwargs["env"]["ROW_BOT_WINDOW_READY_FILE"], **behaviour))
+            return made[0]
+
+        monkeypatch.setattr(launcher.subprocess, "Popen", popen)
+        return launcher._open_window(8123, 18123), made[0], browser
+
+    start.watchers = watchers
+    yield start
+    for window in made:
+        window.ended.set()
+
+
+def test_a_window_that_loads_its_page_is_the_app_and_no_browser_opens(window_start):
+    opened, window, browser = window_start(loads_after=3)
+
+    assert opened is window and browser == []
+    assert not window.ready_file.exists()
+
+
+def test_a_window_that_dies_while_starting_opens_the_browser_even_after_half_a_second(window_start):
+    # It used to be looked at once, 0.5 s in; a window takes about 1.7 s to start (F20).
+    opened, window, browser = window_start(dies_after=20)
+
+    assert opened is None and window.looks >= 20
+    assert browser == ["http://127.0.0.1:8123/app-v2/"]
+
+
+def test_a_window_that_never_loads_is_ended_and_the_browser_opens(window_start, monkeypatch):
+    monkeypatch.setattr(launcher, "_WINDOW_READY_TIMEOUT", 0.3)
+
+    opened, window, browser = window_start()
+
+    assert opened is None and window.ended.is_set()
+    assert browser == ["http://127.0.0.1:8123/app-v2/"]
+
+
+@pytest.mark.parametrize(("code", "ended_here", "browser_after"), [
+    (3221225477, False, 1),  # crashed: the browser opens
+    (0, False, 0),  # closed: Row-Bot stays in the tray
+    (launcher._WINDOW_QUIT_EXIT_CODE, False, 0),  # quit from the window
+    (1, True, 0),  # ended by this launcher (quit, reopen, update)
+])
+def test_a_window_that_ends_after_it_opened_opens_the_browser_only_when_it_failed(
+        window_start, code, ended_here, browser_after):
+    opened, window, browser = window_start(loads_after=1)
+    [watcher] = window_start.watchers
+    if ended_here:
+        launcher._RowBotProcess._terminate_process(window, label="Row-Bot window", timeout=1)
+    else:
+        window.returncode = code
+        window.ended.set()
+    watcher.join(2)
+
+    assert opened is window and not watcher.is_alive()
+    assert browser == ["http://127.0.0.1:8123/app-v2/"] * browser_after
 
 
 def test_main_requests_early_splash_before_tray_start(monkeypatch):
@@ -899,7 +977,8 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
     )
 
 
-def test_direct_mode_honours_saved_native_preference(tmp_path, monkeypatch):
+@pytest.mark.parametrize("saved", ["native", "ask", None])
+def test_direct_mode_honours_saved_native_preference(tmp_path, monkeypatch, saved):
     events = []
     opened = []
     terminated = []
@@ -924,9 +1003,8 @@ def test_direct_mode_honours_saved_native_preference(tmp_path, monkeypatch):
         def is_alive(self):
             return True
 
-    (tmp_path / "app_config.json").write_text(
-        json.dumps({"window_mode": "native"}), encoding="utf-8"
-    )
+    if saved:
+        (tmp_path / "app_config.json").write_text(json.dumps({"window_mode": saved}), encoding="utf-8")
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
     monkeypatch.setattr(launcher, "_maybe_start_ollama", lambda **_kwargs: None)

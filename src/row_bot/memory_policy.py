@@ -51,6 +51,19 @@ AGREEMENT_BONUS = 0.15  # Meaning and words agree.
 RECENCY_WEIGHT = 0.10
 TIER_SOURCE_WEIGHT = 0.05
 AUTO_RECALL_RELATIVE_CUTOFF = 0.20  # Below the best memory by more than this, a memory is left out.
+# A request for a suggestion, recommendation, advice or a likely reason is answered from the person's own tastes and situation, so
+# their memories come in at a lower bar and a few more are shown (LongMemEval-S, 27 Nov: saved preferences were
+# held back as below the bar, or sixth of five, and the answers came out generic).
+# Request forms only: "the suggested time" or "a good idea" in a correction isn't one (Learning's replay over seeded
+# people, 27 Nov: vague requests pulled weak records in at 0.33, useful memories scored 0.36-0.44).
+AUTO_RECALL_OPEN_MIN_SCORE = 0.35
+AUTO_RECALL_OPEN_MAX_MEMORIES = 6
+AUTO_RECALL_OPEN_TOP_K = 20
+_OPEN_REQUEST = re.compile(
+    r"\b(?:recommend(?:s|ations?)?|suggest(?:s|ions?)?|ideas|tips|advice|advise|ways to|(?:best|good|easiest) way to"
+    r"|should i|what (?:can|could|should) i|help me (?:choose|pick|decide|plan|find)|do you think (?:i|we) should"
+    r"|do you think (?:it|that) (?:might|could) be|(?:could|might) there be a reason)\b",
+    re.IGNORECASE)
 FOLLOW_UP_TERMS = 3  # A latest message with fewer words than this is read with the one before it.
 RUNTIME_REQUEST_MAX_TERMS = 6
 
@@ -466,9 +479,10 @@ def build_auto_recall(
             retrieve_ms = (perf_counter() - retrieve_started) * 1000.0
             return _finish(False, "no_memories", [], 0, gating_ms=gating_ms, retrieve_ms=retrieve_ms)
         retrieval_diagnostics: dict[str, object] = {}
+        open_request = bool(_OPEN_REQUEST.search(latest))
         candidates = kg.retrieve_memory_candidates(
             query,
-            top_k=10,
+            top_k=AUTO_RECALL_OPEN_TOP_K if open_request else 10,
             threshold=0.28,
             hops=1,
             max_results=24,
@@ -497,7 +511,7 @@ def build_auto_recall(
 
     rank_started = perf_counter()
     query_terms = set(_terms(query))
-    is_broad = len(query_terms) <= 2 and not bool(query_terms & _PERSONAL_ANCHORS)
+    is_broad = len(query_terms) <= 2 and not bool(query_terms & _PERSONAL_ANCHORS) and not open_request
     wants_history = bool(query_terms & _HISTORY_WORDS)
     scored: list[tuple[float, dict, dict]] = []
     rejected: list[dict] = []
@@ -519,7 +533,8 @@ def build_auto_recall(
         if not _resource_is_anchored(candidate, query, tier):
             rejected.append({**debug, "reason": "resource_not_anchored"})
             continue
-        min_score = AUTO_RECALL_BROAD_MIN_SCORE if is_broad else AUTO_RECALL_MIN_SCORE
+        min_score = (AUTO_RECALL_OPEN_MIN_SCORE if open_request and tier != "resource"
+                     else AUTO_RECALL_BROAD_MIN_SCORE if is_broad else AUTO_RECALL_MIN_SCORE)
         if _is_weak_description_match(candidate, score, min_score):
             rejected.append({**debug, "reason": "weak_description_match"})
             continue
@@ -577,7 +592,7 @@ def build_auto_recall(
     subjects: set[str] = set()
     words_only_count = 0
     for score, candidate, debug in scored:
-        if len(selected) >= AUTO_RECALL_MAX_MEMORIES:
+        if len(selected) >= (AUTO_RECALL_OPEN_MAX_MEMORIES if open_request else AUTO_RECALL_MAX_MEMORIES):
             break
         subject = " ".join(str(candidate.get("subject") or "").lower().split())
         if subject in subjects:  # Two records with one name ("Row-Bot", "row-bot"): the better one.
@@ -601,6 +616,7 @@ def build_auto_recall(
     trace.update({
         "candidates_seen": len(candidates),
         "selected_count": len(selected),
+        "open_request": open_request,
         "top_scores": [debug for _score, _cand, debug in scored[:5]],
         "rejected": rejected[:8],
     })
